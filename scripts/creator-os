@@ -391,6 +391,19 @@ def _parser() -> argparse.ArgumentParser:
     review_mode.add_argument("--dry-run", action="store_true")
     review_mode.add_argument("--apply", action="store_true")
     media_sub.add_parser("review-summary")
+    freeze_caption = media_sub.add_parser("freeze-caption")
+    freeze_caption.add_argument("--asset", required=True)
+    freeze_caption.add_argument("--final-sha", required=True)
+    freeze_caption.add_argument("--caption", required=True)
+    freeze_caption.add_argument("--hashtag", action="append", default=[])
+    freeze_caption.add_argument(
+        "--overlay-state", choices=["NONE_FROZEN"], required=True
+    )
+    freeze_caption.add_argument("--pattern-source", required=True)
+    freeze_caption.add_argument("--reviewer", required=True)
+    freeze_mode = freeze_caption.add_mutually_exclusive_group(required=True)
+    freeze_mode.add_argument("--dry-run", action="store_true")
+    freeze_mode.add_argument("--apply", action="store_true")
 
     plan = sub.add_parser(
         "plan",
@@ -915,6 +928,26 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.media_action == "review-summary":
             return _run(_existing_media_command("review-summary"))
+        if args.media_action == "freeze-caption":
+            command = _existing_media_command(
+                "freeze-caption",
+                "--asset",
+                args.asset,
+                "--final-sha",
+                args.final_sha,
+                "--caption",
+                args.caption,
+                "--overlay-state",
+                args.overlay_state,
+                "--pattern-source",
+                args.pattern_source,
+                "--reviewer",
+                args.reviewer,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for hashtag in args.hashtag:
+                command.extend(["--hashtag", hashtag])
+            return _run(command)
         command = _existing_media_command(
             "review",
             "--asset",

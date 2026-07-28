@@ -798,6 +798,14 @@ def apply_intake(conn: sqlite3.Connection, preview: dict[str, Any]) -> dict[str,
           qc_receipt_sha256, eligibility_state, receipt_json, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(intake_identity) DO UPDATE SET
+          manifest_path = excluded.manifest_path,
+          manifest_sha256 = excluded.manifest_sha256,
+          audio_receipt_path = excluded.audio_receipt_path,
+          audio_receipt_sha256 = excluded.audio_receipt_sha256,
+          qc_receipt_path = excluded.qc_receipt_path,
+          qc_receipt_sha256 = excluded.qc_receipt_sha256,
+          eligibility_state = excluded.eligibility_state,
+          receipt_json = excluded.receipt_json,
           updated_at = excluded.updated_at
         """,
         (
@@ -1370,6 +1378,17 @@ def _parser() -> argparse.ArgumentParser:
     review_mode = review.add_mutually_exclusive_group(required=True)
     review_mode.add_argument("--dry-run", action="store_true")
     review_mode.add_argument("--apply", action="store_true")
+    freeze = sub.add_parser("freeze-caption")
+    freeze.add_argument("--asset", required=True)
+    freeze.add_argument("--final-sha", required=True)
+    freeze.add_argument("--caption", required=True)
+    freeze.add_argument("--hashtag", action="append", default=[])
+    freeze.add_argument("--overlay-state", choices=["NONE_FROZEN"], required=True)
+    freeze.add_argument("--pattern-source", required=True)
+    freeze.add_argument("--reviewer", required=True)
+    freeze_mode = freeze.add_mutually_exclusive_group(required=True)
+    freeze_mode.add_argument("--dry-run", action="store_true")
+    freeze_mode.add_argument("--apply", action="store_true")
     attach = sub.add_parser("attach")
     attach.add_argument("--plan", required=True)
     attach.add_argument("--item", required=True)
@@ -1413,6 +1432,20 @@ def main(argv: list[str] | None = None) -> int:
                 plan_id=args.plan,
                 plan_item_id=args.item,
                 rendered_asset_id=args.asset,
+                apply=args.apply,
+            )
+        elif args.command == "freeze-caption":
+            from .existing_media_caption import freeze_existing_caption
+
+            result = freeze_existing_caption(
+                conn,
+                rendered_asset_id=args.asset,
+                final_sha256=args.final_sha,
+                caption=args.caption,
+                hashtags=args.hashtag,
+                overlay_state=args.overlay_state,
+                pattern_source=args.pattern_source,
+                reviewer=args.reviewer,
                 apply=args.apply,
             )
         else:
