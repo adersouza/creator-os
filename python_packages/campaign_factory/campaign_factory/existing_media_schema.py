@@ -70,4 +70,33 @@ BEFORE DELETE ON existing_media_asset_reviews
 BEGIN
   SELECT RAISE(ABORT, 'existing media reviews are immutable');
 END;
+
+CREATE TABLE IF NOT EXISTS existing_media_caption_freezes (
+  id TEXT PRIMARY KEY,
+  rendered_asset_id TEXT NOT NULL,
+  final_sha256 TEXT NOT NULL,
+  caption TEXT NOT NULL,
+  caption_hash TEXT NOT NULL,
+  hashtags_json TEXT NOT NULL DEFAULT '[]',
+  overlay_state TEXT NOT NULL,
+  pattern_source TEXT NOT NULL,
+  reviewer TEXT NOT NULL,
+  contract_version TEXT NOT NULL,
+  freeze_fingerprint TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  UNIQUE(rendered_asset_id, final_sha256),
+  FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id)
+);
+
+CREATE TRIGGER IF NOT EXISTS existing_media_caption_freezes_immutable_update
+BEFORE UPDATE ON existing_media_caption_freezes
+BEGIN
+  SELECT RAISE(ABORT, 'existing media caption freezes are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS existing_media_caption_freezes_immutable_delete
+BEFORE DELETE ON existing_media_caption_freezes
+BEGIN
+  SELECT RAISE(ABORT, 'existing media caption freezes are immutable');
+END;
 """

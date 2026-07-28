@@ -14,6 +14,7 @@ from campaign_factory.existing_media import (
     review_existing_asset,
     summarize_existing_reviews,
 )
+from campaign_factory.existing_media_caption import freeze_existing_caption
 
 SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 
@@ -234,6 +235,149 @@ def test_apply_registers_exact_bytes_without_provider_and_reconciles(
         conn.execute("SELECT count(*) FROM existing_media_intakes").fetchone()[0] == 1
     )
     assert files["final"].read_bytes() == b"final"
+
+
+def test_reapply_refreshes_eligibility_after_exact_asset_review(
+    tmp_path: Path,
+) -> None:
+    conn, manifest, files = _fixture(tmp_path)
+    preview = inspect_intake(conn, manifest, probe=_probe)
+    asset_id = apply_intake(conn, preview)["renderedAssetId"]
+    blocked = conn.execute(
+        """
+        SELECT eligibility_state, receipt_json
+        FROM existing_media_intakes
+        WHERE rendered_asset_id = ?
+        """,
+        (asset_id,),
+    ).fetchone()
+    assert blocked["eligibility_state"] == "BLOCKED"
+    assert json.loads(blocked["receipt_json"])["blockers"] == [
+        "creative_review_missing"
+    ]
+
+    review_existing_asset(
+        conn,
+        rendered_asset_id=asset_id,
+        final_sha256=_sha(files["final"]),
+        reviewer="operator",
+        verdict="WOULD_POST",
+        results={"identity": "PASS"},
+        notes=None,
+        apply=True,
+    )
+    refreshed = inspect_intake(conn, manifest, probe=_probe)
+    assert refreshed["eligibility"] == "ELIGIBLE"
+    apply_intake(conn, refreshed)
+    apply_intake(conn, inspect_intake(conn, manifest, probe=_probe))
+
+    eligible = conn.execute(
+        """
+        SELECT eligibility_state, receipt_json
+        FROM existing_media_intakes
+        WHERE rendered_asset_id = ?
+        """,
+        (asset_id,),
+    ).fetchone()
+    assert eligible["eligibility_state"] == "ELIGIBLE"
+    assert json.loads(eligible["receipt_json"])["blockers"] == []
+    assert (
+        conn.execute("SELECT count(*) FROM existing_media_intakes").fetchone()[0] == 1
+    )
+
+
+def test_caption_freeze_requires_eligible_exact_bytes_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    conn, manifest, files = _fixture(tmp_path)
+    asset_id = apply_intake(conn, inspect_intake(conn, manifest, probe=_probe))[
+        "renderedAssetId"
+    ]
+    with pytest.raises(ValueError, match="QC is not eligible"):
+        freeze_existing_caption(
+            conn,
+            rendered_asset_id=asset_id,
+            final_sha256=_sha(files["final"]),
+            caption="should i post more like this?",
+            hashtags=[],
+            overlay_state="NONE_FROZEN",
+            pattern_source="caption_bank:comment_bait",
+            reviewer="operator",
+            apply=False,
+        )
+    review_existing_asset(
+        conn,
+        rendered_asset_id=asset_id,
+        final_sha256=_sha(files["final"]),
+        reviewer="operator",
+        verdict="WOULD_POST",
+        results={"identity": "PASS"},
+        notes=None,
+        apply=True,
+    )
+    apply_intake(conn, inspect_intake(conn, manifest, probe=_probe))
+    before = conn.total_changes
+    dry = freeze_existing_caption(
+        conn,
+        rendered_asset_id=asset_id,
+        final_sha256=_sha(files["final"]),
+        caption="should i post more like this?",
+        hashtags=[],
+        overlay_state="NONE_FROZEN",
+        pattern_source="caption_bank:comment_bait",
+        reviewer="operator",
+        apply=False,
+    )
+    assert dry["dryRun"] is True
+    assert dry["persistentWrites"] == 0
+    assert conn.total_changes == before
+    first = freeze_existing_caption(
+        conn,
+        rendered_asset_id=asset_id,
+        final_sha256=_sha(files["final"]),
+        caption="should i post more like this?",
+        hashtags=[],
+        overlay_state="NONE_FROZEN",
+        pattern_source="caption_bank:comment_bait",
+        reviewer="operator",
+        apply=True,
+    )
+    second = freeze_existing_caption(
+        conn,
+        rendered_asset_id=asset_id,
+        final_sha256=_sha(files["final"]),
+        caption="should i post more like this?",
+        hashtags=[],
+        overlay_state="NONE_FROZEN",
+        pattern_source="caption_bank:comment_bait",
+        reviewer="operator",
+        apply=True,
+    )
+    assert first["freezeFingerprint"] == second["freezeFingerprint"]
+    assert (
+        conn.execute("SELECT count(*) FROM existing_media_caption_freezes").fetchone()[
+            0
+        ]
+        == 1
+    )
+    row = conn.execute(
+        "SELECT caption, caption_hash FROM rendered_assets WHERE id = ?",
+        (asset_id,),
+    ).fetchone()
+    assert row["caption"] == "should i post more like this?"
+    assert row["caption_hash"] == first["captionHash"]
+    with pytest.raises(ValueError, match="caption freeze conflict"):
+        freeze_existing_caption(
+            conn,
+            rendered_asset_id=asset_id,
+            final_sha256=_sha(files["final"]),
+            caption="different caption",
+            hashtags=[],
+            overlay_state="NONE_FROZEN",
+            pattern_source="caption_bank:comment_bait",
+            reviewer="operator",
+            apply=True,
+        )
 
 
 @pytest.mark.parametrize(
