@@ -31,7 +31,7 @@ scripts/creator-os create \
   --intent passive_selfie \
   --count 3 \
   --execution cloud \
-  --accounts stacey-main \
+  --accounts bennett_s33 \
   --audio embedded_trending
 
 # Execute the Higgsfield batch. This still never schedules or publishes.
@@ -40,7 +40,7 @@ scripts/creator-os create \
   --intent passive_selfie \
   --count 3 \
   --execution cloud \
-  --accounts stacey-main \
+  --accounts bennett_s33 \
   --audio embedded_trending \
   --max-credits 100 \
   --apply
@@ -52,6 +52,28 @@ It preserves internal source rotation, Qwen-VL prompt expansion, independent
 jobs and receipts, bounded concurrency, native-credit authorization, and exact
 output lineage. Provider/model IDs remain internal. There is no WaveSpeed
 fallback.
+
+An experimental reference-Reel recreation can be planned without selecting a
+provider or model:
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-video /private/path/reference.mp4 \
+  --reference-platform instagram \
+  --reference-authorized \
+  --count 1 \
+  --execution cloud \
+  --accounts bennett_s33 \
+  --audio embedded_trending
+```
+
+Creator OS analyzes the private reference locally, selects only an approved
+same-creator image, and pins Seedance 2 internally. This is broad
+structure/performance/camera recreation, not exact choreography. It remains
+experimental until an authorized output receives exact-SHA operator approval;
+talking references fail closed.
 
 Use `creator-os review` for calibration exceptions, `creator-os export` for the
 validated draft boundary, and ThreadsDashboard for account health, scheduling,
@@ -235,11 +257,18 @@ make install
 make reel-models       # optional local placement/identity model bundle
 
 make fast              # changed files and focused unit/contract tests
-make affected          # affected packages and cross-package seams
+make affected          # canonical PR-development check for affected packages and seams
 make release           # broad main/pre-deployment integration verification
 make exhaustive        # scheduled deep architecture/security/dead-code checks
 pnpm security:secrets  # local secret scan
 ```
+
+The affected tier avoids rerunning a focused test when the containing package
+suite is already selected and prints duration evidence for each command.
+Runtime promotion still runs complete verification and 9/9 health; it may skip
+only frozen dependency reconstruction when exact dependency inputs, toolchain
+identity, and the installed environments all match the prior verified marker.
+Missing or changed evidence falls back to the full frozen install.
 
 Package checks remain available for development, for example:
 

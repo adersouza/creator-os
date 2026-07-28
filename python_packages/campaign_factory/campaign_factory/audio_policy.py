@@ -102,13 +102,22 @@ def build_motion_audio_intent(
     """Build the exact handoff record stored with a generated motion asset."""
     audio_mode = str(audio.get("mode") or "none")
     resolved = resolve_motion_audio_policy(policy, audio_mode=audio_mode)
-    embedded = resolved in EMBEDDED_AUDIO_POLICIES
+    embedded = resolved in EMBEDDED_AUDIO_POLICIES and audio_mode in {
+        "source",
+        "generated",
+        "preserved",
+    }
     expected_modes = {
         "original_embedded": {"preserved"},
         "creator_voice": {"source"},
         "royalty_free": {"source", "generated"},
     }
-    if embedded and audio_mode not in expected_modes[resolved]:
+    pending_reference_audio = resolved == "original_embedded" and audio_mode == "none"
+    if (
+        resolved in EMBEDDED_AUDIO_POLICIES
+        and not pending_reference_audio
+        and audio_mode not in expected_modes[resolved]
+    ):
         raise ValueError(
             f"{resolved} does not match worker audio mode {audio_mode or 'none'}"
         )
@@ -172,6 +181,8 @@ def build_motion_audio_intent(
     status = (
         "attached"
         if embedded
+        else "blocked"
+        if pending_reference_audio
         else "not_required"
         if resolved == "silent_allowed"
         else "blocked"
@@ -182,6 +193,8 @@ def build_motion_audio_intent(
         "status": (
             "verified"
             if embedded
+            else "pending"
+            if pending_reference_audio
             else "explicitly_allowed"
             if resolved == "silent_allowed"
             else "pending"
@@ -194,7 +207,9 @@ def build_motion_audio_intent(
         "proof_required": resolved != "silent_allowed",
         "proof_type": (
             "embedded_output_audio_stream"
-            if embedded or resolved == "embedded_trending_required"
+            if embedded
+            or pending_reference_audio
+            or resolved == "embedded_trending_required"
             else "explicit_silent_policy"
             if resolved == "silent_allowed"
             else "instagram_native_audio_receipt"

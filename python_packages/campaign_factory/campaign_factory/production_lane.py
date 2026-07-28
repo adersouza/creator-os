@@ -13,16 +13,10 @@ from pathlib import Path
 from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
-from creator_os_core.provider_spend import (
-    build_generate_assets_spend_scope,
-    verify_authorization,
-)
+from creator_os_core.provider_spend import verify_authorization
 
 from . import learning_consumption
-from .audio_policy import (
-    AUDIO_POLICIES,
-    build_embedded_trending_audio_intent,
-)
+from .audio_policy import AUDIO_POLICIES, build_embedded_trending_audio_intent
 from .audio_radar import (
     AudioCache,
     AudioLocator,
@@ -47,6 +41,7 @@ from .production_audio_library import (
 from .production_audio_library import (
     audio_fit_tags as _audio_fit_tags,
 )
+from .production_batch_identity import deterministic_seed as _deterministic_seed
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
@@ -54,20 +49,48 @@ from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
 from .production_batch_results import probe_production_video as _probe_production_video
+from .production_batch_results import provider_execution as _provider_execution
+from .production_batch_results import (
+    provider_receipt_summary as _provider_receipt_summary,
+)
+from .production_creative_evidence import (
+    build_job_creative_evidence,
+    persist_asset_creative_evidence,
+    prepare_source_creative_evidence,
+)
+from .production_creative_evidence import (
+    expand_production_job_prompt as _expand_production_job_prompt,
+)
+from .production_higgsfield_authorization import (
+    authorize_higgsfield_jobs as _authorize_higgsfield_jobs,
+)
+from .production_higgsfield_authorization import (
+    higgsfield_request as _higgsfield_request,
+)
+from .production_higgsfield_authorization import (
+    prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
+)
+from .production_higgsfield_authorization import (
+    recovered_higgsfield_cost_binding as _recovered_higgsfield_cost_binding,
+)
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
+from .production_source_selection import select_requested_source_assets
 from .provider_spend import (
     consume_provider_spend_authorization as consume_higgsfield_authorization,
 )
-from .provider_spend import (
-    issue_provider_spend_authorization,
-    record_provider_execution,
+from .provider_spend import record_provider_execution
+from .recreate_reel import (
+    RECREATE_REEL_STAGE,
+    analyze_reference_reel,
+    build_recreation_prompt,
+    rank_character_references,
+)
+from .recreate_reel import (
+    fulfill_reference_audio as _fulfill_recreate_reference_audio,
 )
 
 SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
-BATCH_SCHEMA: Final = "campaign_factory.production_batch.v1"
-DEFAULT_HIGGSFIELD_BATCH_MAX_CREDITS: Final = 100.0
-DEFAULT_CLOUD_CONCURRENCY: Final = 2
 _OPERATOR_VISUAL_SELECTION_COMPLETE = True
 _PASSIVE_RECIPE_ENV: Final = "CREATOR_OS_PASSIVE_VIDEO_RECIPE"
 _PASSIVE_RECIPE_CONFIG: Final[dict[str, dict[str, Any]]] = {
@@ -99,6 +122,7 @@ _SUPPORTED_PASSIVE_INTENTS: Final = frozenset(
         "animate_existing",
     }
 )
+_RECREATE_INTENTS: Final = frozenset({"recreate_reel"})
 _UNRESOLVED_INTENT_ERRORS: Final = {
     "motion_copy": (
         "motion_copy_unresolved: no operator-approved Higgsfield motion-transfer "
@@ -124,6 +148,7 @@ _MOTION_CONTROL_INTENTS: Final = frozenset(
 
 _AUDIO_ALIASES: Final = {
     "embedded_trending": "embedded_trending_required",
+    "reference_audio_required": "original_embedded",
 }
 
 
@@ -208,6 +233,22 @@ def fulfill_production_audio(
     intent = str(job.get("intent") or "")
     policy = _audio_policy(str(job.get("audioPolicy") or ""))
     _validate_intent_audio_policy(intent, policy)
+    if policy == "silent_allowed":
+        return {
+            "policy": policy,
+            "status": "explicitly_allowed",
+            "audioPresent": False,
+            "requiredStage": None,
+        }
+    if policy == "original_embedded":
+        return _fulfill_recreate_reference_audio(
+            factory,
+            job=job,
+            generation_result=generation_result,
+            selected_at=selected_at,
+            motion_stage_result=_motion_stage_result,
+            probe_video=_probe_production_video,
+        )
     if policy != "embedded_trending_required":
         return {"policy": policy, "requiredStage": "separate_optional_path"}
     stage = _motion_stage_result(generation_result)
@@ -350,7 +391,13 @@ def build_production_motion_recipe(
     unresolved = _UNRESOLVED_INTENT_ERRORS.get(intent)
     if unresolved:
         raise ValueError(unresolved)
-    if execution == "cloud":
+    if execution == "cloud" and intent in _RECREATE_INTENTS:
+        mode = "best_motion"
+        stages = ({**RECREATE_REEL_STAGE},)
+        model_id = str(stages[0]["modelId"])
+        status = "experimental"
+        visual_selection_required = True
+    elif execution == "cloud":
         mode = "best_motion"
         configured = os.environ.get(
             _PASSIVE_RECIPE_ENV, "higgsfield_kling3_i2v"
@@ -364,12 +411,14 @@ def build_production_motion_recipe(
             ) from exc
         stages = ({**stage, "task": "image_to_video"},)
         model_id = str(stages[0]["modelId"])
+        status = "supported"
+        visual_selection_required = False
     else:
         raise ValueError("production create requires Higgsfield cloud execution")
     core = {
         "schema": SCHEMA,
         "recipeId": f"{execution}_{intent}_creator_motion_v2",
-        "status": "supported",
+        "status": status,
         "creator": creator.strip().lower(),
         "intent": intent,
         "mode": mode,
@@ -378,35 +427,9 @@ def build_production_motion_recipe(
         "sourceSha256": source_sha256,
         "paidProviderFallbackAllowed": False,
         "researchSelectionRequired": False,
-        "operatorVisualSelectionRequired": False,
+        "operatorVisualSelectionRequired": visual_selection_required,
         "provider": "higgsfield",
     }
-    return {**core, "recipeFingerprint": _fingerprint(core)}
-
-
-def bind_production_prompt_expansion(
-    recipe: Mapping[str, Any],
-    *,
-    original_prompt: str,
-    expansion: Mapping[str, Any],
-) -> dict[str, Any]:
-    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
-    if len(expanded_prompt) < 20:
-        raise ValueError("Qwen Wan prompt expansion did not return a usable prompt")
-    core = {
-        key: value for key, value in dict(recipe).items() if key != "recipeFingerprint"
-    }
-    core.update(
-        {
-            "originalPromptSha256": hashlib.sha256(
-                " ".join(original_prompt.split()).encode("utf-8")
-            ).hexdigest(),
-            "expandedPromptSha256": hashlib.sha256(
-                expanded_prompt.encode("utf-8")
-            ).hexdigest(),
-            "promptExpansion": dict(expansion),
-        }
-    )
     return {**core, "recipeFingerprint": _fingerprint(core)}
 
 
@@ -417,11 +440,12 @@ def validate_production_motion_recipe(
     claimed = str(core.pop("recipeFingerprint", ""))
     if (
         core.get("schema") != SCHEMA
-        or core.get("status") != "supported"
+        or core.get("status") not in {"supported", "experimental"}
         or core.get("modelId") != model_id
         or core.get("sourceSha256") != source_sha256
         or core.get("researchSelectionRequired") is not False
-        or core.get("operatorVisualSelectionRequired") is not False
+        or core.get("operatorVisualSelectionRequired")
+        != (core.get("status") == "experimental")
         or core.get("provider") != "higgsfield"
         or core.get("paidProviderFallbackAllowed") is not False
         or claimed != _fingerprint(core)
@@ -447,18 +471,6 @@ def bind_production_motion_recipe(
     return True
 
 
-def _deterministic_seed(
-    *, creator: str, intent: str, index: int, source_sha256: str, used: set[int]
-) -> int:
-    nonce = 0
-    while True:
-        material = f"{creator}:{intent}:{index}:{source_sha256}:{nonce}".encode()
-        seed = int(hashlib.sha256(material).hexdigest()[:8], 16) % 2_147_483_648
-        if seed not in used:
-            return seed
-        nonce += 1
-
-
 def plan_production_batch(
     factory: Any,
     *,
@@ -470,6 +482,11 @@ def plan_production_batch(
     audio_preference: str,
     speech_audio_path: Path | None = None,
     motion_reference_path: Path | None = None,
+    reference_video_path: Path | None = None,
+    reference_platform: str | None = None,
+    reference_authorized: bool = False,
+    reference_talking: bool = False,
+    selected_source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
@@ -478,11 +495,39 @@ def plan_production_batch(
     unresolved = _UNRESOLVED_INTENT_ERRORS.get(intent)
     if unresolved:
         raise ValueError(unresolved)
-    if intent not in _SUPPORTED_PASSIVE_INTENTS:
+    if intent not in _SUPPORTED_PASSIVE_INTENTS | _RECREATE_INTENTS:
         raise ValueError(f"intent {intent!r} has no supported production recipe")
+    if intent in _RECREATE_INTENTS and int(count) != 1:
+        raise ValueError("recreate_reel currently supports exactly one output")
     creator_slug = creator.strip().lower().replace(" ", "_")
     resolved_audio_policy = _audio_policy(audio_preference)
     _validate_intent_audio_policy(intent, resolved_audio_policy)
+    reference_analysis = None
+    recreation_prompt = None
+    if intent in _RECREATE_INTENTS:
+        if reference_video_path is None:
+            raise ValueError("recreate_reel requires --reference-video")
+        reference_analysis = analyze_reference_reel(
+            reference_video_path,
+            source_platform=reference_platform,
+            operator_authorized=reference_authorized,
+            declared_talking=reference_talking,
+        )
+        if reference_talking:
+            raise ValueError(
+                "recreate_talking_reel_unresolved: supplied creator voice is not "
+                "qualified"
+            )
+        recreation_prompt = build_recreation_prompt(reference_analysis)
+        if (
+            resolved_audio_policy == "original_embedded"
+            and not reference_analysis["media"]["audioPresent"]
+        ):
+            raise ValueError(
+                "REFERENCE_AUDIO_REQUIRED needs an audio stream in the reference"
+            )
+    elif reference_video_path is not None:
+        raise ValueError("--reference-video is only valid for recreate_reel")
     speech_audio = _optional_safe_media(speech_audio_path, "speech audio")
     motion_reference = _optional_safe_media(
         motion_reference_path, "motion reference video"
@@ -510,7 +555,7 @@ def plan_production_batch(
         JOIN campaigns c ON c.id = s.campaign_id
         JOIN models m ON m.id = s.model_id
         WHERE lower(m.slug) = ? AND s.media_type = 'image'
-          AND lower(COALESCE(s.status, 'imported')) NOT IN ('rejected', 'quarantined')
+          AND lower(COALESCE(s.status, 'imported')) = 'approved'
         ORDER BY c.updated_at DESC, s.created_at DESC, s.id
         """,
         (creator_slug,),
@@ -539,9 +584,6 @@ def plan_production_batch(
                 continue
             width, height = resolution
             ratio = width / height
-            if not 0.50 <= ratio <= 0.65:
-                incompatible_sources += 1
-                continue
             if intent in _MOTION_CONTROL_INTENTS and min(width, height) < 300:
                 incompatible_sources += 1
                 continue
@@ -550,6 +592,10 @@ def plan_production_batch(
                 "height": height,
                 "aspectRatio": round(ratio, 6),
             }
+        prepare_source_creative_evidence(source)
+        if source["compatibility"]["hardBlockers"]:
+            incompatible_sources += 1
+            continue
         source["stored_path"] = str(path)
         seen_source_hashes.add(recorded_sha)
         sources.append(source)
@@ -563,7 +609,13 @@ def plan_production_batch(
                 f"approved source SHA mismatch for creator {creator}; "
                 "refresh source inventory before generation"
             )
-        raise ValueError(f"no usable approved image inventory for creator {creator}")
+        raise ValueError(
+            f"no explicitly approved image inventory for creator {creator}; "
+            "review and approve sources with `creator-os sources`"
+        )
+    sources = select_requested_source_assets(sources, selected_source_asset_ids)
+    if reference_analysis is not None:
+        sources = rank_character_references(sources, reference_analysis)
     sources, selected_prompt, learning_decision = (
         learning_consumption.apply_learning_to_production_plan(
             factory.conn,
@@ -594,16 +646,79 @@ def plan_production_batch(
             execution=execution,
             source_sha256=source_sha,
         )
+        if intent in _RECREATE_INTENTS:
+            assert recreation_prompt is not None
+            assert reference_analysis is not None
+            prompt_card = {
+                "schema": "campaign_factory.recreate_reel_prompt_card.v1",
+                "creator": creator_slug,
+                "sourceAssetId": source["id"],
+                "sourceSha256": source_sha,
+                "referenceVideoId": reference_analysis["referenceVideoId"],
+                "referenceVideoSha256": reference_analysis["originalLocalFile"][
+                    "sha256"
+                ],
+                "desiredFidelity": recreation_prompt["desiredFidelity"],
+                "promptCardFingerprint": _fingerprint(
+                    {
+                        "creator": creator_slug,
+                        "sourceAssetId": source["id"],
+                        "sourceSha256": source_sha,
+                        "referenceVideoId": reference_analysis["referenceVideoId"],
+                        "desiredFidelity": recreation_prompt["desiredFidelity"],
+                    }
+                ),
+            }
+            compiled_prompt = {
+                "schema": recreation_prompt["schema"],
+                "text": recreation_prompt["text"],
+                "compiledPromptFingerprint": recreation_prompt["promptFingerprint"],
+            }
+        else:
+            prompt_card, compiled_prompt = build_job_creative_evidence(
+                creator=creator_slug,
+                intent=intent,
+                source=source,
+                selected_prompt=selected_prompt,
+                learning_decision=learning_decision,
+            )
         identity = _fingerprint(
             {
                 "source": source_sha,
                 "seed": seed,
-                "prompt": selected_prompt,
+                "prompt": compiled_prompt["text"],
+                "promptCard": prompt_card["promptCardFingerprint"],
                 "model": recipe["modelId"],
                 "speechAudio": speech_sha,
                 "motionReference": motion_reference_sha,
+                "referenceVideo": (
+                    reference_analysis["originalLocalFile"]["sha256"]
+                    if reference_analysis
+                    else None
+                ),
             }
         )
+        if intent in _RECREATE_INTENTS:
+            assert reference_analysis is not None
+            recipe_stage = recipe["stages"][0]
+            recipe_stage["durationSeconds"] = min(
+                15,
+                max(
+                    4,
+                    int(
+                        math.floor(
+                            float(reference_analysis["media"]["durationSeconds"]) + 0.5
+                        )
+                    ),
+                ),
+            )
+            recipe["recipeFingerprint"] = _fingerprint(
+                {
+                    key: value
+                    for key, value in recipe.items()
+                    if key != "recipeFingerprint"
+                }
+            )
         jobs.append(
             {
                 "jobId": f"create_{identity[:20]}",
@@ -615,7 +730,17 @@ def plan_production_batch(
                 "sourceResolution": source.get("sourceResolution"),
                 "creator": creator_slug,
                 "intent": intent,
-                "prompt": selected_prompt,
+                "prompt": (
+                    compiled_prompt["text"]
+                    if intent in _RECREATE_INTENTS
+                    else selected_prompt
+                ),
+                "promptCard": prompt_card,
+                "compiledPrompt": compiled_prompt,
+                "compatibility": source["compatibility"],
+                "recreationCharacterCompatibility": source.get(
+                    "recreationCharacterCompatibility"
+                ),
                 "seed": seed,
                 "requestFingerprint": identity,
                 "accountGroup": accounts,
@@ -626,17 +751,29 @@ def plan_production_batch(
                     str(motion_reference) if motion_reference else None
                 ),
                 "motionReferenceSha256": motion_reference_sha,
+                "referenceVideo": reference_analysis,
+                "referenceVideoPath": (
+                    reference_analysis["originalLocalFile"]["path"]
+                    if reference_analysis
+                    else None
+                ),
+                "referenceVideoSha256": (
+                    reference_analysis["originalLocalFile"]["sha256"]
+                    if reference_analysis
+                    else None
+                ),
+                "referenceAuthorizationRequired": intent in _RECREATE_INTENTS,
                 "quotedProviderCredits": None,
                 "productionRecipe": recipe,
             }
         )
     return {
-        "schema": BATCH_SCHEMA,
+        "schema": "campaign_factory.production_batch.v1",
         "creator": creator_slug,
         "intent": intent,
         "execution": execution,
         "requested": int(count),
-        "maxConcurrency": DEFAULT_CLOUD_CONCURRENCY,
+        "maxConcurrency": 2,
         "provider": "higgsfield",
         "providerQuoteStatus": "required_before_apply",
         "quotedProviderCredits": None,
@@ -651,6 +788,17 @@ def _validate_intent_audio_policy(intent: str, policy: str) -> None:
             raise ValueError(
                 "talking intents require creator_voice and forbid automatic "
                 "trending-audio replacement"
+            )
+        return
+    if intent in _RECREATE_INTENTS:
+        if policy not in {
+            "embedded_trending_required",
+            "original_embedded",
+            "silent_allowed",
+        }:
+            raise ValueError(
+                "recreate_reel audio must be embedded_trending_required, "
+                "REFERENCE_AUDIO_REQUIRED, or silent_allowed"
             )
         return
     if intent in _SUPPORTED_PASSIVE_INTENTS and policy != "embedded_trending_required":
@@ -669,10 +817,15 @@ def run_production_batch(
     accounts: str | None,
     audio_preference: str,
     apply: bool,
-    max_total_credits: float = DEFAULT_HIGGSFIELD_BATCH_MAX_CREDITS,
-    max_concurrency: int = DEFAULT_CLOUD_CONCURRENCY,
+    max_total_credits: float = 100.0,
+    max_concurrency: int = 2,
     speech_audio_path: Path | None = None,
     motion_reference_path: Path | None = None,
+    reference_video_path: Path | None = None,
+    reference_platform: str | None = None,
+    reference_authorized: bool = False,
+    reference_talking: bool = False,
+    selected_source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -684,6 +837,11 @@ def run_production_batch(
         audio_preference=audio_preference,
         speech_audio_path=speech_audio_path,
         motion_reference_path=motion_reference_path,
+        reference_video_path=reference_video_path,
+        reference_platform=reference_platform,
+        reference_authorized=reference_authorized,
+        reference_talking=reference_talking,
+        selected_source_asset_ids=selected_source_asset_ids,
     )
     results: list[dict[str, Any]] = []
     if (
@@ -701,18 +859,33 @@ def run_production_batch(
     plan["maxTotalCredits"] = float(max_total_credits)
     plan["paidGenerationAuthorized"] = False
     if not apply:
+        if intent in _RECREATE_INTENTS:
+            quoted = _prepare_higgsfield_job_quotes(
+                factory,
+                [dict(job) for job in plan["jobs"]],
+                max_total_credits=float(max_total_credits),
+            )
+            plan["jobs"] = quoted
+            plan["quotedProviderCredits"] = round(
+                sum(float(job["quotedProviderCredits"]) for job in quoted), 4
+            )
+            plan["providerQuoteStatus"] = "quoted_not_authorized"
         results = [
             {"jobId": job["jobId"], "index": job["index"], "status": "created"}
             for job in plan["jobs"]
         ]
         return _finalize_production_batch(plan, results, apply=False)
+    if intent in _RECREATE_INTENTS and not reference_authorized:
+        raise PermissionError(
+            "recreate_reel apply requires explicit --reference-authorized"
+        )
 
     prepared: list[dict[str, Any]] = []
     for job in plan["jobs"]:
         try:
             prepared.append(
                 _expand_production_job_prompt(job)
-                if execution == "cloud"
+                if execution == "cloud" and intent not in _RECREATE_INTENTS
                 else dict(job)
             )
         except Exception as exc:
@@ -818,187 +991,10 @@ def run_production_batch(
     return finalized
 
 
-def _expand_production_job_prompt(job: Mapping[str, Any]) -> dict[str, Any]:
-    from reel_factory.worker_api import expand_local_wan_i2v_prompt
-
-    source = Path(str(job["sourcePath"])).expanduser().resolve()
-    expansion = expand_local_wan_i2v_prompt(
-        image_path=source,
-        original_prompt=str(job["prompt"]),
-    )
-    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
-    recipe = bind_production_prompt_expansion(
-        job["productionRecipe"],
-        original_prompt=str(job["prompt"]),
-        expansion=expansion,
-    )
-    return {
-        **dict(job),
-        "originalPrompt": job["prompt"],
-        "prompt": expanded_prompt,
-        "promptExpansion": expansion,
-        "productionRecipe": recipe,
-        "requestFingerprint": _fingerprint(
-            {
-                "source": job["sourceSha256"],
-                "seed": job["seed"],
-                "prompt": expanded_prompt,
-                "model": recipe["modelId"],
-            }
-        ),
-    }
-
-
 def _supports_isolated_factories(factory: Any) -> bool:
     return getattr(factory, "settings", None) is not None and callable(
         getattr(factory, "close", None)
     )
-
-
-class _BoundHiggsfieldQuote:
-    def __init__(self, quote: Mapping[str, Any]) -> None:
-        self._quote = dict(quote)
-
-    def quote(self, _scope: dict[str, Any]) -> dict[str, Any]:
-        return dict(self._quote)
-
-
-def _higgsfield_request(
-    job: Mapping[str, Any],
-    *,
-    max_credits: float,
-) -> Any:
-    from reel_factory.worker_api import HiggsfieldProductionRequest
-
-    creator = str(job["creator"])
-    try:
-        soul_id = _CREATOR_SOUL_IDS[creator]
-    except KeyError as exc:
-        raise ValueError(
-            f"no pinned authenticated Higgsfield Soul identity for creator {creator}"
-        ) from exc
-    stage = list(job["productionRecipe"].get("stages") or [])[0]
-    return HiggsfieldProductionRequest(
-        recipe_id="higgsfield_passive_selfie",
-        creator=creator,
-        soul_id=soul_id,
-        source_approval=str(job["sourceAssetId"]),
-        source_image_path=Path(str(job["sourcePath"])),
-        output_path=Path(str(job["providerOutputPath"])),
-        review_root=Path(str(job["providerReviewRoot"])),
-        prompt=str(job["prompt"]),
-        model=str(stage["providerModel"]),
-        duration_seconds=int(stage["durationSeconds"]),
-        max_credits=max_credits,
-        seed=int(job["seed"]),
-    )
-
-
-def _higgsfield_spend_scope(job: Mapping[str, Any]) -> dict[str, Any]:
-    stage = list(job["productionRecipe"].get("stages") or [])[0]
-    args = [
-        "video",
-        "--stem",
-        str(job["jobId"]),
-        "--soul-id",
-        _CREATOR_SOUL_IDS[str(job["creator"])],
-        "--campaign",
-        str(job["campaign"]),
-        "--cohort-id",
-        str(job["jobId"]),
-        "--start-image",
-        str(job["sourcePath"]),
-        "--video-model",
-        str(stage["providerModel"]),
-        "--video-aspect-ratio",
-        "9:16",
-        "--video-duration",
-        str(stage["durationSeconds"]),
-        "--video-mode",
-        str(stage["mode"]),
-        "--video-sound",
-        "off",
-    ]
-    return build_generate_assets_spend_scope(args, root=Path.cwd())
-
-
-def _authorize_higgsfield_jobs(
-    factory: Any,
-    jobs: list[dict[str, Any]],
-    *,
-    max_total_credits: float,
-) -> list[dict[str, Any]]:
-    """Quote and authorize the whole batch before the first paid submission."""
-
-    from reel_factory.worker_api import (
-        build_higgsfield_production_plan,
-        discover_higgsfield_production_capabilities,
-        quote_higgsfield_production_plan,
-    )
-
-    if not jobs:
-        return []
-    capabilities = discover_higgsfield_production_capabilities()
-    prepared: list[dict[str, Any]] = []
-    total = 0.0
-    for job in jobs:
-        campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
-        model_slug = factory.domains.reel_execution.model_slug_for_campaign(
-            campaign["id"]
-        )
-        dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
-        output = dirs["rendered"] / (
-            f"{job['jobId']}_{job['productionRecipe']['modelId']}.mp4"
-        )
-        review_root = dirs["audits"] / "higgsfield_production"
-        candidate = {
-            **job,
-            "providerOutputPath": str(output),
-            "providerReviewRoot": str(review_root),
-        }
-        request = _higgsfield_request(candidate, max_credits=max_total_credits)
-        provider_plan = build_higgsfield_production_plan(
-            request,
-            capabilities=capabilities,
-        )
-        quote = quote_higgsfield_production_plan(provider_plan)
-        amount = float(quote["amount"])
-        total = round(total + amount, 4)
-        prepared.append(
-            {
-                **candidate,
-                "quotedProviderCredits": amount,
-                "providerPlanFingerprint": provider_plan["requestFingerprint"],
-                "_higgsfieldCapabilities": capabilities,
-                "_higgsfieldQuote": quote,
-                "_campaignId": str(campaign["id"]),
-            }
-        )
-    if total > max_total_credits:
-        raise PermissionError(
-            "production_batch_quote_exceeds_total_credit_cap: "
-            f"{total:.4f} > {max_total_credits:.4f}"
-        )
-    secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
-    authorized: list[dict[str, Any]] = []
-    for job in prepared:
-        scope = _higgsfield_spend_scope(job)
-        authorization = issue_provider_spend_authorization(
-            factory.conn,
-            scope=scope,
-            campaign_id=str(job["_campaignId"]),
-            max_credits=float(job["quotedProviderCredits"]),
-            secret=secret,
-            quote_provider=_BoundHiggsfieldQuote(job["_higgsfieldQuote"]),
-        )
-        authorized.append(
-            {
-                **job,
-                "_higgsfieldSpendScope": scope,
-                "_higgsfieldAuthorization": authorization,
-            }
-        )
-    return authorized
 
 
 def _run_production_job_isolated(
@@ -1099,28 +1095,33 @@ def _execute_higgsfield_provider_job(
 
     from .motion_generation_stage import _register_review_asset
 
+    recovery_value = job.get("_higgsfieldRecovery")
+    recovery = recovery_value if isinstance(recovery_value, dict) else None
     authorization_value = job.get("_higgsfieldAuthorization")
     scope_value = job.get("_higgsfieldSpendScope")
     capabilities_value = job.get("_higgsfieldCapabilities")
-    if not isinstance(authorization_value, dict):
+    if recovery is None and not isinstance(authorization_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
     if not isinstance(scope_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
     if not isinstance(capabilities_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
-    authorization = authorization_value
+    authorization = (
+        authorization_value if isinstance(authorization_value, dict) else None
+    )
     scope = scope_value
     capabilities = capabilities_value
-    secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
-    verify_authorization(
-        authorization,
-        expected_scope=scope,
-        secret=secret,
-        now=datetime.now(UTC),
-    )
-    consume_higgsfield_authorization(
-        factory.conn, str(authorization["authorizationId"])
-    )
+    if authorization is not None:
+        secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
+        verify_authorization(
+            authorization,
+            expected_scope=scope,
+            secret=secret,
+            now=datetime.now(UTC),
+        )
+        consume_higgsfield_authorization(
+            factory.conn, str(authorization["authorizationId"])
+        )
     campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     pipeline_job = factory.domains.events.create_pipeline_job(
@@ -1133,16 +1134,28 @@ def _execute_higgsfield_provider_job(
             "modelId": job["productionRecipe"]["modelId"],
             "requestFingerprint": job["requestFingerprint"],
             "providerPlanFingerprint": job["providerPlanFingerprint"],
+            "referenceVideo": job.get("referenceVideo"),
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         request = _higgsfield_request(job, max_credits=max_credits)
-        receipt = execute_higgsfield_production(
-            request,
-            capabilities=capabilities,
-            confirm_paid=True,
-        )
+        if recovery is not None:
+            receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            cost_binding = _recovered_higgsfield_cost_binding(
+                factory,
+                job=job,
+                receipt=receipt,
+                spend_scope=scope,
+            )
+        else:
+            receipt = execute_higgsfield_production(
+                request,
+                capabilities=capabilities,
+                confirm_paid=True,
+            )
+            cost_binding = None
         output = receipt.get("finalOutput")
         if not isinstance(output, dict):
             raise RuntimeError("higgsfield_final_output_missing")
@@ -1159,25 +1172,37 @@ def _execute_higgsfield_provider_job(
             or _sha256_file(output_path) != output_sha
         ):
             raise RuntimeError("higgsfield_provider_evidence_mismatch")
-        cost_ids = record_provider_execution(
-            factory.conn,
-            authorization=authorization,
-            execution={
-                "events": [
-                    {
-                        "provider": "higgsfield",
-                        "operation": "video_generation",
-                        "model": receipt["model"],
-                        "jobId": receipt["generationId"],
-                        "actualCredits": receipt.get("creditsConsumed"),
-                    }
-                ]
-            },
-        )
+        if cost_binding is not None:
+            cost_ids = list(cost_binding["costEventIds"])
+            authorization_id = str(cost_binding["authorizationId"])
+            reservation_id = str(cost_binding["reservationId"])
+        else:
+            assert authorization is not None
+            cost_ids = record_provider_execution(
+                factory.conn,
+                authorization=authorization,
+                execution={
+                    "events": [
+                        {
+                            "provider": "higgsfield",
+                            "operation": "video_generation",
+                            "model": receipt["model"],
+                            "jobId": receipt["generationId"],
+                            "actualCredits": receipt.get("creditsConsumed"),
+                        }
+                    ]
+                },
+            )
+            authorization_id = str(authorization["authorizationId"])
+            reservation_id = str(authorization["reservationId"])
         provider = {
             "requestId": receipt["generationId"],
             "model": receipt["model"],
-            "status": receipt["status"],
+            "status": (
+                "completed_reconciled" if recovery is not None else receipt["status"]
+            ),
+            "reconciled": recovery is not None,
+            "providerCalls": 0 if recovery is not None else 1,
             "submittedAt": receipt.get("submittedAt"),
             "completedAt": receipt.get("completedAt"),
             "outputUrl": receipt.get("resultUrl"),
@@ -1190,8 +1215,8 @@ def _execute_higgsfield_provider_job(
         paid_evidence = {
             "schema": "campaign_factory.higgsfield_paid_generation_evidence.v1",
             "provider": "higgsfield",
-            "authorizationId": authorization["authorizationId"],
-            "reservationId": authorization["reservationId"],
+            "authorizationId": authorization_id,
+            "reservationId": reservation_id,
             "spendScopeFingerprint": scope["requestFingerprint"],
             "providerPlanFingerprint": job["providerPlanFingerprint"],
             "providerModel": receipt["model"],
@@ -1212,7 +1237,8 @@ def _execute_higgsfield_provider_job(
             "schema": "reel_factory.higgsfield_motion_generation.v1",
             "backend": "higgsfield_cli",
             "paidGeneration": True,
-            "providerCalls": 1,
+            "providerCalls": 0 if recovery is not None else 1,
+            "reconciledCompletedRequest": recovery is not None,
             "paidGenerationEvidence": paid_evidence,
             "result": {
                 "predictionId": receipt["generationId"],
@@ -1235,12 +1261,21 @@ def _execute_higgsfield_provider_job(
             output_path=output_path,
             worker_result=worker_result,
             paid=True,
-            motion_task="image_to_video",
+            motion_task=(
+                "reference_to_video"
+                if job["intent"] in _RECREATE_INTENTS
+                else "image_to_video"
+            ),
             request_fingerprint=str(job["requestFingerprint"]),
             production_motion_recipe=job["productionRecipe"],
             prompt=str(job["prompt"]),
             audio_policy=str(job["audioPolicy"]),
             pipeline_job_id=str(pipeline_job["id"]),
+        )
+        persist_asset_creative_evidence(
+            factory.conn,
+            registered=registered,
+            job=job,
         )
         result = {
             "schema": "campaign_factory.motion_generation_stage_run.v1",
@@ -1249,11 +1284,11 @@ def _execute_higgsfield_provider_job(
             "dryRun": False,
             "apply": True,
             "paidGeneration": True,
-            "providerCalls": 1,
+            "providerCalls": 0 if recovery is not None else 1,
             "worker": worker_result,
             "registeredAsset": registered,
             "pipelineJobId": pipeline_job["id"],
-            "humanReviewRequired": False,
+            "humanReviewRequired": job["intent"] in _RECREATE_INTENTS,
             "schedulingAllowed": False,
             "publishingAllowed": False,
         }
@@ -1266,37 +1301,6 @@ def _execute_higgsfield_provider_job(
             {"jobId": job["jobId"], "provider": "higgsfield"},
         )
         raise
-
-
-def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] | None:
-    stage = _motion_stage_result(dict(generation_result))
-    worker = stage.get("worker")
-    worker = worker if isinstance(worker, dict) else {}
-    execution = worker.get("result")
-    if not isinstance(execution, dict) or not execution.get("predictionId"):
-        return None
-    return _provider_receipt_summary(execution)
-
-
-def _provider_receipt_summary(
-    execution: Mapping[str, Any], *, evidence_path: Path | None = None
-) -> dict[str, Any]:
-    return {
-        "requestId": execution.get("predictionId"),
-        "model": execution.get("providerModel"),
-        "status": execution.get("status"),
-        "submittedAt": execution.get("submittedAt"),
-        "completedAt": execution.get("completedAt"),
-        "outputUrl": execution.get("outputUrl"),
-        "outputSha256": execution.get("outputSha256"),
-        "outputRecords": execution.get("outputRecords") or [],
-        "generationDurationSeconds": execution.get("generationDurationSeconds"),
-        "providerInferenceMilliseconds": execution.get("providerInferenceMilliseconds"),
-        "providerCostUsd": execution.get("providerCostUsd"),
-        "requestFingerprint": execution.get("requestFingerprint"),
-        "evidencePath": execution.get("evidencePath")
-        or (str(evidence_path) if evidence_path is not None else None),
-    }
 
 
 def _failed_provider_execution(

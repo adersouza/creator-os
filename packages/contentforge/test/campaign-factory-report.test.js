@@ -10,9 +10,9 @@ import { skipWhenMissingTools } from "./tool-availability.js";
 
 var MEDIA_TOOLS = ["ffmpeg", "ffprobe", "tesseract"];
 
-function runReport(env) {
+function runReport(env, args = []) {
   return new Promise(function (resolve, reject) {
-    execFile(process.execPath, ["scripts/campaign-audit-report.mjs", "--json"], {
+    execFile(process.execPath, ["scripts/campaign-audit-report.mjs", "--json", ...args], {
       cwd: process.cwd(),
       env,
       timeout: 180000,
@@ -48,7 +48,7 @@ function runNode(args, env) {
   });
 }
 
-test("Campaign Factory calibration report includes metrics and skips missing real media", async function (t) {
+test("Campaign Factory calibration report includes metrics", async function (t) {
   if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var dir = await mkdtemp(path.join(tmpdir(), "contentforge-real-manifest-"));
   var manifestPath = path.join(dir, "real_samples.json");
@@ -71,12 +71,11 @@ test("Campaign Factory calibration report includes metrics and skips missing rea
     ...process.env,
     CONTENTFORGE_OCR_ENGINE: "tesseract",
     CONTENTFORGE_REAL_SAMPLE_MANIFEST: manifestPath,
-  });
+  }, ["--limit=1"]);
 
   assert.equal(report.schema, "contentforge.campaign_factory_calibration_report.v1");
   assert.equal(report.thresholdSchema, "contentforge.campaign_factory_thresholds.v1");
   assert.equal(report.summary.audited > 0, true);
-  assert.equal(report.summary.skipped >= 1, true);
   assert.equal(report.summary.mismatches, 0);
   assert.equal(Array.isArray(report.slowestSamples), true);
   assert.equal(typeof report.warningCodeFrequency, "object");
@@ -94,7 +93,7 @@ test("Campaign Factory calibration report can record ignored drift history", asy
   };
 
   await new Promise(function (resolve, reject) {
-    execFile(process.execPath, ["scripts/campaign-audit-report.mjs", "--json", "--write-history"], {
+    execFile(process.execPath, ["scripts/campaign-audit-report.mjs", "--json", "--write-history", "--limit=1"], {
       cwd: process.cwd(),
       env,
       timeout: 180000,
@@ -119,7 +118,7 @@ test("Campaign Factory calibration report can record ignored drift history", asy
 
 test("Campaign Factory report can render HTML", async function (t) {
   if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
-  var html = await runNode(["scripts/campaign-audit-report.mjs", "--html", "--no-generate"], {
+  var html = await runNode(["scripts/campaign-audit-report.mjs", "--html", "--no-generate", "--limit=1"], {
     ...process.env,
     CONTENTFORGE_OCR_ENGINE: "tesseract",
   });

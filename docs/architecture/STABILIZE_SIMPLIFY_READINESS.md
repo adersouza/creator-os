@@ -33,7 +33,7 @@ The stabilization branch implements the following reversible source changes:
   and Reference paid-generation ownership;
 - every active Campaign module below 1,500 lines, with the former forwarding
   facade and double-delegation chain removed;
-- Promptfoo offline regressions, PySceneDetect reference-video preflight, and
+- Local captured-fixture prompt regressions, PySceneDetect reference-video preflight, and
   hypothesis-jsonschema contract fuzzing.
 - a precise Reel worker lineage contract that cannot masquerade as finalized
   Campaign lineage, plus a provider-free active-mode-to-ThreadsDashboard

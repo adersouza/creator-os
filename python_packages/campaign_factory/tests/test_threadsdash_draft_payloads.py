@@ -1331,6 +1331,30 @@ def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_capti
     )
 
 
+def test_threadsdash_draft_metadata_normalizes_internal_readiness_codes():
+    metadata = threadsdash_payload_adapter._draft_metadata(
+        {
+            "campaignId": "campaign_1",
+            "renderedAssetId": "asset_1",
+            "sourceAssetId": "source_1",
+            "captionHash": "caption_hash_1",
+            "publishability": {
+                "asset_state": "approved_but_not_publishable",
+                "publishability_failure_reasons": [
+                    "creative_approval_canonical_asset_invalid",
+                    "motion_specific_qc_required",
+                    "motion_specific_qc_required",
+                ],
+            },
+        }
+    )
+
+    assert metadata["campaign_factory"]["publishability_failure_reasons"] == [
+        "creative_approval_missing",
+        "readiness_failed",
+    ]
+
+
 def test_threadsdash_draft_metadata_refuses_to_infer_missing_asset_state():
     with pytest.raises(
         ValueError,

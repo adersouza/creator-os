@@ -10,6 +10,7 @@ what Creator OS can offer.
 | --- | --- | --- |
 | `soul_static` | Soul 2.0 still plus deterministic local static MP4 | SUPPORTED |
 | `passive_selfie` | Kling 3 (`kling3_0`) or Seedance 2 (`seedance_2_0`) | SUPPORTED |
+| `recreate_reel` | Seedance 2 (`seedance_2_0`) with one approved creator image and one private video reference | EXPERIMENTAL |
 | `talking_selfie` | No exact supplied-audio contract exposed | UNRESOLVED |
 | `motion_copy` / `dance` | No operator-approved distinct transfer recipe | UNRESOLVED |
 | `talking_motion` | Requires both approved motion and supplied-audio lip-sync | UNRESOLVED |
@@ -18,6 +19,17 @@ The passive recipe is pinned by product configuration. Ordinary operators give
 creator intent, not provider/model identifiers. A failed or ambiguous
 Higgsfield call is retained for reconciliation and is never silently retried
 or routed to WaveSpeed.
+
+`recreate_reel` is a bounded structural recreation, not precision motion copy.
+It retains the private reference path and SHA in an analysis receipt, ranks only
+already-approved same-creator images, and sends the selected image through
+Seedance's `image_references` role and the inspiration Reel through
+`video_references`. Soul remains the upstream identity system; the authenticated
+Seedance contract accepts the resulting image bytes, not a raw Soul ID.
+Generation is fixed to 9:16, 720p, 4–15 seconds, standard mode, and
+`generate_audio=false`. The prompt asks Seedance to closely follow broad
+structure, performance, and camera progression without claiming identical
+choreography.
 
 Kling 3 runs with `sound=off`; Seedance 2 runs with
 `generate_audio=false`. Creator OS then selects a duration-compatible Audio
@@ -65,7 +77,7 @@ scripts/creator-os create \
   --intent passive_selfie \
   --count 3 \
   --execution cloud \
-  --accounts stacey-main \
+  --accounts bennett_s33 \
   --audio embedded_trending \
   --max-credits 100 \
   --apply
@@ -79,6 +91,33 @@ or publish.
 Historical WaveSpeed models, receipts, rows, hashes, and media remain readable
 for audit and migration. They are absent from normal create, active paid
 routing, fallbacks, help, and runtime credential requirements.
+
+An experimental recreation is planned through the same intent-first surface:
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-video /private/path/reference.mp4 \
+  --reference-platform instagram \
+  --reference-authorized \
+  --count 1 \
+  --execution cloud \
+  --accounts bennett_s33 \
+  --audio embedded_trending
+```
+
+The dry-run performs bounded local reference analysis and an authenticated
+read-only quote, but issues no spend authorization and submits no generation.
+`--apply` additionally requires `--reference-authorized`, an explicit finite
+credit ceiling, and the existing signed spend authorization. One invocation is
+limited to one reference, one output, and one Seedance request. Ambiguous
+submission is retained for reconciliation and never retried blindly.
+
+`reference_audio_required` deterministically selects and embeds the exact
+reference-video audio segment, `embedded_trending` uses Audio Radar finishing,
+and `silent_allowed` is explicit. A talking reference fails before quoting or
+submission because supplied creator-voice preservation is not qualified.
 
 ## Future exact-voice validation plan
 

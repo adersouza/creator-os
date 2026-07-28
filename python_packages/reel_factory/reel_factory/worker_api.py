@@ -41,11 +41,23 @@ from .local_wan_prompt_expansion import (
     expand_wan_i2v_prompt,
     validate_wan_prompt_expansion,
 )
+from .reel_motion_prompt import (
+    PASSIVE_SAFETY_CONSTRAINTS as _PASSIVE_SAFETY_CONSTRAINTS,
+)
+from .reel_motion_prompt import passive_safety_prompt as _passive_safety_prompt
 from .reference_video_remix import (
     build_reference_video_remix_plan,
     gemini_motion_analysis_instruction,
 )
 from .video_provider_models import video_model
+
+PASSIVE_SAFETY_CONSTRAINTS = _PASSIVE_SAFETY_CONSTRAINTS
+
+
+def passive_safety_prompt() -> str:
+    """Return the shared passive-motion safety language."""
+
+    return _passive_safety_prompt()
 
 
 def expand_local_wan_i2v_prompt(

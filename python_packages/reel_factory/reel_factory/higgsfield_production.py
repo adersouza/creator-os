@@ -47,9 +47,19 @@ REVIEW_FIELDS = (
     "creditsConsumed",
     "dollarCost",
     "wouldPost",
+    "facialConsistency",
+    "clothingStability",
+    "backgroundStability",
+    "broadActionFidelity",
+    "cameraFramingFidelity",
+    "pacingFidelity",
+    "choreographyFidelity",
+    "obviousAiArtifacts",
+    "audioSynchronization",
 )
 RecipeId = Literal[
     "higgsfield_passive_selfie",
+    "higgsfield_recreate_reel",
     "higgsfield_motion_copy_animate",
     "higgsfield_motion_copy_replace",
     "higgsfield_talking_speak",
@@ -500,7 +510,14 @@ def _complete_higgsfield_generation(
         raise FileExistsError(f"higgsfield_output_collision:{output}")
     download_result(result_url, output)
     probe = _probe_video(output)
-    if request.recipe_id == "higgsfield_passive_selfie" and probe["audioStreams"]:
+    if (
+        request.recipe_id
+        in {
+            "higgsfield_passive_selfie",
+            "higgsfield_recreate_reel",
+        }
+        and probe["audioStreams"]
+    ):
         output.unlink(missing_ok=True)
         raise RuntimeError("higgsfield_silent_candidate_returned_audio")
     digest = _sha256_file(output)
@@ -644,6 +661,31 @@ def _candidate_capabilities(
                 else "authenticated CLI exposes neither Kling 3.0 nor Seedance 2.0"
             ),
         ),
+        "higgsfield_recreate_reel": HiggsfieldCandidate(
+            recipe_id="higgsfield_recreate_reel",
+            purpose=(
+                "recreate broad Reel structure, performance, and camera progression "
+                "from one video reference with one approved creator image"
+            ),
+            actual_tool=(
+                "higgsfield generate create seedance_2_0"
+                if "seedance_2_0" in identifiers
+                else None
+            ),
+            exposed_job_type=(
+                "seedance_2_0" if "seedance_2_0" in identifiers else None
+            ),
+            status="supported" if "seedance_2_0" in identifiers else "unresolved",
+            unavailable_reason=(
+                None
+                if "seedance_2_0" in identifiers
+                else "Seedance 2.0 is not exposed by the authenticated CLI"
+            ),
+            limitations=(
+                "Experimental until an exact output receives operator WOULD_POST review.",
+                "Broad recreation is supported; identical choreography is not promised.",
+            ),
+        ),
         "higgsfield_motion_copy_animate": HiggsfieldCandidate(
             recipe_id="higgsfield_motion_copy_animate",
             purpose="transfer driving-video motion and expression to an approved still",
@@ -761,6 +803,43 @@ def _candidate_command(
                 "false",
             ]
         return [*command, "--json"]
+    if request.recipe_id == "higgsfield_recreate_reel":
+        if candidate.exposed_job_type != "seedance_2_0":
+            raise HiggsfieldFeatureUnavailable(
+                "recreate_reel requires authenticated Seedance 2.0"
+            )
+        if driving is None:
+            raise ValueError("recreate_reel requires one reference video")
+        if speech is not None:
+            raise ValueError(
+                "recreate_reel cannot accept creator speech until supplied-voice "
+                "preservation is qualified"
+            )
+        if not 4 <= int(request.duration_seconds) <= 15:
+            raise ValueError("recreate_reel duration must be 4 to 15 seconds")
+        return [
+            "higgsfield",
+            "generate",
+            "create",
+            "seedance_2_0",
+            "--prompt",
+            prompt,
+            "--image-references",
+            source_token,
+            "--video-references",
+            str(driving["path"]),
+            "--aspect_ratio",
+            "9:16",
+            "--duration",
+            str(request.duration_seconds),
+            "--resolution",
+            "720p",
+            "--mode",
+            "std",
+            "--generate_audio",
+            "false",
+            "--json",
+        ]
     if request.recipe_id == "higgsfield_motion_copy_animate":
         if driving is None:
             raise ValueError("motion-copy candidate requires a driving video")

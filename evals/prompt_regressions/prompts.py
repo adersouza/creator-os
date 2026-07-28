@@ -22,7 +22,7 @@ from reel_factory.reference_video_remix import (  # noqa: E402
 def build_higgsfield_reference_prompt_instruction(
     creative_direction: str = "",
 ) -> str:
-    """Captured offline Soul-reference prompt surface used only by Promptfoo."""
+    """Captured offline Soul-reference prompt surface used by regression checks."""
     direction = creative_direction.strip()
     extra = f"\nExtra direction from operator: {direction}\n" if direction else ""
     return (

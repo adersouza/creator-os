@@ -42,6 +42,10 @@ UNRESOLVED_NATIVE_AUDIO_STATUSES = {
     "blocked",
 }
 DEFERRED_NOTIFY_AUDIO_FAILURES = {"missing_audio", "embedded_audio_missing"}
+_CONTRACT_FAILURE_REASON_ALIASES = {
+    "creative_approval_canonical_asset_invalid": "creative_approval_missing",
+    "motion_specific_qc_required": "readiness_failed",
+}
 METRIC_CONTRACT_VERSION = "instagram_metrics_contract_v1"
 DASHBOARD_INGEST_MAX_ATTEMPTS = 3
 DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
@@ -1107,9 +1111,14 @@ def _draft_metadata(
         or {}
     )
     failure_reasons = list(
-        publishability.get("publishability_failure_reasons")
-        or publishability.get("failureReasons")
-        or []
+        dict.fromkeys(
+            _CONTRACT_FAILURE_REASON_ALIASES.get(str(reason), str(reason))
+            for reason in (
+                publishability.get("publishability_failure_reasons")
+                or publishability.get("failureReasons")
+                or []
+            )
+        )
     )
     raw_asset_state = publishability.get("asset_state") or publishability.get(
         "assetState"

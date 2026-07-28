@@ -53,6 +53,5 @@ exhaustive:
 # environments may belong to the prior commit. Rebuild those untracked
 # environments from the exact frozen locks before verifying the promoted tree.
 runtime-verify:
-	pnpm install --frozen-lockfile
-	uv sync --all-extras --all-packages --frozen
+	python3 scripts/ensure_runtime_dependencies.py
 	$(MAKE) verify

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import re
 import tomllib
 from pathlib import Path
@@ -7,6 +8,42 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _verification_module():
+    path = ROOT / "scripts/verify_tier.py"
+    spec = importlib.util.spec_from_file_location("verify_tier_under_test", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_changed_scope_includes_deleted_files(monkeypatch) -> None:
+    module = _verification_module()
+    commands: list[list[str]] = []
+    outputs = iter(["deleted.py\n", "working-deleted.py\n", "untracked.py\n"])
+
+    class Result:
+        returncode = 0
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        return Result(next(outputs))
+
+    monkeypatch.setattr(module, "_base_ref", lambda: "origin/main")
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module.changed_files() == [
+        "deleted.py",
+        "untracked.py",
+        "working-deleted.py",
+    ]
+    assert "--diff-filter=ACMRTD" in commands[0]
+    assert "--diff-filter=ACMRTD" in commands[1]
 
 
 def _workflow(path: str) -> dict:
@@ -148,16 +185,85 @@ def test_make_verification_tiers_are_real_distinct_commands() -> None:
         assert f"scripts/verify_tier.py {tier}" in body
 
 
-def test_runtime_verify_reconstructs_complete_frozen_python_environment() -> None:
+def test_affected_tier_does_not_repeat_focused_tests_inside_package_suite() -> None:
+    verify_tier = _verification_module()
+
+    commands = verify_tier.commands_for(
+        "affected",
+        [
+            "python_packages/campaign_factory/campaign_factory/content_director.py",
+            "python_packages/campaign_factory/tests/test_content_director.py",
+        ],
+    )
+
+    assert [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "python_packages/campaign_factory/tests",
+    ] in commands
+    assert not any(
+        command[:5] == ["uv", "run", "python", "-m", "pytest"]
+        and "python_packages/campaign_factory/tests/test_content_director.py" in command
+        for command in commands
+    )
+
+
+def test_affected_tier_covers_prompt_and_tooling_surfaces() -> None:
+    verify_tier = _verification_module()
+
+    prompt_commands = verify_tier.commands_for(
+        "affected", ["evals/prompt_regressions/runner.py"]
+    )
+    tooling_commands = verify_tier.commands_for(
+        "affected", [".github/workflows/monorepo-ci.yml"]
+    )
+
+    assert ["pnpm", "check:prompts"] in prompt_commands
+    assert any(
+        "tests/integration/test_prompt_regression_offline.py" in command
+        for command in prompt_commands
+    )
+    assert any(
+        "tests/integration/test_tooling_guardrails.py" in command
+        for command in tooling_commands
+    )
+
+
+def test_workspace_lock_change_runs_full_javascript_graph_without_duplicate_contentforge() -> (
+    None
+):
+    verify_tier = _verification_module()
+
+    commands = verify_tier.commands_for(
+        "affected",
+        ["pnpm-lock.yaml", "packages/contentforge/lib/similarity.js"],
+    )
+
+    assert commands.count(["pnpm", "run", "test"]) == 1
+    assert ["pnpm", "--filter", "contentforge", "test"] not in commands
+    assert ["pnpm", "--filter", "contentforge", "build"] in commands
+
+
+def test_runtime_verify_uses_fail_closed_dependency_preflight() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     runtime_verify = makefile.split("\nruntime-verify:\n", maxsplit=1)[1].split(
         "\n\n", maxsplit=1
     )[0]
-    sync_commands = [
-        line.strip() for line in runtime_verify.splitlines() if "uv sync" in line
-    ]
+    preflight = (ROOT / "scripts/ensure_runtime_dependencies.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert sync_commands == ["uv sync --all-extras --all-packages --frozen"]
+    assert "python3 scripts/ensure_runtime_dependencies.py" in runtime_verify
+    assert 'PNPM_INSTALL = ("pnpm", "install", "--frozen-lockfile")' in preflight
+    assert (
+        'UV_SYNC = ("uv", "sync", "--all-extras", "--all-packages", "--frozen")'
+        in preflight
+    )
+    assert "$(MAKE) verify" in runtime_verify
 
 
 def test_mypy_skips_only_the_incompatible_tifffile_implementation() -> None:
