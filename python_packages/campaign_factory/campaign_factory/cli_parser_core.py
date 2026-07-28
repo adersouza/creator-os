@@ -23,6 +23,7 @@ def register_core_commands(sub) -> None:
             "outfit",
             "lifestyle",
             "animate_existing",
+            "recreate_reel",
             "motion_copy",
             "dance",
             "talking_selfie",
@@ -36,6 +37,10 @@ def register_core_commands(sub) -> None:
     create.add_argument("--accounts")
     create.add_argument("--speech-audio", type=Path)
     create.add_argument("--motion-reference", type=Path)
+    create.add_argument("--reference-video", type=Path)
+    create.add_argument("--reference-platform")
+    create.add_argument("--reference-authorized", action="store_true")
+    create.add_argument("--reference-talking", action="store_true")
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -47,6 +52,7 @@ def register_core_commands(sub) -> None:
             "creator_voice",
             "royalty_free",
             "silent_allowed",
+            "reference_audio_required",
         ],
         default="embedded_trending_required",
     )

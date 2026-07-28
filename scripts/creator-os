@@ -345,7 +345,26 @@ def _parser() -> argparse.ArgumentParser:
         choices=["WOULD_POST", "USABLE_AFTER_EDIT", "REJECT"],
         required=True,
     )
-    for field in ("identity", "anatomy", "motion", "phone-native", "audio-fit"):
+    for field in (
+        "identity",
+        "anatomy",
+        "motion",
+        "phone-native",
+        "audio-fit",
+        "facial-consistency",
+        "body-consistency",
+        "hands-anatomy",
+        "clothing-stability",
+        "background-stability",
+        "broad-action-fidelity",
+        "camera-framing-fidelity",
+        "pacing-fidelity",
+        "choreography-fidelity",
+        "social-native",
+        "attractiveness",
+        "obvious-ai-artifacts",
+        "audio-synchronization",
+    ):
         review_existing.add_argument(f"--{field}")
     review_existing.add_argument(
         "--rejection-reason",
@@ -540,6 +559,7 @@ def _parser() -> argparse.ArgumentParser:
             "outfit",
             "lifestyle",
             "animate_existing",
+            "recreate_reel",
             "motion_copy",
             "dance",
             "talking_selfie",
@@ -553,6 +573,10 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--accounts")
     create.add_argument("--speech-audio", type=Path)
     create.add_argument("--motion-reference", type=Path)
+    create.add_argument("--reference-video", type=Path)
+    create.add_argument("--reference-platform")
+    create.add_argument("--reference-authorized", action="store_true")
+    create.add_argument("--reference-talking", action="store_true")
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -564,6 +588,7 @@ def _parser() -> argparse.ArgumentParser:
             "creator_voice",
             "royalty_free",
             "silent_allowed",
+            "reference_audio_required",
         ],
         default="embedded_trending_required",
     )
@@ -893,6 +918,19 @@ def main(argv: list[str] | None = None) -> int:
             ("--motion", args.motion),
             ("--phone-native", args.phone_native),
             ("--audio-fit", args.audio_fit),
+            ("--facial-consistency", args.facial_consistency),
+            ("--body-consistency", args.body_consistency),
+            ("--hands-anatomy", args.hands_anatomy),
+            ("--clothing-stability", args.clothing_stability),
+            ("--background-stability", args.background_stability),
+            ("--broad-action-fidelity", args.broad_action_fidelity),
+            ("--camera-framing-fidelity", args.camera_framing_fidelity),
+            ("--pacing-fidelity", args.pacing_fidelity),
+            ("--choreography-fidelity", args.choreography_fidelity),
+            ("--social-native", args.social_native),
+            ("--attractiveness", args.attractiveness),
+            ("--obvious-ai-artifacts", args.obvious_ai_artifacts),
+            ("--audio-synchronization", args.audio_synchronization),
             ("--notes", args.notes),
         ):
             if value:
@@ -1102,6 +1140,19 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(["--speech-audio", str(args.speech_audio)])
         if args.motion_reference:
             command.extend(["--motion-reference", str(args.motion_reference)])
+        if args.reference_video:
+            command.extend(
+                [
+                    "--reference-video",
+                    str(args.reference_video.expanduser().resolve()),
+                ]
+            )
+        if args.reference_platform:
+            command.extend(["--reference-platform", args.reference_platform])
+        if args.reference_authorized:
+            command.append("--reference-authorized")
+        if args.reference_talking:
+            command.append("--reference-talking")
         if args.max_credits is not None:
             if not math.isfinite(args.max_credits) or args.max_credits <= 0:
                 print(

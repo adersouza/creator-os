@@ -47,8 +47,8 @@ def embed_selected_audio(
 ) -> dict[str, Any]:
     """Create an audio-complete MP4 derivative and return bound proof."""
 
-    if policy != "embedded_trending_required":
-        raise AudioEmbeddingError("embedding stage requires embedded_trending_required")
+    if policy not in {"embedded_trending_required", "original_embedded"}:
+        raise AudioEmbeddingError("embedding stage received an unsupported policy")
     if not 0 <= settings.volume <= 1 or not 0 <= settings.speech_music_volume <= 1:
         raise AudioEmbeddingError("audio volume must be between zero and one")
     source_video = video_path.expanduser()
