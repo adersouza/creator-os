@@ -20,6 +20,12 @@ Dry run prints the exact commands and paths. Apply updates only local Reference
 and Campaign data and exports the audio catalog; it never touches
 ThreadsDashboard or a provider.
 
+Campaign's `create --intent recreate_reel --through analyze` also writes
+canonical reference evidence here only when explicitly applied and authorized.
+It deduplicates platform/media identity and exact bytes, stores private
+derivatives outside Git, and keeps the inspiration Reel distinct from creator
+rendered assets.
+
 ## Package CLI
 
 Inspect all package-owned commands without side effects:

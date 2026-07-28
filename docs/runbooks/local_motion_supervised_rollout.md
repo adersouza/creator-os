@@ -1,5 +1,10 @@
 # Supervised Local Motion Rollout: 10 -> 25 -> 50 -> 100
 
+> **Historical advanced-runbook only.** Local Wan/LTX, Arena, and Router are
+> not normal production providers or fallbacks. This runbook preserves an
+> evidence-compatible procedure for an explicitly authorized research run; it
+> does not describe the current Creator OS product path.
+
 This is a later operator-approved media rollout. It does not authorize social
 publishing.
 

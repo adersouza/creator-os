@@ -20,6 +20,14 @@ scripts/creator-os create \
   --accounts bennett_s33 \
   --audio embedded_trending
 
+scripts/creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-url 'https://www.instagram.com/reel/...' \
+  --recreate-mode auto \
+  --through analyze \
+  --audio auto
+
 scripts/creator-os generate --mode library_reuse --apply \
   --folder /path/to/media --campaign campaign_slug --model model_slug
 
@@ -42,6 +50,9 @@ Ordinary production uses `create --creator --intent --count --execution`; it
 does not expose the provider, model, recipe, source path, seed, task ID, Arena,
 or Router. The older mode catalog remains the advanced/manual generation
 surface for library, still, and research workflows.
+`recreate_reel` is the count-one exception that accepts one explicit
+reference URL or local video. Its analyze stage is provider-free and its
+planner keeps every Soul anchor and experimental video route approval-gated.
 The five current modes are `library_reuse`, `soul_static`, `local_wan`,
 `best_motion`, and `reference_video_remix`.
 

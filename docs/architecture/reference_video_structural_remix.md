@@ -10,18 +10,19 @@ production path.
 
 ### Purpose
 
-Use one private, operator-authorized short Reel as structural inspiration while
-preserving the approved creator identity:
+Use one private, operator-authorized Reel as inspiration while preserving the
+approved creator identity:
 
 ```text
-private authorized reference Reel
-  -> bounded local technical/motion analysis
-  -> exact reference path and SHA
-  -> rank already-approved same-creator images by framing compatibility
-  -> select one approved Soul-generated creator image
-  -> one pinned Higgsfield Seedance 2 request
-  -> generated audio disabled
-  -> reference audio, Audio Radar finishing, or explicit silence
+Instagram/TikTok/Short/direct-media URL or local video
+  -> private temporary download or local-file intake
+  -> canonical platform/media identity + exact SHA
+  -> full-source analysis, clean frame candidates, and reference-audio evidence
+  -> deterministic classification and bounded coherent excerpt
+  -> one scene-matched Soul anchor or two endpoint anchors
+  -> exact-SHA human anchor approval
+  -> truthfully matched Higgsfield recreation mode
+  -> provider-generated audio disabled or explicitly replaced
   -> technical QC
   -> exact-SHA operator review
 ```
@@ -44,50 +45,56 @@ It does not claim:
 
 ### Inputs
 
-- exactly one local reference video;
-- explicit `--reference-authorized`;
-- source platform label;
-- one already-approved same-creator image selected internally;
-- creator, account, audio policy, and finite credit cap;
+- exactly one `--reference-url` or `--reference-video`;
+- explicit `--reference-authorized` before persistent apply;
+- creator, account, `--recreate-mode`, audio policy, and finite credit cap;
+- approved creator source inventory from which anchors may be planned;
 - `count=1`.
 
-Talking references fail before quote or submission.
+`--through analyze` stops before a provider route or paid request. Dry-run uses
+temporary files and makes no database mutation. Authorized apply persists
+private artifacts outside Git and remains idempotent for the same
+platform/media identity and exact SHA.
 
 ### Provider binding
 
-The active recipe is pinned to Higgsfield Seedance 2:
+The planner exposes only contracts proven by the authenticated Higgsfield
+catalog:
 
-- creator image in `image_references`;
-- inspiration Reel in `video_references`;
-- portrait 9:16 output;
-- 720p standard mode;
-- bounded 4–15 second duration;
-- `generate_audio=false`.
+| Mode | Contract | Status |
+|---|---|---|
+| `passive` | approved Soul anchor to Kling 3, sound off | accepted after anchor approval |
+| `structural` | Soul anchor in `image_references`, Reel in `video_references`, Seedance 2 720p standard, generated audio off | experimental structural recreation |
+| `motion` | `kling3_0_motion_control`, image + video reference, Pro mode | experimental; never an automatic submission |
+| `first_last` | two approved Soul endpoints to Kling 3 start/end, sound off | experimental transition |
+| `talking` | exact supplied-voice entitlement required | blocked as `talking_route_not_entitled` |
 
 Soul is the upstream identity system. Seedance consumes the approved
 Soul-generated image bytes; it does not receive a raw Soul ID.
 
-Normal create does not choose between providers and does not fall back to Kling
-Motion Control, WaveSpeed, or a local model.
+Normal create never falls back to WaveSpeed or a local model. `AUTO` may
+recommend a compatible route but may not silently submit experimental Motion
+Control, structural Seedance, first/last, talking, multi-shot, or multi-person
+work.
 
 ### Audio
 
-The explicit policies are:
-
-- `original_embedded` / `reference_audio_required` — select and embed the exact
-  reference-video audio segment;
-- `embedded_trending` — use canonical Audio Radar finishing;
-- `silent_allowed` — explicit silence.
+`--audio auto` requires creator/reference speech for talking, requires reference
+audio for synchronized dance, prefers an explicit comparison for eligible
+structural or motion audio, and uses Audio Radar for passive work. Explicit
+reference audio, embedded trending audio, and explicit silence remain separate
+policies.
 
 The final audio receipt binds the exact segment and final MP4 SHA. Talking
 creator speech is unresolved and cannot be inferred from reference audio.
 
 ### Spend and ambiguity
 
-Dry-run performs local analysis and authenticated read-only quoting. Apply
-requires explicit authorization and a finite credit ceiling. One invocation
-submits at most one request. An ambiguous submission is preserved for
-reconciliation and never blindly retried.
+Dry-run performs local analysis and may use authenticated read-only quoting.
+Apply requires explicit reference authority, anchor approval, paid
+authorization, and a finite credit ceiling. One invocation submits at most one
+video request. An ambiguous submission is preserved for reconciliation and
+never blindly retried.
 
 ### Review
 
@@ -159,7 +166,7 @@ Neither may present the reference performer as the intended creator.
 ## Deliberate Non-Goals
 
 - no arbitrary multi-scene decomposition;
-- no private-platform login automation;
+- no browser-controlled third-party downloader websites;
 - no copying captions/transcripts from the reference;
 - no automatic paid fallback;
 - no bypass of source approval, distinctness, or final review;

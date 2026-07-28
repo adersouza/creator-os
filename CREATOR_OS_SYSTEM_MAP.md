@@ -882,12 +882,16 @@ remains unresolved.
 |---|---|
 | `creator-os status` | read-only source/runtime/config/database status |
 | `creator-os status --live-read-only` | credential-scrubbed provider and handoff probes; zero generation/product writes |
+| `creator-os doctor` | read-only fixture-backed integrity audit |
 | `creator-os sources` | inspect or explicitly approve creator-bound sources |
 | `creator-os media` | reconcile fully attributable existing Creator OS media |
 | `creator-os plan` | create or operate supervised local plans and cohorts |
+| `creator-os reference-refresh` | preview/apply local Reference and audio catalog refresh |
 | `creator-os audio status` | read-only active-library summary |
 | `creator-os audio refresh` | bounded private discovery/cache refresh; no Reel or publishing |
 | `creator-os create` | intent-first production dry-run/apply; no export/schedule/publish |
+| `creator-os video-bakeoff` | inspect retained provider bakeoff evidence only |
+| `creator-os quality-benchmark` | validate the fixed exact-source creative benchmark without generation |
 | `creator-os review` | read-only creative/QC review |
 | `creator-os approve` | immutable exact-SHA creative approval |
 | `creator-os export` | bounded validated draft handoff only |
@@ -929,7 +933,8 @@ There is intentionally no Creator OS `schedule` or `publish` command.
 - direct reference-image Soul generation;
 - static MP4;
 - Higgsfield Kling 3 / Seedance 2 passive motion;
-- bounded Seedance structural recreation;
+- canonical URL/local reference intake, analysis, audio identity, anchor
+  planning, and approval-gated recreation modes;
 - placement and caption rendering;
 - Audio Radar embedded-audio fulfillment;
 - ContentForge direct QC;
@@ -951,9 +956,11 @@ product decision and operator-approved evidence.
 - WaveSpeed jobs, costs, receipts, hashes, media, and lineage;
 - retired `best_only_kling` and `motion_edit` records;
 - older local-model/Arena evidence;
-- migration and cleanup reports;
 - prior runtime promotion receipts;
 - older schema versions through their read-only compatibility paths.
+
+Superseded migration plans and cleanup reports were removed from the working
+tree; Git history remains their archive.
 
 ### Removed product weight
 
@@ -1013,7 +1020,6 @@ Use documentation in this order:
 6. Active architecture/provider/runbook documents under `docs/`.
 7. Dated audits and explicitly historical documents — evidence from their
    capture date only.
-8. `docs/archive/` — historical context only; never runtime instruction.
 
 If an old audit conflicts with current architecture, the current system map and
 actual code win. If a volatile SHA, account, provider balance, schedule, or

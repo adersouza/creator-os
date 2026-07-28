@@ -31,6 +31,12 @@ Soul identity, prompt evidence, provider receipts, accepted-still hashes, QC,
 and downstream asset IDs remain in lineage. Motion is never the only output;
 the static fallback survives a local or remote generation failure.
 
+The count-one `recreate_reel` planner may provide a reviewed Soul anchor plus a
+private reference excerpt to a truthfully matched Higgsfield recipe. Passive
+Kling is accepted; structural Seedance, Motion Control, and first/last are
+experimental and never silently submitted by AUTO. Talking remains blocked
+without exact supplied-voice entitlement.
+
 ## Operator Commands
 
 Use the intent-first monorepo command for normal work:

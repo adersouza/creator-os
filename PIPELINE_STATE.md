@@ -11,14 +11,12 @@ read-only status before an operation.
 
 | Layer | Current evidence |
 |---|---|
-| Creator OS source | clean reviewed source at `e9b05663718013dc4932c24cf9dd175b2c97fc00` when this snapshot was written |
-| `origin/main` | matched the source SHA above |
-| Hosted release | exact-SHA `release` and `sbom` succeeded |
-| Hosted security | Secret scan, CodeQL JavaScript/TypeScript, CodeQL Python, Trivy, and Scorecard succeeded |
-| Open Creator OS PRs | none at reconciliation time |
-| Source worktrees | source `main` plus the active detached runtime only |
-| Machine runtime | clean detached checkout at `649a3e8d0a198487a2ccbc110be75f5adfa0deb4` |
-| Source/runtime alignment | **not aligned**; promotion was deliberately not part of the cleanup/docs work |
+| `origin/main` | `f844f4b6da87bb50c67582179ffce77e512bd14a` |
+| Hosted release/security | exact-SHA evidence authorized the recorded promotion; not re-run during this docs cleanup |
+| Machine runtime | clean detached checkout at `f844f4b6da87bb50c67582179ffce77e512bd14a` |
+| Source/runtime alignment | **aligned** at the snapshot SHA |
+| Runtime health | the promotion recorded 9/9 read-only health; this reconciliation reran 7 local checks successfully and left 2 network probes `NOT_RUN` |
+| Development worktrees | multiple retained development worktrees exist; their presence is not runtime state |
 
 Run this before relying on the snapshot:
 
@@ -31,7 +29,7 @@ scripts/creator-os status --json
 
 ## Current Read-Only Health Snapshot
 
-The 2026-07-28 source and runtime status checks both confirmed:
+The 2026-07-28 runtime status check confirmed:
 
 - clean, known checkout identity;
 - virtual-environment entrypoints bound to their checkout;
@@ -41,7 +39,8 @@ The 2026-07-28 source and runtime status checks both confirmed:
 - Campaign, Reference, Reel manifest, and render-queue databases resolve under
   `~/.creator-os/state`;
 - the configured Campaign database is readable and contains the Stacey learning
-  cohort campaign.
+  cohort campaign;
+- source and runtime are aligned at the exact SHA above.
 
 Provider readiness and the ThreadsDashboard handshake were `NOT_RUN` in this
 snapshot because only local read-only status was requested. Do not infer a live
@@ -70,8 +69,10 @@ provider or product seam pass.
 
 ### Experimental
 
-- count-one structural `recreate_reel` through approved creator image plus
-  authorized private reference video and pinned Seedance 2.
+- URL or local-file `recreate_reel` intake, analysis, anchor planning, and
+  bounded quote planning;
+- passive, structural Seedance, experimental Motion Control, and first/last
+  recreation modes behind their explicit approval gates.
 
 ### Unresolved
 
@@ -90,12 +91,12 @@ Historical receipts, rows, media, hashes, and lineage remain readable.
 
 ## Current Audio Snapshot
 
-The read-only Audio Radar status at reconciliation time reported:
+The runtime read-only Audio Radar status at reconciliation time reported:
 
 - 17 active/resolved active tracks;
-- 25 playable cache objects;
+- 26 playable cache objects;
 - approximately 129 MB cached bytes;
-- 126 catalog rows;
+- 127 catalog rows;
 - one retained production selection;
 - zero publication-linked performance rollups.
 
@@ -123,20 +124,14 @@ remains final scheduling authority.
 
 ## Current Repository Weight
 
-After the 2026-07-28 cleanup:
+Tracked source was approximately 16.88 MiB before the current documentation
+deduplication and 16.69 MiB afterward. Runtime environments, private media,
+Audio Radar bytes, QC models, databases, receipts, and backups live outside
+tracked source and must not be treated as repository bloat.
 
-- source checkout: approximately 3.0 GB;
-- tracked repository content: approximately 16.65 MiB;
-- root `node_modules`: approximately 228 MB;
-- Python environment: approximately 1.8 GB;
-- retained root `tmp` evidence: approximately 72 MB;
-- Reel/source/media/QC package data: approximately 759 MB.
-
-The retained weight is primarily the active Python environment, QC models,
-audio, canonical media, and referenced evidence. These are not dead source
-code. The cleanup removed unreferenced scratch generations, an abandoned E2E
-sandbox, an obsolete split-repository copy, stale dependency installs, merged
-branches, and completed worktrees.
+This cleanup removes only redundant tracked plans/audits and duplicated
+documentation. It does not delete local environments, canonical state, media,
+model files, receipts, worktrees, or rollback evidence.
 
 ## Still Separate And Operator-Gated
 

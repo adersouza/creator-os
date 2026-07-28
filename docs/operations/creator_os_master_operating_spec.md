@@ -247,6 +247,33 @@ Intake:
 
 Exact-SHA review and compatible plan attachment remain separate actions.
 
+## Reference-Reel Policy
+
+`recreate_reel` accepts one explicitly authorized Instagram, TikTok, YouTube
+Short, direct-media URL, or local video. Creator OS uses its own downloader and
+private local storage; third-party downloader websites are not part of the
+system.
+
+- Dry-run downloads and derives media only in a temporary directory.
+- Authorized apply deduplicates by platform/media identity and exact SHA,
+  stores private artifacts outside Git, and records the reference audio as one
+  canonical Audio Radar identity plus occurrence.
+- `--through analyze` stops before provider selection, spend authorization, or
+  generation.
+- Planning classifies the source, selects a bounded coherent excerpt, and
+  proposes scene-matched Soul anchors.
+- Every generated anchor requires human identity and
+  `WOULD_USE_AS_ANCHOR` approval before video generation.
+- `AUTO` may recommend an experimental route but may not silently submit it.
+- Passive Kling 3 is accepted; structural Seedance, Motion Control, and
+  first/last remain explicitly reviewed experimental routes.
+- Motion Control does not claim exact choreography, Seedance does not claim
+  performer replacement, and talking remains blocked when exact supplied-voice
+  entitlement is absent.
+
+The inspiration Reel is reference evidence, never the intended creator asset.
+No intake or plan action exports, schedules, or publishes.
+
 ## Content Director Policy
 
 The Content Director is supervised planning inside Campaign Factory.

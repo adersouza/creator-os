@@ -29,6 +29,9 @@ Read in this order:
   — rollout truth and scale gates.
 - [`architecture/media_provenance_contract.md`](architecture/media_provenance_contract.md)
   — immutable media identity.
+- [`architecture/reference_video_structural_remix.md`](architecture/reference_video_structural_remix.md)
+  — canonical URL/local reference intake and truthfully bounded recreation
+  modes.
 - [`architecture/creative_approval_and_ai_disclosure.md`](architecture/creative_approval_and_ai_disclosure.md)
   — exact-SHA review and disclosure.
 - [`architecture/monorepo_deployment_promotion.md`](architecture/monorepo_deployment_promotion.md)
@@ -71,18 +74,19 @@ Read in this order:
 
 ## Research And Historical Evidence
 
-The following are retained for evidence and context, not current operator
-instructions:
+The following remain evidence or research, not current operator instructions:
 
-- `docs/archive/`;
-- dated migration, stabilization, simplification, debloat, local-model, and
-  split-repository documents;
-- `CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md`;
-- `CREATOR_OS_BLOAT_INVENTORY.md`;
-- `CREATOR_OS_SIMPLIFICATION_PLAN.md`;
-- `reports/`;
-- `research/`;
-- local Wan/LTX Arena/Router documentation.
+- dated provider capability audits and security closure records;
+- local Wan/LTX Arena/Router documentation for the advanced compatibility
+  surface;
+- package-specific research and validation notes that still explain retained
+  code or evidence.
+
+Redundant migration plans, simplification ledgers, bloat inventories, dated
+cleanup reports, and superseded root research drafts were removed from the
+working tree after their conclusions were incorporated into active policy or
+package documentation. Git history remains their archive; they are not product
+documentation.
 
 Historical rows, receipts, media, and hashes remain readable even when the
 corresponding execution path is no longer active.
