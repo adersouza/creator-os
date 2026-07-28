@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .content_director_schema import CONTENT_DIRECTOR_SCHEMA
+from .existing_media_schema import EXISTING_MEDIA_SCHEMA
 
 BASE_SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -1495,4 +1496,4 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
   last_synced_at TEXT NOT NULL
 );
 """
-SCHEMA = BASE_SCHEMA + CONTENT_DIRECTOR_SCHEMA
+SCHEMA = BASE_SCHEMA + CONTENT_DIRECTOR_SCHEMA + EXISTING_MEDIA_SCHEMA

@@ -234,6 +234,19 @@ def _creative_approval_command(*args: str) -> list[str]:
     ]
 
 
+def _existing_media_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.existing_media",
+        *args,
+    ]
+
+
 def _runtime_promotion_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -299,6 +312,32 @@ def _parser() -> argparse.ArgumentParser:
         source_decision.add_argument("--operator", required=True)
         source_decision.add_argument("--reason", required=True)
         source_decision.add_argument("--apply", action="store_true")
+
+    media = sub.add_parser(
+        "media",
+        help="reconcile fully attributable existing Creator OS media",
+    )
+    media_sub = media.add_subparsers(dest="media_action", required=True)
+    intake_existing = media_sub.add_parser("intake-existing")
+    intake_existing.add_argument("--manifest", type=Path, required=True)
+    intake_mode = intake_existing.add_mutually_exclusive_group(required=True)
+    intake_mode.add_argument("--dry-run", action="store_true")
+    intake_mode.add_argument("--apply", action="store_true")
+    review_existing = media_sub.add_parser("review-existing")
+    review_existing.add_argument("--asset", required=True)
+    review_existing.add_argument("--final-sha", required=True)
+    review_existing.add_argument("--reviewer", required=True)
+    review_existing.add_argument(
+        "--verdict",
+        choices=["WOULD_POST", "USABLE_AFTER_EDIT", "REJECT"],
+        required=True,
+    )
+    for field in ("identity", "anatomy", "motion", "phone-native", "audio-fit"):
+        review_existing.add_argument(f"--{field}")
+    review_existing.add_argument("--notes")
+    review_mode = review_existing.add_mutually_exclusive_group(required=True)
+    review_mode.add_argument("--dry-run", action="store_true")
+    review_mode.add_argument("--apply", action="store_true")
 
     plan = sub.add_parser(
         "plan",
@@ -379,6 +418,13 @@ def _parser() -> argparse.ArgumentParser:
     plan_replan_mode = plan_replan.add_mutually_exclusive_group(required=True)
     plan_replan_mode.add_argument("--dry-run", action="store_true")
     plan_replan_mode.add_argument("--apply", action="store_true")
+    plan_attach = plan_sub.add_parser("attach-existing")
+    plan_attach.add_argument("plan_id")
+    plan_attach.add_argument("--item", required=True)
+    plan_attach.add_argument("--asset", required=True)
+    plan_attach_mode = plan_attach.add_mutually_exclusive_group(required=True)
+    plan_attach_mode.add_argument("--dry-run", action="store_true")
+    plan_attach_mode.add_argument("--apply", action="store_true")
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
@@ -775,6 +821,39 @@ def main(argv: list[str] | None = None) -> int:
             if args.apply:
                 command.append("--apply")
         return _run(command)
+    if args.command == "media":
+        if args.media_action == "intake-existing":
+            return _run(
+                _existing_media_command(
+                    "intake",
+                    "--manifest",
+                    str(args.manifest.expanduser().resolve()),
+                    "--apply" if args.apply else "--dry-run",
+                )
+            )
+        command = _existing_media_command(
+            "review",
+            "--asset",
+            args.asset,
+            "--final-sha",
+            args.final_sha,
+            "--reviewer",
+            args.reviewer,
+            "--verdict",
+            args.verdict,
+            "--apply" if args.apply else "--dry-run",
+        )
+        for flag, value in (
+            ("--identity", args.identity),
+            ("--anatomy", args.anatomy),
+            ("--motion", args.motion),
+            ("--phone-native", args.phone_native),
+            ("--audio-fit", args.audio_fit),
+            ("--notes", args.notes),
+        ):
+            if value:
+                command.extend([flag, value])
+        return _run(command)
     if args.command == "plan":
         if args.plan_action == "show":
             return _run(_content_director_command("show", args.plan_id))
@@ -848,6 +927,19 @@ def main(argv: list[str] | None = None) -> int:
                 _content_director_command(
                     "replan",
                     args.plan_id,
+                    "--apply" if args.apply else "--dry-run",
+                )
+            )
+        if args.plan_action == "attach-existing":
+            return _run(
+                _existing_media_command(
+                    "attach",
+                    "--plan",
+                    args.plan_id,
+                    "--item",
+                    args.item,
+                    "--asset",
+                    args.asset,
                     "--apply" if args.apply else "--dry-run",
                 )
             )
