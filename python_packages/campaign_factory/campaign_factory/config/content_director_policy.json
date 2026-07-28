@@ -1,0 +1,82 @@
+{
+  "schema": "creator_os.content_director_policy.v1",
+  "version": 1,
+  "defaultTimezone": "America/New_York",
+  "defaultAutonomyMode": "SUPERVISED",
+  "weeklyOutputTargetPerAccount": 5,
+  "defaultDurationSeconds": 5,
+  "estimatedCreditsPerPassiveReel": 15.0,
+  "costEvidence": "observed_three_job_kling_canary_2026_07_27",
+  "objectives": {
+    "GROWTH": {
+      "exploit": 0.65,
+      "controlledVariation": 0.2,
+      "explore": 0.15,
+      "description": "favor approved evidence while retaining bounded variation"
+    },
+    "CONSISTENCY": {
+      "exploit": 0.75,
+      "controlledVariation": 0.2,
+      "explore": 0.05,
+      "description": "favor stable approved patterns and conservative cadence"
+    },
+    "ENGAGEMENT": {
+      "exploit": 0.65,
+      "controlledVariation": 0.25,
+      "explore": 0.1,
+      "description": "favor approved interaction-oriented patterns"
+    },
+    "PROFILE_CURIOSITY": {
+      "exploit": 0.6,
+      "controlledVariation": 0.25,
+      "explore": 0.15,
+      "description": "favor curiosity and visual-first approved patterns"
+    },
+    "CONTENT_TESTING": {
+      "exploit": 0.4,
+      "controlledVariation": 0.35,
+      "explore": 0.25,
+      "description": "increase controlled tests while changing one declared variable"
+    },
+    "WINNER_EXPANSION": {
+      "exploit": 0.75,
+      "controlledVariation": 0.25,
+      "explore": 0.0,
+      "description": "reuse one measured approved pattern and vary one component"
+    },
+    "WARMING": {
+      "exploit": 0.8,
+      "controlledVariation": 0.2,
+      "explore": 0.0,
+      "description": "lower-risk approved content at reduced cadence"
+    },
+    "MAINTENANCE": {
+      "exploit": 0.7,
+      "controlledVariation": 0.2,
+      "explore": 0.1,
+      "description": "maintain cadence without excessive repetition"
+    }
+  },
+  "intentMix": [
+    "passive_selfie",
+    "flirty_portrait",
+    "lifestyle",
+    "outfit",
+    "animate_existing"
+  ],
+  "patternFamilies": [
+    "curiosity",
+    "validation",
+    "playful_confidence",
+    "relatable",
+    "lifestyle",
+    "visual_first"
+  ],
+  "audioProfiles": {
+    "passive_selfie": ["playful", "relaxed", "neutral"],
+    "flirty_portrait": ["flirty", "confident", "playful"],
+    "outfit": ["fashion", "energetic", "confident"],
+    "lifestyle": ["lifestyle", "relaxed", "neutral"],
+    "animate_existing": ["neutral", "playful", "lifestyle"]
+  }
+}

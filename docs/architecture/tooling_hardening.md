@@ -39,9 +39,10 @@ publishing, QStash, metrics sync, account health, or production inventory.
   non-increasing mypy backlogs plus minimum checked-file counts for Campaign,
   Reference, and Reel Factory. A reduced error count must lower the recorded
   ceiling; excluding files cannot make the gate pass.
-- `pnpm check:prompts` runs Promptfoo against local captured fixtures and local
-  Python providers only. It disables hosted generation, telemetry, sharing,
-  updates, and caching; prompt output is never sent to a paid grader.
+- `pnpm check:prompts` runs three deterministic captured-fixture checks directly
+  through local Python prompt builders and contract assertions. It has no
+  network or provider client, writes no state, and never sends prompt output to
+  a paid grader.
 - Dashboard Storybook and visual regression checks belong upstream in
   ThreadsDashboard; Creator OS no longer carries a dashboard mirror.
 - `pnpm graphify:update` refreshes the local architecture graph. The
@@ -52,9 +53,9 @@ publishing, QStash, metrics sync, account health, or production inventory.
 
 ## Targeted Stability Tooling
 
-- Promptfoo pins accepted Gemini/Soul prompt digests, validates captured model
-  output against canonical contracts, and retains explicit human rubric text
-  without pretending to automate subjective review.
+- The local prompt regression runner pins accepted Gemini/Soul prompt digests,
+  validates captured model output against canonical contracts, and retains
+  explicit human rubric text without pretending to automate subjective review.
 - `hypothesis-jsonschema` fuzzes representative strict and permissive Pipeline
   Contract consumers with valid, malformed, boundary, and unknown-field
   payloads. It does not redefine each schema's compatibility policy.

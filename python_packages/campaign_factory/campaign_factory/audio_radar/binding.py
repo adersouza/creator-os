@@ -24,11 +24,14 @@ def bind_embedding_receipt(
 ) -> dict[str, Any]:
     """Atomically bind an Audio Radar derivative and append its lineage edge."""
 
-    if (
-        embedding_receipt.get("schema") != "creator_os.audio_embedding_receipt.v1"
-        or embedding_receipt.get("policy") != "embedded_trending_required"
-    ):
-        raise AudioBindingError("receipt is not embedded_trending_required")
+    policy = str(embedding_receipt.get("policy") or "")
+    if embedding_receipt.get(
+        "schema"
+    ) != "creator_os.audio_embedding_receipt.v1" or policy not in {
+        "embedded_trending_required",
+        "original_embedded",
+    }:
+        raise AudioBindingError("receipt has an unsupported embedded-audio policy")
     verification = _record(embedding_receipt.get("verification"), "verification")
     original_video = _record(embedding_receipt.get("originalVideo"), "original video")
     final_video = _record(embedding_receipt.get("finalVideo"), "final video")
@@ -95,7 +98,7 @@ def bind_embedding_receipt(
         edge_id = f"edge_audio_{final_sha[:24]}"
         lineage = {
             "schema": "campaign_factory.audio_embedding_lineage.v1",
-            "policy": "embedded_trending_required",
+            "policy": policy,
             "originalVideo": original_video,
             "selectedTrack": embedding_receipt.get("selectedTrack"),
             "selectedSegment": embedding_receipt.get("selectedSegment"),
@@ -210,7 +213,11 @@ def _bound_metadata(
         **metadata,
         "asset_state": "approved_but_not_publishable",
         "audioBurned": True,
-        "embeddedAudioMode": "embedded_trending",
+        "embeddedAudioMode": (
+            "embedded_trending"
+            if embedding_receipt.get("policy") == "embedded_trending_required"
+            else "embedded_original"
+        ),
         "audioIntent": audio_intent,
         "audioEmbeddingReceipt": embedding_receipt,
         "output": {"path": str(final_path), "sha256": final_sha},

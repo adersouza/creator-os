@@ -71,6 +71,21 @@ def test_embedded_original_intent_carries_fulfillment_proof() -> None:
     }
 
 
+def test_original_audio_can_remain_pending_before_post_render_embedding() -> None:
+    intent = build_motion_audio_intent(
+        policy="original_embedded",
+        audio={"mode": "none"},
+        output_sha256="b" * 64,
+        selected_at="2026-07-28T04:25:18Z",
+    )
+
+    assert intent["status"] == "blocked"
+    assert intent["fulfillment"]["status"] == "pending"
+    assert intent["fulfillment"]["audio_present"] is False
+    assert intent["fulfillment"]["proof_type"] == "embedded_output_audio_stream"
+    assert intent["gates"]["allow_live_schedule"] is False
+
+
 def test_local_motion_rejects_unapplied_embedded_mix_settings() -> None:
     with pytest.raises(ValueError, match="start offsets are not applied"):
         build_motion_audio_intent(

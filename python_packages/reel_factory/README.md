@@ -63,7 +63,7 @@ scripts/creator-os generate --mode local_wan --dry-run \
 
 scripts/creator-os create \
   --creator stacey --intent passive_selfie --count 3 \
-  --execution cloud --accounts stacey-main \
+  --execution cloud --accounts bennett_s33 \
   --audio embedded_trending
 ```
 

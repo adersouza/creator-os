@@ -1,0 +1,41 @@
+{
+  "schema": "creator_os.content_director_fixture_proof.v1",
+  "truthLevel": "fixture_backed_implementation_proof",
+  "notRealOperationalAutonomy": true,
+  "scenario": {
+    "creator": "stacey",
+    "account": "stacey-main",
+    "horizonDays": 7,
+    "plannedNonTalkingReels": 5,
+    "autonomyMode": "SUPERVISED",
+    "blackoutDate": "2026-07-28",
+    "signedCreditCeiling": 100,
+    "activeExperimentVariable": "hook_family",
+    "metricCohorts": ["1h", "24h", "72h"]
+  },
+  "assertions": [
+    "approved_sources_only",
+    "supported_non_talking_intents_only",
+    "approved_patterns_only",
+    "supervised_learning_only",
+    "deterministic_no_learning_fallback",
+    "controlled_exploration_inside_policy",
+    "account_blackout_respected",
+    "per_account_minimum_gap_respected",
+    "audio_profile_resolves_at_finishing",
+    "estimated_spend_within_signed_ceiling",
+    "normal_generation_lane_delegation",
+    "operator_review_required",
+    "identity_complete_export_preview",
+    "missing_metrics_not_zero",
+    "replan_preserves_completed_lineage"
+  ],
+  "externalEffects": {
+    "paidProviderCalls": 0,
+    "productionDatabaseMutations": 0,
+    "exports": 0,
+    "schedules": 0,
+    "publications": 0,
+    "runtimePromotions": 0
+  }
+}

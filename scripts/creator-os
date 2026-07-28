@@ -47,6 +47,58 @@ def _audio_command(*args: str) -> list[str]:
     ]
 
 
+def _operator_status_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.operator_status",
+        *args,
+    ]
+
+
+def _source_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.source_governance",
+        *args,
+    ]
+
+
+def _quality_benchmark_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.creative_quality_benchmark",
+        *args,
+    ]
+
+
+def _content_director_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.content_director",
+        *args,
+    ]
+
+
 def _reference_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -195,6 +247,19 @@ def _creative_approval_command(*args: str) -> list[str]:
     ]
 
 
+def _existing_media_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.existing_media",
+        *args,
+    ]
+
+
 def _runtime_promotion_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -232,11 +297,215 @@ def _parser() -> argparse.ArgumentParser:
         "status", help="read-only live configuration/runtime status"
     )
     status.add_argument("--json", action="store_true")
+    status_scope = status.add_mutually_exclusive_group()
+    status_scope.add_argument("--creator")
+    status_scope.add_argument("--campaign")
+    status_scope.add_argument("--generation")
+    status_scope.add_argument("--publication")
+    status_scope.add_argument("--learning", action="store_true")
     status.add_argument(
         "--live-read-only",
         action="store_true",
         help="run configured zero-write network/provider probes",
     )
+
+    sources = sub.add_parser(
+        "sources",
+        help="inspect or explicitly approve creator-bound source inventory",
+    )
+    source_commands = sources.add_subparsers(dest="source_command", required=True)
+    source_list = source_commands.add_parser("list")
+    source_list.add_argument("--creator", required=True)
+    for action in ("approve", "reject"):
+        source_decision = source_commands.add_parser(action)
+        source_decision.add_argument("--creator", required=True)
+        source_decision.add_argument(
+            "--source", required=True, help="exact source ID, SHA-256, or path"
+        )
+        source_decision.add_argument("--operator", required=True)
+        source_decision.add_argument("--reason", required=True)
+        source_decision.add_argument("--apply", action="store_true")
+
+    media = sub.add_parser(
+        "media",
+        help="reconcile fully attributable existing Creator OS media",
+    )
+    media_sub = media.add_subparsers(dest="media_action", required=True)
+    intake_existing = media_sub.add_parser("intake-existing")
+    intake_existing.add_argument("--manifest", type=Path, required=True)
+    intake_mode = intake_existing.add_mutually_exclusive_group(required=True)
+    intake_mode.add_argument("--dry-run", action="store_true")
+    intake_mode.add_argument("--apply", action="store_true")
+    review_existing = media_sub.add_parser("review-existing")
+    review_existing.add_argument("--asset", required=True)
+    review_existing.add_argument("--final-sha", required=True)
+    review_existing.add_argument("--reviewer", required=True)
+    review_existing.add_argument(
+        "--verdict",
+        choices=["WOULD_POST", "USABLE_AFTER_EDIT", "REJECT"],
+        required=True,
+    )
+    for field in (
+        "identity",
+        "anatomy",
+        "motion",
+        "phone-native",
+        "audio-fit",
+        "facial-consistency",
+        "body-consistency",
+        "hands-anatomy",
+        "clothing-stability",
+        "background-stability",
+        "broad-action-fidelity",
+        "camera-framing-fidelity",
+        "pacing-fidelity",
+        "choreography-fidelity",
+        "social-native",
+        "attractiveness",
+        "obvious-ai-artifacts",
+        "audio-synchronization",
+    ):
+        review_existing.add_argument(f"--{field}")
+    review_existing.add_argument(
+        "--rejection-reason",
+        action="append",
+        default=[],
+        choices=[
+            "IDENTITY_FAILURE",
+            "BODY_PROPORTION_FAILURE",
+            "ANATOMY_FAILURE",
+            "MOTION_UNNATURAL",
+            "EXPRESSION_MISMATCH",
+            "LIGHTING_SYNTHETIC",
+            "SETTING_DRIFT",
+            "OUTFIT_DRIFT",
+            "CAMERA_FAILURE",
+            "AUDIO_MISMATCH",
+            "PROMPT_MISMATCH",
+            "DUPLICATE_OR_TOO_SIMILAR",
+            "NOT_POSTABLE_GENERAL",
+        ],
+    )
+    review_existing.add_argument("--notes")
+    review_mode = review_existing.add_mutually_exclusive_group(required=True)
+    review_mode.add_argument("--dry-run", action="store_true")
+    review_mode.add_argument("--apply", action="store_true")
+    media_sub.add_parser("review-summary")
+    freeze_caption = media_sub.add_parser("freeze-caption")
+    freeze_caption.add_argument("--asset", required=True)
+    freeze_caption.add_argument("--final-sha", required=True)
+    freeze_caption.add_argument("--caption", required=True)
+    freeze_caption.add_argument("--hashtag", action="append", default=[])
+    freeze_caption.add_argument(
+        "--overlay-state", choices=["NONE_FROZEN"], required=True
+    )
+    freeze_caption.add_argument("--pattern-source", required=True)
+    freeze_caption.add_argument("--reviewer", required=True)
+    freeze_mode = freeze_caption.add_mutually_exclusive_group(required=True)
+    freeze_mode.add_argument("--dry-run", action="store_true")
+    freeze_mode.add_argument("--apply", action="store_true")
+
+    plan = sub.add_parser(
+        "plan",
+        help="build or operate one supervised rolling creator content plan",
+    )
+    plan_sub = plan.add_subparsers(dest="plan_action")
+    plan.add_argument("--creator")
+    plan.add_argument("--horizon", default="7d")
+    plan.add_argument("--accounts")
+    plan.add_argument(
+        "--goal",
+        choices=[
+            "growth",
+            "consistency",
+            "engagement",
+            "profile_curiosity",
+            "content_testing",
+            "winner_expansion",
+            "warming",
+            "maintenance",
+        ],
+        default="growth",
+    )
+    plan.add_argument("--count", type=int)
+    plan.add_argument("--timezone", default="America/New_York")
+    plan.add_argument(
+        "--mode",
+        choices=["shadow", "supervised", "approved_plan_autopilot"],
+        default="supervised",
+    )
+    plan.add_argument("--max-credits", type=float)
+    plan.add_argument("--start-date")
+    plan_mode = plan.add_mutually_exclusive_group()
+    plan_mode.add_argument("--dry-run", action="store_true")
+    plan_mode.add_argument("--apply", action="store_true")
+    plan_cohort = plan_sub.add_parser(
+        "cohort",
+        help="build or apply one explicit supervised fixed-asset learning cohort",
+    )
+    plan_cohort.add_argument("--creator", required=True)
+    plan_cohort.add_argument("--account", required=True)
+    plan_cohort.add_argument("--intent", required=True)
+    plan_cohort.add_argument("--asset", action="append", required=True)
+    plan_cohort.add_argument("--observation-cohorts", required=True)
+    plan_cohort.add_argument("--mode", choices=["supervised"], required=True)
+    plan_cohort.add_argument("--timezone", default="America/New_York")
+    plan_cohort.add_argument("--start-date")
+    plan_cohort_mode = plan_cohort.add_mutually_exclusive_group(required=True)
+    plan_cohort_mode.add_argument("--dry-run", action="store_true")
+    plan_cohort_mode.add_argument("--apply", action="store_true")
+    plan_show = plan_sub.add_parser("show")
+    plan_show.add_argument("plan_id")
+    plan_list = plan_sub.add_parser("list")
+    plan_list.add_argument("--creator")
+    plan_list.add_argument("--limit", type=int, default=50)
+    plan_approve = plan_sub.add_parser("approve")
+    plan_approve.add_argument("plan_id")
+    plan_approve.add_argument("--operator", default="authenticated_local_operator")
+    plan_approve.add_argument("--reason", default="operator_approved_plan")
+    plan_schedule = plan_sub.add_parser("schedule-propose")
+    plan_schedule.add_argument("plan_id")
+    plan_schedule.add_argument("--blackout-date", action="append", default=[])
+    plan_schedule_mode = plan_schedule.add_mutually_exclusive_group(required=True)
+    plan_schedule_mode.add_argument("--dry-run", action="store_true")
+    plan_schedule_mode.add_argument("--apply", action="store_true")
+    plan_experiment = plan_sub.add_parser("experiment")
+    plan_experiment.add_argument("plan_id")
+    plan_experiment.add_argument("--variable", required=True)
+    plan_experiment.add_argument("--variant", action="append", required=True)
+    plan_experiment.add_argument("--hypothesis", required=True)
+    plan_experiment_mode = plan_experiment.add_mutually_exclusive_group(required=True)
+    plan_experiment_mode.add_argument("--dry-run", action="store_true")
+    plan_experiment_mode.add_argument("--apply", action="store_true")
+    plan_execute = plan_sub.add_parser("execute")
+    plan_execute.add_argument("plan_id")
+    plan_execute.add_argument("--max-credits", type=float)
+    plan_execute_mode = plan_execute.add_mutually_exclusive_group(required=True)
+    plan_execute_mode.add_argument("--dry-run", action="store_true")
+    plan_execute_mode.add_argument("--apply", action="store_true")
+    plan_review = plan_sub.add_parser("review")
+    plan_review.add_argument("plan_id")
+    plan_review.add_argument("--item")
+    plan_review.add_argument("--action")
+    plan_review.add_argument("--operator", default="authenticated_local_operator")
+    plan_review.add_argument("--reason")
+    plan_export = plan_sub.add_parser("export")
+    plan_export.add_argument("plan_id")
+    plan_export.add_argument("--approved-only", action="store_true")
+    plan_status = plan_sub.add_parser("status")
+    plan_status.add_argument("plan_id")
+    plan_replan = plan_sub.add_parser("replan")
+    plan_replan.add_argument("plan_id")
+    plan_replan_mode = plan_replan.add_mutually_exclusive_group(required=True)
+    plan_replan_mode.add_argument("--dry-run", action="store_true")
+    plan_replan_mode.add_argument("--apply", action="store_true")
+    plan_attach = plan_sub.add_parser("attach-existing")
+    plan_attach.add_argument("plan_id")
+    plan_attach.add_argument("--item", required=True)
+    plan_attach.add_argument("--asset", required=True)
+    plan_attach_mode = plan_attach.add_mutually_exclusive_group(required=True)
+    plan_attach_mode.add_argument("--dry-run", action="store_true")
+    plan_attach_mode.add_argument("--apply", action="store_true")
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
@@ -299,6 +568,10 @@ def _parser() -> argparse.ArgumentParser:
     audio_refresh_mode = audio_refresh.add_mutually_exclusive_group(required=True)
     audio_refresh_mode.add_argument("--dry-run", action="store_true")
     audio_refresh_mode.add_argument("--apply", action="store_true")
+    audio_status_parser = audio_commands.add_parser(
+        "status", help="summarize the canonical active audio library read-only"
+    )
+    audio_status_parser.add_argument("--json", action="store_true")
 
     create = sub.add_parser(
         "create",
@@ -314,6 +587,7 @@ def _parser() -> argparse.ArgumentParser:
             "outfit",
             "lifestyle",
             "animate_existing",
+            "recreate_reel",
             "motion_copy",
             "dance",
             "talking_selfie",
@@ -327,6 +601,10 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--accounts")
     create.add_argument("--speech-audio", type=Path)
     create.add_argument("--motion-reference", type=Path)
+    create.add_argument("--reference-video", type=Path)
+    create.add_argument("--reference-platform")
+    create.add_argument("--reference-authorized", action="store_true")
+    create.add_argument("--reference-talking", action="store_true")
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -338,6 +616,7 @@ def _parser() -> argparse.ArgumentParser:
             "creator_voice",
             "royalty_free",
             "silent_allowed",
+            "reference_audio_required",
         ],
         default="embedded_trending_required",
     )
@@ -350,6 +629,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     video_bakeoff.add_argument("args", nargs=argparse.REMAINDER)
+
+    quality_benchmark = sub.add_parser(
+        "quality-benchmark",
+        help="validate the small exact-source creative benchmark without generation",
+    )
+    quality_benchmark.add_argument("--manifest", type=Path, required=True)
+    quality_benchmark.add_argument("--future-max-credits", type=float)
+    quality_benchmark.add_argument("--dry-run", action="store_true", required=True)
 
     generate = sub.add_parser(
         "generate",
@@ -588,6 +875,22 @@ def main(argv: list[str] | None = None) -> int:
         effective_argv = ["advanced", surface, *effective_argv[1:]]
     args = _parser().parse_args(effective_argv)
     if args.command == "status":
+        status_filters = [
+            ("--creator", args.creator),
+            ("--campaign", args.campaign),
+            ("--generation", args.generation),
+            ("--publication", args.publication),
+        ]
+        selected = next(
+            ((flag, value) for flag, value in status_filters if value), None
+        )
+        if selected or args.learning:
+            command = _operator_status_command(
+                *(selected if selected else ("--learning",))
+            )
+            if args.json:
+                command.append("--json")
+            return _run(command)
         command = _doctor_command("--status")
         if args.json:
             command.append("--json")
@@ -597,6 +900,233 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         doctor_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_doctor_command(*doctor_args))
+    if args.command == "sources":
+        command = _source_command(args.source_command, "--creator", args.creator)
+        if args.source_command != "list":
+            command.extend(
+                [
+                    "--source",
+                    args.source,
+                    "--operator",
+                    args.operator,
+                    "--reason",
+                    args.reason,
+                ]
+            )
+            if args.apply:
+                command.append("--apply")
+        return _run(command)
+    if args.command == "media":
+        if args.media_action == "intake-existing":
+            return _run(
+                _existing_media_command(
+                    "intake",
+                    "--manifest",
+                    str(args.manifest.expanduser().resolve()),
+                    "--apply" if args.apply else "--dry-run",
+                )
+            )
+        if args.media_action == "review-summary":
+            return _run(_existing_media_command("review-summary"))
+        if args.media_action == "freeze-caption":
+            command = _existing_media_command(
+                "freeze-caption",
+                "--asset",
+                args.asset,
+                "--final-sha",
+                args.final_sha,
+                "--caption",
+                args.caption,
+                "--overlay-state",
+                args.overlay_state,
+                "--pattern-source",
+                args.pattern_source,
+                "--reviewer",
+                args.reviewer,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for hashtag in args.hashtag:
+                command.extend(["--hashtag", hashtag])
+            return _run(command)
+        command = _existing_media_command(
+            "review",
+            "--asset",
+            args.asset,
+            "--final-sha",
+            args.final_sha,
+            "--reviewer",
+            args.reviewer,
+            "--verdict",
+            args.verdict,
+            "--apply" if args.apply else "--dry-run",
+        )
+        for flag, value in (
+            ("--identity", args.identity),
+            ("--anatomy", args.anatomy),
+            ("--motion", args.motion),
+            ("--phone-native", args.phone_native),
+            ("--audio-fit", args.audio_fit),
+            ("--facial-consistency", args.facial_consistency),
+            ("--body-consistency", args.body_consistency),
+            ("--hands-anatomy", args.hands_anatomy),
+            ("--clothing-stability", args.clothing_stability),
+            ("--background-stability", args.background_stability),
+            ("--broad-action-fidelity", args.broad_action_fidelity),
+            ("--camera-framing-fidelity", args.camera_framing_fidelity),
+            ("--pacing-fidelity", args.pacing_fidelity),
+            ("--choreography-fidelity", args.choreography_fidelity),
+            ("--social-native", args.social_native),
+            ("--attractiveness", args.attractiveness),
+            ("--obvious-ai-artifacts", args.obvious_ai_artifacts),
+            ("--audio-synchronization", args.audio_synchronization),
+            ("--notes", args.notes),
+        ):
+            if value:
+                command.extend([flag, value])
+        for reason in args.rejection_reason:
+            command.extend(["--rejection-reason", reason])
+        return _run(command)
+    if args.command == "plan":
+        if args.plan_action == "cohort":
+            command = _content_director_command(
+                "cohort",
+                "--creator",
+                args.creator,
+                "--account",
+                args.account,
+                "--intent",
+                args.intent,
+                "--observation-cohorts",
+                args.observation_cohorts,
+                "--mode",
+                args.mode,
+                "--timezone",
+                args.timezone,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for asset in args.asset:
+                command.extend(["--asset", asset])
+            if args.start_date:
+                command.extend(["--start-date", args.start_date])
+            return _run(command)
+        if args.plan_action == "show":
+            return _run(_content_director_command("show", args.plan_id))
+        if args.plan_action == "list":
+            command = _content_director_command("list", "--limit", str(args.limit))
+            if args.creator:
+                command.extend(["--creator", args.creator])
+            return _run(command)
+        if args.plan_action == "approve":
+            return _run(
+                _content_director_command(
+                    "approve",
+                    args.plan_id,
+                    "--operator",
+                    args.operator,
+                    "--reason",
+                    args.reason,
+                )
+            )
+        if args.plan_action == "schedule-propose":
+            command = _content_director_command(
+                "schedule-propose",
+                args.plan_id,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for value in args.blackout_date:
+                command.extend(["--blackout-date", value])
+            return _run(command)
+        if args.plan_action == "experiment":
+            command = _content_director_command(
+                "experiment",
+                args.plan_id,
+                "--variable",
+                args.variable,
+                "--hypothesis",
+                args.hypothesis,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for value in args.variant:
+                command.extend(["--variant", value])
+            return _run(command)
+        if args.plan_action == "execute":
+            command = _content_director_command(
+                "execute",
+                args.plan_id,
+                "--apply" if args.apply else "--dry-run",
+            )
+            if args.max_credits is not None:
+                command.extend(["--max-credits", str(args.max_credits)])
+            return _run(command)
+        if args.plan_action == "review":
+            command = _content_director_command("review", args.plan_id)
+            for flag, value in (
+                ("--item", args.item),
+                ("--action", args.action),
+                ("--operator", args.operator),
+                ("--reason", args.reason),
+            ):
+                if value is not None:
+                    command.extend([flag, value])
+            return _run(command)
+        if args.plan_action == "export":
+            command = _content_director_command("export", args.plan_id)
+            if args.approved_only:
+                command.append("--approved-only")
+            return _run(command)
+        if args.plan_action == "status":
+            return _run(_content_director_command("status", args.plan_id))
+        if args.plan_action == "replan":
+            return _run(
+                _content_director_command(
+                    "replan",
+                    args.plan_id,
+                    "--apply" if args.apply else "--dry-run",
+                )
+            )
+        if args.plan_action == "attach-existing":
+            return _run(
+                _existing_media_command(
+                    "attach",
+                    "--plan",
+                    args.plan_id,
+                    "--item",
+                    args.item,
+                    "--asset",
+                    args.asset,
+                    "--apply" if args.apply else "--dry-run",
+                )
+            )
+        if not args.creator or not args.accounts:
+            print("plan requires --creator and --accounts", file=sys.stderr)
+            return 2
+        if args.dry_run == args.apply:
+            print("plan requires exactly one of --dry-run or --apply", file=sys.stderr)
+            return 2
+        command = _content_director_command(
+            "build",
+            "--creator",
+            args.creator,
+            "--horizon",
+            args.horizon,
+            "--accounts",
+            args.accounts,
+            "--goal",
+            args.goal,
+            "--timezone",
+            args.timezone,
+            "--mode",
+            args.mode,
+            "--apply" if args.apply else "--dry-run",
+        )
+        for flag, value in (
+            ("--count", args.count),
+            ("--max-credits", args.max_credits),
+            ("--start-date", args.start_date),
+        ):
+            if value is not None:
+                command.extend([flag, str(value)])
+        return _run(command)
     if args.command == "performance-sync":
         command = [str(ROOT / "scripts/run_threadsdash_performance_sync.sh")]
         if args.dry_run:
@@ -604,9 +1134,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run(command)
     if args.command == "learning-refresh":
         return _run(
-            _learning_command(
-                "refresh", "--apply" if args.apply else "--dry-run"
-            )
+            _learning_command("refresh", "--apply" if args.apply else "--dry-run")
         )
     if args.command == "learning-review":
         command = _learning_command("review", args.action)
@@ -638,6 +1166,11 @@ def main(argv: list[str] | None = None) -> int:
                 return code
         return 0
     if args.command == "audio":
+        if args.audio_command == "status":
+            command = _operator_status_command("--audio")
+            if args.json:
+                command.append("--json")
+            return _run(command)
         if args.audio_command != "refresh":
             raise AssertionError(f"unhandled audio command: {args.audio_command}")
         return _run(
@@ -675,6 +1208,19 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(["--speech-audio", str(args.speech_audio)])
         if args.motion_reference:
             command.extend(["--motion-reference", str(args.motion_reference)])
+        if args.reference_video:
+            command.extend(
+                [
+                    "--reference-video",
+                    str(args.reference_video.expanduser().resolve()),
+                ]
+            )
+        if args.reference_platform:
+            command.extend(["--reference-platform", args.reference_platform])
+        if args.reference_authorized:
+            command.append("--reference-authorized")
+        if args.reference_talking:
+            command.append("--reference-talking")
         if args.max_credits is not None:
             if not math.isfinite(args.max_credits) or args.max_credits <= 0:
                 print(
@@ -694,6 +1240,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "video-bakeoff":
         bakeoff_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_higgsfield_bakeoff_command(*bakeoff_args))
+    if args.command == "quality-benchmark":
+        command = _quality_benchmark_command(
+            "--manifest",
+            str(args.manifest.expanduser().resolve()),
+            "--dry-run",
+        )
+        if args.future_max_credits is not None:
+            command.extend(["--future-max-credits", str(args.future_max_credits)])
+        return _run(command)
     if args.command == "generate":
         print(
             "deprecated advanced compatibility command: ordinary production uses "

@@ -17,6 +17,17 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
+function positiveIntegerOption(name) {
+  var prefix = name + "=";
+  var raw = process.argv.find((value) => value.startsWith(prefix));
+  if (!raw) return undefined;
+  var value = Number.parseInt(raw.slice(prefix.length), 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(name + " must be a positive integer");
+  }
+  return value;
+}
+
 async function exists(file) {
   try {
     await access(file);
@@ -400,7 +411,10 @@ export async function buildCampaignAuditReport(options = {}) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  buildCampaignAuditReport({ generate: !hasFlag("--no-generate") })
+  buildCampaignAuditReport({
+    generate: !hasFlag("--no-generate"),
+    limit: positiveIntegerOption("--limit"),
+  })
     .then(async (report) => {
       if (hasFlag("--write-history")) {
         report.historyPath = await writeHistory(report);
