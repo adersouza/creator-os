@@ -167,6 +167,7 @@ def _toolchain_identity(swift: str, environment: dict[str, str]) -> dict[str, An
             "reason": "apple_vision_toolchain_identity_unavailable",
         }
     core = {
+        "available": True,
         "schema": "contentforge.apple_vision_toolchain.v1",
         "macosProductVersion": product.stdout.strip(),
         "macosBuildVersion": build.stdout.strip(),
@@ -183,7 +184,6 @@ def _toolchain_identity(swift: str, environment: dict[str, str]) -> dict[str, An
         ).hexdigest(),
     }
     return {
-        "available": True,
         **core,
         "toolchainFingerprint": _fingerprint(core),
     }
