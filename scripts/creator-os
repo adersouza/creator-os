@@ -73,6 +73,19 @@ def _source_command(*args: str) -> list[str]:
     ]
 
 
+def _quality_benchmark_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.creative_quality_benchmark",
+        *args,
+    ]
+
+
 def _content_director_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -334,10 +347,31 @@ def _parser() -> argparse.ArgumentParser:
     )
     for field in ("identity", "anatomy", "motion", "phone-native", "audio-fit"):
         review_existing.add_argument(f"--{field}")
+    review_existing.add_argument(
+        "--rejection-reason",
+        action="append",
+        default=[],
+        choices=[
+            "IDENTITY_FAILURE",
+            "BODY_PROPORTION_FAILURE",
+            "ANATOMY_FAILURE",
+            "MOTION_UNNATURAL",
+            "EXPRESSION_MISMATCH",
+            "LIGHTING_SYNTHETIC",
+            "SETTING_DRIFT",
+            "OUTFIT_DRIFT",
+            "CAMERA_FAILURE",
+            "AUDIO_MISMATCH",
+            "PROMPT_MISMATCH",
+            "DUPLICATE_OR_TOO_SIMILAR",
+            "NOT_POSTABLE_GENERAL",
+        ],
+    )
     review_existing.add_argument("--notes")
     review_mode = review_existing.add_mutually_exclusive_group(required=True)
     review_mode.add_argument("--dry-run", action="store_true")
     review_mode.add_argument("--apply", action="store_true")
+    media_sub.add_parser("review-summary")
 
     plan = sub.add_parser(
         "plan",
@@ -542,6 +576,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     video_bakeoff.add_argument("args", nargs=argparse.REMAINDER)
+
+    quality_benchmark = sub.add_parser(
+        "quality-benchmark",
+        help="validate the small exact-source creative benchmark without generation",
+    )
+    quality_benchmark.add_argument("--manifest", type=Path, required=True)
+    quality_benchmark.add_argument("--future-max-credits", type=float)
+    quality_benchmark.add_argument("--dry-run", action="store_true", required=True)
 
     generate = sub.add_parser(
         "generate",
@@ -831,6 +873,8 @@ def main(argv: list[str] | None = None) -> int:
                     "--apply" if args.apply else "--dry-run",
                 )
             )
+        if args.media_action == "review-summary":
+            return _run(_existing_media_command("review-summary"))
         command = _existing_media_command(
             "review",
             "--asset",
@@ -853,6 +897,8 @@ def main(argv: list[str] | None = None) -> int:
         ):
             if value:
                 command.extend([flag, value])
+        for reason in args.rejection_reason:
+            command.extend(["--rejection-reason", reason])
         return _run(command)
     if args.command == "plan":
         if args.plan_action == "show":
@@ -1075,6 +1121,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "video-bakeoff":
         bakeoff_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_higgsfield_bakeoff_command(*bakeoff_args))
+    if args.command == "quality-benchmark":
+        command = _quality_benchmark_command(
+            "--manifest",
+            str(args.manifest.expanduser().resolve()),
+            "--dry-run",
+        )
+        if args.future_max_credits is not None:
+            command.extend(["--future-max-credits", str(args.future_max_credits)])
+        return _run(command)
     if args.command == "generate":
         print(
             "deprecated advanced compatibility command: ordinary production uses "

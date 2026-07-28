@@ -61,6 +61,16 @@ Creator OS owns everything through validated draft export. It never treats
 asset generation, queue completion, QC, HMAC delivery, or QStash dispatch as
 proof of publication.
 
+Creative quality evidence stays inside the existing production and exact-SHA
+review path. Supported passive jobs carry one deterministic structured prompt
+card plus an advisory pre-spend compatibility record; unknown visual facts stay
+unknown, and only technical incompatibility can block. Human verdicts and
+explicit rejection reasons bind to the exact final MP4 SHA, so re-embedded
+bytes require a separate review. The small future benchmark is read-only and
+cannot route models or activate defaults. Operator details and authenticated
+Higgsfield claim boundaries live in
+`docs/operations/creative_quality_review.md`.
+
 ## Current Operational Truth
 
 Operational truth is intentionally not hard-coded in this durable document.

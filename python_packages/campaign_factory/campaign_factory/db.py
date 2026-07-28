@@ -110,6 +110,23 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _ensure_columns(
         conn,
+        "existing_media_asset_reviews",
+        {
+            "source_sha256": "TEXT",
+            "prompt_card_fingerprint": "TEXT",
+            "compiled_prompt_fingerprint": "TEXT",
+            "provider": "TEXT",
+            "model_tool": "TEXT",
+            "recipe_id": "TEXT",
+            "generation_id": "TEXT",
+            "seed": "INTEGER",
+            "content_intent": "TEXT",
+            "source_class": "TEXT",
+            "rejection_reasons_json": "TEXT NOT NULL DEFAULT '[]'",
+        },
+    )
+    _ensure_columns(
+        conn,
         "performance_snapshots",
         {
             "metrics_eligible": "INTEGER NOT NULL DEFAULT 0",
