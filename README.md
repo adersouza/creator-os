@@ -257,11 +257,18 @@ make install
 make reel-models       # optional local placement/identity model bundle
 
 make fast              # changed files and focused unit/contract tests
-make affected          # affected packages and cross-package seams
+make affected          # canonical PR-development check for affected packages and seams
 make release           # broad main/pre-deployment integration verification
 make exhaustive        # scheduled deep architecture/security/dead-code checks
 pnpm security:secrets  # local secret scan
 ```
+
+The affected tier avoids rerunning a focused test when the containing package
+suite is already selected and prints duration evidence for each command.
+Runtime promotion still runs complete verification and 9/9 health; it may skip
+only frozen dependency reconstruction when exact dependency inputs, toolchain
+identity, and the installed environments all match the prior verified marker.
+Missing or changed evidence falls back to the full frozen install.
 
 Package checks remain available for development, for example:
 
