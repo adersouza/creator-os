@@ -601,10 +601,18 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--accounts")
     create.add_argument("--speech-audio", type=Path)
     create.add_argument("--motion-reference", type=Path)
-    create.add_argument("--reference-video", type=Path)
+    reference_input = create.add_mutually_exclusive_group()
+    reference_input.add_argument("--reference-video", type=Path)
+    reference_input.add_argument("--reference-url")
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
+    create.add_argument(
+        "--recreate-mode",
+        choices=["auto", "passive", "motion", "structural", "first_last", "talking"],
+        default="auto",
+    )
+    create.add_argument("--through", choices=["analyze", "anchor"])
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -617,6 +625,7 @@ def _parser() -> argparse.ArgumentParser:
             "royalty_free",
             "silent_allowed",
             "reference_audio_required",
+            "auto",
         ],
         default="embedded_trending_required",
     )
@@ -1215,6 +1224,12 @@ def main(argv: list[str] | None = None) -> int:
                     str(args.reference_video.expanduser().resolve()),
                 ]
             )
+        if args.reference_url:
+            command.extend(["--reference-url", args.reference_url])
+        if args.intent == "recreate_reel":
+            command.extend(["--recreate-mode", args.recreate_mode])
+            if args.through:
+                command.extend(["--through", args.through])
         if args.reference_platform:
             command.extend(["--reference-platform", args.reference_platform])
         if args.reference_authorized:

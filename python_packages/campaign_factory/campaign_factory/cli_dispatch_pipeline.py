@@ -39,6 +39,7 @@ from .learning_cohort import (
 )
 from .production_lane import run_production_batch
 from .readiness_report import build_mass_production_readiness_report
+from .reference_url_workflow import run_reference_analysis
 from .trial_reels import (
     graduate_trial_reel,
     record_trial_observation,
@@ -61,6 +62,28 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         print_json(operator_control_check(settings))
         return 0
     if args.cmd == "create":
+        if (
+            args.intent == "recreate_reel"
+            and getattr(args, "through", None) == "analyze"
+        ):
+            print_json(
+                run_reference_analysis(
+                    cf,
+                    creator=args.creator,
+                    reference_url=getattr(args, "reference_url", None),
+                    reference_video_path=args.reference_video,
+                    reference_platform=args.reference_platform,
+                    reference_authorized=args.reference_authorized,
+                    declared_talking=args.reference_talking,
+                    apply=args.apply,
+                )
+            )
+            return 0
+        if getattr(args, "reference_url", None):
+            raise ValueError(
+                "--reference-url currently requires --through analyze; "
+                "generation routing arrives in the sequential recreation-mode change"
+            )
         print_json(
             run_production_batch(
                 cf,

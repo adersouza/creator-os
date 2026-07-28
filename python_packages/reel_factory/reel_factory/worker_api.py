@@ -45,6 +45,10 @@ from .reel_motion_prompt import (
     PASSIVE_SAFETY_CONSTRAINTS as _PASSIVE_SAFETY_CONSTRAINTS,
 )
 from .reel_motion_prompt import passive_safety_prompt as _passive_safety_prompt
+from .reel_url_import import (
+    canonicalize_reel_url as canonicalize_reel_url,
+)
+from .reel_url_import import download_reel_url as download_reel_url
 from .reference_video_remix import (
     build_reference_video_remix_plan,
     gemini_motion_analysis_instruction,

@@ -279,6 +279,45 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
     assert "deprecated" not in capsys.readouterr().err
 
 
+def test_create_routes_reference_url_analysis_without_provider_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    assert (
+        namespace["main"](
+            [
+                "create",
+                "--creator",
+                "stacey",
+                "--intent",
+                "recreate_reel",
+                "--reference-url",
+                "https://www.instagram.com/reel/DbQdqWFIvKQ/",
+                "--recreate-mode",
+                "auto",
+                "--through",
+                "analyze",
+                "--audio",
+                "auto",
+            ]
+        )
+        == 0
+    )
+    command = commands[0]
+    assert "--reference-url" in command
+    assert command[command.index("--recreate-mode") + 1] == "auto"
+    assert command[command.index("--through") + 1] == "analyze"
+    assert "--apply" not in command
+    assert "--soul-id" not in command
+
+
 def test_generate_alias_is_explicitly_deprecated(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

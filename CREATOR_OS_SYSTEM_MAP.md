@@ -262,11 +262,29 @@ creator + intent + count + execution + account group + audio preference
 -> validated ThreadsDashboard draft
 ```
 
-The separate `recreate_reel` intent adds a count-one experimental path:
+The separate `recreate_reel` intent now begins with a canonical Reference
+Factory intake stage:
 
 ```text
-private authorized reference Reel
--> bounded local analysis and exact reference SHA
+public Instagram/TikTok/Short URL or private local Reel
+-> anonymous yt-dlp, then private Chrome Default access only when explicitly required
+-> sanitized platform/media identity + exact audiovisual SHA
+-> full-source local analysis + literal endpoint and clean-frame derivatives
+-> deterministic hard-block-first anchor receipt
+-> exact encoded audio + canonical PCM + Chromaprint evidence
+-> one canonical Audio Radar identity and one occurrence per reference
+```
+
+`--through analyze` stops at that boundary with zero provider calls. Without
+`--apply`, download, frames, and audio extraction are temporary and databases
+are not mutated. Authorized apply stores private artifacts outside Git with
+0700 directories and 0600 files. Platform/media ID is the primary idempotency
+key, downloaded SHA is second, and URL aliases are only a pre-download hint.
+
+The existing experimental generation path then continues:
+
+```text
+canonical private reference
 -> already-approved same-creator Soul image
 -> fixed Higgsfield Seedance 2 image-reference + video-reference request
 -> generated audio disabled
