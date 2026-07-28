@@ -43,6 +43,12 @@ INTENT_PROMPTS: Final[dict[str, str]] = {
         "handheld camera behavior. No speaking, exaggerated movement, or "
         "identity-changing action."
     ),
+    "recreate_reel": (
+        "Recreate the supplied reference Reel's broad structure, performance, "
+        "camera progression, pacing, framing, and social energy with the approved "
+        "creator reference. Preserve identity and natural anatomy. Do not reproduce "
+        "source text overlays or generate audio."
+    ),
     "motion_copy": (
         "Transfer the driving video's body motion and timing faithfully while "
         "preserving the creator's face, body proportions, clothing, and portrait "

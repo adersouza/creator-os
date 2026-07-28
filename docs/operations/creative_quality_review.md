@@ -72,3 +72,20 @@ Current read-only findings:
   one. Element-creation cost is not exposed.
 
 Talking and motion copy remain unresolved production capabilities.
+
+## Reference-Reel recreation review
+
+`recreate_reel` is EXPERIMENTAL. Seedance 2 receives one approved
+Soul-generated creator image plus one private video reference; it is not an
+exact-choreography or creator-voice claim. Review remains bound to the exact
+final MP4 SHA and preserves separate judgments for creator identity, facial and
+body consistency, hands/anatomy, clothing and background stability, broad
+action fidelity, camera/framing fidelity, pacing fidelity, choreography
+fidelity, social-native appearance, attractiveness, obvious AI artifacts,
+audio synchronization, and would-post.
+
+Duration ratio, frame-rate difference, shot-count difference, cut timing,
+coarse motion energy, and framing progression are advisory measurements. They
+cannot replace operator review or turn an unapproved source into an eligible
+input. The intent remains experimental until a separately authorized paid
+output receives exact-SHA `WOULD_POST` approval.

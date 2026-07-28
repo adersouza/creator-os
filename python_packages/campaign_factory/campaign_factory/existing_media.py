@@ -30,7 +30,28 @@ ATTACHMENT_SCHEMA = "creator_os.existing_video_plan_attachment.v1"
 CONTRACT_VERSION = "existing-video-intake.v1"
 REVIEW_CONTRACT_VERSION = "existing-video-review.v2"
 REVIEW_VERDICTS = frozenset({"WOULD_POST", "USABLE_AFTER_EDIT", "REJECT"})
-REVIEW_RESULTS = frozenset({"identity", "anatomy", "motion", "phoneNative", "audioFit"})
+REVIEW_RESULTS = frozenset(
+    {
+        "identity",
+        "anatomy",
+        "motion",
+        "phoneNative",
+        "audioFit",
+        "facialConsistency",
+        "bodyConsistency",
+        "handsAnatomy",
+        "clothingStability",
+        "backgroundStability",
+        "broadActionFidelity",
+        "cameraFramingFidelity",
+        "pacingFidelity",
+        "choreographyFidelity",
+        "socialNativeAppearance",
+        "attractiveness",
+        "obviousAiArtifacts",
+        "audioSynchronization",
+    }
+)
 REJECTION_REASONS = frozenset(
     {
         "IDENTITY_FAILURE",
@@ -1319,6 +1340,19 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--motion")
     review.add_argument("--phone-native", dest="phoneNative")
     review.add_argument("--audio-fit", dest="audioFit")
+    review.add_argument("--facial-consistency", dest="facialConsistency")
+    review.add_argument("--body-consistency", dest="bodyConsistency")
+    review.add_argument("--hands-anatomy", dest="handsAnatomy")
+    review.add_argument("--clothing-stability", dest="clothingStability")
+    review.add_argument("--background-stability", dest="backgroundStability")
+    review.add_argument("--broad-action-fidelity", dest="broadActionFidelity")
+    review.add_argument("--camera-framing-fidelity", dest="cameraFramingFidelity")
+    review.add_argument("--pacing-fidelity", dest="pacingFidelity")
+    review.add_argument("--choreography-fidelity", dest="choreographyFidelity")
+    review.add_argument("--social-native", dest="socialNativeAppearance")
+    review.add_argument("--attractiveness")
+    review.add_argument("--obvious-ai-artifacts", dest="obviousAiArtifacts")
+    review.add_argument("--audio-synchronization", dest="audioSynchronization")
     review.add_argument(
         "--rejection-reason",
         action="append",

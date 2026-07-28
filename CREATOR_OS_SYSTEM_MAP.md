@@ -121,7 +121,7 @@ the Creator OS stages, not additional workflow steps.
 ```mermaid
 flowchart TB
     Operator["Operator"]
-    Providers["Higgsfield<br/>Soul · Kling 3 · Seedance 2<br/>passive motion only"]
+    Providers["Higgsfield<br/>Soul · Kling 3 · Seedance 2<br/>passive motion + experimental recreation"]
 
     subgraph CreatorOS["Creator OS<br/>Core + Pipeline Contracts underpin every stage"]
         direction LR
@@ -228,6 +228,7 @@ technical pass rates—set the production-quality boundary:
 |---|---|---|
 | Soul still / static Reel | Supported | Direct Higgsfield Soul still, optional approved body-emphasis variant, static MP4 fallback |
 | Passive selfie motion | Supported | A pinned product configuration selects operator-approved Higgsfield Kling 3 or Seedance 2; ordinary operators do not select models |
+| Reference-Reel recreation | Experimental | Seedance 2 receives one private authorized reference Reel and one approved Soul-generated creator image; broad structure, performance, and camera progression are targets, not exact choreography |
 | WaveSpeed passive motion | Rejected | Kling O3 Pro and Vidu Q3 Pro are not production choices |
 | Motion copy / dance transfer | Unresolved | The tested Kling Motion Control recipes were rejected; no distinct authenticated recipe has operator approval |
 | Talking selfie | Unresolved | No authenticated contract proves exact supplied-creator-audio preservation; Veo text dialogue is not a substitute |
@@ -260,6 +261,22 @@ creator + intent + count + execution + account group + audio preference
 -> Creator OS creative decision
 -> validated ThreadsDashboard draft
 ```
+
+The separate `recreate_reel` intent adds a count-one experimental path:
+
+```text
+private authorized reference Reel
+-> bounded local analysis and exact reference SHA
+-> already-approved same-creator Soul image
+-> fixed Higgsfield Seedance 2 image-reference + video-reference request
+-> generated audio disabled
+-> explicit reference audio, Audio Radar finishing, or explicit silence
+-> technical QC and exact-SHA operator review
+```
+
+It does not register the inspiration Reel as a rendered asset, does not replace
+normal passive creation, and does not fall back to the rejected motion-control
+recipe. Talking references fail closed.
 
 The pinned production recipe binds the exact model and source hash and is
 rehash-validated at Campaign, worker-command, and local-runtime boundaries.

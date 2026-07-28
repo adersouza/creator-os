@@ -53,6 +53,28 @@ jobs and receipts, bounded concurrency, native-credit authorization, and exact
 output lineage. Provider/model IDs remain internal. There is no WaveSpeed
 fallback.
 
+An experimental reference-Reel recreation can be planned without selecting a
+provider or model:
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-video /private/path/reference.mp4 \
+  --reference-platform instagram \
+  --reference-authorized \
+  --count 1 \
+  --execution cloud \
+  --accounts bennett_s33 \
+  --audio embedded_trending
+```
+
+Creator OS analyzes the private reference locally, selects only an approved
+same-creator image, and pins Seedance 2 internally. This is broad
+structure/performance/camera recreation, not exact choreography. It remains
+experimental until an authorized output receives exact-SHA operator approval;
+talking references fail closed.
+
 Use `creator-os review` for calibration exceptions, `creator-os export` for the
 validated draft boundary, and ThreadsDashboard for account health, scheduling,
 publishing, and results. Arena, Router, benchmark evidence, seeds, paths, and

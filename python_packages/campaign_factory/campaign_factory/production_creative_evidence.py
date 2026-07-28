@@ -60,6 +60,16 @@ def persist_asset_creative_evidence(
             "promptCard": job["promptCard"],
             "compiledPrompt": job["compiledPrompt"],
             "compatibility": job["compatibility"],
+            **(
+                {
+                    "referenceVideo": job["referenceVideo"],
+                    "recreationCharacterCompatibility": job.get(
+                        "recreationCharacterCompatibility"
+                    ),
+                }
+                if job.get("referenceVideo")
+                else {}
+            ),
         }
     )
     conn.execute(
