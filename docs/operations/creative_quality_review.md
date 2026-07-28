@@ -47,7 +47,8 @@ An authenticated CLI/MCP schema proves only the parameters and account surfaces
 it exposes. It does not prove output quality, voice fidelity, choreography
 fidelity, or postability.
 
-Current read-only findings:
+Authenticated read-only findings captured 2026-07-27 (refresh before a paid
+decision):
 
 - Seedance 2.0 exposes `audio_references` (maximum three), 4–15 second outputs,
   9:16, 480p/720p/1080p/4K, and `generate_audio=false`. A five-second 720p

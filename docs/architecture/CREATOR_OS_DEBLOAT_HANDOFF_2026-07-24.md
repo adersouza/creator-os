@@ -9,6 +9,11 @@ goal is to prove that Creator OS can make postable creator videos quickly and
 cheaply. Code, rules, tests, contracts, and runtime machinery that do not
 materially support that goal should not remain on the active path.
 
+> The storage measurements and cleanup queue in this document were superseded
+> by the 2026-07-28 cleanup. Current measured repository weight belongs in
+> [`../../PIPELINE_STATE.md`](../../PIPELINE_STATE.md); the product decisions
+> below remain useful historical evidence.
+
 The 2026-07-26 update supersedes the original WaveSpeed Wan recommendation in
 this handoff. Preserve the historical measurements below, but do not restart
 the old model-research plan.

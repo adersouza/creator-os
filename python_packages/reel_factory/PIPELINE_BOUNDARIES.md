@@ -16,7 +16,9 @@ Allowed:
 - Build a non-executing structural-remix plan for an explicitly selected,
   rights-confirmed 5–12 second one-shot reference video.
 - Write local prompt, generation, motion, QC, and export lineage.
-- Select audio metadata from local CML/winner/watch-list caches.
+- Fulfill eligible non-talking media from the canonical active Audio Radar
+  cache, embed a duration-compatible AAC segment, and return exact binding
+  evidence to Campaign Factory.
 
 Not allowed:
 
@@ -25,8 +27,12 @@ Not allowed:
 - Do not make prompt-json or grid/fanout workflows the default production path.
 - Do not use stale `2x3`, six-panel, cropped-panel, or `_grok.json` language in active operator surfaces.
 - Do not automate Instagram/TikTok/Threads logins, private APIs, or publishing.
-- Do not scrape logged-in Creative Center pages for audio.
+- Do not treat Creative Center as a required discovery source or scrape a
+  logged-in session; the supported weekly refresh uses bounded public
+  best-effort enrichment after SocialCrawl TikTok discovery.
 - Do not register Campaign Factory assets, schedule, publish, export drafts, sync metrics, or mutate account health from this still-image flow.
+- Do not replace verified embedded Audio Radar bytes with an inferred native
+  platform track.
 - Do not execute a structural-remix provider command until both endpoint frames
   are approved and the existing quote, atomic reservation, and paid-approval
   guards pass.

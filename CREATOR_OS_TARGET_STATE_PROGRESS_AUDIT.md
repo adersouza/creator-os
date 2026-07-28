@@ -11,6 +11,12 @@
 > The audited baseline is the exact `origin/main` SHA recorded below, before
 > this documentation-only branch. This report does not claim that its own
 > documentation commit has been merged or promoted.
+>
+> **Superseded current-state notice:** normal production later became
+> Higgsfield-only, Audio Radar moved to verified embedded AAC, supervised
+> learning consumption and fixed-asset cohorts were added, and source/runtime
+> SHAs advanced. Use [`PIPELINE_STATE.md`](./PIPELINE_STATE.md) for the current
+> dated snapshot. The measurements below remain historical evidence only.
 
 ## Executive verdict
 

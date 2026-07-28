@@ -1,40 +1,64 @@
 # Creator OS
 
-Creator OS turns creator intent into postable content batches, sends approved
-drafts to ThreadsDashboard, and learns from real performance. It does not own
-the product UI, account management, scheduling, or publishing; those belong to
-the external ThreadsDashboard repository and
-[juno33.com](https://juno33.com).
+Creator OS is the headless content-production system that turns approved creator
+sources and intent into review-ready Reels with exact visual, audio, QC, and
+lineage evidence. It hands approved drafts to ThreadsDashboard, which owns the
+product UI, account health, scheduling, publication, and production analytics.
 
-The durable architecture and runtime map is
-[`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md). Current operational
-truth is tracked in [`PIPELINE_STATE.md`](./PIPELINE_STATE.md).
+Start with:
 
-Documentation has three deliberately separate levels:
+- [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md) for the complete
+  architecture and authority map;
+- [`PIPELINE_STATE.md`](./PIPELINE_STATE.md) for the current dated
+  source/runtime snapshot;
+- [`docs/runbooks/creator_os_operator_journey.md`](./docs/runbooks/creator_os_operator_journey.md)
+  for the normal operator sequence;
+- [`docs/README.md`](./docs/README.md) for documentation ownership.
 
-- `README.md`: supported entrypoints and the shortest accurate introduction;
-- `CREATOR_OS_SYSTEM_MAP.md`: durable ownership, dependencies, and failure
-  boundaries;
-- `PIPELINE_STATE.md` plus dated evidence under `~/.creator-os/analysis/`:
-  current source capability and volatile operational proof.
+## Current Product
 
-Historical migration plans and snapshots are not runtime instructions.
+Normal production is intent-first and Higgsfield-only:
+
+```text
+approved creator source
+  -> creator intent
+  -> pinned Higgsfield Soul/passive recipe
+  -> independent retained jobs
+  -> technical QC
+  -> Audio Radar selection and verified AAC
+  -> operator exact-SHA approval
+  -> validated HMAC draft
+  -> ThreadsDashboard schedule/publish
+  -> real Instagram metrics
+  -> supervised learning
+```
+
+Supported:
+
+- Higgsfield Soul 2 stills;
+- deterministic static MP4s;
+- operator-approved Higgsfield Kling 3 or Seedance 2 passive motion;
+- strict existing-media intake;
+- experimental one-output Seedance structural reference-Reel recreation;
+- live private Audio Radar discovery, caching, segmenting, embedding, and final
+  MP4 binding;
+- ContentForge technical QC;
+- supervised content planning and learning consumption.
+
+Unresolved:
+
+- exact supplied-voice talking Reels;
+- motion copy and dance transfer;
+- talking motion copy.
+
+WaveSpeed, local Wan/LTX, Arena, and Router are not normal production routes or
+fallbacks. Historical evidence and advanced research tools remain readable.
 
 ## Create Content
 
-The normal command names the creator goal, not implementation evidence:
+Dry-run first:
 
 ```bash
-# Safe plan: resolves approved inventory, prompt, pinned recipe, seeds, and N jobs.
-scripts/creator-os create \
-  --creator stacey \
-  --intent passive_selfie \
-  --count 3 \
-  --execution cloud \
-  --accounts bennett_s33 \
-  --audio embedded_trending
-
-# Execute the Higgsfield batch. This still never schedules or publishes.
 scripts/creator-os create \
   --creator stacey \
   --intent passive_selfie \
@@ -42,16 +66,89 @@ scripts/creator-os create \
   --execution cloud \
   --accounts bennett_s33 \
   --audio embedded_trending \
-  --max-credits 100 \
+  --max-credits 70
+```
+
+After reviewing the exact jobs and bounded quote, add `--apply`.
+
+Normal create:
+
+- resolves only approved creator-matched sources;
+- checks source bytes and intent compatibility before paid submission;
+- chooses the product-pinned Higgsfield recipe internally;
+- creates one retained identity, seed, request, output, and receipt per job;
+- preserves partial success;
+- never blindly retries an ambiguous submission;
+- disables provider-generated sound for passive motion;
+- selects and embeds real Audio Radar audio;
+- never exports, schedules, or publishes.
+
+The passive recipe is selected by product configuration from:
+
+- `higgsfield_kling3_i2v`;
+- `higgsfield_seedance2_i2v`.
+
+Provider and model identifiers are not normal operator inputs.
+
+## Review, Approve, And Export
+
+```bash
+scripts/creator-os review --campaign <campaign>
+
+scripts/creator-os approve \
+  --campaign <campaign> \
+  --rendered-asset-id <asset-id> \
+  --user-id <threadsdashboard-user-id> \
+  --approved-by <operator>
+
+scripts/creator-os export \
+  --dry-run \
+  --campaign <campaign> \
+  --user-id <threadsdashboard-user-id> \
+  --rendered-asset-id <asset-id> \
+  --max-drafts 1
+```
+
+Approval binds the exact final MP4 SHA. Export apply creates only validated,
+signed draft handoff evidence. Creator OS deliberately has no scheduling or
+publishing command.
+
+## Existing Finished Media
+
+Use the existing-media surface only when the final MP4 has retained Creator OS
+source, generation, audio, QC, and final-media lineage:
+
+```bash
+scripts/creator-os media intake-existing \
+  --manifest /absolute/private/path/video.intake.json \
+  --dry-run
+```
+
+Dry-run writes nothing. Apply reconciles one canonical asset without copying,
+re-encoding, replacing audio, generating, exporting, scheduling, or publishing.
+
+## Audio Radar
+
+```bash
+scripts/creator-os audio status
+
+scripts/creator-os audio refresh \
+  --region US \
+  --max-new 10 \
+  --max-active 30 \
   --apply
 ```
 
-Production cloud motion uses one pinned, operator-approved Higgsfield recipe:
-Kling 3 by default, or Seedance 2 when explicitly configured by the product.
-It preserves internal source rotation, Qwen-VL prompt expansion, independent
-jobs and receipts, bounded concurrency, native-credit authorization, and exact
-output lineage. Provider/model IDs remain internal. There is no WaveSpeed
-fallback.
+The refresh uses SocialCrawl TikTok discovery, optional SocialCrawl Instagram,
+optional Creative Center enrichment, and TikLiveAPI resolution. It is bounded
+by `--max-new`, safely handles provider outages, and never creates a Reel or
+publishes.
+
+Production uses the active private cache. It selects a duration-compatible,
+cooldown-safe track segment, embeds AAC, probes the streams, hashes the exact
+processed segment and final MP4, and updates the canonical asset binding.
+
+## Reference-Reel Intake And Planning
 
 Reference URLs can be downloaded and analyzed without selecting or calling a
 provider:
@@ -81,228 +178,155 @@ read-only quotes without submitting a paid request. AUTO never silently submits
 Motion Control, structural Seedance, first/last, talking, multi-shot, or
 multi-person work. Soul IDs and internal provider choices remain private.
 
-The local-file recreation path uses the same planner:
+The local-file recreation path uses the same planner and requires explicit
+reference authorization. Supported mode truth is explicit: passive continues
+through accepted Kling 3 motion after an approved anchor; Motion Control is
+experimental; Seedance 2 is structural recreation rather than identity
+replacement; first/last is a coherent transition rather than exact motion
+copy; and talking remains blocked as `talking_route_not_entitled`. Every video
+request remains blocked until the Soul anchor has human identity and
+`WOULD_USE_AS_ANCHOR` approval.
+
+## Supervised Planning
 
 ```bash
-scripts/creator-os create \
+scripts/creator-os plan \
   --creator stacey \
-  --intent recreate_reel \
-  --reference-video /private/path/reference.mp4 \
-  --reference-platform instagram \
-  --reference-authorized \
-  --recreate-mode auto \
-  --audio auto
+  --horizon 7d \
+  --accounts bennett_s33 \
+  --goal growth \
+  --mode shadow \
+  --max-credits 70 \
+  --dry-run
 ```
 
-Supported mode truth is explicit: passive continues through accepted Kling 3
-motion after an approved anchor; Motion Control is experimental; Seedance 2 is
-structural recreation rather than identity replacement; first/last is a
-coherent transition rather than exact motion copy; talking remains blocked as
-`talking_route_not_entitled`. Every video request remains blocked until the
-Soul anchor has a human identity and WOULD_USE_AS_ANCHOR approval.
+The Content Director is a Campaign Factory domain, not another service. It may
+order approved inventory and patterns, propose account-local windows, and
+delegate approved work to the normal create lane. ThreadsDashboard remains the
+final scheduling authority.
 
-Use `creator-os review` for calibration exceptions, `creator-os export` for the
-validated draft boundary, and ThreadsDashboard for account health, scheduling,
-publishing, and results. Arena, Router, benchmark evidence, seeds, paths, and
-runtime overrides live under developer/research commands and are not normal
-operator inputs.
+Healthy eligible accounts target their configured daily cadence. Reduced
+cadence is for warming, health/platform limits, inventory shortages, or an
+explicit operator choice. Fixed three-asset cohorts propose three consecutive
+eligible days and do not wait for one post's 72-hour observation before the
+next post.
 
-## Product Loop
+## Supervised Learning
 
-```text
-reference intake
-  -> Reference Factory analysis and human labels
-  -> reference bank, patterns, prompts, and audio recommendations
-  -> Campaign Factory creative plan
-  -> Reel Factory generation and lineage
-  -> ContentForge headless QC and blocking evidence
-  -> Campaign Factory readiness and contract validation
-  -> HMAC-signed draft-only handoff
-  -> ThreadsDashboard account checks, schedule, and publish
-  -> performance history
-  -> Campaign/Reel/Reference learning fan-out
+```bash
+scripts/creator-os learning-refresh --dry-run
+scripts/creator-os learning-review list
 ```
 
-| Component | Owns | Does not own |
-|---|---|---|
-| Reference Factory | reference intake, labels, winner patterns, prompt packs, audio recommendations | campaign decisions or publishing |
-| Reel Factory | Soul stills, static MP4s, optional motion/Kling, caption placement/rendering, media lineage | account routing or publishing |
-| Campaign Factory | campaign plans, inventory, readiness, spend gates, QC requests, draft payloads, learning ingestion | product UI or platform publishing |
-| ContentForge | PDQ/SSCD distinctness, OCR, safe zones, readability, watchability, media evidence and verdicts | campaign policy |
-| Pipeline Contracts | canonical JSON schemas, Python validation, generated TypeScript | business decisions |
-| ThreadsDashboard | product UI, Supabase, accounts, approvals, scheduling, publishing, analytics | Creator OS generation internals |
+Production influence requires at least three real, lineage-valid,
+publication-linked outcomes in the same 24-hour or 72-hour observation cohort
+and an explicit operator approval. One-hour evidence is advisory.
 
-`creator_os_core` contains only shared authentication, atomic file operations,
-SQLite, vector, media-probe, runtime-path, and global runtime-guard helpers.
+Learning may reorder:
 
-The repository deliberately has one owner for each concern: one Campaign
-control plane, one Reel media worker, one Reference learning worker, one
-ContentForge quality boundary, one canonical schema source, and one external
-production publisher. GitHub Actions likewise lives only in the root
-`.github/workflows/`; package-local workflow copies are neither supported nor
-executed by GitHub in this monorepo.
+- already-approved sources;
+- imported approved prompt/hook patterns;
+- Audio Radar soft ranking when exact publication-linked audio evidence exists.
 
-## Active Creative Path
-
-The normal image path is one reference image through Higgsfield Soul V2 with an
-explicit Soul ID. The reference-conditioned result captures the composition
-prompt and lineage. An accepted still always receives a local, zero-provider-
-cost static MP4. Passive motion uses the pinned Higgsfield Kling 3 or Seedance
-2 recipe. Exact-voice talking and motion-copy remain unresolved and fail before
-provider submission.
-
-Overlay text always goes through Reel Factory placement and caption rendering.
-If no safe lane exists, no overlay is forced. Non-talking motion disables
-provider sound; Audio Radar selects a cached live track and Creator OS embeds
-and verifies AAC against the exact final MP4 SHA.
-
-Grok, grid/cropped-panel, Qwen, Ollama, Florence, and visual-schema generation
-are not Reel Factory operator paths. Their retired execution code and empty
-experiment package are removed. The remaining legacy-labelled code is narrow
-and caller-proven: XAI anatomy/postability QC, fail-closed compatibility shims,
-and read-only historical evidence export.
+Learning cannot change creator identity, Soul ID, provider, Kling/Seedance
+configuration, source approval, hard QC, spend, account authorization, or
+publication eligibility.
 
 ## One Operator Command
 
-Use `scripts/creator-os` (or `pnpm creator-os -- ...`) for supported operator
-workflows:
+`scripts/creator-os` is the supported root surface:
 
-```bash
-# Read-only: repository, contracts, config, runtime, DB, and explicit NOT_RUN checks
-scripts/creator-os status
-
-# Networked but zero-product-write/no-generation: HMAC seam + provider probes
-scripts/creator-os status --live-read-only
-
-# Read-only fixture-backed integrity audit
-scripts/creator-os doctor
-
-# Local reference/audio refresh: print the exact plan or explicitly apply it
-scripts/creator-os reference-refresh --dry-run
-scripts/creator-os reference-refresh --apply --source ~/Downloads/tiktok
-
-# Library reuse from a local folder; never exports and never auto-approves
-scripts/creator-os generate --mode library_reuse --apply \
-  --folder /path/to/media --campaign campaign_slug --model model_slug
-
-# Read-only catalog with cost, inputs, outputs, and approval gates
-scripts/creator-os generate --list-modes
-
-# Advanced explicit-mode compatibility surface
-scripts/creator-os generate --mode soul_static --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/accepted.png
-
-# Read-only campaign readiness
-scripts/creator-os readiness --campaign campaign_slug --user-id user_id
-
-# Draft-only handoff: explicit preview or bounded write; never schedule/publish
-scripts/creator-os draft-export --dry-run \
-  --campaign campaign_slug --user-id user_id --max-drafts 10 \
-  --surface regular_reel
-
-# Trial Reels are always an explicit, isolated batch and stay fail-closed on
-# account OAuth/capability evidence.
-scripts/creator-os draft-export --dry-run \
-  --campaign campaign_slug --user-id user_id --max-drafts 2 \
-  --surface trial_reel
-
-# Metrics/learning sync: explicit preview or apply
-scripts/creator-os performance-sync --dry-run
-
-# Advanced paid generation additionally requires confirmation and a spend cap
-scripts/creator-os generate --mode soul_static --apply --confirm-paid \
-  --target Stacey --workspace "$PWD" --campaign campaign_slug \
-  --reference-image /path/to/reference.png --max-credits 2 --wait --download
+```text
+status
+sources
+media
+plan
+doctor
+performance-sync
+learning-refresh
+learning-review
+reference-refresh
+audio
+create
+video-bakeoff
+quality-benchmark
+generate
+review
+approve
+export
+advanced
+promote
 ```
 
-Package CLIs remain direct developer implementation boundaries, not generic
-operator escape hatches. The supported root surface exposes only the named,
-bounded workflows above.
+Important boundaries:
 
-Nothing in this repository command can schedule or publish. Draft export stops
-at ThreadsDashboard. Scheduling and publishing are external product actions.
+- `status` is read-only;
+- `status --live-read-only` may use network/provider probes but performs no
+  generation or product writes;
+- `create` is intent-first normal production;
+- `generate` is an advanced explicit-mode compatibility surface;
+- `advanced` contains local-model, queue, Arena, Router, benchmark, and analyzer
+  diagnostics;
+- `export` creates drafts only;
+- `promote` changes only the pinned Creator OS runtime.
 
 ## Contracts
 
-The only hand-edited schema source is:
+Canonical schemas live only at:
 
 ```text
 packages/pipeline_contracts/pipeline_contracts/schemas
 ```
 
-Generated TypeScript lives at:
-
-```text
-packages/pipeline_contracts/typescript/generated-schemas.ts
-```
-
-Python imports resolve directly to the uv workspace package. Never add a
-root-level import shim and never hand-edit generated TypeScript.
+For a contract change:
 
 ```bash
 pnpm sync:contracts
 pnpm check:contracts
 ```
 
-ThreadsDashboard imports the compiled `@creator-os/pipeline-contracts` package
-from an immutable, versioned GitHub Release. It does not keep a schema or
-TypeScript snapshot. The package URL and npm lockfile integrity pin the exact
-consumer artifact; the HMAC handshake negotiates payload schema versions at
-runtime.
+Never hand-edit
+`packages/pipeline_contracts/typescript/generated-schemas.ts`. ThreadsDashboard
+consumes the immutable released `@creator-os/pipeline-contracts` package; it
+does not copy schemas from this repository.
 
-## Runtime Truth
+## Runtime
 
-The source checkout and runtime checkout are deliberately separate:
+Source and runtime are separate checkouts:
 
 ```text
-/Users/aderdesouza/Developer/creator-os          source integration
-/Users/aderdesouza/Developer/creator-os-runtime  pinned machine runtime
-/Users/aderdesouza/Developer/ThreadsDashboard    external product source
+/Users/aderdesouza/Developer/creator-os
+/Users/aderdesouza/Developer/creator-os-runtime
 ```
 
-Merging `main` does not promote the runtime checkout. A feature may be locally
-implemented, merged, runtime-promoted, or operationally proven; those are four
-different claims. `scripts/creator-os status` reports the exact paths and SHAs
-it can prove and labels provider/production checks `NOT_RUN` when they were not
-performed.
-
-Machine-local credentials and environment files remain under `~/.creator-os/`.
-Canonical databases, generated media, models, and logs live under
-`~/.creator-os/state`, `artifacts`, `models`, and `logs`; component-specific
-variables are explicit rollback overrides. `scripts/creator-os status` reports
-these roots, exact source/runtime SHAs, and runtime cleanliness. Add
-`--live-read-only` only when configured zero-write seam probes should run.
+Merging source does not promote runtime. Use the guarded promotion command only
+with exact merged-main authorization and exact-SHA release/security evidence.
+Promotion preserves canonical machine state under `~/.creator-os` and does not
+generate, export, schedule, publish, or deploy ThreadsDashboard.
 
 ## Install And Verify
 
-Requirements are Python 3.11+, a supported Node LTS, pnpm, uv, FFmpeg/FFprobe,
-and Tesseract. Optional local model extras are installed separately.
+Use Node 24 and frozen dependencies:
 
 ```bash
-make install
-make reel-models       # optional local placement/identity model bundle
-
-make fast              # changed files and focused unit/contract tests
-make affected          # canonical PR-development check for affected packages and seams
-make release           # broad main/pre-deployment integration verification
-make exhaustive        # scheduled deep architecture/security/dead-code checks
-pnpm security:secrets  # local secret scan
+pnpm install --frozen-lockfile
+uv sync --all-extras --all-packages --frozen
 ```
 
-The affected tier avoids rerunning a focused test when the containing package
-suite is already selected and prints duration evidence for each command.
-Runtime promotion still runs complete verification and 9/9 health; it may skip
-only frozen dependency reconstruction when exact dependency inputs, toolchain
-identity, and the installed environments all match the prior verified marker.
-Missing or changed evidence falls back to the full frozen install.
-
-Package checks remain available for development, for example:
+Development verification:
 
 ```bash
-uv run python -m pytest python_packages/campaign_factory/tests
-uv run python -m pytest python_packages/reel_factory/tests
-uv run python -m pytest python_packages/reference_factory/tests
-pnpm --filter contentforge test
+make affected
+pnpm check:all
+pnpm security:secrets
 ```
 
-Creator OS is proprietary. All rights reserved.
+Broader source verification:
+
+```bash
+make verify
+```
+
+Exact-SHA release and security workflows remain separate hosted evidence.
+Passing source checks never proves runtime promotion, provider readiness,
+publication, or real learning.

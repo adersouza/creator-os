@@ -55,17 +55,17 @@ The canonical repository-root workflows own CI and security:
 Package-local `.github/workflows/` copies are intentionally absent because
 GitHub does not execute them in this monorepo.
 
-Before promotion, the exact candidate must pass:
+Normal PR development uses the consolidated protected contexts `affected`,
+`hygiene`, and `Secret scan`. Promotion then requires separate trusted
+exact-target-SHA evidence for `release`, `Secret scan`, CodeQL
+JavaScript/TypeScript, CodeQL Python, and Trivy. A local pass never substitutes
+for missing, pending, skipped-when-required, failed, untrusted, or wrong-SHA
+hosted evidence.
 
-```bash
-make verify
-pnpm security:secrets
-git diff --check
-```
-
-Required CI must also be green for the exact merged commit. Path-filtered job
-skips are not failures, but a local pass never substitutes for a failed or
-missing required check.
+Run focused checks while developing and the canonical affected/static/secret
+tiers before pushing. The supported promotion command owns the required
+promotion-time verification; do not manually repeat exhaustive/nightly suites
+unless that command or a relevant failure requires them.
 
 ## Production Promotion Checklist
 
@@ -86,7 +86,8 @@ missing required check.
 
 ### 3. Re-run source and read-only gates
 
-- Run `make verify` from the exact target source.
+- Run the verification required by the supported promotion command from the
+  exact target source.
 - Run `scripts/creator-os status --json` before changing the runtime.
 - If live seam verification is needed, run only
   `status --live-read-only --json`; confirm zero product rows, provider jobs,
@@ -122,7 +123,8 @@ missing required check.
 Runtime promotion does not authorize generation, export, scheduling, or
 publishing. Each later operation keeps its own approvals and evidence:
 
-- paid generation: explicit mode, target, confirmation, and finite cap;
+- normal paid generation: creator intent, explicit apply, and finite credit cap;
+- advanced/manual generation: explicit mode plus its additional approvals;
 - draft export: bounded approved assets and validated payloads;
 - scheduling/publishing: ThreadsDashboard authorization and downstream proof;
 - learning: genuine Instagram publication identity and metric-history rows.

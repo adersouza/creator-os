@@ -114,8 +114,11 @@ and must not be committed.
 
 Draft payloads validate against Pipeline Contracts and preserve source,
 rendered-asset, prompt, caption, recipe, QC, assignment, and lineage evidence.
-HMAC signing is the draft-ingest boundary. ThreadsDashboard owns approval,
-native-audio proof, schedule, publish, and analytics.
+HMAC signing is the draft-ingest boundary. Campaign Factory owns the verified
+embedded-audio binding for the normal finished-Reel path. ThreadsDashboard
+validates the declared audio policy and exact completed media, then owns final
+account approval, schedule, publish, and analytics. Native platform audio
+remains a separate explicit policy.
 
 The pinned performance launcher imports bounded post metric history and invokes
 `scripts/learning_fanout.py`. Real learning proof requires real platform rows;

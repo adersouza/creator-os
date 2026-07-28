@@ -1,7 +1,11 @@
 # Creator OS Simplification Plan
 
-This is the ordered implementation sequence for the inspected code. It is not a
-future architecture roadmap.
+> **Completed historical implementation plan.** It is retained to explain the
+> simplification sequence, not to reopen deleted paths or override the current
+> system map.
+
+This was the ordered implementation sequence for the inspected code. It is not
+a future architecture roadmap.
 
 | Order | Change | Files/components | Compatibility / migration |
 |---|---|---|---|
@@ -35,4 +39,3 @@ Rollback:
   historical use.
 - No schema, database, provider, scheduling, publishing, or runtime migration is
   part of this branch.
-

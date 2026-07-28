@@ -1,5 +1,11 @@
 # Local Model Arena And Router v1
 
+> **Research-only historical/advanced surface.** Normal `creator-os create`
+> does not consult Arena or Router and cannot select a local model. Higgsfield
+> is the only normal visual provider. Preserve this document for exact
+> historical evidence and advanced experiments; do not use it as the current
+> product map.
+
 ## Purpose
 
 The Arena answers a narrow question: which installed local model configuration
@@ -220,13 +226,14 @@ leakage fail closed.
 Overrides may choose only an otherwise valid candidate. The decision records
 the operator and reason and excludes that choice from benchmark learning.
 
-The normal Campaign `create --mode local_wan` path is a Router consumer, not a
-separate model selector. It must load the frozen Arena plan referenced by the
-summary, bind the exact task-specific media inputs—or the zero-media T2V prompt
-artifact—to the content intent and recipe, and carry the decision and admission
-fingerprints into the local queue job and registered asset. Arena benchmarking
-has a separate typed pre-promotion context; there is no generic missing-evidence
-bypass.
+The advanced/manual `creator-os generate --mode local_wan` path is a Router
+consumer, not a separate model selector. Normal intent-first `creator-os create`
+never enters this path. Advanced local execution must load the frozen Arena plan
+referenced by the summary, bind the exact task-specific media inputs—or the
+zero-media T2V prompt artifact—to the content intent and recipe, and carry the
+decision and admission fingerprints into the local queue job and registered
+asset. Arena benchmarking has a separate typed pre-promotion context; there is
+no generic missing-evidence bypass.
 
 ## Commands
 

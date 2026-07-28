@@ -1,5 +1,11 @@
 # Creator OS Bloat Inventory
 
+> **Historical input to the completed simplification work.** Dispositions and
+> size/timing observations below are not a current backlog or runtime policy.
+> The reconciled architecture is in
+> [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md), and current measured
+> weight is in [`PIPELINE_STATE.md`](./PIPELINE_STATE.md).
+
 Scope: live `creator-os/main` and `ThreadsDashboard/main` call sites inspected
 2026-07-24. Times are measured or workflow-time estimates; “caught” is based on
 repository tests, comments, receipts, and incident docs—not assumed value.
@@ -80,4 +86,3 @@ Estimated first-tranche savings:
   instead of accepting `N` while creating one.
 - Approved production recipes: removes mandatory per-asset subjective review;
   calibration and exception review remain.
-

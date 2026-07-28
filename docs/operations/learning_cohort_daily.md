@@ -15,6 +15,12 @@ backlog after an operator skipped, abandoned, or could not complete a Notify
 Publish handoff. Resolve the earlier post in ThreadsDashboard and record the
 appropriate approval decision before the next daily run.
 
+The fixed cohort itself uses three consecutive eligible account-local dates at
+approximately the same local time. This controller's handoff reconciliation
+does not impose a 48-hour cadence and does not wait for one Reel's 72-hour
+observation before the next Reel. Observation workers calculate overlapping
+1h, 24h, and 72h windows from each actual publication timestamp.
+
 The launcher reuses `~/.creator-os/performance-sync.env`, including the exact
 single-campaign scope and Campaign Factory database path:
 
