@@ -243,6 +243,27 @@ downloaded-Reel, or arbitrary historical upload path.
    `existing_canonical_asset`, costs zero, retains the original generation
    history, and does not claim the Content Director generated the media during
    that plan.
+
+   For a deliberate same-intent learning cohort, use the explicit supervised
+   cohort surface instead of changing asset metadata or weakening the rolling
+   planner:
+
+   ```bash
+   creator-os plan cohort \
+     --creator stacey \
+     --account <account> \
+     --intent passive_selfie \
+     --asset <asset-1> \
+     --asset <asset-2> \
+     --asset <asset-3> \
+     --observation-cohorts 1h,24h,72h \
+     --mode supervised \
+     --dry-run
+   ```
+
+   Apply performs only versioned planning, observation expectations, and exact
+   existing-asset attachment. It makes no provider call and does not export,
+   schedule, or publish. Ordinary rolling plans retain their diversity rules.
 7. Export only after source approval, exact technical QC, `WOULD_POST` review,
    compatible plan attachment, and all ordinary export gates pass.
 

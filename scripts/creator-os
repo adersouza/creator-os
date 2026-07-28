@@ -426,6 +426,21 @@ def _parser() -> argparse.ArgumentParser:
     plan_mode = plan.add_mutually_exclusive_group()
     plan_mode.add_argument("--dry-run", action="store_true")
     plan_mode.add_argument("--apply", action="store_true")
+    plan_cohort = plan_sub.add_parser(
+        "cohort",
+        help="build or apply one explicit supervised fixed-asset learning cohort",
+    )
+    plan_cohort.add_argument("--creator", required=True)
+    plan_cohort.add_argument("--account", required=True)
+    plan_cohort.add_argument("--intent", required=True)
+    plan_cohort.add_argument("--asset", action="append", required=True)
+    plan_cohort.add_argument("--observation-cohorts", required=True)
+    plan_cohort.add_argument("--mode", choices=["supervised"], required=True)
+    plan_cohort.add_argument("--timezone", default="America/New_York")
+    plan_cohort.add_argument("--start-date")
+    plan_cohort_mode = plan_cohort.add_mutually_exclusive_group(required=True)
+    plan_cohort_mode.add_argument("--dry-run", action="store_true")
+    plan_cohort_mode.add_argument("--apply", action="store_true")
     plan_show = plan_sub.add_parser("show")
     plan_show.add_argument("plan_id")
     plan_list = plan_sub.add_parser("list")
@@ -939,6 +954,28 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(["--rejection-reason", reason])
         return _run(command)
     if args.command == "plan":
+        if args.plan_action == "cohort":
+            command = _content_director_command(
+                "cohort",
+                "--creator",
+                args.creator,
+                "--account",
+                args.account,
+                "--intent",
+                args.intent,
+                "--observation-cohorts",
+                args.observation_cohorts,
+                "--mode",
+                args.mode,
+                "--timezone",
+                args.timezone,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for asset in args.asset:
+                command.extend(["--asset", asset])
+            if args.start_date:
+                command.extend(["--start-date", args.start_date])
+            return _run(command)
         if args.plan_action == "show":
             return _run(_content_director_command("show", args.plan_id))
         if args.plan_action == "list":
@@ -1064,9 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run(command)
     if args.command == "learning-refresh":
         return _run(
-            _learning_command(
-                "refresh", "--apply" if args.apply else "--dry-run"
-            )
+            _learning_command("refresh", "--apply" if args.apply else "--dry-run")
         )
     if args.command == "learning-review":
         command = _learning_command("review", args.action)

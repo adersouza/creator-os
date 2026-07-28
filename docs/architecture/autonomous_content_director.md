@@ -40,6 +40,9 @@ DRAFT -> REVIEWED -> APPROVED -> GENERATION_READY -> GENERATING
 
 `BLOCKED`, `REJECTED`, and `CANCELLED` are explicit. Invalid transitions fail.
 A plan cannot be approved while any item has a blocking reason.
+Explicit fixed-asset cohorts use
+`APPROVED -> EXISTING_ASSET_READY -> CREATIVE_APPROVED`; they never enter a
+generation-ready state.
 
 ## Decision authority
 
@@ -60,6 +63,21 @@ eligibility.
   experiment, retry ambiguity, or publish.
 
 There is no unrestricted autonomous-publishing mode.
+
+## Explicit fixed-asset cohorts
+
+`FIXED_ASSET_COHORT` is a supervised, operator-requested Content Director mode
+for attaching an exact set of already-approved canonical assets to one truthful
+learning cohort. Every item retains its existing creator, account, intent,
+source, generation, review, audio, and final-media lineage. Repeated intents
+are permitted only because the operator supplied the exact assets and common
+intent through `creator-os plan cohort`.
+
+This mode does not alter ordinary seven-day planning or its content-mix,
+cooldown, pattern, audio-uniqueness, and exploration rules. It does not
+generate, export, schedule, or publish. Its experiment receipt is classified
+`MECHANICAL_LEARNING_PROOF`: multiple creative and audio variables may differ,
+so it supports mechanical lineage proof but no causal creative conclusion.
 
 ## Cost receipt
 

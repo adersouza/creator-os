@@ -12,7 +12,7 @@ import hashlib
 import json
 import sqlite3
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1083,6 +1083,8 @@ def attach_existing_to_plan(
     plan_item_id: str,
     rendered_asset_id: str,
     apply: bool,
+    learning_decision: Mapping[str, Any] | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     row = conn.execute(
         """
@@ -1161,9 +1163,11 @@ def attach_existing_to_plan(
         prior_generation
         and prior_generation.get("renderedAssetId") == rendered_asset_id
     )
-    if value["execution_state"] not in {"GENERATION_READY", "REVIEW_READY"} and not (
-        idempotent and value["execution_state"] == "CREATIVE_APPROVED"
-    ):
+    if value["execution_state"] not in {
+        "GENERATION_READY",
+        "REVIEW_READY",
+        "EXISTING_ASSET_READY",
+    } and not (idempotent and value["execution_state"] == "CREATIVE_APPROVED"):
         blockers.append("plan_item_state_invalid")
     if (
         prior_generation
@@ -1221,6 +1225,7 @@ def attach_existing_to_plan(
     ):
         blockers.append("final_media_mismatch")
     blockers = list(dict.fromkeys(blockers))
+    retained_learning = dict(learning_decision or {})
     receipt = {
         "schema": ATTACHMENT_SCHEMA,
         "contractVersion": CONTRACT_VERSION,
@@ -1231,7 +1236,8 @@ def attach_existing_to_plan(
         "attachmentMethod": "existing_canonical_asset",
         "originalGeneration": _record(metadata.get("generation")),
         "attachmentCost": {"credits": 0, "providerCalls": 0},
-        "learningDecision": {
+        "learningDecision": retained_learning
+        or {
             "consulted": True,
             "eligible": False,
             "applied": False,
@@ -1317,7 +1323,8 @@ def attach_existing_to_plan(
             now,
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return {**receipt, "dryRun": False, "attachedAt": now}
 
 
