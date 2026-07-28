@@ -303,7 +303,7 @@ def test_scorecard_workflow_is_report_mode() -> None:
     scorecard_step = next(
         step
         for step in scorecard_steps
-        if step.get("uses") == "ossf/scorecard-action@v2.4.3"
+        if str(step.get("uses", "")).startswith("ossf/scorecard-action@")
     )
     assert scorecard_step["continue-on-error"] is True
     assert scorecard_step["with"]["results_format"] == "sarif"
