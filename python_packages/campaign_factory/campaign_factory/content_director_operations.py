@@ -63,23 +63,34 @@ def propose_schedule(
     blackout_dates: frozenset[str] = frozenset(),
     minimum_gap_hours: int = 20,
 ) -> dict[str, Any]:
-    """Propose deterministic, non-overlapping windows; never schedules externally."""
+    """Propose deterministic per-account windows; never schedules externally."""
     plan = load_plan(conn, plan_id)
     zone = ZoneInfo(plan["timezone"])
-    cursor = datetime.combine(
-        datetime.fromisoformat(plan["horizon"]["start"]).date(),
-        time(hour=18, minute=30),
-        tzinfo=zone,
-    )
-    by_account: dict[str, datetime] = {}
+    horizon_start = datetime.fromisoformat(plan["horizon"]["start"]).date()
+    next_day_by_account: dict[str, int] = {}
+    previous_by_account: dict[str, datetime] = {}
     proposals: list[dict[str, Any]] = []
     for item in plan["items"]:
         account = str(item["target_account"])
-        candidate = max(cursor, by_account.get(account, cursor))
-        while candidate.date().isoformat() in blackout_dates:
-            candidate += timedelta(days=1)
-        if candidate.weekday() >= 5:
-            candidate = candidate.replace(hour=12, minute=30)
+        day_offset = next_day_by_account.get(account, 0)
+        while True:
+            candidate_date = horizon_start + timedelta(days=day_offset)
+            candidate = datetime.combine(
+                candidate_date,
+                time(
+                    hour=12 if candidate_date.weekday() >= 5 else 18,
+                    minute=30,
+                ),
+                tzinfo=zone,
+            )
+            previous = previous_by_account.get(account)
+            if candidate_date.isoformat() in blackout_dates or (
+                previous is not None
+                and candidate - previous < timedelta(hours=minimum_gap_hours)
+            ):
+                day_offset += 1
+                continue
+            break
         layer = "safe_deterministic_default"
         source = "machine_local_content_director_policy"
         proposal = {
@@ -98,8 +109,8 @@ def propose_schedule(
             "status": "PROPOSED",
         }
         proposals.append(proposal)
-        by_account[account] = candidate + timedelta(hours=minimum_gap_hours)
-        cursor += timedelta(days=1)
+        previous_by_account[account] = candidate
+        next_day_by_account[account] = day_offset + 1
         if apply:
             conn.execute(
                 """

@@ -64,6 +64,56 @@ def test_schedule_is_deterministic_account_safe_and_advisory(tmp_path: Path) -> 
         later - earlier >= operations.timedelta(hours=20)
         for earlier, later in zip(starts, starts[1:], strict=False)
     )
+    assert [start.date().isoformat() for start in starts[:3]] == [
+        "2026-07-29",
+        "2026-07-30",
+        "2026-07-31",
+    ]
+
+
+def test_schedule_advances_each_account_independently(tmp_path: Path) -> None:
+    conn = _conn(tmp_path)
+    plan = build_plan(
+        conn,
+        _request(
+            accounts=("stacey-main", "stacey-alt"),
+            output_count=4,
+        ),
+    )
+    stored = persist_plan(conn, plan)
+    result = propose_schedule(conn, stored["planId"], apply=False)
+    by_account: dict[str, list[datetime]] = {}
+    for proposal in result["proposals"]:
+        by_account.setdefault(proposal["targetAccount"], []).append(
+            datetime.fromisoformat(proposal["windowStart"])
+        )
+    assert set(by_account) == {"stacey-main", "stacey-alt"}
+    assert all(
+        windows[0].date().isoformat() == "2026-07-28" for windows in by_account.values()
+    )
+    assert all(
+        [window.date().isoformat() for window in windows]
+        == ["2026-07-28", "2026-07-29"]
+        for windows in by_account.values()
+    )
+
+
+def test_constrained_minimum_gap_can_use_every_other_day(tmp_path: Path) -> None:
+    conn, plan_id = _persisted(tmp_path, count=3)
+    result = propose_schedule(conn, plan_id, apply=False, minimum_gap_hours=48)
+    starts = [
+        datetime.fromisoformat(proposal["windowStart"])
+        for proposal in result["proposals"]
+    ]
+    assert [start.date().isoformat() for start in starts] == [
+        "2026-07-28",
+        "2026-07-30",
+        "2026-08-02",
+    ]
+    assert all(
+        later - earlier >= operations.timedelta(hours=48)
+        for earlier, later in zip(starts, starts[1:], strict=False)
+    )
 
 
 def test_schedule_apply_persists_proposals_but_creates_no_schedule(
@@ -268,6 +318,43 @@ def test_metric_cohorts_keep_missing_as_missing_and_one_hour_advisory(
     assert [row["observationBucket"] for row in cohorts] == ["1h", "24h", "72h"]
     assert cohorts[0]["learningEligible"] is False
     assert all(row["observationState"] == "MISSING" for row in cohorts)
+
+
+def test_metric_windows_overlap_and_bind_each_actual_publication_time(
+    tmp_path: Path,
+) -> None:
+    conn, plan_id = _persisted(tmp_path, count=2)
+    item_ids = [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT id FROM creative_plan_items
+            WHERE plan_version_id = ? ORDER BY item_index
+            """,
+            (plan_id,),
+        )
+    ]
+    first_published = datetime(2026, 7, 28, 22, 30, tzinfo=UTC)
+    second_published = datetime(2026, 7, 29, 22, 30, tzinfo=UTC)
+    first = create_metric_cohorts(
+        conn, plan_item_id=item_ids[0], published_at=first_published
+    )
+    second = create_metric_cohorts(
+        conn, plan_item_id=item_ids[1], published_at=second_published
+    )
+    assert [row["expectedEarliestAt"] for row in first] == [
+        "2026-07-28T23:30:00Z",
+        "2026-07-29T22:30:00Z",
+        "2026-07-31T22:30:00Z",
+    ]
+    assert [row["expectedEarliestAt"] for row in second] == [
+        "2026-07-29T23:30:00Z",
+        "2026-07-30T22:30:00Z",
+        "2026-08-01T22:30:00Z",
+    ]
+    assert datetime.fromisoformat(
+        second[0]["expectedEarliestAt"].replace("Z", "+00:00")
+    ) < datetime.fromisoformat(first[2]["expectedEarliestAt"].replace("Z", "+00:00"))
 
 
 def test_export_preview_preserves_plan_lineage_without_exporting(

@@ -50,9 +50,12 @@ are rejected before runtime state access.
 - Target fleet: approximately 200 accounts. Existing generated media is the
   launch inventory; reference-conditioned Higgsfield generation ramps in over
   subsequent weeks instead of blocking launch.
-- Per-account target: one regular reel daily or every other day plus one or two
-  trial reels daily. The planner must treat this as a capacity target, not a
-  reason to bypass inventory, uniqueness, account-health, or publish gates.
+- Per-account target: one regular reel daily for a healthy eligible account,
+  plus one or two trial reels daily where configured. Every-other-day cadence
+  is reserved for warming, account-health/platform constraints, insufficient
+  approved inventory, or an explicit operator choice. The planner treats this
+  as a capacity target, not a reason to bypass inventory, uniqueness,
+  account-health, or publish gates.
 - Initial proof remains a bounded 50-post cohort. It is a launch gate, not the
   long-term manual workflow.
 - Instagram is the initial platform.
