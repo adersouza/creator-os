@@ -28,8 +28,11 @@ def main() -> int:
     if (
         getattr(args, "cmd", None) == "create"
         and args.intent == "recreate_reel"
-        and getattr(args, "through", None) == "analyze"
         and not args.apply
+        and (
+            getattr(args, "reference_url", None)
+            or getattr(args, "reference_video", None)
+        )
     ):
         # Analysis dry-runs are strictly write-free: do not construct the normal
         # CampaignFactory, whose startup intentionally applies schema migrations

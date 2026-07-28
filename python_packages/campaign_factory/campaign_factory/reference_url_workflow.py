@@ -14,6 +14,7 @@ from typing import Any
 from creator_os_core.fileops import atomic_write_text
 from reel_factory.worker_api import canonicalize_reel_url, download_reel_url
 
+from .recreation_modes import plan_recreation
 from .reference_audio_intake import (
     inspect_reference_audio,
     load_reference_audio_occurrence,
@@ -29,6 +30,10 @@ def run_reference_analysis(
     reference_platform: str | None,
     reference_authorized: bool,
     declared_talking: bool,
+    recreate_mode: str = "auto",
+    through: str | None = "analyze",
+    audio_policy: str = "auto",
+    max_credits: float | None = None,
     apply: bool,
 ) -> dict[str, Any]:
     if apply and not reference_authorized:
@@ -136,12 +141,12 @@ def run_reference_analysis(
                 declared_talking=declared_talking,
                 dance_or_synchronized=False,
             )
-        return {
+        result = {
             "ok": True,
             "schema": "campaign_factory.reference_url_analysis.v1",
             "creator": creator,
             "intent": "recreate_reel",
-            "through": "analyze",
+            "through": through or "plan",
             "apply": apply,
             "providerCalls": 0,
             "paidSpend": 0,
@@ -153,6 +158,25 @@ def run_reference_analysis(
                 *list(audio.get("proposedMutations") or []),
             ],
         }
+        if through != "analyze":
+            result["recreation"] = plan_recreation(
+                creator=creator,
+                source_video=source,
+                intake=result,
+                requested_mode=recreate_mode,
+                audio_policy=audio_policy,
+                through=through,
+                max_credits=max_credits,
+            )
+            result["providerQuoteCalls"] = int(
+                _quote_provider_calls(result["recreation"])
+            )
+            result["providerCalls"] = 0
+            result["paidSpend"] = 0
+            if apply:
+                result["applyStatus"] = "ANALYSIS_PERSISTED_ANCHOR_REVIEW_REQUIRED"
+                result["paidExecutionBlocked"] = True
+        return result
 
 
 def _run_reference_factory(
@@ -277,3 +301,10 @@ def _record_failure(
     )
     os.chmod(path, 0o600)
     return path
+
+
+def _quote_provider_calls(recreation: Any) -> int:
+    if not isinstance(recreation, dict):
+        return 0
+    quote = recreation.get("quote")
+    return int(quote.get("quoteCalls") or 0) if isinstance(quote, dict) else 0

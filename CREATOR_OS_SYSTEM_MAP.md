@@ -281,20 +281,25 @@ are not mutated. Authorized apply stores private artifacts outside Git with
 0700 directories and 0600 files. Platform/media ID is the primary idempotency
 key, downloaded SHA is second, and URL aliases are only a pre-download hint.
 
-The existing experimental generation path then continues:
+The intent-first recreation planner then continues:
 
 ```text
 canonical private reference
--> already-approved same-creator Soul image
--> fixed Higgsfield Seedance 2 image-reference + video-reference request
--> generated audio disabled
--> explicit reference audio, Audio Radar finishing, or explicit silence
--> technical QC and exact-SHA operator review
+-> deterministic source classification + bounded coherent excerpt
+-> one scene-matched Soul 2 anchor, or two clean endpoint anchors
+-> mandatory human identity + WOULD_USE_AS_ANCHOR review
+-> passive Kling 3, experimental Motion Control, structural Seedance 2,
+   experimental Kling first/last, or precise talking entitlement blocker
+-> provider audio disabled/replaced under the automatic audio policy
+-> technical QC + mode-specific human review + exact-SHA final audio binding
 ```
 
 It does not register the inspiration Reel as a rendered asset, does not replace
-normal passive creation, and does not fall back to the rejected motion-control
-recipe. Talking references fail closed.
+normal passive creation, and does not restore rejected Motion Control as a
+production default. AUTO may recommend experimental routes but cannot submit
+them silently. Seedance is never represented as character replacement, Motion
+Control does not promise exact choreography, and talking fails closed when
+supplied-voice entitlement/qualification is absent.
 
 The pinned production recipe binds the exact model and source hash and is
 rehash-validated at Campaign, worker-command, and local-runtime boundaries.

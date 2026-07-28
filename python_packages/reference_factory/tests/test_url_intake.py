@@ -121,6 +121,7 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
     assert not data_root.exists()
     assert not db_path.exists()
     assert dry["frameDerivatives"]["literal_first"]["path"] is None
+    assert dry["frameDerivatives"]["last_clean"]["path"] is None
     first = analyze_url_reference(
         source, metadata=metadata, data_root=data_root, db_path=db_path, apply=True
     )
@@ -139,7 +140,7 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
     assert second["duplicateResult"] == "reused_platform_media_id"
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM source_files").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM frame_samples").fetchone()[0] == 7
+        assert conn.execute("SELECT COUNT(*) FROM frame_samples").fetchone()[0] == 8
         assert (
             conn.execute("SELECT COUNT(*) FROM reference_anchor_receipts").fetchone()[0]
             == 1
