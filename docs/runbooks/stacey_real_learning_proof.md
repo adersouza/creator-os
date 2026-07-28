@@ -31,14 +31,18 @@ selection rows for these exact final hashes.
 - Duration/source class: matched portrait passive motion.
 - Surface: use the same surface for all three; regular Reel is preferred unless
   the operator explicitly chooses a Trial Reel cohort for all three.
-- Spacing: at least 48 hours between posts to reduce overlap and permit a clean
-  24h observation before the next post. Keep the same local posting-window
-  family.
+- Spacing: one Reel on each of three consecutive eligible account-local days,
+  using the same approximate posting-window family. Overlapping 1h, 24h, and
+  72h observations are expected and bind to each Reel's actual publication
+  timestamp. Do not wait for one Reel's 72h observation before publishing the
+  next.
 - Controlled variables: account, intent, recipe, duration, surface, caption
   family, disclosure policy, and observation buckets.
 - Deliberate differences: source image and exact audio track/segment. Because
   two variables differ, results are correlational and cannot isolate source
   from audio causally.
+- Cohort classification: `MECHANICAL_LEARNING_PROOF`. Daily spacing does not
+  make the differing source and audio variables causal.
 
 ## Preconditions for each post
 

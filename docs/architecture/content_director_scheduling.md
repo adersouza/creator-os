@@ -19,3 +19,15 @@ Proposals must also respect account health, pending work, cadence, platform
 limits, experiment comparability, metric windows, content urgency, and trend
 freshness before operational rollout. Operator-pinned times are immutable.
 Schedule changes never rewrite creative or media lineage.
+
+Healthy eligible accounts normally use their configured daily cadence. A
+warming, health-constrained, inventory-constrained, platform-limited, or
+operator-lowered account may use every-other-day cadence. Accounts advance
+independently: work assigned to another account does not consume a calendar day
+for this account. Minimum gaps still apply, and ThreadsDashboard reconciles
+pending or stale schedules before creating external schedule state.
+
+Metric observations do not serialize publication. The 1h, 24h, and 72h windows
+are calculated independently from each post's actual publication timestamp and
+may overlap. Learning compares equal-age observation buckets rather than posts
+sharing a publication date.
