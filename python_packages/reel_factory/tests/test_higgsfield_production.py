@@ -34,14 +34,19 @@ def _capabilities() -> dict[str, Any]:
         },
         "souls": [
             {
-                "id": "soul_stacey",
-                "name": "Stacey",
+                "id": f"soul_{creator}",
+                "name": creator.title(),
                 "status": "completed",
                 "type": "soul_2",
             }
+            for creator in ("stacey", "larissa", "lola")
         ],
         "models": [
             {"job_type": "kling3_0", "display_name": "Kling v3.0"},
+            {
+                "job_type": "seedance_2_0_mini",
+                "display_name": "Seedance 2.0 Mini",
+            },
             {"job_type": "seedance_2_0", "display_name": "Seedance 2.0"},
             {
                 "job_type": "kling3_0_motion_control",
@@ -96,6 +101,7 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
                     {"job_type": value, "display_name": value}
                     for value in (
                         "kling3_0",
+                        "seedance_2_0_mini",
                         "seedance_2_0",
                         "kling3_0_motion_control",
                         "veo3_1",
@@ -104,6 +110,10 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
             },
             {"items": [{"job_type": "voice_change"}]},
             {"job_type": "kling3_0", "params": [{"name": "sound"}]},
+            {
+                "job_type": "seedance_2_0_mini",
+                "params": [{"name": "generate_audio"}],
+            },
             {"job_type": "seedance_2_0", "params": [{"name": "generate_audio"}]},
             {
                 "job_type": "kling3_0_motion_control",
@@ -133,11 +143,12 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
     )
     assert (
         result["candidates"]["higgsfield_motion_copy_animate"]["status"]
-        == "rejected_recipe"
+        == "experimental"
     )
     assert result["candidates"]["higgsfield_talking_veo"]["status"] == "experimental"
     assert set(result["contracts"]) == {
         "kling3_0",
+        "seedance_2_0_mini",
         "seedance_2_0",
         "kling3_0_motion_control",
         "veo3_1",
@@ -170,21 +181,143 @@ def test_passive_plan_uses_silent_kling_contract(tmp_path: Path) -> None:
     assert plan["publishingAllowed"] is False
 
 
-def test_rejected_motion_control_recipe_cannot_be_planned(
+def test_motion_control_qualification_plan_uses_exact_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driving = tmp_path / "driving.mp4"
+    driving.write_bytes(b"driving-video")
+    monkeypatch.setattr(
+        subject,
+        "_probe_video",
+        lambda _path: {"durationSeconds": 7.0},
+    )
+    plan = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            recipe_id="higgsfield_motion_copy_animate",
+            model=None,
+            driving_video_path=driving,
+        ),
+        capabilities=_capabilities(),
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+    )
+    assert plan["recipe"]["status"] == "experimental"
+    assert plan["command"][3] == "kling3_0_motion_control"
+    assert "--image-references" in plan["command"]
+    assert "--video-references" in plan["command"]
+
+
+@pytest.mark.parametrize("creator", ["stacey", "larissa", "lola"])
+def test_recreate_qualification_uses_seedance_fast_with_creator_reference(
+    tmp_path: Path, creator: str
+) -> None:
+    driving = tmp_path / "driving.mp4"
+    driving.write_bytes(b"driving-video")
+    reference_elements = tmp_path / f"{creator}.json"
+    reference_elements.write_text(
+        json.dumps(
+            [
+                {
+                    "id": f"{creator}-reference",
+                    "name": creator,
+                    "medias": [],
+                    "video_medias": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    plan = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            creator=creator,
+            soul_id=f"soul_{creator}",
+            recipe_id="higgsfield_recreate_reel",
+            model="seedance_2_0",
+            driving_video_path=driving,
+            duration_seconds=7,
+            reference_elements_path=reference_elements,
+            prompt=(
+                "<<<approved_creator_reference_element>>> place her in this "
+                "video. same motion but my model instead. Structural breakdown: "
+                "[0-3s] Begin a shoulder turn. Camera: fixed."
+            ),
+        ),
+        capabilities=_capabilities(),
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+    )
+    command = plan["command"]
+    assert command[3] == "seedance_2_0"
+    assert command[command.index("--prompt") + 1] == (
+        f"<<<{creator}-reference>>> place her in this video. "
+        "same motion but my model instead. Structural breakdown: "
+        "[0-3s] Begin a shoulder turn. Camera: fixed."
+    )
+    assert (
+        "approved_creator_reference_element"
+        not in command[command.index("--prompt") + 1]
+    )
+    assert command[command.index("--image-references") + 1].endswith("source.png")
+    assert command[command.index("--mode") + 1] == "fast"
+    assert plan["command"][plan["command"].index("--resolution") + 1] == "480p"
+    assert command[command.index("--bitrate_mode") + 1] == "high"
+    assert plan["command"][plan["command"].index("--generate_audio") + 1] == "false"
+    assert "--start-image" not in command
+    assert "--reference_elements" not in command
+    assert "--multi_shot_mode" not in command
+
+
+def test_recreate_qualification_rejects_seedance_mini(
     tmp_path: Path,
 ) -> None:
     driving = tmp_path / "driving.mp4"
     driving.write_bytes(b"driving-video")
+    reference_elements = tmp_path / "stacey.json"
+    reference_elements.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "stacey-reference",
+                    "name": "stacey",
+                    "medias": [],
+                    "video_medias": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     with pytest.raises(
         subject.HiggsfieldFeatureUnavailable,
-        match="rejected by operator visual review",
+        match="Mini was rejected",
     ):
         subject.build_higgsfield_production_plan(
             _request(
                 tmp_path,
-                recipe_id="higgsfield_motion_copy_animate",
+                recipe_id="higgsfield_recreate_reel",
+                model="seedance_2_0_mini",
+                driving_video_path=driving,
+                duration_seconds=7,
+                reference_elements_path=reference_elements,
+            ),
+            capabilities=_capabilities(),
+            adapter=FakeAdapter([]),  # type: ignore[arg-type]
+        )
+
+
+def test_recreate_qualification_fails_without_creator_reference(
+    tmp_path: Path,
+) -> None:
+    driving = tmp_path / "driving.mp4"
+    driving.write_bytes(b"driving-video")
+    with pytest.raises(FileNotFoundError, match="creator reference element"):
+        subject.build_higgsfield_production_plan(
+            _request(
+                tmp_path,
+                recipe_id="higgsfield_recreate_reel",
                 model=None,
                 driving_video_path=driving,
+                duration_seconds=7,
+                reference_elements_path=tmp_path / "missing-stacey.json",
             ),
             capabilities=_capabilities(),
             adapter=FakeAdapter([]),  # type: ignore[arg-type]
@@ -348,19 +481,16 @@ def test_success_hashes_registers_and_preserves_review_fields(
     assert "secret" not in receipts[0].read_text(encoding="utf-8")
 
 
-def test_rejected_motion_copy_never_submits(
+def test_motion_copy_missing_driving_video_never_submits(
     tmp_path: Path,
 ) -> None:
-    driving = tmp_path / "driving.mp4"
-    driving.write_bytes(b"driving-video")
     adapter = FakeAdapter([])
-    with pytest.raises(subject.HiggsfieldFeatureUnavailable):
+    with pytest.raises(ValueError, match="requires a driving video"):
         subject.execute_higgsfield_production(
             _request(
                 tmp_path,
                 recipe_id="higgsfield_motion_copy_animate",
                 model=None,
-                driving_video_path=driving,
                 max_credits=20.0,
             ),
             capabilities=_capabilities(),

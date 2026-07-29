@@ -607,6 +607,34 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
+    create.add_argument("--reference-non-talking", action="store_true")
+    create.add_argument(
+        "--reference-classification",
+        choices=[
+            "passive_single_shot",
+            "simple_pose_motion",
+            "walking",
+            "dance",
+            "first_last_transition",
+            "structural_reference",
+            "talking",
+            "lip_sync",
+            "multi_shot",
+            "multi_person",
+            "heavy_occlusion",
+            "unsupported",
+        ],
+    )
+    create.add_argument(
+        "--reference-warning",
+        action="append",
+        choices=[
+            "secondary_person_interaction",
+            "heavy_occlusion",
+            "identity_reset_required",
+        ],
+        default=[],
+    )
     create.add_argument(
         "--recreate-mode",
         choices=["auto", "passive", "motion", "structural", "first_last", "talking"],
@@ -1236,6 +1264,14 @@ def main(argv: list[str] | None = None) -> int:
             command.append("--reference-authorized")
         if args.reference_talking:
             command.append("--reference-talking")
+        if args.reference_non_talking:
+            command.append("--reference-non-talking")
+        if args.reference_classification:
+            command.extend(
+                ["--reference-classification", args.reference_classification]
+            )
+        for warning in args.reference_warning:
+            command.extend(["--reference-warning", warning])
         if args.max_credits is not None:
             if not math.isfinite(args.max_credits) or args.max_credits <= 0:
                 print(

@@ -125,6 +125,7 @@ def analyze_url_reference(
         "referenceId": reference_id,
         "sourceMediaSha256": source_sha,
         "candidateFrames": candidates,
+        "overlayTextInventory": visual_evidence["overlayTextInventory"],
         "selectedFrame": {
             "timeSec": selected["timeSec"],
             "sha256": selected["sha256"],
@@ -157,8 +158,14 @@ def analyze_url_reference(
         },
         "media": probe,
         "sourceSpeakingClassification": (
-            "DECLARED_TALKING" if metadata.get("declaredTalking") else "UNKNOWN"
+            "DECLARED_TALKING"
+            if metadata.get("declaredTalking")
+            else "DECLARED_NON_TALKING"
+            if metadata.get("declaredNonTalking")
+            else "UNKNOWN"
         ),
+        "operatorClassification": metadata.get("operatorClassification"),
+        "operatorWarnings": list(metadata.get("operatorWarnings") or []),
         "sceneCutsSeconds": scene_cuts,
         "frameDerivatives": {
             role: {
@@ -192,6 +199,7 @@ def analyze_url_reference(
             }
             for candidate in candidates
         ],
+        "overlayTextInventory": visual_evidence["overlayTextInventory"],
         "visualEvidence": visual_evidence,
         "anchorReceiptPath": str(receipt_path) if apply else None,
         "duplicateResult": "created" if apply else "proposed",
@@ -373,9 +381,37 @@ def _enrich_visual_evidence(
         int(item.get("identifier", -1)): item for item in media_pipe.get("frames", [])
     }
     body_extents: list[float] = []
+    overlay_observations: list[dict[str, Any]] = []
     for index, candidate in enumerate(candidates):
         frame = apple_frames.get(index)
         measurements = candidate["measurements"]
+        ocr = run_selected_ocr(Path(str(candidate["path"])), requested_engine="auto")
+        for box in ocr.get("boxes") or []:
+            text = " ".join(str(box.get("ocrText") or "").split())
+            if text:
+                overlay_observations.append(
+                    {
+                        "timeSec": candidate["timeSec"],
+                        "text": text,
+                        "confidence": box.get("confidence"),
+                        "box": box.get("box"),
+                        "engine": ocr.get("engine"),
+                    }
+                )
+        text_chars = sum(
+            len(str(item.get("ocrText") or "")) for item in ocr.get("boxes") or []
+        )
+        measurements.update(
+            {
+                "overlayClear": round(max(0.0, 1.0 - min(1.0, text_chars / 80)), 6),
+                "overlayEvidence": {
+                    "provider": "reference_factory_ocr",
+                    "engine": ocr.get("engine"),
+                    "available": ocr.get("available"),
+                    "recognizedCharacters": text_chars,
+                },
+            }
+        )
         if frame and frame.get("available") is True:
             faces = list(frame.get("faces") or [])
             bodies = list(frame.get("bodies") or [])
@@ -388,12 +424,6 @@ def _enrich_visual_evidence(
             )
             body_extent, point_count = _body_extent(bodies)
             body_extents.append(body_extent)
-            ocr = run_selected_ocr(
-                Path(str(candidate["path"])), requested_engine="apple_vision"
-            )
-            text_chars = sum(
-                len(str(item.get("ocrText") or "")) for item in ocr.get("boxes") or []
-            )
             measurements.update(
                 {
                     "faceVisibility": round(
@@ -427,13 +457,6 @@ def _enrich_visual_evidence(
                         and (point_count >= 4 or faces)
                         else 0.0
                     ),
-                    "overlayClear": round(max(0.0, 1.0 - min(1.0, text_chars / 80)), 6),
-                    "overlayEvidence": {
-                        "provider": "contentforge_apple_vision_ocr",
-                        "engine": ocr.get("engine"),
-                        "available": ocr.get("available"),
-                        "recognizedCharacters": text_chars,
-                    },
                     "framingCompatibility": (
                         "compatible"
                         if body_extent > 0.02 or face_area > 0.01
@@ -494,6 +517,11 @@ def _enrich_visual_evidence(
         },
         "mediaPipe": media_pipe.get("provenance")
         or {"available": False, "reason": "placement_evidence_unavailable"},
+        "overlayTextInventory": {
+            "status": "observed" if overlay_observations else "none_observed",
+            "observations": overlay_observations,
+            "generationPromptPolicy": "retain_as_evidence_exclude_from_prompt",
+        },
     }
 
 
@@ -754,14 +782,26 @@ def _load_receipt(existing: dict[str, Any], *, apply: bool) -> dict[str, Any]:
             "canonicalUrl": existing.get("canonical_url"),
         },
         "sourceSpeakingClassification": (
-            "DECLARED_TALKING" if metadata.get("declaredTalking") else "UNKNOWN"
+            "DECLARED_TALKING"
+            if metadata.get("declaredTalking")
+            else "DECLARED_NON_TALKING"
+            if metadata.get("declaredNonTalking")
+            else "UNKNOWN"
         ),
+        "operatorClassification": metadata.get("operatorClassification"),
+        "operatorWarnings": list(metadata.get("operatorWarnings") or []),
         "sceneCutsSeconds": _detect_scene_cuts(
             source_path,
             duration=duration,
             ffmpeg=shutil.which("ffmpeg") or "ffmpeg",
         ),
         "selectedAnchor": payload.get("selectedFrame"),
+        "overlayTextInventory": payload.get("overlayTextInventory")
+        or {
+            "status": "unavailable_for_legacy_receipt",
+            "observations": [],
+            "generationPromptPolicy": "retain_as_evidence_exclude_from_prompt",
+        },
         "anchorReceiptPath": str(receipt_path) if receipt_path.is_file() else None,
         "frameDerivatives": frame_derivatives,
         "contactSheet": {
@@ -918,6 +958,9 @@ def _metadata_allowlist(metadata: dict[str, Any]) -> dict[str, Any]:
         "original_audio",
         "caption",
         "declaredTalking",
+        "declaredNonTalking",
+        "operatorClassification",
+        "operatorWarnings",
     }
     return {key: metadata[key] for key in sorted(keys) if metadata.get(key) is not None}
 

@@ -9,6 +9,10 @@ For the current source SHA, runtime SHA, checkout condition, and operational
 snapshot, use [`PIPELINE_STATE.md`](./PIPELINE_STATE.md) and fresh
 `creator-os status` output. Those facts change faster than this map.
 
+For a new ChatGPT session, provide this map, `PIPELINE_STATE.md`, and
+`docs/operations/creator_os_master_operating_spec.md`. Together they describe
+durable architecture, current operational truth, and active product policy.
+
 ## The System In One Sentence
 
 Creator OS turns approved creator identity and content intent into an
@@ -189,6 +193,10 @@ pinned Higgsfield recipe, prompts, seeds, and job identities. Normal create
 does not accept a provider or model choice and cannot choose WaveSpeed or a
 local model.
 
+Stacey, Larissa, and Lola each have a pinned completed Soul 2 identity. Their
+private Higgsfield Element bindings are also installed for structural Seedance
+recreation; no creator may inherit another creator's Soul or Element.
+
 `creator-os generate` is a separate advanced/manual compatibility surface. It
 requires one explicit mode:
 
@@ -212,7 +220,7 @@ The operator's real would-post review is the model-selection authority:
 | Passive selfie / portrait / outfit / lifestyle motion | **SUPPORTED** | product-pinned Higgsfield Kling 3 or Seedance 2, generated sound disabled |
 | Animate an already-approved still | **SUPPORTED** | same pinned passive Higgsfield lane |
 | Existing finished Creator OS media | **SUPPORTED** | strict intake/reconciliation with retained source, generation, audio, QC, and final-media hashes |
-| Structural reference-Reel recreation | **EXPERIMENTAL** | one approved creator image plus one private authorized reference video through pinned Seedance 2 |
+| Structural reference-Reel recreation | **EXPERIMENTAL** | first-frame-matched creator anchor plus bound creator Element and one private motion-only reference through Seedance 2 Fast |
 | Motion copy / dance transfer | **UNRESOLVED** | tested Kling Motion Control outputs were rejected; no approved replacement recipe |
 | Talking selfie | **UNRESOLVED** | no authenticated, operator-approved exact supplied-voice path |
 | Talking motion copy | **UNRESOLVED** | neither the transfer base nor exact supplied-audio lip-sync path is approved |
@@ -429,29 +437,41 @@ public Instagram/TikTok/Short URL or private local Reel
 -> anonymous yt-dlp, then private Chrome Default access only when explicitly required
 -> sanitized platform/media identity + exact audiovisual SHA
 -> full-source local analysis + literal endpoint and clean-frame derivatives
+-> timestamped OCR inventory retained outside the generation prompt
+-> read-only timecoded motion/camera analysis when authenticated Gemini is available
 -> deterministic hard-block-first anchor receipt
 -> exact encoded audio + canonical PCM + Chromaprint evidence
 -> one canonical Audio Radar identity and one occurrence per reference
 ```
 
-`--through analyze` stops at that boundary with zero provider calls. Without
-`--apply`, download, frames, and audio extraction are temporary and databases
-are not mutated. Authorized apply stores private artifacts outside Git with
-0700 directories and 0600 files. Platform/media ID is the primary idempotency
-key, downloaded SHA is second, and URL aliases are only a pre-download hint.
+`--through analyze` stops at that boundary with zero paid visual-generation
+calls. When the authenticated Gemini CLI is available, it may make one
+read-only analysis call whose unavailable cost is reported honestly; invalid or
+missing analysis never invents semantic actions. Without `--apply`, download,
+frames, and audio extraction are temporary and databases are not mutated.
+Authorized apply stores private artifacts outside Git with 0700 directories
+and 0600 files. Platform/media ID is the primary idempotency key, downloaded SHA
+is second, and URL aliases are only a pre-download hint.
 
 The intent-first recreation planner then continues:
 
 ```text
 canonical private reference
 -> deterministic source classification + bounded coherent excerpt
--> one scene-matched Soul 2 anchor, or two clean endpoint anchors
+-> one clean-opening-frame-matched Soul 2 anchor, or two clean endpoint anchors
 -> mandatory human identity + WOULD_USE_AS_ANCHOR review
 -> passive Kling 3, experimental Motion Control, structural Seedance 2,
    experimental Kling first/last, or precise talking entitlement blocker
 -> provider audio disabled/replaced under the automatic audio policy
 -> technical QC + mode-specific human review + exact-SHA final audio binding
 ```
+
+The Seedance structural request binds the creator Element first, supplies the
+approved anchor as an image reference, supplies the Reel only as a video
+reference, uses the authenticated `seedance_2_0 mode=fast` contract at 480p/high
+bitrate, and disables generated audio. Its timecoded prompt contains reusable
+motion/camera structure but excludes OCR-recognized source writing. It does not
+mix start/end-image mode with reference-media mode.
 
 It does not register the inspiration Reel as a rendered asset, does not replace
 normal passive creation, and does not restore rejected Motion Control as a

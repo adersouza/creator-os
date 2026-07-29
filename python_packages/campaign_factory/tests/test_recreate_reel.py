@@ -110,7 +110,10 @@ def _capabilities() -> dict[str, Any]:
                 "type": "soul_2",
             }
         ],
-        "models": [{"job_type": "seedance_2_0"}],
+        "models": [
+            {"job_type": "seedance_2_0_mini"},
+            {"job_type": "seedance_2_0"},
+        ],
         "workflows": [],
     }
 
@@ -173,11 +176,17 @@ def test_recreate_uses_internal_seedance_recipe_and_silent_contract(
     job = _plan(tmp_path)["jobs"][0]
     stage = job["productionRecipe"]["stages"][0]
     assert stage["providerModel"] == "seedance_2_0"
+    assert stage["resolution"] == "480p"
     assert stage["recipeId"] == "higgsfield_recreate_reel"
     assert stage["task"] == "reference_to_video"
     assert job["productionRecipe"]["status"] == "experimental"
-    assert job["compiledPrompt"]["text"].endswith(
-        "choreography similarity is advisory and must not be described as identical."
+    assert (
+        "for motion, timing, framing, and camera movement only"
+        in job["compiledPrompt"]["text"]
+    )
+    assert (
+        "Do not copy the other person's face, hair, body, clothing"
+        in job["compiledPrompt"]["text"]
     )
 
 

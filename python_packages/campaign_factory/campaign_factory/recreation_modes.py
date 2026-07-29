@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -20,6 +21,29 @@ from .production_prompts import CREATOR_SOUL_IDS
 
 SCHEMA: Final = "campaign_factory.recreation_plan.v1"
 MODES: Final = ("auto", "passive", "motion", "structural", "first_last", "talking")
+CLASSIFICATIONS: Final = frozenset(
+    {
+        "passive_single_shot",
+        "simple_pose_motion",
+        "walking",
+        "dance",
+        "first_last_transition",
+        "structural_reference",
+        "talking",
+        "lip_sync",
+        "multi_shot",
+        "multi_person",
+        "heavy_occlusion",
+        "unsupported",
+    }
+)
+OPERATOR_WARNINGS: Final = frozenset(
+    {
+        "secondary_person_interaction",
+        "heavy_occlusion",
+        "identity_reset_required",
+    }
+)
 _MOTION_CREDIT_RATE: Final = 3.2
 
 QuoteProvider = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -54,10 +78,12 @@ def plan_recreation(
         audio=audio,
     )
     classification = _classification(reference, measurements)
+    operator_warnings = _operator_warnings(reference)
     routed_mode, alternatives, route_status = _route(
         requested_mode=requested_mode,
         classification=classification,
         measurements=measurements,
+        operator_warnings=operator_warnings,
     )
     excerpt = _select_excerpt(
         duration=duration,
@@ -88,6 +114,13 @@ def plan_recreation(
         )[:20]
     )
     anchor_count = 2 if routed_mode == "first_last" else 1
+    anchor_roles = (
+        ("opening", "ending")
+        if anchor_count == 2
+        else ("opening",)
+        if routed_mode in {"motion", "structural"}
+        else ("scene",)
+    )
     anchor_requests = [
         _public_anchor_request(
             role=role,
@@ -96,7 +129,7 @@ def plan_recreation(
             reference=reference,
             prompt=scene_prompt,
         )
-        for role in (("opening", "ending") if anchor_count == 2 else ("scene",))
+        for role in anchor_roles
     ]
     video_request = _video_request(
         mode=routed_mode,
@@ -176,7 +209,10 @@ def plan_recreation(
             "label": classification,
             "measurements": measurements,
             "confidence": _classification_confidence(classification, measurements),
-            "warnings": _warnings(classification, measurements),
+            "operatorConfirmed": bool(reference.get("operatorClassification")),
+            "warnings": _warnings(
+                classification, measurements, operator_warnings=operator_warnings
+            ),
         },
         "selectedMode": routed_mode,
         "alternatives": alternatives,
@@ -223,6 +259,11 @@ def plan_recreation(
 
 
 def _classification(reference: dict[str, Any], measurements: dict[str, Any]) -> str:
+    operator_classification = str(reference.get("operatorClassification") or "")
+    if operator_classification:
+        if operator_classification not in CLASSIFICATIONS:
+            raise ValueError("unsupported_operator_reference_classification")
+        return operator_classification
     if reference.get("sourceSpeakingClassification") == "DECLARED_TALKING":
         return "talking"
     if int(measurements["maxPrincipalPersonCount"] or 0) > 1:
@@ -240,12 +281,22 @@ def _classification(reference: dict[str, Any], measurements: dict[str, Any]) -> 
 
 
 def _route(
-    *, requested_mode: str, classification: str, measurements: dict[str, Any]
+    *,
+    requested_mode: str,
+    classification: str,
+    measurements: dict[str, Any],
+    operator_warnings: list[str],
 ) -> tuple[str, list[str], str]:
     if requested_mode != "auto":
         if requested_mode == "talking":
             return "talking", [], "blocked"
-        return requested_mode, [], "explicit_operator_mode"
+        return (
+            requested_mode,
+            [],
+            "manual_review"
+            if "secondary_person_interaction" in operator_warnings
+            else "explicit_operator_mode",
+        )
     routes = {
         "passive_single_shot": ("passive", ["structural"], "ready"),
         "simple_pose_motion": (
@@ -272,7 +323,10 @@ def _route(
         "heavy_occlusion": ("structural", [], "manual_review"),
         "unsupported": ("structural", [], "manual_review"),
     }
-    return routes.get(classification, routes["unsupported"])
+    mode, alternatives, status = routes.get(classification, routes["unsupported"])
+    if "secondary_person_interaction" in operator_warnings:
+        status = "manual_review"
+    return mode, alternatives, status
 
 
 def _classification_measurements(
@@ -310,6 +364,7 @@ def _classification_measurements(
         "framingCompatibility": _framing_state(candidates),
         "endpointCompatibility": "requires_human_review",
         "anchorCompatibility": "pending_soul_anchor",
+        "operatorWarnings": _operator_warnings(reference),
     }
 
 
@@ -360,26 +415,32 @@ def _video_request(
             "unsupportedFieldsAdded": [],
         }
     if mode == "structural":
+        structural_prompt = _structural_prompt(reference)
         return {
             "model": "seedance_2_0",
             "status": "experimental_structural_recreation",
             "identityReplacementClaimed": False,
             "request": {
-                "prompt": prompt,
+                "prompt": structural_prompt,
                 "aspect_ratio": "9:16",
                 "duration": int(round(float(excerpt["durationSeconds"]))),
-                "resolution": "720p",
-                "mode": "std",
+                "resolution": "480p",
+                "mode": "fast",
+                "bitrate_mode": "high",
+                "multi_shot_mode": "custom",
                 "generate_audio": False,
-                "start_image": "<approved_soul_anchor>",
+                "image_references": ["<approved_soul_anchor>"],
                 "video_references": [source],
+                "reference_elements": ["<approved_creator_reference_element>"],
             },
             "quoteParameters": {
-                "prompt": prompt,
+                "prompt": structural_prompt,
                 "aspect_ratio": "9:16",
                 "duration": int(round(float(excerpt["durationSeconds"]))),
-                "resolution": "720p",
-                "mode": "std",
+                "resolution": "480p",
+                "mode": "fast",
+                "bitrate_mode": "high",
+                "multi_shot_mode": "custom",
                 "generate_audio": False,
             },
         }
@@ -450,6 +511,10 @@ def _motion_compatibility(
         reasons.append("body_extent_is_weak")
     if measurements.get("speechEvidence") == "UNKNOWN":
         reasons.append("talking_or_lipsync_requirement_unresolved")
+    if "secondary_person_interaction" in list(
+        measurements.get("operatorWarnings") or []
+    ):
+        reasons.append("secondary_person_interaction_requires_manual_approval")
     if not excerpt.get("wholeSource"):
         reasons.append("bounded_excerpt_must_be_materialized_and_confirmed")
     state = "UNSUPPORTED" if blockers else "POSSIBLE_FIT" if reasons else "STRONG_FIT"
@@ -530,7 +595,7 @@ def _audio_decision(
 def _select_excerpt(
     *, duration: float, anchor_time: float, mode: str
 ) -> dict[str, Any]:
-    limit = 5.0 if mode == "passive" else 10.0 if mode == "motion" else 15.0
+    limit = 5.0 if mode == "passive" else 8.0
     length = min(duration, limit)
     start = min(max(0.0, anchor_time - length / 2), max(0.0, duration - length))
     end = start + length
@@ -639,20 +704,30 @@ def _scene_prompt(reference: dict[str, Any], classification: str) -> str:
         "Recreate the supplied reference scene composition with the configured "
         "creator identity: preserve the observed pose category, framing, clothing "
         "category, environment, lighting, and camera angle. Do not copy the "
-        "reference performer identity. Do not add titles, interface chrome, music, "
-        f"ambient audio, or dialogue. Source classification {classification}; "
+        "reference performer identity. Keep a clean open composition. "
+        f"Source classification {classification}; "
         f"portrait {media.get('width')}x{media.get('height')}; "
         f"{max(1, len(cuts))} observed material shot markers."
     )
 
 
 def _review_package(reference: dict[str, Any], mode: str) -> dict[str, Any]:
+    source_frame_role = (
+        "first_clean"
+        if mode in {"motion", "structural", "first_last"}
+        else "best_anchor"
+    )
     return {
         "sourceVideo": {
             "referenceId": reference.get("referenceId"),
             "sha256": _mapping(reference.get("source")).get("sha256"),
         },
-        "selectedSourceFrame": reference.get("selectedAnchor"),
+        "selectedSourceFrame": {
+            "role": source_frame_role,
+            **_mapping(
+                _mapping(reference.get("frameDerivatives")).get(source_frame_role)
+            ),
+        },
         "sourceFrameContactSheet": reference.get("contactSheet"),
         "soulAnchor": None,
         "secondSoulAnchor": None if mode != "first_last" else "pending",
@@ -693,8 +768,13 @@ def _status_rows(readiness: str) -> list[dict[str, str]]:
     ]
 
 
-def _warnings(classification: str, measurements: dict[str, Any]) -> list[str]:
-    warnings = []
+def _warnings(
+    classification: str,
+    measurements: dict[str, Any],
+    *,
+    operator_warnings: list[str],
+) -> list[str]:
+    warnings = list(operator_warnings)
     if classification == "multi_shot":
         warnings.append("AUTO cannot silently submit a multi-shot experimental route")
     if measurements.get("speechEvidence") == "UNKNOWN":
@@ -702,6 +782,19 @@ def _warnings(classification: str, measurements: dict[str, Any]) -> list[str]:
     if measurements.get("maxPrincipalPersonCount") is None:
         warnings.append("principal-person count unavailable on some frames")
     return warnings
+
+
+def _operator_warnings(reference: dict[str, Any]) -> list[str]:
+    values = sorted(
+        {
+            str(value)
+            for value in list(reference.get("operatorWarnings") or [])
+            if str(value)
+        }
+    )
+    if any(value not in OPERATOR_WARNINGS for value in values):
+        raise ValueError("unsupported_operator_reference_warning")
+    return values
 
 
 def _classification_confidence(
@@ -769,6 +862,46 @@ def _optional_positive(value: Any) -> float | None:
     if value is None:
         return None
     return _positive(value, "max credits")
+
+
+def _structural_prompt(reference: dict[str, Any]) -> str:
+    identity = (
+        "<<<approved_creator_reference_element>>> place her in this video. "
+        "same motion but my model instead"
+    )
+    wrapper = _mapping(reference.get("structuralMotionAnalysis"))
+    analysis = _mapping(wrapper.get("analysis"))
+    if wrapper.get("status") != "ready" or not analysis:
+        return identity
+    structure = _mapping(analysis.get("structure"))
+    timeline = [
+        (
+            f"[{float(row['startSeconds']):g}-{float(row['endSeconds']):g}s] "
+            f"{row['action']} Camera: {row['camera']}"
+        )
+        for row in list(structure.get("timeline") or [])
+        if isinstance(row, dict)
+        and all(
+            key in row for key in ("startSeconds", "endSeconds", "action", "camera")
+        )
+    ]
+    detail = " ".join(
+        [
+            "Use the reference video for motion, timing, framing, and camera "
+            "movement only; do not copy the other person's face, hair, or body.",
+            "Motion-only timeline:",
+            *timeline,
+            "Return clean footage with no writing or graphic borders.",
+        ]
+    )
+    for observation in list(
+        _mapping(reference.get("overlayTextInventory")).get("observations") or []
+    ):
+        if isinstance(observation, dict):
+            text = " ".join(str(observation.get("text") or "").split())
+            if text:
+                detail = re.sub(re.escape(text), "", detail, flags=re.IGNORECASE)
+    return " ".join(f"{identity}. Structural breakdown: {detail}".split())
 
 
 def _fingerprint(value: dict[str, Any]) -> str:

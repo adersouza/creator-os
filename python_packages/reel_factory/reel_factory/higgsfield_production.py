@@ -114,11 +114,13 @@ class HiggsfieldProductionRequest:
     duration_seconds: int = 5
     max_credits: float | None = None
     seed: int | None = None
+    reference_elements_path: Path | None = None
 
 
 _EXACT_JOB_TYPES = (
     "kling3_0",
     "seedance_2_0",
+    "seedance_2_0_mini",
     "kling3_0_motion_control",
     "veo3_1",
 )
@@ -209,7 +211,10 @@ def build_higgsfield_production_plan(
     adapter: HiggsfieldCliAdapter | None = None,
 ) -> dict[str, Any]:
     candidate = higgsfield_candidate_catalog(capabilities)[request.recipe_id]
-    if candidate.status != "supported":
+    if candidate.status != "supported" and not (
+        request.recipe_id == "higgsfield_motion_copy_animate"
+        and candidate.status == "experimental"
+    ):
         raise HiggsfieldFeatureUnavailable(
             candidate.unavailable_reason or f"{request.recipe_id} is unavailable"
         )
@@ -218,12 +223,16 @@ def build_higgsfield_production_plan(
     source_token, source = _source_identity(request, cli=cli)
     driving = _optional_media_identity(request.driving_video_path, "driving video")
     speech = _optional_media_identity(request.speech_audio_path, "speech audio")
+    reference_elements_path, reference_element = _reference_element(request)
+    prompt = _candidate_prompt(request, reference_element=reference_element)
     command = _candidate_command(
         request,
         candidate=candidate,
         source_token=source_token,
         driving=driving,
         speech=speech,
+        prompt=prompt,
+        reference_elements_path=reference_elements_path,
     )
     selected_model = command[3]
     material = {
@@ -233,7 +242,7 @@ def build_higgsfield_production_plan(
         "source": source,
         "drivingVideo": driving,
         "speechAudio": speech,
-        "prompt": _candidate_prompt(request),
+        "prompt": prompt,
         "model": selected_model,
         "seed": request.seed,
         "outputPath": str(_output_path(request.output_path)),
@@ -248,7 +257,7 @@ def build_higgsfield_production_plan(
         "source": source,
         "drivingVideo": driving,
         "speechAudio": speech,
-        "prompt": _candidate_prompt(request),
+        "prompt": prompt,
         "script": request.script,
         "command": command,
         "selectedModel": selected_model,
@@ -679,7 +688,7 @@ def _candidate_capabilities(
             unavailable_reason=(
                 None
                 if "seedance_2_0" in identifiers
-                else "Seedance 2.0 is not exposed by the authenticated CLI"
+                else "Seedance Fast is not exposed by the authenticated CLI"
             ),
             limitations=(
                 "Experimental until an exact output receives operator WOULD_POST review.",
@@ -695,18 +704,15 @@ def _candidate_capabilities(
                 else None
             ),
             exposed_job_type=motion_tool,
-            status="rejected_recipe" if motion_tool else "unresolved",
+            status="experimental" if motion_tool else "unresolved",
             unavailable_reason=(
-                (
-                    "the exposed Kling 3.0 Motion Control recipe was rejected by "
-                    "operator visual review"
-                )
+                None
                 if motion_tool
                 else "no authenticated motion-transfer job type is exposed"
             ),
             limitations=(
                 "The live CLI names this Kling 3.0 Motion Control, not Animate.",
-                "The tested recipe was rejected by operator visual review.",
+                "A prior output was rejected; each new use remains qualification-only.",
             ),
         ),
         "higgsfield_motion_copy_replace": HiggsfieldCandidate(
@@ -765,8 +771,9 @@ def _candidate_command(
     source_token: str,
     driving: dict[str, Any] | None,
     speech: dict[str, Any] | None,
+    prompt: str,
+    reference_elements_path: Path | None,
 ) -> list[str]:
-    prompt = _candidate_prompt(request)
     if request.recipe_id == "higgsfield_passive_selfie":
         model = str(request.model or "").strip()
         available = set(str(candidate.exposed_job_type or "").split(","))
@@ -804,12 +811,16 @@ def _candidate_command(
             ]
         return [*command, "--json"]
     if request.recipe_id == "higgsfield_recreate_reel":
-        if candidate.exposed_job_type != "seedance_2_0":
+        model = str(request.model or "").strip() or "seedance_2_0"
+        if model != "seedance_2_0" or candidate.exposed_job_type != model:
             raise HiggsfieldFeatureUnavailable(
-                "recreate_reel requires authenticated Seedance 2.0"
+                "recreate_reel requires authenticated Seedance Fast; Mini was "
+                "rejected for creator identity preservation"
             )
         if driving is None:
             raise ValueError("recreate_reel requires one reference video")
+        if reference_elements_path is None:
+            raise ValueError("recreate_reel requires the creator reference element")
         if speech is not None:
             raise ValueError(
                 "recreate_reel cannot accept creator speech until supplied-voice "
@@ -817,11 +828,11 @@ def _candidate_command(
             )
         if not 4 <= int(request.duration_seconds) <= 15:
             raise ValueError("recreate_reel duration must be 4 to 15 seconds")
-        return [
+        command = [
             "higgsfield",
             "generate",
             "create",
-            "seedance_2_0",
+            model,
             "--prompt",
             prompt,
             "--image-references",
@@ -833,13 +844,14 @@ def _candidate_command(
             "--duration",
             str(request.duration_seconds),
             "--resolution",
-            "720p",
-            "--mode",
-            "std",
+            "480p",
+            "--bitrate_mode",
+            "high",
             "--generate_audio",
             "false",
-            "--json",
         ]
+        command += ["--mode", "fast"]
+        return [*command, "--json"]
     if request.recipe_id == "higgsfield_motion_copy_animate":
         if driving is None:
             raise ValueError("motion-copy candidate requires a driving video")
@@ -889,7 +901,33 @@ def _candidate_command(
     )
 
 
-def _candidate_prompt(request: HiggsfieldProductionRequest) -> str:
+def _candidate_prompt(
+    request: HiggsfieldProductionRequest,
+    *,
+    reference_element: dict[str, Any] | None,
+) -> str:
+    if request.recipe_id == "higgsfield_recreate_reel":
+        if reference_element is None:
+            raise ValueError("recreate_reel requires the creator reference element")
+        reference_id = str(reference_element.get("id") or "").strip()
+        if not reference_id:
+            raise ValueError("creator reference element is missing its id")
+        identity_prompt = (
+            f"<<<{reference_id}>>> place her in this video. "
+            "same motion but my model instead"
+        )
+        structural_prompt = " ".join(str(request.prompt or "").split())
+        placeholder = (
+            "<<<approved_creator_reference_element>>> place her in this video. "
+            "same motion but my model instead"
+        )
+        if structural_prompt.startswith(placeholder):
+            structural_prompt = structural_prompt[len(placeholder) :].lstrip(". ")
+        return (
+            f"{identity_prompt}. {structural_prompt}"
+            if structural_prompt
+            else identity_prompt
+        )
     base = " ".join(str(request.prompt or "").split())
     if request.recipe_id == "higgsfield_talking_veo":
         script = " ".join(str(request.script or "").split())
@@ -990,6 +1028,41 @@ def _optional_media_identity(path: Path | None, label: str) -> dict[str, Any] | 
         return None
     media = _safe_file(path, label)
     return {"path": str(media), "sha256": _sha256_file(media)}
+
+
+def _reference_element(
+    request: HiggsfieldProductionRequest,
+) -> tuple[Path | None, dict[str, Any] | None]:
+    if request.recipe_id != "higgsfield_recreate_reel":
+        return None, None
+    path = request.reference_elements_path or (
+        Path.home()
+        / ".creator-os"
+        / "higgsfield"
+        / "reference_elements"
+        / f"{request.creator.strip().lower()}.json"
+    )
+    path = _safe_file(path, "creator reference element")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("creator reference element is invalid JSON") from exc
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise ValueError("creator reference element must contain exactly one item")
+    element = payload[0]
+    if not isinstance(element, dict):
+        raise ValueError("creator reference element must be an object")
+    if (
+        str(element.get("name") or "").strip().lower()
+        != request.creator.strip().lower()
+    ):
+        raise ValueError(
+            "creator reference element does not match the requested creator"
+        )
+    for key in ("id", "medias", "video_medias"):
+        if key not in element:
+            raise ValueError(f"creator reference element is missing {key}")
+    return path, element
 
 
 def _probe_video(path: Path) -> dict[str, Any]:

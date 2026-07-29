@@ -4,7 +4,10 @@ Campaign Factory is the Creator OS control brain. It owns campaign state, readin
 
 ## Current Cross-Repo Truth
 
-- Reel Factory active generation path is direct Higgsfield reference-image stills, `9:16`, Stacey Soul ID `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Reel Factory active generation path is direct Higgsfield reference-image
+  stills at `9:16`. Campaign Factory resolves and passes the pinned Stacey,
+  Larissa, or Lola Soul ID; it must never reuse one creator's identity for
+  another.
 - Grok/Qwen/Ollama/Florence visual-schema and grid/cropped-panel workflows are legacy Reel Factory experiments, not the current production path.
 - ContentForge owns variant/audit mechanics.
 - ThreadsDashboard owns real app posts, schedules, publishing infrastructure, account data, and analytics.

@@ -17,6 +17,9 @@ Read in this order:
 5. [`operations/creator_os_master_operating_spec.md`](operations/creator_os_master_operating_spec.md)
    — active product policy and invariants.
 
+For a new ChatGPT session, the minimum complete handoff is items 2, 4, and 5:
+the durable system map, dated pipeline state, and active operating policy.
+
 ## Active Architecture
 
 - [`architecture/autonomous_content_director.md`](architecture/autonomous_content_director.md)

@@ -79,6 +79,16 @@ CREATOR_SOUL_IDS: Final[dict[str, str]] = {
 }
 
 
+def require_creator_soul_id(creator: str) -> tuple[str, str]:
+    creator_slug = creator.strip().lower().replace(" ", "_")
+    try:
+        return creator_slug, CREATOR_SOUL_IDS[creator_slug]
+    except KeyError as exc:
+        raise ValueError(
+            f"no pinned authenticated Higgsfield Soul identity for creator {creator}"
+        ) from exc
+
+
 def _fingerprint(value: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()

@@ -43,6 +43,34 @@ def register_core_commands(sub) -> None:
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
+    create.add_argument("--reference-non-talking", action="store_true")
+    create.add_argument(
+        "--reference-classification",
+        choices=[
+            "passive_single_shot",
+            "simple_pose_motion",
+            "walking",
+            "dance",
+            "first_last_transition",
+            "structural_reference",
+            "talking",
+            "lip_sync",
+            "multi_shot",
+            "multi_person",
+            "heavy_occlusion",
+            "unsupported",
+        ],
+    )
+    create.add_argument(
+        "--reference-warning",
+        action="append",
+        choices=[
+            "secondary_person_interaction",
+            "heavy_occlusion",
+            "identity_reset_required",
+        ],
+        default=[],
+    )
     create.add_argument(
         "--recreate-mode",
         choices=["auto", "passive", "motion", "structural", "first_last", "talking"],

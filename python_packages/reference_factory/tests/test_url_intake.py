@@ -75,6 +75,8 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
         "canonicalUrl": "https://www.instagram.com/reel/reel123/",
         "extractor": "Instagram",
         "extractorVersion": "test",
+        "declaredNonTalking": True,
+        "operatorClassification": "simple_pose_motion",
     }
     monkeypatch.setattr(
         intake,
@@ -111,7 +113,13 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
         lambda _path, requested_engine: {
             "available": True,
             "engine": requested_engine,
-            "boxes": [],
+            "boxes": [
+                {
+                    "ocrText": "Original hook text",
+                    "confidence": 0.98,
+                    "box": {"x": 10, "y": 20, "w": 100, "h": 30},
+                }
+            ],
         },
     )
     dry = analyze_url_reference(
@@ -122,6 +130,14 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
     assert not db_path.exists()
     assert dry["frameDerivatives"]["literal_first"]["path"] is None
     assert dry["frameDerivatives"]["last_clean"]["path"] is None
+    assert dry["overlayTextInventory"]["status"] == "observed"
+    assert {row["text"] for row in dry["overlayTextInventory"]["observations"]} == {
+        "Original hook text"
+    }
+    assert (
+        dry["overlayTextInventory"]["generationPromptPolicy"]
+        == "retain_as_evidence_exclude_from_prompt"
+    )
     first = analyze_url_reference(
         source, metadata=metadata, data_root=data_root, db_path=db_path, apply=True
     )
@@ -139,7 +155,9 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
     assert existing_dry["media"]["durationSeconds"] == pytest.approx(1.0)
     assert existing_dry["media"]["width"] == 360
     assert existing_dry["media"]["height"] == 640
-    assert existing_dry["sourceSpeakingClassification"] == "UNKNOWN"
+    assert existing_dry["sourceSpeakingClassification"] == "DECLARED_NON_TALKING"
+    assert existing_dry["operatorClassification"] == "simple_pose_motion"
+    assert existing_dry["overlayTextInventory"] == first["overlayTextInventory"]
     assert len(existing_dry["anchorCandidates"]) == len(first["anchorCandidates"])
     assert (
         existing_dry["frameDerivatives"]["best_anchor"]["sha256"]

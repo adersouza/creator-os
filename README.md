@@ -33,6 +33,11 @@ approved creator source
   -> supervised learning
 ```
 
+Stacey, Larissa, and Lola each resolve to a distinct completed Soul 2 identity.
+Reference-Reel structural recreation additionally resolves the matching private
+creator Element. Missing or mismatched identity bindings fail before quoting or
+paid submission.
+
 Supported:
 
 - Higgsfield Soul 2 stills;

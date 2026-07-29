@@ -75,6 +75,7 @@ from .production_higgsfield_authorization import (
 )
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
+from .production_prompts import require_creator_soul_id as _require_creator_soul_id
 from .production_source_selection import select_requested_source_assets
 from .provider_spend import (
     consume_provider_spend_authorization as consume_higgsfield_authorization,
@@ -84,10 +85,8 @@ from .recreate_reel import (
     RECREATE_REEL_STAGE,
     analyze_reference_reel,
     build_recreation_prompt,
+    fulfill_reference_audio,
     rank_character_references,
-)
-from .recreate_reel import (
-    fulfill_reference_audio as _fulfill_recreate_reference_audio,
 )
 
 SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
@@ -241,7 +240,7 @@ def fulfill_production_audio(
             "requiredStage": None,
         }
     if policy == "original_embedded":
-        return _fulfill_recreate_reference_audio(
+        return fulfill_reference_audio(
             factory,
             job=job,
             generation_result=generation_result,
@@ -386,6 +385,7 @@ def build_production_motion_recipe(
     execution: str,
     source_sha256: str,
 ) -> dict[str, Any]:
+    creator_slug, _ = _require_creator_soul_id(creator)
     if intent not in _INTENT_PROMPTS:
         raise ValueError(f"intent {intent!r} is not in the production motion catalog")
     unresolved = _UNRESOLVED_INTENT_ERRORS.get(intent)
@@ -419,7 +419,7 @@ def build_production_motion_recipe(
         "schema": SCHEMA,
         "recipeId": f"{execution}_{intent}_creator_motion_v2",
         "status": status,
-        "creator": creator.strip().lower(),
+        "creator": creator_slug,
         "intent": intent,
         "mode": mode,
         "modelId": model_id,
@@ -499,7 +499,7 @@ def plan_production_batch(
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     if intent in _RECREATE_INTENTS and int(count) != 1:
         raise ValueError("recreate_reel currently supports exactly one output")
-    creator_slug = creator.strip().lower().replace(" ", "_")
+    creator_slug, _ = _require_creator_soul_id(creator)
     resolved_audio_policy = _audio_policy(audio_preference)
     _validate_intent_audio_policy(intent, resolved_audio_policy)
     reference_analysis = None

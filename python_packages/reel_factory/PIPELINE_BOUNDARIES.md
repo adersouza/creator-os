@@ -8,13 +8,17 @@ Allowed:
 
 - Use local single-person reference images to create one direct Higgsfield Soul ID still.
 - Pass the reference image to Higgsfield still generation through the active direct-reference path.
-- Use Stacey Soul ID for Stacey identity.
+- Use the distinct Campaign-selected pinned Soul ID for Stacey, Larissa, or
+  Lola; never substitute identities across creators.
 - Default active stills to `9:16`.
 - Capture Higgsfield raw JSON, generated prompt, local output path, and lineage.
 - Compile deterministic Kling motion prompts for accepted stills.
 - Run Kling only when explicitly requested.
 - Build a non-executing structural-remix plan for an explicitly selected,
   rights-confirmed 5–12 second one-shot reference video.
+- Bind structural Seedance prompts to the matching creator Element and a
+  timecoded motion/camera analysis while retaining source overlay text only as
+  excluded evidence.
 - Write local prompt, generation, motion, QC, and export lineage.
 - Fulfill eligible non-talking media from the canonical active Audio Radar
   cache, embed a duration-compatible AAC segment, and return exact binding

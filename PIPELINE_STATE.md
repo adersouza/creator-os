@@ -3,20 +3,24 @@
 **Last reconciled:** 2026-07-28
 **Durable architecture:** [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md)
 
-This is a dated source/runtime snapshot. Provider balances, account state,
-schedule state, post identities, and metric counts still require fresh
-read-only status before an operation.
+This is the concise handoff document for a new ChatGPT or Codex session. Share
+it together with [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md) and
+[`docs/operations/creator_os_master_operating_spec.md`](./docs/operations/creator_os_master_operating_spec.md).
+It is still a dated snapshot: provider balances, account state, schedule state,
+post identities, and metric counts require fresh read-only status before an
+operation.
 
 ## Current Git And Runtime Truth
 
 | Layer | Current evidence |
 |---|---|
-| `origin/main` | `f844f4b6da87bb50c67582179ffce77e512bd14a` |
-| Hosted release/security | exact-SHA evidence authorized the recorded promotion; not re-run during this docs cleanup |
+| Source baseline before this reconciliation branch | `b4f3bf51d04d3cb52bacd5010c83e91914de46b3` |
+| Current source after merge | query `git rev-parse origin/main`; this documentation commit necessarily advances the baseline |
+| Hosted release/security | required on the exact final merge SHA before any later runtime promotion |
 | Machine runtime | clean detached checkout at `f844f4b6da87bb50c67582179ffce77e512bd14a` |
-| Source/runtime alignment | **aligned** at the snapshot SHA |
-| Runtime health | the promotion recorded 9/9 read-only health; this reconciliation reran 7 local checks successfully and left 2 network probes `NOT_RUN` |
-| Development worktrees | multiple retained development worktrees exist; their presence is not runtime state |
+| Source/runtime alignment | **not aligned after this source merge**; runtime promotion was not part of this cleanup |
+| Runtime health | the existing runtime checkout is clean; re-run the supported 9/9 health gate only after an explicitly authorized promotion |
+| Development worktrees | merged/disposable development worktrees are removed after this branch merges; runtime remains separate |
 
 Run this before relying on the snapshot:
 
@@ -29,7 +33,7 @@ scripts/creator-os status --json
 
 ## Current Read-Only Health Snapshot
 
-The 2026-07-28 runtime status check confirmed:
+The 2026-07-28 local status check confirmed:
 
 - clean, known checkout identity;
 - virtual-environment entrypoints bound to their checkout;
@@ -40,11 +44,32 @@ The 2026-07-28 runtime status check confirmed:
   `~/.creator-os/state`;
 - the configured Campaign database is readable and contains the Stacey learning
   cohort campaign;
-- source and runtime are aligned at the exact SHA above.
+- the runtime remains on its earlier clean promoted SHA while current source
+  contains newer URL-recreation and creator-identity work.
 
 Provider readiness and the ThreadsDashboard handshake were `NOT_RUN` in this
 snapshot because only local read-only status was requested. Do not infer a live
 provider or product seam pass.
+
+## Creator Identity And Inventory Snapshot
+
+Authenticated read-only checks confirmed:
+
+| Creator | Completed Soul 2 | Completed private Element | Approved images | Imported images |
+|---|---:|---:|---:|---:|
+| Stacey | yes | yes | 3 | 466 |
+| Larissa | yes | yes | 0 | 208 |
+| Lola | yes | yes | 0 | 203 |
+
+Stacey has one trained Soul and several old single-image Elements created during
+earlier tests. Those numbered/test Elements are not extra trained identities.
+Creator OS binds the canonical Stacey Element; the unused account objects do
+not participate in routing.
+
+Larissa and Lola are technically configured for Soul and structural Seedance
+identity binding, but normal create still fails closed until the operator
+approves exact source images for each creator. Creator OS never converts an
+imported image into an approved source automatically.
 
 ## Current Product Capability
 
@@ -69,10 +94,14 @@ provider or product seam pass.
 
 ### Experimental
 
-- URL or local-file `recreate_reel` intake, analysis, anchor planning, and
-  bounded quote planning;
-- passive, structural Seedance, experimental Motion Control, and first/last
-  recreation modes behind their explicit approval gates.
+- URL or local-file `recreate_reel` intake, exact audio retention, clean-frame
+  analysis, OCR overlay inventory, timecoded structural motion/camera analysis,
+  anchor planning, and bounded quote planning;
+- passive, structural Seedance 2 Fast, experimental Motion Control, and
+  first/last recreation modes behind their explicit approval gates;
+- creator-scoped routing for Stacey, Larissa, and Lola. Structural Seedance
+  binds the matching creator Element before the sanitized timeline and never
+  sends recognized source overlay text to generation.
 
 ### Unresolved
 
@@ -94,9 +123,9 @@ Historical receipts, rows, media, hashes, and lineage remain readable.
 The runtime read-only Audio Radar status at reconciliation time reported:
 
 - 17 active/resolved active tracks;
-- 26 playable cache objects;
-- approximately 129 MB cached bytes;
-- 127 catalog rows;
+- 38 playable cache objects;
+- 130,559,347 cached bytes;
+- 135 catalog rows;
 - one retained production selection;
 - zero publication-linked performance rollups.
 
@@ -129,13 +158,15 @@ deduplication and 16.69 MiB afterward. Runtime environments, private media,
 Audio Radar bytes, QC models, databases, receipts, and backups live outside
 tracked source and must not be treated as repository bloat.
 
-This cleanup removes only redundant tracked plans/audits and duplicated
-documentation. It does not delete local environments, canonical state, media,
-model files, receipts, worktrees, or rollback evidence.
+Repository cleanup removes merged development worktrees and their local/remote
+branches after proving their PR or patch landed. It does not delete the runtime
+checkout, canonical state, media, model files, receipts, databases, backups, or
+rollback evidence.
 
 ## Still Separate And Operator-Gated
 
 - runtime promotion;
+- Larissa/Lola source approval;
 - paid provider apply;
 - creative approval;
 - draft export;

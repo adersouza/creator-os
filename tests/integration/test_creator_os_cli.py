@@ -304,6 +304,9 @@ def test_create_routes_reference_url_analysis_without_provider_inputs(
                 "auto",
                 "--through",
                 "analyze",
+                "--reference-non-talking",
+                "--reference-classification",
+                "simple_pose_motion",
                 "--audio",
                 "auto",
             ]
@@ -314,6 +317,10 @@ def test_create_routes_reference_url_analysis_without_provider_inputs(
     assert "--reference-url" in command
     assert command[command.index("--recreate-mode") + 1] == "auto"
     assert command[command.index("--through") + 1] == "analyze"
+    assert "--reference-non-talking" in command
+    assert (
+        command[command.index("--reference-classification") + 1] == "simple_pose_motion"
+    )
     assert "--apply" not in command
     assert "--soul-id" not in command
 
