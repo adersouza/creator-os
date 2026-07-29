@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last reconciled:** 2026-07-28
+**Last reconciled:** 2026-07-29
 **Durable architecture:** [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md)
 
 This is the concise handoff document for a new ChatGPT or Codex session. Share
@@ -14,13 +14,12 @@ operation.
 
 | Layer | Current evidence |
 |---|---|
-| Source baseline before this reconciliation branch | `b4f3bf51d04d3cb52bacd5010c83e91914de46b3` |
-| Current source after merge | query `git rev-parse origin/main`; this documentation commit necessarily advances the baseline |
-| Hosted release/security | required on the exact final merge SHA before any later runtime promotion |
-| Machine runtime | clean detached checkout at `f844f4b6da87bb50c67582179ffce77e512bd14a` |
-| Source/runtime alignment | **not aligned after this source merge**; runtime promotion was not part of this cleanup |
-| Runtime health | the existing runtime checkout is clean; re-run the supported 9/9 health gate only after an explicitly authorized promotion |
-| Development worktrees | merged/disposable development worktrees are removed after this branch merges; runtime remains separate |
+| Reconciliation source before this documentation change | clean `origin/main` at `041bab24fec520d2100860272321d7156d1c5ec9` |
+| Authoritative source | query `git rev-parse origin/main`; this documentation commit necessarily advances the recorded baseline |
+| Hosted release/security | required on the exact final merge SHA before runtime promotion |
+| Machine runtime before final alignment | clean detached checkout at `f844f4b6da87bb50c67582179ffce77e512bd14a` |
+| Final alignment proof | the post-merge promotion receipt and live `creator-os status`, never this dated pre-promotion SHA |
+| Development worktrees | only the normal source and protected runtime checkouts remain after the documentation branch is merged and removed |
 
 Run this before relying on the snapshot:
 
@@ -33,7 +32,7 @@ scripts/creator-os status --json
 
 ## Current Read-Only Health Snapshot
 
-The 2026-07-28 local status check confirmed:
+The 2026-07-29 local status check confirmed:
 
 - clean, known checkout identity;
 - virtual-environment entrypoints bound to their checkout;
@@ -44,8 +43,13 @@ The 2026-07-28 local status check confirmed:
   `~/.creator-os/state`;
 - the configured Campaign database is readable and contains the Stacey learning
   cohort campaign;
-- the runtime remains on its earlier clean promoted SHA while current source
-  contains newer URL-recreation and creator-identity work.
+- the failed incomplete 8.3 GB runtime backup was removed after a focused
+  source-approval database backup passed integrity verification;
+- runtime backup preserves historical symlink records instead of dereferencing
+  missing retired-media targets;
+- source and runtime were clean but not yet aligned before this final
+  documentation merge. The authorized follow-up is to promote the exact final
+  merge SHA only after its hosted release and security evidence succeeds.
 
 Provider readiness and the ThreadsDashboard handshake were `NOT_RUN` in this
 snapshot because only local read-only status was requested. Do not infer a live
@@ -55,21 +59,22 @@ provider or product seam pass.
 
 Authenticated read-only checks confirmed:
 
-| Creator | Completed Soul 2 | Completed private Element | Approved images | Imported images |
-|---|---:|---:|---:|---:|
-| Stacey | yes | yes | 3 | 466 |
-| Larissa | yes | yes | 0 | 208 |
-| Lola | yes | yes | 0 | 203 |
+| Creator | Completed Soul 2 | Completed private Element | Approved images | Imported images | Imported videos | Other |
+|---|---:|---:|---:|---:|---:|---:|
+| Stacey | yes | yes | 3 | 131 | 335 | 1 guarded review package |
+| Larissa | yes | yes | 3 | 0 | 208 | 0 |
+| Lola | yes | yes | 3 | 0 | 203 | 0 |
 
 Stacey has one trained Soul and several old single-image Elements created during
 earlier tests. Those numbered/test Elements are not extra trained identities.
 Creator OS binds the canonical Stacey Element; the unused account objects do
 not participate in routing.
 
-Larissa and Lola are technically configured for Soul and structural Seedance
-identity binding, but normal create still fails closed until the operator
-approves exact source images for each creator. Creator OS never converts an
-imported image into an approved source automatically.
+Larissa and Lola now each have a deliberately small approved set: one close,
+one mid-body, and one wider/full-body source. Every selected file is
+creator-bound, byte-present, SHA-valid, and backed by a
+`source_approval_decided` audit event. The older 208/203 imported rows are
+videos, not still images; they were not bulk-approved.
 
 ## Current Product Capability
 
@@ -165,8 +170,7 @@ rollback evidence.
 
 ## Still Separate And Operator-Gated
 
-- runtime promotion;
-- Larissa/Lola source approval;
+- runtime promotion when source and runtime differ;
 - paid provider apply;
 - creative approval;
 - draft export;
