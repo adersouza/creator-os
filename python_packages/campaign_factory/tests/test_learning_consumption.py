@@ -154,12 +154,7 @@ def test_evidence_tiers_never_call_three_outcomes_a_winner() -> None:
 
 def test_explicit_learning_objective_selects_versioned_v2_score() -> None:
     recommendation = build_measured_recommendations(
-        _pack(
-            [
-                _outcome(index, learningObjective="engagement")
-                for index in (1, 2, 3)
-            ]
-        ),
+        _pack([_outcome(index, learningObjective="engagement") for index in (1, 2, 3)]),
         now=datetime(2026, 7, 3, tzinfo=UTC),
     )[0]
 

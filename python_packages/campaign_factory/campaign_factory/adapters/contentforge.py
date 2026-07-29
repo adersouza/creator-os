@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
+import subprocess
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -475,13 +477,17 @@ def _audit_asset(
     reference_pattern: dict[str, Any] | None = None,
     reference_paths: list[Path] | None = None,
 ) -> dict[str, Any]:
-    from ..asset_evidence import verify_registered_asset_bytes
+    from ..asset_evidence import (
+        verify_final_artifact_integrity,
+        verify_registered_asset_bytes,
+    )
 
     media_path = Path(asset["campaign_path"])
-    integrity = verify_registered_asset_bytes(asset)
-    if integrity["passed"] is not True:
+    byte_integrity = verify_registered_asset_bytes(asset)
+    if byte_integrity["passed"] is not True:
         raise ValueError("contentforge_subject_sha_mismatch")
-    subject_sha256 = str(integrity["actualSha256"])
+    subject_sha256 = str(byte_integrity["actualSha256"])
+    final_integrity = verify_final_artifact_integrity(asset)
     source_path = _source_path_for_asset(factory, asset)
     locked_static = asset.get("recipe") == "static_mp4"
     run_id = uuid.uuid4().hex[:8]
@@ -523,6 +529,30 @@ def _audit_asset(
             failed.append("contentforge_malformed_response")
             overall = "fail"
             response["overallVerdict"] = overall
+        if final_integrity["passed"] is not True:
+            failed.extend(final_integrity["failures"])
+            response["overallVerdict"] = "fail"
+            readiness = response.get("readinessSummary")
+            readiness = dict(readiness) if isinstance(readiness, dict) else {}
+            readiness["uploadReady"] = False
+            readiness["blockingCodes"] = sorted(
+                set(
+                    [
+                        *(readiness.get("blockingCodes") or []),
+                        *final_integrity["failures"],
+                    ]
+                )
+            )
+            readiness["blockingReasons"] = sorted(
+                set(
+                    [
+                        *(readiness.get("blockingReasons") or []),
+                        *final_integrity["failures"],
+                    ]
+                )
+            )
+            response["readinessSummary"] = readiness
+        overall = response.get("overallVerdict")
     except Exception:
         logger.exception("ContentForge CLI audit failed")
         overall = "fail"
@@ -565,7 +595,12 @@ def _audit_asset(
         or locked_static,
         "renderedAssetId": asset["id"],
         "subjectSha256": subject_sha256,
-        "finalArtifactIntegrity": integrity,
+        "finalArtifactIntegrity": final_integrity,
+        "analyzerEvidence": _contentforge_analyzer_evidence(
+            factory.settings.contentforge_root,
+            layers=layers,
+            response=response,
+        ),
         "sourceFile": str(source_path),
         "stagedSourceFile": staged_source_name,
         "file": str(media_path),
@@ -650,6 +685,83 @@ def _audit_asset(
     report["auditReportId"] = audit_id
     report["reportPath"] = str(report_path)
     return report
+
+
+def _contentforge_analyzer_evidence(
+    contentforge_root: Path,
+    *,
+    layers: list[str],
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    root = contentforge_root.expanduser().resolve()
+    component_paths = (
+        root / "package.json",
+        root / "cli.mjs",
+        root / "lib" / "similarity.js",
+        root / "lib" / "detector.js",
+        root / "lib" / "forensics_check.py",
+        root / "lib" / "provenance_check.py",
+    )
+    components = {
+        str(path.relative_to(root)): _sha256_path(path)
+        for path in component_paths
+        if path.is_file() and not path.is_symlink()
+    }
+    package = {}
+    try:
+        package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        package = {}
+    model_fingerprints = response.get("modelFingerprints")
+    if not isinstance(model_fingerprints, dict):
+        model_fingerprints = {}
+    core = {
+        "analyzerId": "contentforge.campaign_factory_audit",
+        "analyzerVersion": str(package.get("version") or "unknown"),
+        "auditProfile": response.get("auditProfile") or DEFAULT_AUDIT_PROFILE,
+        "layers": sorted(set(layers)),
+        "implementationComponents": components,
+        "runtimeVersions": {
+            tool: _tool_version(tool)
+            for tool in ("node", "ffmpeg", "ffprobe", "tesseract")
+        },
+        "modelFingerprints": model_fingerprints,
+        "modelFingerprintStatus": (
+            "verified" if model_fingerprints else "no_external_model_reported"
+        ),
+    }
+    return {
+        **core,
+        "implementationFingerprint": hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _tool_version(tool: str) -> str | None:
+    executable = shutil.which(tool)
+    if not executable:
+        return None
+    try:
+        result = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    text = (result.stdout or result.stderr or "").strip()
+    return text.splitlines()[0] if result.returncode == 0 and text else None
 
 
 def _source_path_for_asset(factory: CampaignFactory, asset: dict[str, Any]) -> Path:

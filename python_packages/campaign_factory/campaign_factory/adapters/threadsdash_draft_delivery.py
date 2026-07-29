@@ -468,12 +468,13 @@ def export_threadsdash(
                 "export blocked by readiness before external writes: "
                 + ", ".join(readiness_blockers)
             )
-        if not dry_run and readiness.get("warnings") and not allow_warnings:
+        operator_overridable_warnings = _operator_overridable_warnings(readiness)
+        if not dry_run and operator_overridable_warnings and not allow_warnings:
             unreviewed_warning_codes = [
                 str(item.get("code") or item.get("type") or item)
                 if isinstance(item, dict)
                 else str(item)
-                for item in readiness.get("warnings") or []
+                for item in operator_overridable_warnings
             ]
             raise ValueError(
                 "export has readiness warnings; review them or explicitly pass "
@@ -481,7 +482,7 @@ def export_threadsdash(
             )
         warning_codes: list[str] = []
         warning_override_reason_normalized = ""
-        if not dry_run and readiness.get("warnings") and allow_warnings:
+        if not dry_run and operator_overridable_warnings and allow_warnings:
             warning_override_reason_normalized = str(
                 warning_override_reason or ""
             ).strip()
@@ -493,7 +494,7 @@ def export_threadsdash(
                 str(item.get("code") or item.get("type") or item)
                 if isinstance(item, dict)
                 else str(item)
-                for item in readiness.get("warnings") or []
+                for item in operator_overridable_warnings
             ]
         warning_override: dict[str, Any] | None = None
         uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
@@ -778,6 +779,11 @@ def _release_payload_inventory_reservations(
             status="released",
             pending_only=True,
         )
+
+
+def _operator_overridable_warnings(readiness: dict[str, Any]) -> list[Any]:
+    warnings = readiness.get("operatorOverridableWarnings")
+    return list(warnings) if isinstance(warnings, list) else []
 
 
 def _validate_exact_creative_approvals(

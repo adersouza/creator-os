@@ -44,6 +44,22 @@ from campaign_test_support import (
 )
 
 
+def _stub_final_artifact_integrity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.asset_evidence.verify_final_artifact_integrity",
+        lambda asset: {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": True,
+            "failures": [],
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+    )
+
+
 def test_contentforge_staging_is_run_isolated_and_preserves_shared_final(
     tmp_path: Path,
 ) -> None:
@@ -1113,6 +1129,7 @@ def test_publishability_allows_styled_burned_caption_when_placement_passes(
 
 
 def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1178,6 +1195,7 @@ def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch)
 def test_contentforge_cli_audit_preserves_explicit_legacy_temporal_layer(
     tmp_path: Path, monkeypatch
 ):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
     seen_layers: list[str] = []
 
@@ -1365,6 +1383,7 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(
 def test_contentforge_cli_audit_records_warn_and_fail_results(
     tmp_path: Path, monkeypatch
 ):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1407,6 +1426,7 @@ def test_contentforge_cli_audit_records_warn_and_fail_results(
 def test_contentforge_cli_audit_keeps_review_only_layer_failures_nonblocking(
     tmp_path: Path, monkeypatch
 ):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1453,6 +1473,7 @@ def test_contentforge_cli_audit_keeps_review_only_layer_failures_nonblocking(
 
 
 def test_contentforge_cli_audit_handles_malformed_response(tmp_path: Path, monkeypatch):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(

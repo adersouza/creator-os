@@ -78,6 +78,13 @@ def _sha(value: Any, field: str) -> str:
     return normalized
 
 
+def _is_sha(value: Any) -> bool:
+    normalized = str(value or "")
+    return len(normalized) == 64 and all(
+        character in "0123456789abcdef" for character in normalized
+    )
+
+
 def _timestamp(value: Any, field: str) -> datetime:
     normalized = _required_text(value, field)
     try:
@@ -114,15 +121,6 @@ def asset_requires_creative_approval(asset: dict[str, Any]) -> bool:
     if is_observed_passive_derivative(asset):
         return False
     metadata = _asset_metadata(asset)
-    production_recipe = metadata.get("productionMotionRecipe")
-    if (
-        _is_motion_generation_asset(asset)
-        and isinstance(production_recipe, dict)
-        and production_recipe.get("status") == "active"
-        and metadata.get("creativeApprovalRequired") is False
-        and metadata.get("humanReviewRequired") is False
-    ):
-        return False
     return bool(
         _is_motion_generation_asset(asset)
         or str(asset.get("recipe") or "") == "static_mp4"
@@ -306,12 +304,28 @@ def _validate_v2_qc(
             )
         if check_id == FINAL_ARTIFACT_AUDIT_POLICY_ID:
             readiness = decoded.get("readinessSummary")
+            integrity = decoded.get("finalArtifactIntegrity")
+            analyzer = decoded.get("analyzerEvidence")
             if (
                 decoded.get("overallVerdict") != "pass"
                 or not isinstance(readiness, dict)
                 or readiness.get("uploadReady") is not True
                 or readiness.get("blockingReasons")
                 or readiness.get("blockingCodes")
+                or not isinstance(integrity, dict)
+                or integrity.get("schema")
+                != "campaign_factory.final_artifact_integrity.v1"
+                or integrity.get("subjectSha256") != output_binding["sha256"]
+                or integrity.get("passed") is not True
+                or (integrity.get("decode") or {}).get("passed") is not True
+                or (integrity.get("probe") or {}).get("passed") is not True
+                or (integrity.get("captionBinding") or {}).get("passed") is not True
+                or (integrity.get("audioBinding") or {}).get("passed") is not True
+                or not isinstance(analyzer, dict)
+                or not _is_sha(analyzer.get("implementationFingerprint"))
+                or str(analyzer.get("analyzerVersion") or "") in {"", "unknown"}
+                or not isinstance(analyzer.get("implementationComponents"), dict)
+                or not analyzer.get("implementationComponents")
             ):
                 raise CreativeApprovalError(
                     f"creative_approval_qc_receipt_not_passed:{check_id}"
@@ -374,6 +388,8 @@ def _validate_v2_qc(
             )
         if max(registry_at, analysis_at, review_at) > datetime.now(UTC):
             raise CreativeApprovalError(f"creative_approval_qc_time_future:{check_id}")
+    if FINAL_ARTIFACT_AUDIT_POLICY_ID not in identities:
+        raise CreativeApprovalError("creative_approval_final_artifact_audit_missing")
 
 
 def _validate_execution_evidence(
@@ -1232,6 +1248,33 @@ def build_and_record_creative_approval_v2(
     ) != asset.get("content_hash"):
         raise CreativeApprovalError("creative_approval_current_sha_audit_missing")
     canonical = canonical_asset_approval_bindings(asset)
+    report_path = Path(
+        str(current_audit.get("reportPath") or current_audit.get("report_path") or "")
+    ).expanduser()
+    try:
+        final_audit_receipt = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CreativeApprovalError(
+            "creative_approval_final_artifact_audit_invalid"
+        ) from exc
+    if not isinstance(final_audit_receipt, dict) or final_audit_receipt.get(
+        "subjectSha256"
+    ) != asset.get("content_hash"):
+        raise CreativeApprovalError("creative_approval_final_artifact_audit_invalid")
+    final_audit_binding = _write_content_addressed_json(
+        root,
+        label="registered_final_artifact_audit",
+        payload=final_audit_receipt,
+    )
+    qc_evidence = [
+        {
+            "checkId": FINAL_ARTIFACT_AUDIT_POLICY_ID,
+            "receiptPath": final_audit_binding["path"],
+            "receiptSha256": final_audit_binding["sha256"],
+            "subjectSha256": canonical["output"]["sha256"],
+            "passed": True,
+        }
+    ]
     if _is_motion_generation_asset(asset):
         gate = factory.domains.publishability.motion_qc_gate(asset)
         if gate.get("failures"):
@@ -1248,36 +1291,20 @@ def build_and_record_creative_approval_v2(
             raise CreativeApprovalError("creative_approval_motion_qc_invalid") from exc
         if not isinstance(receipt, dict):
             raise CreativeApprovalError("creative_approval_motion_qc_invalid")
-        qc_binding = _write_content_addressed_json(
+        motion_qc_binding = _write_content_addressed_json(
             root, label="registered_motion_qc", payload=receipt
         )
-        if qc_binding["sha256"] != row.get("receipt_sha256"):
+        if motion_qc_binding["sha256"] != row.get("receipt_sha256"):
             raise CreativeApprovalError("creative_approval_motion_qc_registry_mismatch")
-        qc_check_id = MOTION_QC_POLICY_ID
-    else:
-        report_path = Path(
-            str(
-                current_audit.get("reportPath")
-                or current_audit.get("report_path")
-                or ""
-            )
-        ).expanduser()
-        try:
-            receipt = json.loads(report_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise CreativeApprovalError(
-                "creative_approval_final_artifact_audit_invalid"
-            ) from exc
-        if not isinstance(receipt, dict) or receipt.get("subjectSha256") != asset.get(
-            "content_hash"
-        ):
-            raise CreativeApprovalError(
-                "creative_approval_final_artifact_audit_invalid"
-            )
-        qc_binding = _write_content_addressed_json(
-            root, label="registered_final_artifact_audit", payload=receipt
+        qc_evidence.append(
+            {
+                "checkId": MOTION_QC_POLICY_ID,
+                "receiptPath": motion_qc_binding["path"],
+                "receiptSha256": motion_qc_binding["sha256"],
+                "subjectSha256": canonical["output"]["sha256"],
+                "passed": True,
+            }
         )
-        qc_check_id = FINAL_ARTIFACT_AUDIT_POLICY_ID
 
     from .adapters.threadsdash_draft_delivery import export_threadsdash
 
@@ -1364,15 +1391,7 @@ def build_and_record_creative_approval_v2(
         "approvedAt": approved_at,
         "campaign": {"id": str(campaign["id"]), "slug": str(campaign["slug"])},
         **canonical,
-        "qcEvidence": [
-            {
-                "checkId": qc_check_id,
-                "receiptPath": qc_binding["path"],
-                "receiptSha256": qc_binding["sha256"],
-                "subjectSha256": canonical["output"]["sha256"],
-                "passed": True,
-            }
-        ],
+        "qcEvidence": qc_evidence,
         "reviewManifest": manifest_binding,
         "operatorReview": review_binding,
         "exportProjection": projection,

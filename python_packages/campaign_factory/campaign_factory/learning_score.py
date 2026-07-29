@@ -537,11 +537,7 @@ def objective_snapshot_reward(
             + rates["link_clicks"] * 3
         )
     else:
-        signal = (
-            rates["shares"] * 2
-            + rates["saves"] * 2
-            + rates["watch_quality"] * 0.5
-        )
+        signal = rates["shares"] * 2 + rates["saves"] * 2 + rates["watch_quality"] * 0.5
     return math.log1p(exposure) * signal
 
 
@@ -564,9 +560,7 @@ def _nonnegative_metric(metrics: dict[str, Any], *keys: str) -> float:
 
 
 def _watch_quality(metrics: dict[str, Any]) -> float:
-    completion = _number(
-        metrics.get("completionRate", metrics.get("completion_rate"))
-    )
+    completion = _number(metrics.get("completionRate", metrics.get("completion_rate")))
     if completion is not None and 0 <= completion <= 1:
         return completion
     watch_seconds = _nonnegative_metric(

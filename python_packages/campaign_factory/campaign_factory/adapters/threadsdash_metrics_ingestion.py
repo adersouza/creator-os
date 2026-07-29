@@ -1280,6 +1280,8 @@ def _metrics_eligibility_for_threadsdash_row(
         ):
             blockers.append("quarantined_asset")
         if asset:
+            if asset.get("review_state") == "rejected":
+                blockers.append("operator_rejected_asset")
             local_content_hash = asset.get("content_hash")
             if (
                 local_content_hash

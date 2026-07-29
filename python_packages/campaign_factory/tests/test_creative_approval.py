@@ -104,6 +104,43 @@ def _operator_review_file(
     return {"path": str(path), "sha256": _sha(path)}
 
 
+def _final_artifact_qc_item(
+    tmp_path: Path, final_sha: str, *, suffix: str = ""
+) -> dict:
+    receipt = {
+        "subjectSha256": final_sha,
+        "overallVerdict": "pass",
+        "readinessSummary": {
+            "uploadReady": True,
+            "blockingReasons": [],
+            "blockingCodes": [],
+        },
+        "finalArtifactIntegrity": {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": final_sha,
+            "passed": True,
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+        "analyzerEvidence": {
+            "analyzerVersion": "test",
+            "implementationFingerprint": "f" * 64,
+            "implementationComponents": {"similarity.js": "e" * 64},
+        },
+    }
+    path = tmp_path / f"final-artifact-audit{suffix}.json"
+    path.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
+    return {
+        "checkId": "contentforge.final_artifact_audit",
+        "receiptPath": str(path),
+        "receiptSha256": _sha(path),
+        "subjectSha256": final_sha,
+        "passed": True,
+    }
+
+
 def _sign_v2(core: dict) -> dict:
     payload = {**core, "approvalFingerprint": _fingerprint(core)}
     attestation = sign_evidence_attestation(
@@ -289,7 +326,8 @@ def _v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
                 "receiptSha256": _sha(receipt),
                 "subjectSha256": _sha(output),
                 "passed": True,
-            }
+            },
+            _final_artifact_qc_item(tmp_path, _sha(output)),
         ],
         "reviewManifest": {
             "path": str(manifest_path),
@@ -383,7 +421,8 @@ def _text_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict, Path]:
                 "receiptSha256": _sha(receipt),
                 "subjectSha256": asset["content_hash"],
                 "passed": True,
-            }
+            },
+            _final_artifact_qc_item(tmp_path, asset["content_hash"], suffix="-text"),
         ],
         "reviewManifest": {
             "path": str(manifest_path),
@@ -488,6 +527,20 @@ def test_static_reel_requires_exact_v2_approval_and_builds_from_final_audit(
             "blockingReasons": [],
             "blockingCodes": [],
         },
+        "finalArtifactIntegrity": {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": True,
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+        "analyzerEvidence": {
+            "analyzerVersion": "test",
+            "implementationFingerprint": "f" * 64,
+            "implementationComponents": {"similarity.js": "e" * 64},
+        },
     }
     audit_path = tmp_path / "static-final-audit.json"
     audit_path.write_text(json.dumps(audit, sort_keys=True), encoding="utf-8")
@@ -537,7 +590,11 @@ def test_supported_builder_uses_exact_generated_review_manifest_and_registered_q
 ) -> None:
     _payload, asset, draft = _v2_fixture(tmp_path)
     receipt = json.loads((tmp_path / "motion-qc-v2.json").read_text())
-    factory = _BuilderFactory(asset, receipt)
+    factory = _BuilderFactory(
+        asset,
+        receipt,
+        audit_path=tmp_path / "final-artifact-audit.json",
+    )
     calls = {"exports": 0}
 
     def fake_export(_factory, **kwargs):
@@ -956,7 +1013,8 @@ def _paid_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
                 "receiptSha256": _sha(receipt_path),
                 "subjectSha256": output_sha,
                 "passed": True,
-            }
+            },
+            _final_artifact_qc_item(tmp_path, output_sha, suffix="-paid"),
         ],
         "reviewManifest": {"path": str(manifest_path), "sha256": _sha(manifest_path)},
         "operatorReview": operator_review,
@@ -1314,6 +1372,53 @@ def test_creative_approval_rejects_output_substitution(tmp_path: Path) -> None:
         validate_creative_approval(payload)
 
 
+def test_active_production_motion_still_requires_exact_v2_approval() -> None:
+    assert (
+        asset_requires_creative_approval(
+            {
+                "metadata": {
+                    "schema": "campaign_factory.motion_generation_asset.v1",
+                    "productionMotionRecipe": {"status": "active"},
+                    "creativeApprovalRequired": False,
+                    "humanReviewRequired": False,
+                }
+            }
+        )
+        is True
+    )
+
+
+def test_one_byte_change_blocks_old_v2_approval_at_export_validation(
+    tmp_path: Path,
+) -> None:
+    approval, asset, draft = _v2_fixture(tmp_path)
+    store = CreativeApprovalStore(tmp_path / "approvals")
+    store.record(approval)
+    Path(approval["output"]["path"]).write_bytes(
+        Path(approval["output"]["path"]).read_bytes() + b"x"
+    )
+
+    class Publishability:
+        def rendered_asset(self, _asset_id: str) -> dict:
+            return asset
+
+        def creative_approval_for_asset(self, _asset_id: str) -> dict:
+            return store.status_for_asset(asset)
+
+    class Domains:
+        publishability = Publishability()
+
+    class Factory:
+        domains = Domains()
+
+    with pytest.raises(ValueError, match="creative_approval"):
+        threadsdash_delivery_adapter._validate_exact_creative_approvals(
+            Factory(),
+            {"drafts": [draft]},
+            campaign_slug="may",
+        )
+
+
 def test_creative_approval_rejects_failed_qc(tmp_path: Path) -> None:
     payload = _approval(tmp_path)
     payload["qcEvidence"][0]["passed"] = False
@@ -1321,6 +1426,19 @@ def test_creative_approval_rejects_failed_qc(tmp_path: Path) -> None:
     core.pop("approvalFingerprint")
     payload["approvalFingerprint"] = _fingerprint(core)
     with pytest.raises(CreativeApprovalError, match="qc_blocked"):
+        validate_creative_approval(payload)
+
+
+def test_v2_approval_requires_final_artifact_integrity_receipt(tmp_path: Path) -> None:
+    payload, _asset, _draft = _v2_fixture(tmp_path)
+    payload["qcEvidence"] = [
+        item
+        for item in payload["qcEvidence"]
+        if item["checkId"] != "contentforge.final_artifact_audit"
+    ]
+    _resign_v2(payload)
+
+    with pytest.raises(CreativeApprovalError, match="final_artifact_audit_missing"):
         validate_creative_approval(payload)
 
 

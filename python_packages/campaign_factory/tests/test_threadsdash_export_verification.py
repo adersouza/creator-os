@@ -275,7 +275,8 @@ def test_threadsdash_export_warnings_require_explicit_operator_override(
         lambda *_args, **_kwargs: {
             "liveExportAllowed": True,
             "blockingReasons": [],
-            "warnings": ["asset_1:operator_review"],
+            "warnings": ["asset_1:caption_low_confidence"],
+            "operatorOverridableWarnings": ["asset_1:caption_low_confidence"],
         },
     )
     monkeypatch.setattr(
@@ -304,6 +305,19 @@ def test_threadsdash_export_warnings_require_explicit_operator_override(
             )
     finally:
         cf.close()
+
+
+def test_advisory_warnings_do_not_require_an_override_receipt() -> None:
+    assert (
+        threadsdash_delivery_adapter._operator_overridable_warnings(
+            {
+                "warnings": ["asset_1:source_family_reuse"],
+                "advisoryWarnings": ["asset_1:source_family_reuse"],
+                "operatorOverridableWarnings": [],
+            }
+        )
+        == []
+    )
 
 
 def test_threadsdash_contract_negotiation_failure_prevents_media_and_product_writes(
@@ -452,6 +466,7 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
             "liveExportAllowed": True,
             "blockingReasons": [],
             "warnings": ["asset_1:operator_review"],
+            "operatorOverridableWarnings": ["asset_1:operator_review"],
         }
 
     def upload(_factory, payload, **_kwargs):

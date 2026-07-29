@@ -1174,8 +1174,7 @@ def _hierarchical_evidence(
         group = [
             item
             for item in creator
-            if str((item.get("outcome") or {}).get("accountGroupId") or "")
-            == group_id
+            if str((item.get("outcome") or {}).get("accountGroupId") or "") == group_id
         ]
         rows.append(
             {

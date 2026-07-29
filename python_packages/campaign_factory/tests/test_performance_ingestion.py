@@ -1018,6 +1018,46 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
         cf.close()
 
 
+def test_rejected_local_asset_remains_learning_ineligible_on_later_sync(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'rejected' WHERE id = 'asset_1'"
+        )
+        cf.conn.commit()
+        asset = cf.domains.rendered_asset("asset_1")
+        eligibility = (
+            threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+                cf,
+                row={
+                    "id": "post_rejected",
+                    "status": "published",
+                    "platform": "instagram",
+                    "instagram_post_id": "ig_rejected",
+                    "permalink": "https://instagram.test/reel/rejected",
+                    "published_at": "2026-01-02T01:00:00+00:00",
+                },
+                meta={
+                    "rendered_asset_id": "asset_1",
+                    "content_hash": asset["content_hash"],
+                },
+                metric_history_rows=[
+                    {
+                        "post_id": "post_rejected",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    }
+                ],
+            )
+        )
+        assert eligibility["eligible"] is False
+        assert "operator_rejected_asset" in eligibility["blockingReasons"]
+    finally:
+        cf.close()
+
+
 def test_winner_expansion_report_is_read_only_and_uses_instagram_visible_metrics(
     tmp_path: Path,
 ):

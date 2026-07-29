@@ -1035,6 +1035,12 @@ class PublishabilityRepository(
         )
         content_fingerprint = asset.get("content_hash") or asset.get("contentHash")
         final_artifact_integrity = verify_registered_asset_bytes(asset)
+        audited_integrity = (latest_audit or {}).get("finalArtifactIntegrity")
+        if (
+            isinstance(audited_integrity, dict)
+            and audited_integrity.get("subjectSha256") == content_fingerprint
+        ):
+            final_artifact_integrity = audited_integrity
         readiness_blockers = list(
             ((latest_audit or {}).get("readinessSummary") or {}).get("blockingReasons")
             or []
@@ -1044,7 +1050,9 @@ class PublishabilityRepository(
             or []
         )
         if final_artifact_integrity["passed"] is not True:
-            readiness_blockers.append("exact_media_sha_mismatch")
+            readiness_blockers.extend(
+                final_artifact_integrity.get("failures") or ["exact_media_sha_mismatch"]
+            )
         if (latest_audit or {}).get("subjectSha256") != content_fingerprint:
             readiness_blockers.append("contentforge_subject_sha_mismatch")
         audit_warning_codes = set(

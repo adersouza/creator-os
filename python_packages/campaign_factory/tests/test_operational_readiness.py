@@ -324,7 +324,7 @@ def test_inventory_recovery_report_ranks_repair_classes_without_writing(tmp_path
         assert by_class["operator_visual_review_required"]["blockedAssets"] == 1
         assert (
             by_class["operator_visual_review_required"]["scheduleSafeAssetsRecoverable"]
-            == 1
+            == 0
         )
         assert report["highestROIRepairClass"] == "caption_only"
         assert report["inventoryGateImpact"]["inventoryAfterTop3Repairs"] == 2

@@ -49,6 +49,20 @@ def add_audit_report(
         "warnings": warnings,
         "failedChecks": failed,
         "error": None,
+        "finalArtifactIntegrity": {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": upload_ready and not failed,
+            "decode": {"passed": upload_ready and not failed},
+            "probe": {"passed": upload_ready and not failed},
+            "captionBinding": {"passed": upload_ready and not failed},
+            "audioBinding": {"passed": upload_ready and not failed},
+        },
+        "analyzerEvidence": {
+            "analyzerVersion": "test",
+            "implementationFingerprint": "f" * 64,
+            "implementationComponents": {"similarity.js": "e" * 64},
+        },
     }
     report_path.write_text(json.dumps(report_payload), encoding="utf-8")
     cf.conn.execute(

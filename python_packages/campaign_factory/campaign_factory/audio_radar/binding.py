@@ -13,6 +13,7 @@ from pipeline_contracts import validate_audio_intent
 from ..asset_evidence import invalidate_asset_evidence_after_byte_change
 from ..audio_policy import embedding_receipt_sha256
 
+
 class AudioBindingError(RuntimeError):
     """An embedding receipt cannot safely replace the current asset bytes."""
 
