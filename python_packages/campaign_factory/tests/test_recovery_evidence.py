@@ -78,16 +78,15 @@ def test_recovery_status_uses_scoped_blocker_language(tmp_path: Path):
             {"authorizationId": "auth-1"},
         )
         cf.domains.events.start_pipeline_job(job["id"])
-        cf.domains.events.mark_pipeline_effect_state(
-            job["id"], "SUBMISSION_STARTED"
-        )
+        cf.domains.events.mark_pipeline_effect_state(job["id"], "SUBMISSION_STARTED")
         cf.domains.events.fail_pipeline_job(job["id"], "timeout")
 
         report = recovery_status(cf.conn)
         assert report["mappingBlockersSummary"] == "Mapping blockers: none."
         assert report["operationalRecoveryGapCount"] == 1
-        assert report["operationalRecoveryGaps"]["ambiguousExternalEffects"][0][
-            "id"
-        ] == job["id"]
+        assert (
+            report["operationalRecoveryGaps"]["ambiguousExternalEffects"][0]["id"]
+            == job["id"]
+        )
     finally:
         cf.close()

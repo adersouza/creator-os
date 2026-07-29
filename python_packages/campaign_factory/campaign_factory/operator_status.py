@@ -144,9 +144,7 @@ def recovery_status(conn: sqlite3.Connection) -> dict[str, Any]:
         "knownProviderIdsAwaitingPolling": [
             row for row in jobs if row["effect_state"] == "EXTERNAL_ID_KNOWN"
         ],
-        "preEffectJobs": [
-            row for row in jobs if row["effect_state"] == "PRE_EFFECT"
-        ],
+        "preEffectJobs": [row for row in jobs if row["effect_state"] == "PRE_EFFECT"],
         "failedCappedLearning": failed_capped,
     }
     return {
@@ -155,9 +153,7 @@ def recovery_status(conn: sqlite3.Connection) -> dict[str, Any]:
         "mappingBlockers": [],
         "mappingBlockersSummary": "Mapping blockers: none.",
         "operationalRecoveryGaps": categories,
-        "operationalRecoveryGapCount": sum(
-            len(items) for items in categories.values()
-        ),
+        "operationalRecoveryGapCount": sum(len(items) for items in categories.values()),
     }
 
 

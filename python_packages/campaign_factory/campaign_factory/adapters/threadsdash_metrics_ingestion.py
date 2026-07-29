@@ -800,9 +800,12 @@ def _record_immutable_performance_observation(
         raw_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
     source_hash = hashlib.sha256(canonical_raw.encode("utf-8")).hexdigest()
-    observation_id = "perfobs_" + hashlib.sha256(
-        f"{snapshot['post_id']}:{snapshot['snapshot_at']}:{source_hash}".encode()
-    ).hexdigest()[:24]
+    observation_id = (
+        "perfobs_"
+        + hashlib.sha256(
+            f"{snapshot['post_id']}:{snapshot['snapshot_at']}:{source_hash}".encode()
+        ).hexdigest()[:24]
+    )
     previous = conn.execute(
         """
         SELECT id, source_hash

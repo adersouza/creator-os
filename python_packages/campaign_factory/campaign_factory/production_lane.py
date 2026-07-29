@@ -1250,9 +1250,7 @@ def _execute_higgsfield_provider_job(
                     pipeline_job["id"],
                     "EXTERNAL_ID_KNOWN",
                     authorization_id=(
-                        str(authorization["authorizationId"])
-                        if authorization
-                        else None
+                        str(authorization["authorizationId"]) if authorization else None
                     ),
                     external_operation_id=recovered_external_id,
                     evidence={"receiptPath": str(receipt_path)},

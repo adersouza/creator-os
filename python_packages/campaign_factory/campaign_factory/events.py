@@ -351,9 +351,7 @@ class EventRepository:
         job_id = self._new_id("job")
         now = self._utc_now()
         payload = self._sanitize_for_storage(input_payload or {})
-        recovery_policy = _PIPELINE_SAFE_REPLAY_CLASSES.get(
-            job_type, "NEVER_AUTOMATIC"
-        )
+        recovery_policy = _PIPELINE_SAFE_REPLAY_CLASSES.get(job_type, "NEVER_AUTOMATIC")
         work_item_id = str(payload.get("workItemId") or job_id)
         authorization_id = _optional_text(payload.get("authorizationId"))
         external_operation_id = _first_optional_text(
@@ -361,9 +359,7 @@ class EventRepository:
             payload.get("generationId"),
             payload.get("containerId"),
         )
-        effect_state = (
-            "EXTERNAL_ID_KNOWN" if external_operation_id else "PRE_EFFECT"
-        )
+        effect_state = "EXTERNAL_ID_KNOWN" if external_operation_id else "PRE_EFFECT"
         self.conn.execute(
             """
             INSERT INTO pipeline_jobs
@@ -595,7 +591,9 @@ class EventRepository:
         }
         target = target_by_classification.get(normalized)
         if target is None:
-            raise ValueError(f"unsupported reconciliation classification: {classification}")
+            raise ValueError(
+                f"unsupported reconciliation classification: {classification}"
+            )
         if normalized == "EXACT_MATCH" and not _optional_text(external_operation_id):
             raise ValueError("EXACT_MATCH requires external_operation_id")
         receipt = {
@@ -752,16 +750,14 @@ class EventRepository:
                     )
                     outcome = "requeued"
                 else:
-                    manual_hold = (
-                        recovery["safeReplayClass"] == "NEVER_AUTOMATIC"
-                        and recovery["effectState"]
-                        in {
-                            "SUBMISSION_STARTED",
-                            "EXTERNAL_ID_KNOWN",
-                            "AMBIGUOUS",
-                            "EFFECT_CONFIRMED",
-                        }
-                    )
+                    manual_hold = recovery[
+                        "safeReplayClass"
+                    ] == "NEVER_AUTOMATIC" and recovery["effectState"] in {
+                        "SUBMISSION_STARTED",
+                        "EXTERNAL_ID_KNOWN",
+                        "AMBIGUOUS",
+                        "EFFECT_CONFIRMED",
+                    }
                     if manual_hold:
                         error = (
                             "known_external_operation_awaiting_poll"

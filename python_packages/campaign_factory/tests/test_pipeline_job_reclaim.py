@@ -135,9 +135,7 @@ def test_ambiguous_job_requires_reconciliation_and_fresh_authorization(
             {"authorizationId": "auth-1"},
         )
         cf.domains.events.start_pipeline_job(job["id"])
-        cf.domains.events.mark_pipeline_effect_state(
-            job["id"], "SUBMISSION_STARTED"
-        )
+        cf.domains.events.mark_pipeline_effect_state(job["id"], "SUBMISSION_STARTED")
         cf.domains.events.fail_pipeline_job(job["id"], "provider timeout")
         held = cf.domains.events.pipeline_job(job["id"])
         assert held["status"] == "running"
@@ -179,9 +177,7 @@ def test_known_external_id_is_held_for_polling_not_failed(tmp_path: Path):
         cf.domains.events.start_pipeline_job(job["id"])
         _backdate_job(cf, job["id"], 5)
 
-        result = cf.domains.events.reclaim_stale_pipeline_jobs(
-            2.0, action="requeue"
-        )
+        result = cf.domains.events.reclaim_stale_pipeline_jobs(2.0, action="requeue")
         assert result["reclaimed"][0]["outcome"] == "manual_hold"
         held = cf.domains.events.pipeline_job(job["id"])
         assert held["status"] == "running"
