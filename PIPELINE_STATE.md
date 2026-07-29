@@ -14,12 +14,12 @@ operation.
 
 | Layer | Current evidence |
 |---|---|
-| Reconciliation source before this documentation change | clean `origin/main` at `041bab24fec520d2100860272321d7156d1c5ec9` |
+| Reconciliation source before this local change | clean `main` and `origin/main` at `817235bd1689e34e4f508c784a2251c3aa7fd16b` |
 | Authoritative source | query `git rev-parse origin/main`; this documentation commit necessarily advances the recorded baseline |
 | Hosted release/security | required on the exact final merge SHA before runtime promotion |
-| Machine runtime before final alignment | clean detached checkout at `f844f4b6da87bb50c67582179ffce77e512bd14a` |
-| Final alignment proof | the post-merge promotion receipt and live `creator-os status`, never this dated pre-promotion SHA |
-| Development worktrees | only the normal source and protected runtime checkouts remain after the documentation branch is merged and removed |
+| Machine runtime at reconciliation | clean checkout at `817235bd1689e34e4f508c784a2251c3aa7fd16b` |
+| Alignment proof | source and runtime status both resolved to the exact same clean SHA |
+| Current local work | prompt-driven recreation changes are uncommitted and not runtime-promoted |
 
 Run this before relying on the snapshot:
 
@@ -47,9 +47,8 @@ The 2026-07-29 local status check confirmed:
   source-approval database backup passed integrity verification;
 - runtime backup preserves historical symlink records instead of dereferencing
   missing retired-media targets;
-- source and runtime were clean but not yet aligned before this final
-  documentation merge. The authorized follow-up is to promote the exact final
-  merge SHA only after its hosted release and security evidence succeeds.
+- source and runtime were clean and aligned at
+  `817235bd1689e34e4f508c784a2251c3aa7fd16b` before the current local work.
 
 Provider readiness and the ThreadsDashboard handshake were `NOT_RUN` in this
 snapshot because only local read-only status was requested. Do not infer a live
@@ -84,7 +83,7 @@ videos, not still images; they were not bulk-approved.
 - Higgsfield as the only normal visual-generation provider;
 - direct Soul 2 still generation with explicit identity and lineage;
 - free deterministic static MP4;
-- product-pinned Higgsfield Kling 3 or Seedance 2 passive motion;
+- product-pinned Higgsfield Kling 3 Turbo or Seedance 2 passive motion;
 - provider-generated sound disabled for passive motion;
 - live private Audio Radar cache and verified embedded AAC;
 - exact final MP4/audio receipt binding;
@@ -102,11 +101,10 @@ videos, not still images; they were not bulk-approved.
 - URL or local-file `recreate_reel` intake, exact audio retention, clean-frame
   analysis, OCR overlay inventory, timecoded structural motion/camera analysis,
   anchor planning, and bounded quote planning;
-- passive, structural Seedance 2 Fast, experimental Motion Control, and
-  first/last recreation modes behind their explicit approval gates;
-- creator-scoped routing for Stacey, Larissa, and Lola. Structural Seedance
-  binds the matching creator Element before the sanitized timeline and never
-  sends recognized source overlay text to generation.
+- OpenAI-authored Soul anchor, Kling 3 Turbo, and Seedance 2 Fast prompts bound
+  to the approved creator image and sampled reference frames;
+- prompt-only recreation behind anchor and operator approval gates. The private
+  Reel remains hashed lineage/audio evidence and is not sent to the video model.
 
 ### Unresolved
 

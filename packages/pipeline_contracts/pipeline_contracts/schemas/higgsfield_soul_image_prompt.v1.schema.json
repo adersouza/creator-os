@@ -3,6 +3,7 @@
   "$id": "reference_factory.higgsfield_soul_image_prompt.v1",
   "title": "Higgsfield Soul ID Image Prompt",
   "type": "object",
+  "not": { "required": ["negativePrompt"] },
   "required": [
     "schema",
     "tool",
@@ -11,7 +12,6 @@
     "sourcePatternId",
     "modelProfile",
     "mainPrompt",
-    "negativePrompt",
     "closenessControls"
   ],
   "properties": {
@@ -22,7 +22,6 @@
     "sourcePatternId": { "type": "string" },
     "modelProfile": { "type": ["string", "null"] },
     "mainPrompt": { "type": "string" },
-    "negativePrompt": { "type": "string" },
     "closenessControls": { "type": "object" },
     "formatCard": { "type": "object" },
     "aspectRatio": { "type": "string" },

@@ -124,74 +124,6 @@ def _learning_command(*args: str) -> list[str]:
     ]
 
 
-def _reel_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--package",
-        "reel-factory",
-        "python",
-        "-m",
-        "reel_factory.local_model_manager",
-        *args,
-    ]
-
-
-def _prompt_expander_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--package",
-        "reel-factory",
-        "python",
-        "-m",
-        "reel_factory.local_wan_prompt_expansion",
-        *args,
-    ]
-
-
-def _local_queue_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--package",
-        "reel-factory",
-        "python",
-        "-m",
-        "reel_factory.local_generation_queue",
-        *args,
-    ]
-
-
-def _local_benchmark_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--all-packages",
-        "python",
-        "-m",
-        "reel_factory.local_model_benchmark",
-        *args,
-    ]
-
-
-def _local_arena_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--isolated",
-        "--offline",
-        "--locked",
-        "--all-packages",
-        "--extra",
-        "identity",
-        "python",
-        "-m",
-        "reel_factory.local_model_arena",
-        *args,
-    ]
-
-
 def _identity_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -205,31 +137,6 @@ def _identity_command(*args: str) -> list[str]:
         "python",
         "-m",
         "reel_factory.identity_verification",
-        *args,
-    ]
-
-
-def _higgsfield_bakeoff_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--package",
-        "reel-factory",
-        "python",
-        "-m",
-        "reel_factory.intent_video_bakeoff",
-        *args,
-    ]
-
-
-def _local_router_command(*args: str) -> list[str]:
-    return [
-        "uv",
-        "run",
-        "--all-packages",
-        "python",
-        "-m",
-        "reel_factory.local_model_router",
         *args,
     ]
 
@@ -575,35 +482,39 @@ def _parser() -> argparse.ArgumentParser:
 
     create = sub.add_parser(
         "create",
-        help="create a production batch from creator intent; dry-run unless --apply",
+        help="create or reuse a Reel in one of three product modes",
     )
-    create.add_argument("--creator", required=True)
+    create.add_argument("--guided", action="store_true")
+    create.add_argument("--creator")
     create.add_argument(
-        "--intent",
-        required=True,
+        "--mode",
+        choices=["static_reel", "calm_animation", "recreate_reel"],
+    )
+    create.add_argument(
+        "--style",
         choices=[
             "passive_selfie",
             "flirty_portrait",
             "outfit",
             "lifestyle",
             "animate_existing",
-            "recreate_reel",
-            "motion_copy",
-            "dance",
-            "talking_selfie",
-            "talking_motion_copy",
         ],
+        default="passive_selfie",
     )
     create.add_argument("--count", type=int, default=1)
     create.add_argument("--execution", choices=["cloud"], default="cloud")
     create.add_argument("--max-credits", type=float)
     create.add_argument("--concurrency", type=int)
     create.add_argument("--accounts")
-    create.add_argument("--speech-audio", type=Path)
-    create.add_argument("--motion-reference", type=Path)
+    create.add_argument(
+        "--reuse-policy",
+        choices=["prefer_exact", "require_fresh"],
+        default="prefer_exact",
+    )
     reference_input = create.add_mutually_exclusive_group()
     reference_input.add_argument("--reference-video", type=Path)
     reference_input.add_argument("--reference-url")
+    create.add_argument("--creator-image", type=Path)
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
@@ -637,7 +548,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument(
         "--recreate-mode",
-        choices=["auto", "passive", "motion", "structural", "first_last", "talking"],
+        choices=["auto", "calm", "structural"],
         default="auto",
     )
     create.add_argument("--through", choices=["analyze", "anchor"])
@@ -659,14 +570,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--apply", action="store_true")
 
-    video_bakeoff = sub.add_parser(
-        "video-bakeoff",
-        help=(
-            "inspect historical provider bakeoff evidence; never schedules or publishes"
-        ),
-    )
-    video_bakeoff.add_argument("args", nargs=argparse.REMAINDER)
-
     quality_benchmark = sub.add_parser(
         "quality-benchmark",
         help="validate the small exact-source creative benchmark without generation",
@@ -674,120 +577,6 @@ def _parser() -> argparse.ArgumentParser:
     quality_benchmark.add_argument("--manifest", type=Path, required=True)
     quality_benchmark.add_argument("--future-max-credits", type=float)
     quality_benchmark.add_argument("--dry-run", action="store_true", required=True)
-
-    generate = sub.add_parser(
-        "generate",
-        help="advanced explicit-mode generation compatibility surface",
-    )
-    generation_choice = generate.add_mutually_exclusive_group(required=True)
-    generation_choice.add_argument("--mode")
-    generation_choice.add_argument("--list-modes", action="store_true")
-    generation_execution = generate.add_mutually_exclusive_group()
-    generation_execution.add_argument("--dry-run", action="store_true")
-    generation_execution.add_argument("--apply", action="store_true")
-    generate.add_argument("--campaign")
-    generate.add_argument("--reference-image", type=Path)
-    generate.add_argument("--accepted-still", type=Path)
-    generate.add_argument("--kling-selection-receipt", type=Path)
-    generate.add_argument("--reference-video", type=Path)
-    generate.add_argument("--target", help="creator identity/name")
-    generate.add_argument("--soul-id")
-    generate.add_argument("--workspace", type=Path)
-    generate.add_argument("--confirm-paid", action="store_true")
-    generate.add_argument("--max-credits", type=float)
-    generate.add_argument("--max-usd", type=float)
-    generate.add_argument("--caption")
-    generate.add_argument("--duration", type=float)
-    generate.add_argument("--motion-model")
-    generate.add_argument("--local-evidence-bundle", type=Path)
-    generate.add_argument("--local-arena-summary", type=Path)
-    generate.add_argument("--router-override-operator")
-    generate.add_argument("--router-override-reason")
-    generate.add_argument(
-        "--motion-task",
-        choices=[
-            "text_to_video",
-            "image_to_video",
-            "audio_image_to_video",
-            "motion_control",
-            "video_lipsync",
-            "keyframe_interpolation",
-            "video_retake",
-            "video_extend",
-        ],
-        default="image_to_video",
-    )
-    generate.add_argument("--motion-prompt")
-    generate.add_argument("--audio", type=Path)
-    generate.add_argument("--generate-audio", action="store_true")
-    generate.add_argument(
-        "--audio-policy",
-        choices=[
-            "embedded_trending_required",
-            "native_trending_required",
-            "original_embedded",
-            "creator_voice",
-            "royalty_free",
-            "silent_allowed",
-        ],
-        default="embedded_trending_required",
-    )
-    generate.add_argument("--audio-track-id")
-    generate.add_argument("--audio-track-name")
-    generate.add_argument("--audio-source")
-    generate.add_argument("--audio-start-offset", type=float)
-    generate.add_argument("--audio-volume", type=float)
-    generate.add_argument("--audio-selected-reason")
-    generate.add_argument("--last-image", type=Path)
-    generate.add_argument("--source-video", type=Path)
-    generate.add_argument("--retake-start-frame", type=int)
-    generate.add_argument("--retake-end-frame", type=int)
-    generate.add_argument("--extend-frames", type=int)
-    generate.add_argument(
-        "--extend-direction", choices=["before", "after"], default="after"
-    )
-    generate.add_argument("--preserve-audio", action="store_true")
-    generate.add_argument(
-        "--motion-reference-image", type=Path, action="append", default=[]
-    )
-    generate.add_argument(
-        "--motion-reference-video", type=Path, action="append", default=[]
-    )
-    generate.add_argument("--resolution")
-    generate.add_argument("--seed", type=int, default=42)
-    generate.add_argument("--steps", type=int)
-    generate.add_argument("--enable-prompt-expansion", action="store_true")
-    generate.add_argument("--shot-type", choices=["single", "multi"], default="single")
-    generate.add_argument(
-        "--local-model-dir", "--local-wan-model-dir", dest="local_model_dir", type=Path
-    )
-    generate.add_argument("--motion-lora", type=Path)
-    generate.add_argument("--motion-lora-strength", type=float, default=1.0)
-    generate.add_argument("--count", type=int, default=3)
-    generate.add_argument("--account")
-    generate.add_argument("--folder", type=Path)
-    generate.add_argument("--model")
-    generate.add_argument(
-        "--format", choices=["reel", "slideshow", "auto"], default="auto"
-    )
-    generate.add_argument("--variant-count", type=int, default=20)
-    generate.add_argument("--workers", type=int, default=3)
-    generate.add_argument("--first-frame-approval-id")
-    generate.add_argument("--last-frame-approval-id")
-    generate.add_argument("--operator-selected", action="store_true")
-    generate.add_argument("--rights-confirmed", action="store_true")
-    generate.add_argument(
-        "--preferred-provider", choices=["auto", "seedance", "kling"], default="auto"
-    )
-    generate.add_argument(
-        "--available-provider",
-        choices=["seedance", "kling"],
-        action="append",
-        default=[],
-    )
-    generate.add_argument("--allow-upscale", action="store_true")
-    generate.add_argument("--wait", action="store_true")
-    generate.add_argument("--download", action="store_true")
 
     review = sub.add_parser(
         "review",
@@ -849,22 +638,16 @@ def _parser() -> argparse.ArgumentParser:
 
     advanced = sub.add_parser(
         "advanced",
-        help="developer diagnostics for local models, queue, benchmarks, and analyzers",
+        help="developer diagnostics and evidence utilities",
     )
     advanced.add_argument(
         "surface",
         choices=[
-            "models",
-            "queue",
-            "benchmarks",
-            "arena",
             "identity",
-            "router",
             "analyzers",
             "evidence-key",
             "approval-import",
             "motion-qc-register",
-            "prompt-expander",
         ],
     )
     advanced.add_argument("args", nargs=argparse.REMAINDER)
@@ -896,9 +679,6 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     effective_argv = list(sys.argv[1:] if argv is None else argv)
     compatibility_surfaces = {
-        "local-models": "models",
-        "local-queue": "queue",
-        "local-benchmarks": "benchmarks",
         "approve-import": "approval-import",
         "motion-qc-register": "motion-qc-register",
     }
@@ -1223,6 +1003,41 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     if args.command == "create":
+        if args.guided:
+            args.creator = (
+                args.creator or input("Creator [stacey]: ").strip() or "stacey"
+            )
+            if not args.reference_url and not args.reference_video:
+                source = input(
+                    "Reel URL or local video path (blank for a new Reel): "
+                ).strip()
+                if source.startswith(("http://", "https://")):
+                    args.reference_url = source
+                elif source:
+                    args.reference_video = Path(source)
+            args.mode = args.mode or (
+                "recreate_reel"
+                if args.reference_url or args.reference_video
+                else (
+                    input("Mode [calm_animation/static_reel]: ").strip()
+                    or "calm_animation"
+                )
+            )
+            if args.mode == "recreate_reel" and args.creator_image is None:
+                value = input("Approved creator image path: ").strip()
+                if value:
+                    args.creator_image = Path(value)
+            if args.max_credits is None:
+                value = input("Maximum credits [25]: ").strip()
+                args.max_credits = float(value or "25")
+            if args.mode == "recreate_reel" and args.through is None:
+                args.through = "anchor"
+        if not args.creator or not args.mode:
+            print(
+                "--creator and --mode are required unless --guided is used",
+                file=sys.stderr,
+            )
+            return 2
         if args.count <= 0:
             print("--count must be greater than zero", file=sys.stderr)
             return 2
@@ -1230,21 +1045,21 @@ def main(argv: list[str] | None = None) -> int:
             "create",
             "--creator",
             args.creator,
-            "--intent",
-            args.intent,
+            "--mode",
+            args.mode,
+            "--style",
+            args.style,
             "--count",
             str(args.count),
             "--execution",
             args.execution,
             "--audio",
             args.audio_preference,
+            "--reuse-policy",
+            args.reuse_policy,
         )
         if args.accounts:
             command.extend(["--accounts", args.accounts])
-        if args.speech_audio:
-            command.extend(["--speech-audio", str(args.speech_audio)])
-        if args.motion_reference:
-            command.extend(["--motion-reference", str(args.motion_reference)])
         if args.reference_video:
             command.extend(
                 [
@@ -1254,7 +1069,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.reference_url:
             command.extend(["--reference-url", args.reference_url])
-        if args.intent == "recreate_reel":
+        if args.creator_image:
+            command.extend(
+                ["--creator-image", str(args.creator_image.expanduser().resolve())]
+            )
+        if args.mode == "recreate_reel":
             command.extend(["--recreate-mode", args.recreate_mode])
             if args.through:
                 command.extend(["--through", args.through])
@@ -1288,9 +1107,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.apply:
             command.append("--apply")
         return _run(command)
-    if args.command == "video-bakeoff":
-        bakeoff_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        return _run(_higgsfield_bakeoff_command(*bakeoff_args))
     if args.command == "quality-benchmark":
         command = _quality_benchmark_command(
             "--manifest",
@@ -1299,140 +1115,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.future_max_credits is not None:
             command.extend(["--future-max-credits", str(args.future_max_credits)])
-        return _run(command)
-    if args.command == "generate":
-        print(
-            "deprecated advanced compatibility command: ordinary production uses "
-            "`creator-os create`",
-            file=sys.stderr,
-        )
-        if args.list_modes:
-            return _run(_campaign_command("generation", "modes"))
-        if not args.campaign:
-            print("create requires --campaign", file=sys.stderr)
-            return 2
-        if args.dry_run == args.apply:
-            print(
-                "create requires exactly one of --dry-run or --apply", file=sys.stderr
-            )
-            return 2
-        if args.max_credits is not None and (
-            not math.isfinite(args.max_credits) or args.max_credits <= 0
-        ):
-            print("--max-credits must be finite and greater than zero", file=sys.stderr)
-            return 2
-        if args.max_usd is not None and (
-            not math.isfinite(args.max_usd) or args.max_usd <= 0
-        ):
-            print("--max-usd must be finite and greater than zero", file=sys.stderr)
-            return 2
-        if args.duration is not None and (
-            not math.isfinite(args.duration) or args.duration <= 0
-        ):
-            print("--duration must be finite and greater than zero", file=sys.stderr)
-            return 2
-        if args.count <= 0 or args.variant_count <= 0 or args.workers <= 0:
-            print(
-                "--count, --variant-count, and --workers must be greater than zero",
-                file=sys.stderr,
-            )
-            return 2
-        command = _campaign_command(
-            "generation",
-            "run",
-            "--mode",
-            args.mode,
-            "--campaign",
-            args.campaign,
-            "--apply" if args.apply else "--dry-run",
-        )
-        optional_paths = (
-            ("--reference-image", args.reference_image),
-            ("--accepted-still", args.accepted_still),
-            ("--kling-selection-receipt", args.kling_selection_receipt),
-            ("--reference-video", args.reference_video),
-            ("--workspace", args.workspace),
-            ("--folder", args.folder),
-            ("--audio", args.audio),
-            ("--last-image", args.last_image),
-            ("--source-video", args.source_video),
-            ("--local-model-dir", args.local_model_dir),
-            ("--local-evidence-bundle", args.local_evidence_bundle),
-            ("--local-arena-summary", args.local_arena_summary),
-        )
-        for flag, value in optional_paths:
-            if value is not None:
-                command.extend([flag, str(value.expanduser().resolve())])
-        optional_values = (
-            ("--target", args.target),
-            ("--soul-id", args.soul_id),
-            ("--max-credits", args.max_credits),
-            ("--max-usd", args.max_usd),
-            ("--caption", args.caption),
-            ("--duration", args.duration),
-            ("--account", args.account),
-            ("--first-frame-approval-id", args.first_frame_approval_id),
-            ("--last-frame-approval-id", args.last_frame_approval_id),
-            ("--motion-model", args.motion_model),
-            ("--router-override-operator", args.router_override_operator),
-            ("--router-override-reason", args.router_override_reason),
-            ("--motion-task", args.motion_task),
-            ("--motion-prompt", args.motion_prompt),
-            ("--audio-policy", args.audio_policy),
-            ("--audio-track-id", args.audio_track_id),
-            ("--audio-track-name", args.audio_track_name),
-            ("--audio-source", args.audio_source),
-            ("--audio-start-offset", args.audio_start_offset),
-            ("--audio-volume", args.audio_volume),
-            ("--audio-selected-reason", args.audio_selected_reason),
-            ("--resolution", args.resolution),
-            ("--seed", args.seed),
-            ("--steps", args.steps),
-            ("--shot-type", args.shot_type),
-            ("--motion-lora-strength", args.motion_lora_strength),
-            ("--retake-start-frame", args.retake_start_frame),
-            ("--retake-end-frame", args.retake_end_frame),
-            ("--extend-frames", args.extend_frames),
-            ("--extend-direction", args.extend_direction),
-        )
-        for flag, value in optional_values:
-            if value is not None:
-                command.extend([flag, str(value)])
-        command.extend(["--count", str(args.count)])
-        command.extend(["--variant-count", str(args.variant_count)])
-        command.extend(["--workers", str(args.workers)])
-        command.extend(["--format", args.format])
-        if args.model:
-            command.extend(["--model", args.model])
-        if args.preserve_audio:
-            command.append("--preserve-audio")
-        command.extend(["--preferred-provider", args.preferred_provider])
-        for provider in args.available_provider:
-            command.extend(["--available-provider", provider])
-        for path in args.motion_reference_image:
-            command.extend(
-                ["--motion-reference-image", str(path.expanduser().resolve())]
-            )
-        for path in args.motion_reference_video:
-            command.extend(
-                ["--motion-reference-video", str(path.expanduser().resolve())]
-            )
-        if args.motion_lora is not None:
-            command.extend(
-                ["--motion-lora", str(args.motion_lora.expanduser().resolve())]
-            )
-        for enabled, flag in (
-            (args.confirm_paid, "--confirm-paid"),
-            (args.operator_selected, "--operator-selected"),
-            (args.rights_confirmed, "--rights-confirmed"),
-            (args.allow_upscale, "--allow-upscale"),
-            (args.wait, "--wait"),
-            (args.download, "--download"),
-            (args.enable_prompt_expansion, "--enable-prompt-expansion"),
-            (args.generate_audio, "--generate-audio"),
-        ):
-            if enabled:
-                command.append(flag)
         return _run(command)
     if args.command in {"readiness", "review"}:
         if args.command == "readiness":
@@ -1493,20 +1175,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run(command)
     if args.command == "advanced":
         advanced_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        if args.surface == "models":
-            return _run(_reel_command(*advanced_args))
-        if args.surface == "prompt-expander":
-            return _run(_prompt_expander_command(*advanced_args))
-        if args.surface == "queue":
-            return _run(_local_queue_command(*advanced_args))
-        if args.surface == "benchmarks":
-            return _run(_local_benchmark_command(*advanced_args))
-        if args.surface == "arena":
-            return _run(_local_arena_command(*advanced_args))
         if args.surface == "identity":
             return _run(_identity_command(*advanced_args))
-        if args.surface == "router":
-            return _run(_local_router_command(*advanced_args))
         if args.surface == "evidence-key":
             evidence_key = argparse.ArgumentParser(
                 prog="creator-os advanced evidence-key"

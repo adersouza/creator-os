@@ -75,9 +75,6 @@ describe("TypeScript pipeline contract validators", () => {
 			"reference_video_motion_analysis.v1.schema.json",
 		);
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
-			"reference_video_remix_plan.v1.schema.json",
-		);
-		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"reference_factory_knowledge_pack.v1.schema.json",
 		);
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
@@ -106,9 +103,17 @@ describe("TypeScript pipeline contract validators", () => {
 		);
 	});
 
-	it("validates structural reference-video analysis and remix plans", () => {
+	it("validates structural reference-video analysis", () => {
 		expect(validateReferenceVideoMotionAnalysis(example("reference_video_motion_analysis"))).toEqual([]);
-		expect(validateReferenceVideoRemixPlan(example("reference_video_remix_plan"))).toEqual([]);
+	});
+
+	it("reads historical remix plans without authorizing execution", () => {
+		const payload = example("reference_video_remix_plan");
+		expect(validateReferenceVideoRemixPlan(payload)).toEqual([]);
+		payload.animation.paidGenerationAuthorized = true;
+		expect(validateReferenceVideoRemixPlan(payload)).toEqual(
+			expect.arrayContaining([expect.stringContaining("paidGenerationAuthorized")]),
+		);
 	});
 
 	it("validates every thin evidence record through the public TypeScript API", () => {
@@ -129,30 +134,6 @@ describe("TypeScript pipeline contract validators", () => {
 		);
 		expect(validateAnalyzerRegistry(registry)).toEqual(
 			expect.arrayContaining([expect.stringContaining("implementationFingerprint")]),
-		);
-	});
-
-	it("keeps paid generation and publishing blocked in remix plans", () => {
-		const payload = example("reference_video_remix_plan");
-		payload.animation.paidGenerationAuthorized = true;
-		payload.approval.publishingAllowed = true;
-
-		expect(validateReferenceVideoRemixPlan(payload)).toEqual(
-			expect.arrayContaining([
-				expect.stringContaining("paidGenerationAuthorized"),
-				expect.stringContaining("publishingAllowed"),
-			]),
-		);
-	});
-
-	it("requires integer provider duration while retaining fractional source timing", () => {
-		const payload = example("reference_video_remix_plan");
-		expect(payload.scope.sourceDurationSeconds).toBe(7.5);
-		expect(payload.scope.outputDurationSeconds).toBe(8);
-		payload.animation.inputs.durationSeconds = 7.5;
-
-		expect(validateReferenceVideoRemixPlan(payload)).toEqual(
-			expect.arrayContaining([expect.stringContaining("durationSeconds")]),
 		);
 	});
 

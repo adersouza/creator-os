@@ -466,6 +466,8 @@ def validate_reference_video_motion_analysis(value: Any) -> None:
 
 
 def validate_reference_video_remix_plan(value: Any) -> None:
+    """Read historical remix evidence without restoring an executable route."""
+
     validate_contract(value, REFERENCE_VIDEO_REMIX_PLAN_SCHEMA)
 
 

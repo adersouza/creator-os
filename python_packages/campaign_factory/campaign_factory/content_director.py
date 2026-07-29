@@ -29,9 +29,6 @@ SUPPORTED_INTENTS = frozenset(
         "animate_existing",
     }
 )
-UNRESOLVED_INTENTS = frozenset(
-    {"talking_selfie", "talking_motion_copy", "motion_copy", "dance"}
-)
 AUTONOMY_MODES = frozenset({"SHADOW", "SUPERVISED", "APPROVED_PLAN_AUTOPILOT"})
 PLAN_STATES = frozenset(
     {

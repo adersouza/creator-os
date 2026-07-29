@@ -741,12 +741,11 @@ def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:
         },
         "generationPrompt": {
             "format": "vertical Instagram Reel",
-            "goal": "create an original reel inspired by the winning structure, not a copy",
+            "goal": "create an original reel using the winning structure",
             "visual": _visual_prompt(archetype),
             "captionOverlay": _caption_overlay_prompt(archetype),
             "camera": "phone-shot, natural movement, close framing, social reel pacing",
             "durationSeconds": "6-12",
-            "negativePrompt": "no nudity, no explicit sexual acts, no copied captions, no logos, no watermark, no underage appearance",
         },
         "klingStyleJson": {
             "scene": _visual_prompt(archetype),
@@ -758,7 +757,7 @@ def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:
             "constraints": [
                 "original content only",
                 "preserve platform-safe framing",
-                "avoid direct caption copying",
+                "use original caption wording",
                 "keep subject 19 years old",
             ],
         },

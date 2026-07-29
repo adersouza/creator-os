@@ -107,6 +107,20 @@ def test_generation_execution_plan_rejects_policy_drift() -> None:
         validate_generation_execution_plan(payload)
 
 
+def test_historical_remix_plan_is_readable_but_cannot_authorize_execution() -> None:
+    payload = load_example("reference_video_remix_plan")
+    validate_reference_video_remix_plan(payload)
+
+    payload["animation"]["paidGenerationAuthorized"] = True
+    with pytest.raises(ContractValidationError, match="paidGenerationAuthorized"):
+        validate_reference_video_remix_plan(payload)
+
+    payload = load_example("reference_video_remix_plan")
+    payload["approval"]["publishingAllowed"] = True
+    with pytest.raises(ContractValidationError, match="publishingAllowed"):
+        validate_reference_video_remix_plan(payload)
+
+
 def test_contentforge_campaign_audit_response_accepts_optional_diagnostics_missing() -> (
     None
 ):
@@ -182,54 +196,6 @@ def test_reference_video_analysis_requires_identity_transformation():
 
     with pytest.raises(ContractValidationError, match="transformElements"):
         validate_reference_video_motion_analysis(payload)
-
-
-def test_reference_video_remix_plan_cannot_authorize_paid_generation():
-    payload = load_example("reference_video_remix_plan")
-    payload["animation"]["paidGenerationAuthorized"] = True
-
-    with pytest.raises(ContractValidationError, match="paidGenerationAuthorized"):
-        validate_reference_video_remix_plan(payload)
-
-
-def test_reference_video_remix_plan_cannot_allow_publishing():
-    payload = load_example("reference_video_remix_plan")
-    payload["approval"]["publishingAllowed"] = True
-
-    with pytest.raises(ContractValidationError, match="publishingAllowed"):
-        validate_reference_video_remix_plan(payload)
-
-
-def test_reference_video_remix_plan_requires_correct_endpoint_roles():
-    payload = load_example("reference_video_remix_plan")
-    payload["framePair"]["first"]["role"] = "last"
-
-    with pytest.raises(ContractValidationError, match="role"):
-        validate_reference_video_remix_plan(payload)
-
-
-def test_reference_video_remix_plan_requires_matching_provider_model():
-    payload = load_example("reference_video_remix_plan")
-    payload["animation"]["model"] = "kling3_0"
-
-    with pytest.raises(ContractValidationError, match="seedance_2_0"):
-        validate_reference_video_remix_plan(payload)
-
-
-def test_reference_video_remix_plan_blocks_command_before_endpoint_approval():
-    payload = load_example("reference_video_remix_plan")
-    payload["animation"]["command"] = ["higgsfield", "generate"]
-
-    with pytest.raises(ContractValidationError, match="command"):
-        validate_reference_video_remix_plan(payload)
-
-
-def test_reference_video_remix_plan_requires_integer_provider_duration():
-    payload = load_example("reference_video_remix_plan")
-    payload["animation"]["inputs"]["durationSeconds"] = 7.5
-
-    with pytest.raises(ContractValidationError, match="durationSeconds"):
-        validate_reference_video_remix_plan(payload)
 
 
 def test_generated_asset_lineage_requires_pipeline_trace_id():

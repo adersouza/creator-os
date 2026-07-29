@@ -8,7 +8,7 @@ import pytest
 from campaign_factory.adapters.threadsdash_draft_payload import build_draft_payloads
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
-from campaign_factory.generation_workflow import run_generation_workflow
+from campaign_factory.static_mp4_stage import run_static_mp4_stage
 from reel_factory.asset_prompt_contract import AssetPromptSet
 from reel_factory.generate_assets import AssetGenerationPlan, build_source_lineage
 
@@ -220,17 +220,15 @@ def _build_provider_free_draft(
         )
         _patch_provider_free_static_renderer(monkeypatch)
 
-        run = run_generation_workflow(
+        run = run_static_mp4_stage(
             factory,
-            mode="soul_static",
             campaign_slug="may",
-            accepted_still_path=still,
+            still_path=still,
             dry_run=False,
             apply=True,
         )
-        registered = run["result"]["registeredAsset"]
-        assert run["mode"] == "soul_static"
-        assert run["result"]["paidGeneration"] is False
+        registered = run["registeredAsset"]
+        assert run["paidGeneration"] is False
         assert registered["review_state"] == "review_ready"
         _add_passing_qc_fixture(factory, registered)
 

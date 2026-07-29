@@ -5,7 +5,7 @@ must not be described as one workflow.
 
 ## Normal Experimental Intent: `recreate_reel`
 
-`creator-os create --intent recreate_reel` is the current bounded experimental
+`creator-os create --mode recreate_reel` is the current bounded experimental
 production path.
 
 ### Purpose
@@ -20,8 +20,10 @@ Instagram/TikTok/Short/direct-media URL or local video
   -> full-source analysis, clean frame candidates, and reference-audio evidence
   -> timestamped OCR inventory kept outside the generation prompt
   -> timecoded motion/camera analysis when authenticated Gemini is available
+  -> OpenAI watches the approved creator image and chronological Reel frames
+  -> model-specific Soul, Seedance, and Kling prompt pack
   -> deterministic classification and bounded coherent excerpt
-  -> one clean-opening-frame-matched Soul anchor or two endpoint anchors
+  -> one text-only Soul anchor from the OpenAI scene/composition prompt
   -> exact-SHA human anchor approval
   -> truthfully matched Higgsfield recreation mode
   -> provider-generated audio disabled or explicitly replaced
@@ -50,7 +52,7 @@ It does not claim:
 - exactly one `--reference-url` or `--reference-video`;
 - explicit `--reference-authorized` before persistent apply;
 - creator, account, `--recreate-mode`, audio policy, and finite credit cap;
-- approved creator source inventory from which anchors may be planned;
+- one approved creator image supplied with `--creator-image`;
 - `count=1`.
 
 `--through analyze` stops before a paid visual-generation request. The
@@ -67,23 +69,24 @@ catalog:
 
 | Mode | Contract | Status |
 |---|---|---|
-| `passive` | approved Soul anchor to Kling 3, sound off | accepted after anchor approval |
-| `structural` | opening-frame-matched Soul anchor in `image_references`, creator Element first in the prompt, Reel motion-only in `video_references`, Seedance 2 Fast at 480p/high bitrate, generated audio off | experimental structural recreation |
-| `motion` | `kling3_0_motion_control`, image + video reference, Pro mode | experimental; never an automatic submission |
-| `first_last` | two approved Soul endpoints to Kling 3 start/end, sound off | experimental transition |
-| `talking` | exact supplied-voice entitlement required | blocked as `talking_route_not_entitled` |
+| `calm` | approved Soul anchor plus OpenAI prompt to Kling 3 Turbo at 720p | accepted after anchor approval |
+| `structural` | approved Soul anchor plus OpenAI action/timing prompt to Seedance 2 Fast at 480p/high bitrate, generated audio off | experimental prompt-driven recreation |
+| `auto` | selects `calm` or `structural` from measured reference evidence | no Motion Control route |
 
-Soul is the upstream still-identity system. Seedance receives the approved
-Soul-generated anchor bytes plus the bound creator Element, not a raw Soul ID.
-It does not mix `start_image`/`end_image` with reference-media mode. The source
-writing inventory remains evidence only; the generation prompt starts with the
-operator-proven creator replacement instruction and adds only the sanitized
-motion/camera timeline.
+Soul is the upstream still-identity system. The OpenAI anchor prompt omits hair
+color, tattoos, and other permanent identity traits so the selected Soul owns
+them. Seedance/Kling receives the approved Soul-generated anchor bytes and its
+model-specific prompt, not the inspiration video. Source writing remains
+evidence only and is excluded from generation prompts.
 
-Normal create never falls back to WaveSpeed or a local model. `AUTO` may
-recommend a compatible route but may not silently submit experimental Motion
-Control, structural Seedance, first/last, talking, multi-shot, or multi-person
-work.
+OpenAI prompt packs are cached by exact input hashes and prompt-builder
+fingerprint. Receipts retain the model, response ID, usage, and cost status.
+The API currently exposes usage but may omit dollar cost; omitted cost remains
+`not_exposed`.
+
+Normal create never falls back to WaveSpeed or a local model. `AUTO` may plan
+prompt-driven Seedance, but paid submission still requires anchor approval,
+finite authorization, and final operator review.
 
 ### Audio
 
@@ -122,33 +125,6 @@ Review the exact final SHA for:
 
 Technical similarity measurements are advisory and cannot replace operator
 review.
-
-## Advanced Manual Mode: `reference_video_remix`
-
-The five-mode compatibility catalog also retains an older advanced/manual
-`creator-os generate --mode reference_video_remix` contract. It uses
-operator-selected endpoint-frame planning, motion analysis, explicit provider
-selection policy, and additional approvals.
-
-It is:
-
-- not the normal `recreate_reel` intent;
-- not called by intent-first create;
-- not a fallback;
-- not a production default;
-- retained for historical evidence and explicit advanced work.
-
-Its historical contracts remain:
-
-- `reel_factory.reference_video_motion_analysis.v1`;
-- `reel_factory.reference_video_remix_plan.v1`;
-- endpoint image approvals;
-- source/endpoint hashes;
-- provider quote and atomic reservation;
-- final ContentForge and human review.
-
-The advanced planner does not execute its generated provider command by itself.
-It grants no export, scheduling, or publishing authority.
 
 ## Shared Safety Rules
 

@@ -5,7 +5,7 @@ import json
 import math
 import os
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -88,30 +88,10 @@ from .recreate_reel import (
     fulfill_reference_audio,
     rank_character_references,
 )
+from .recreation_prompting import compile_video_prompt
 
 SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
 _OPERATOR_VISUAL_SELECTION_COMPLETE = True
-_PASSIVE_RECIPE_ENV: Final = "CREATOR_OS_PASSIVE_VIDEO_RECIPE"
-_PASSIVE_RECIPE_CONFIG: Final[dict[str, dict[str, Any]]] = {
-    "higgsfield_kling3_i2v": {
-        "modelId": "higgsfield_kling3_i2v",
-        "providerModel": "kling3_0",
-        "recipeId": "higgsfield_passive_selfie",
-        "durationSeconds": 5,
-        "resolution": "720x1280",
-        "mode": "pro",
-        "sound": "off",
-    },
-    "higgsfield_seedance2_i2v": {
-        "modelId": "higgsfield_seedance2_i2v",
-        "providerModel": "seedance_2_0",
-        "recipeId": "higgsfield_passive_selfie",
-        "durationSeconds": 5,
-        "resolution": "720p",
-        "mode": "std",
-        "sound": "off",
-    },
-}
 _SUPPORTED_PASSIVE_INTENTS: Final = frozenset(
     {
         "passive_selfie",
@@ -122,29 +102,6 @@ _SUPPORTED_PASSIVE_INTENTS: Final = frozenset(
     }
 )
 _RECREATE_INTENTS: Final = frozenset({"recreate_reel"})
-_UNRESOLVED_INTENT_ERRORS: Final = {
-    "motion_copy": (
-        "motion_copy_unresolved: no operator-approved Higgsfield motion-transfer "
-        "recipe is active"
-    ),
-    "dance": (
-        "motion_copy_unresolved: no operator-approved Higgsfield motion-transfer "
-        "recipe is active"
-    ),
-    "talking_selfie": (
-        "talking_selfie_unresolved: no authenticated Higgsfield recipe has proven "
-        "exact supplied-creator-audio preservation"
-    ),
-    "talking_motion_copy": (
-        "talking_motion_unresolved: motion transfer and exact supplied-audio "
-        "lip-sync are not both operator-approved"
-    ),
-}
-_TALKING_INTENTS: Final = frozenset({"talking_selfie", "talking_motion_copy"})
-_MOTION_CONTROL_INTENTS: Final = frozenset(
-    {"motion_copy", "dance", "talking_motion_copy"}
-)
-
 _AUDIO_ALIASES: Final = {
     "embedded_trending": "embedded_trending_required",
     "reference_audio_required": "original_embedded",
@@ -388,27 +345,23 @@ def build_production_motion_recipe(
     creator_slug, _ = _require_creator_soul_id(creator)
     if intent not in _INTENT_PROMPTS:
         raise ValueError(f"intent {intent!r} is not in the production motion catalog")
-    unresolved = _UNRESOLVED_INTENT_ERRORS.get(intent)
-    if unresolved:
-        raise ValueError(unresolved)
     if execution == "cloud" and intent in _RECREATE_INTENTS:
-        mode = "best_motion"
+        mode = "recreate_reel"
         stages = ({**RECREATE_REEL_STAGE},)
         model_id = str(stages[0]["modelId"])
         status = "experimental"
         visual_selection_required = True
     elif execution == "cloud":
-        mode = "best_motion"
-        configured = os.environ.get(
-            _PASSIVE_RECIPE_ENV, "higgsfield_kling3_i2v"
-        ).strip()
-        try:
-            stage = _PASSIVE_RECIPE_CONFIG[configured]
-        except KeyError as exc:
-            raise ValueError(
-                f"{_PASSIVE_RECIPE_ENV} must pin one operator-approved "
-                "Higgsfield passive recipe"
-            ) from exc
+        mode = "calm_animation"
+        stage = {
+            "modelId": "higgsfield_kling3_turbo_i2v",
+            "providerModel": "kling3_0_turbo",
+            "recipeId": "higgsfield_passive_selfie",
+            "durationSeconds": 5,
+            "resolution": "720p",
+            "mode": "turbo",
+            "sound": "off",
+        }
         stages = ({**stage, "task": "image_to_video"},)
         model_id = str(stages[0]["modelId"])
         status = "supported"
@@ -487,14 +440,13 @@ def plan_production_batch(
     reference_authorized: bool = False,
     reference_talking: bool = False,
     selected_source_asset_ids: tuple[str, ...] | None = None,
+    prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
+    prompt_call_authorized: bool = False,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
     if execution != "cloud":
         raise ValueError("production create requires Higgsfield cloud execution")
-    unresolved = _UNRESOLVED_INTENT_ERRORS.get(intent)
-    if unresolved:
-        raise ValueError(unresolved)
     if intent not in _SUPPORTED_PASSIVE_INTENTS | _RECREATE_INTENTS:
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     if intent in _RECREATE_INTENTS and int(count) != 1:
@@ -532,18 +484,10 @@ def plan_production_batch(
     motion_reference = _optional_safe_media(
         motion_reference_path, "motion reference video"
     )
-    if intent in _TALKING_INTENTS:
-        if resolved_audio_policy != "creator_voice":
-            raise ValueError("talking intents require --audio creator_voice")
-        if speech_audio is None:
-            raise ValueError("talking intents require --speech-audio")
-    elif speech_audio is not None:
-        raise ValueError("--speech-audio is only valid for a talking intent")
-    if intent in _MOTION_CONTROL_INTENTS:
-        if motion_reference is None:
-            raise ValueError("motion-copy intents require --motion-reference")
-    elif motion_reference is not None:
-        raise ValueError("--motion-reference is only valid for a motion-copy intent")
+    if speech_audio is not None:
+        raise ValueError("talking generation is not a Creator OS production mode")
+    if motion_reference is not None:
+        raise ValueError("motion-copy generation is not a Creator OS production mode")
     speech_sha = _sha256_file(speech_audio) if speech_audio is not None else None
     motion_reference_sha = (
         _sha256_file(motion_reference) if motion_reference is not None else None
@@ -584,9 +528,6 @@ def plan_production_batch(
                 continue
             width, height = resolution
             ratio = width / height
-            if intent in _MOTION_CONTROL_INTENTS and min(width, height) < 300:
-                incompatible_sources += 1
-                continue
             source["sourceResolution"] = {
                 "width": width,
                 "height": height,
@@ -628,9 +569,12 @@ def plan_production_batch(
         )
     )
     jobs: list[dict[str, Any]] = []
+    prompt_packs: dict[str, dict[str, Any]] = {}
+    prompt_planning_by_source: dict[str, dict[str, Any]] = {}
     used_seeds: set[int] = set()
     for index in range(int(count)):
         source = sources[index % len(sources)]
+        prompt_pack = None
         source_sha = str(source["content_hash"])
         seed = _deterministic_seed(
             creator=creator_slug,
@@ -682,6 +626,35 @@ def plan_production_batch(
                 selected_prompt=selected_prompt,
                 learning_decision=learning_decision,
             )
+        if prompt_pack_provider is not None:
+            prompt_pack = prompt_packs.get(source_sha) or prompt_pack_provider(
+                creator=creator_slug,
+                creator_image=Path(str(source["stored_path"])),
+                intent=intent,
+                reference_video=reference_video_path,
+                external_call_authorized=prompt_call_authorized,
+            )
+            prompt_packs[source_sha] = prompt_pack
+            prompt_card, compiled_prompt = compile_video_prompt(
+                prompt_pack, str(recipe["stages"][0]["providerModel"]), prompt_card
+            )
+        prompt_planning = (
+            {
+                **dict(prompt_pack.get("promptPlanning") or {}),
+                "cache": dict(prompt_pack.get("cache") or {}),
+                "currentRunCost": (
+                    dict((prompt_pack.get("promptPlanning") or {}).get("cost") or {})
+                    if (prompt_pack.get("cache") or {}).get("providerCallMade") is True
+                    else {"status": "cache_hit", "usd": 0.0}
+                    if (prompt_pack.get("cache") or {}).get("providerCallMade") is False
+                    else {"status": "unreported", "usd": None}
+                ),
+            }
+            if isinstance(prompt_pack, dict)
+            else None
+        )
+        if prompt_planning is not None:
+            prompt_planning_by_source[source_sha] = prompt_planning
         identity = _fingerprint(
             {
                 "source": source_sha,
@@ -732,11 +705,12 @@ def plan_production_batch(
                 "intent": intent,
                 "prompt": (
                     compiled_prompt["text"]
-                    if intent in _RECREATE_INTENTS
+                    if intent in _RECREATE_INTENTS or prompt_pack_provider is not None
                     else selected_prompt
                 ),
                 "promptCard": prompt_card,
                 "compiledPrompt": compiled_prompt,
+                "promptPlanning": prompt_planning,
                 "compatibility": source["compatibility"],
                 "recreationCharacterCompatibility": source.get(
                     "recreationCharacterCompatibility"
@@ -777,19 +751,13 @@ def plan_production_batch(
         "provider": "higgsfield",
         "providerQuoteStatus": "required_before_apply",
         "quotedProviderCredits": None,
+        "promptPlanning": list(prompt_planning_by_source.values()),
         "learningDecision": learning_decision,
         "jobs": jobs,
     }
 
 
 def _validate_intent_audio_policy(intent: str, policy: str) -> None:
-    if intent in _TALKING_INTENTS:
-        if policy != "creator_voice":
-            raise ValueError(
-                "talking intents require creator_voice and forbid automatic "
-                "trending-audio replacement"
-            )
-        return
     if intent in _RECREATE_INTENTS:
         if policy not in {
             "embedded_trending_required",
@@ -826,6 +794,7 @@ def run_production_batch(
     reference_authorized: bool = False,
     reference_talking: bool = False,
     selected_source_asset_ids: tuple[str, ...] | None = None,
+    prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -842,6 +811,8 @@ def run_production_batch(
         reference_authorized=reference_authorized,
         reference_talking=reference_talking,
         selected_source_asset_ids=selected_source_asset_ids,
+        prompt_pack_provider=prompt_pack_provider,
+        prompt_call_authorized=apply,
     )
     results: list[dict[str, Any]] = []
     if (

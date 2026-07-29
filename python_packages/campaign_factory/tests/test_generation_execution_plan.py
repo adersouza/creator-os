@@ -12,13 +12,11 @@ from campaign_factory.generation_execution_plan import (
 from pipeline_contracts import validate_generation_execution_plan
 
 
-def test_generation_execution_plans_cover_exactly_five_modes() -> None:
+def test_generation_execution_plans_cover_only_internal_workers() -> None:
     assert generation_execution_mode_ids() == (
-        "library_reuse",
         "soul_static",
         "local_wan",
         "best_motion",
-        "reference_video_remix",
     )
 
     plans = {
@@ -29,7 +27,6 @@ def test_generation_execution_plans_cover_exactly_five_modes() -> None:
         validate_generation_execution_plan(plan.to_contract())
         assert plan.allowed_output_surface == "campaign_review"
 
-    assert plans["library_reuse"].provider_authorization == "forbidden"
     assert plans["local_wan"].provider_authorization == "forbidden"
     assert plans["soul_static"].motion_strategy == "static_mp4_only"
     assert plans["best_motion"].motion_strategy == "best_paid_motion"
@@ -41,16 +38,11 @@ def test_generation_execution_plans_cover_exactly_five_modes() -> None:
     )
     assert "creative_approval_v2" in plans["local_wan"].required_approvals
     assert "creative_approval_v2" in plans["best_motion"].required_approvals
-    assert plans["reference_video_remix"].motion_strategy == "seedance_or_kling_remix"
-    assert all(
-        plan.static_fallback_required
-        for mode, plan in plans.items()
-        if mode != "library_reuse"
-    )
+    assert all(plan.static_fallback_required for plan in plans.values())
 
 
 def test_generation_execution_plan_is_deeply_immutable() -> None:
-    plan = build_generation_execution_plan("best-only-kling")
+    plan = build_generation_execution_plan("best-motion")
 
     with pytest.raises(FrozenInstanceError):
         plan.motion_strategy = "local_motion_edit"  # type: ignore[misc]
@@ -62,13 +54,8 @@ def test_only_front_worker_modes_expose_front_animation_mode() -> None:
     assert (
         build_generation_execution_plan("soul_static").front_animation_mode == "static"
     )
-    assert (
-        build_generation_execution_plan("best_only_kling").front_animation_mode
-        == "kling"
-    )
-
     with pytest.raises(ValueError, match="does not use the front-generation worker"):
-        _ = build_generation_execution_plan("motion_edit").front_animation_mode
+        _ = build_generation_execution_plan("best_motion").front_animation_mode
 
 
 def test_generation_execution_plan_contract_rejects_cross_mode_policy_drift() -> None:
@@ -80,7 +67,7 @@ def test_generation_execution_plan_contract_rejects_cross_mode_policy_drift() ->
 
 
 def test_plan_has_no_mutable_collection_fields() -> None:
-    plan = build_generation_execution_plan("reference_video_remix")
+    plan = build_generation_execution_plan("best_motion")
 
     assert isinstance(plan, GenerationExecutionPlan)
     assert isinstance(plan.providers, tuple)

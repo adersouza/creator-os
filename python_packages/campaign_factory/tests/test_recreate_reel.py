@@ -406,7 +406,9 @@ def test_passive_selfie_remains_kling_default(tmp_path: Path) -> None:
         accounts="stacey-main",
         audio_preference="embedded_trending",
     )
-    assert batch["jobs"][0]["productionRecipe"]["modelId"] == "higgsfield_kling3_i2v"
+    assert (
+        batch["jobs"][0]["productionRecipe"]["modelId"] == "higgsfield_kling3_turbo_i2v"
+    )
 
 
 def test_reference_analysis_is_bounded_and_retains_private_identity(
@@ -610,18 +612,4 @@ def test_apply_requires_reference_authorization_before_spend(
             max_total_credits=20,
             reference_video_path=_reference(tmp_path),
             reference_authorized=False,
-        )
-
-
-def test_precision_motion_copy_remains_unresolved(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="unresolved"):
-        plan_production_batch(
-            _factory(tmp_path),
-            creator="stacey",
-            intent="motion_copy",
-            count=1,
-            execution="cloud",
-            accounts="stacey-main",
-            audio_preference="embedded_trending",
-            motion_reference_path=_reference(tmp_path),
         )

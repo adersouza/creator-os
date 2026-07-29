@@ -24,10 +24,6 @@ from campaign_asset_test_support import (
 )
 from campaign_factory.adapters import contentforge as contentforge_adapter
 from campaign_factory.adapters import threadsdash_client as threadsdash_client_adapter
-from campaign_factory.creative_modes import (
-    creative_workflow_menu,
-    creative_workflow_modes,
-)
 from campaign_test_support import add_rendered_asset, make_factory
 from fastapi.testclient import TestClient
 
@@ -1204,41 +1200,6 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
         )
     finally:
         cf.close()
-
-
-def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
-    catalog = creative_workflow_modes()
-
-    assert catalog["schema"] == "campaign_factory.creative_workflow_modes.v1"
-    assert "defaultMode" not in catalog
-    assert catalog["selectionRequired"] is True
-    assert catalog["modePrompt"] == "Which Creator OS mode do you want for this run?"
-    modes = {mode["id"]: mode for mode in catalog["modes"]}
-    assert set(modes) == {
-        "library_reuse",
-        "soul_static",
-        "local_wan",
-        "best_motion",
-        "reference_video_remix",
-    }
-    assert modes["soul_static"]["paidVideoGeneration"] is False
-    assert modes["best_motion"]["staticFallbackRequired"] is True
-    assert modes["reference_video_remix"]["entrypoint"] == (
-        "generation run --mode reference_video_remix"
-    )
-    assert all(mode["costLabel"] for mode in modes.values())
-    assert all(mode["requiredApprovals"] for mode in modes.values())
-    assert all(mode["humanReviewRequired"] is True for mode in modes.values())
-    assert all(mode["schedulingAllowed"] is False for mode in modes.values())
-    assert all(mode["publishingAllowed"] is False for mode in modes.values())
-    assert creative_workflow_menu().splitlines() == [
-        "Which Creator OS mode do you want for this run?",
-        "1. Library reuse — free",
-        "2. Soul still + static MP4 — paid still generation, free MP4",
-        "3. Local Wan / LTX motion — free",
-        "4. Best paid motion — paid video",
-        "5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video",
-    ]
 
 
 def test_graph_id_for_and_ensure_graph_edge_direct(tmp_path: Path):

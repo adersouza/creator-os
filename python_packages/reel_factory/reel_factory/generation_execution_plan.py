@@ -9,9 +9,9 @@ from typing import Any
 from pipeline_contracts import validate_generation_execution_plan
 
 _ALLOWED_MODES_BY_ACTION = {
-    "reference-image": {"soul_static", "reference_video_remix"},
-    "image": {"soul_static", "reference_video_remix"},
-    "video": {"best_only_kling", "reference_video_remix"},
+    "reference-image": {"soul_static"},
+    "image": {"soul_static"},
+    "video": {"best_motion"},
 }
 
 

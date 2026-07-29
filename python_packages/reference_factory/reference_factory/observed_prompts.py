@@ -72,10 +72,6 @@ def register_observed_higgsfield_prompt(
         "sourcePatternId": source_pattern_id or "observed_without_pattern",
         "modelProfile": model_profile,
         "mainPrompt": captured_prompt,
-        "negativePrompt": (
-            "copied identity, watermark, username, platform UI, broken anatomy, "
-            "underage appearance, explicit nudity, low resolution"
-        ),
         "closenessControls": {
             "format_closeness": "observed",
             "identity_copy_risk": "blocked",

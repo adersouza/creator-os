@@ -223,7 +223,6 @@ def write_higgsfield_prompt_pair(
                 if key != "promptMode"
             }
         ),
-        "negativePrompt": "watermark",
         "closenessControls": {"identity_copy_risk": "blocked"},
         "formatCard": {"visualFormat": "mirror_selfie"},
         "imagePromptJson": GOOD_IMAGE_PROMPT_JSON,
@@ -237,7 +236,6 @@ def write_higgsfield_prompt_pair(
         "modelProfile": "Stacey",
         "firstFrameInstruction": "Use generated Higgsfield image.",
         "mainPrompt": "Kling 3.0 image-to-video prompt. Use the generated image as first frame.",
-        "negativePrompt": "platform UI",
         "motion_directives": {
             "duration_seconds": 5,
             "camera_motion": "tiny handheld sway",
@@ -706,7 +704,10 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
         "kling_3_video",
     }
     assert {item["status"] for item in generated["prompts"]} == {"prompt_ready"}
-    assert "Do not copy" in generated["prompts"][0]["prompt"]["soulIdInstruction"]
+    assert (
+        "selected Soul identity as the sole person"
+        in generated["prompts"][0]["prompt"]["soulIdInstruction"]
+    )
     assert Path(generated["export"]["markdownPath"]).exists()
     assert Path(generated["export"]["dailyHiggsfieldImageJsonlPath"]).exists()
     assert Path(generated["export"]["dailyKlingVideoJsonlPath"]).exists()
@@ -741,7 +742,6 @@ def test_prompt_contract_validation_blocks_missing_required_field() -> None:
         "sourcePatternId": "pattern_1",
         "modelProfile": "model_a",
         "mainPrompt": "Create a safe first frame.",
-        "negativePrompt": "watermark",
         "closenessControls": {"identity_copy_risk": "blocked"},
     }
     kling_prompt = {
@@ -753,7 +753,6 @@ def test_prompt_contract_validation_blocks_missing_required_field() -> None:
         "modelProfile": "model_a",
         "firstFrameInstruction": "Use generated image.",
         "mainPrompt": "Subtle motion.",
-        "negativePrompt": "watermark",
         "closenessControls": {"identity_copy_risk": "blocked"},
     }
 
@@ -764,6 +763,11 @@ def test_prompt_contract_validation_blocks_missing_required_field() -> None:
 
     with pytest.raises(ContractValidationError):
         _validate_prompt_contract("higgsfield_soul_image", invalid)
+    with pytest.raises(ContractValidationError):
+        _validate_prompt_contract(
+            "higgsfield_soul_image",
+            {**image_prompt, "negativePrompt": "watermark"},
+        )
 
 
 def test_pattern_and_video_analysis_contract_validation_blocks_write(
@@ -1090,10 +1094,7 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
         ]
         == "close arm-length selfie"
     )
-    assert (
-        prompts["higgsfield_soul_image"]["negativePrompt"]
-        == "watermark, copied face, username"
-    )
+    assert "negativePrompt" not in prompts["higgsfield_soul_image"]
     assert prompts["kling_3_video"]["mainPrompt"].startswith(
         "Kling 3.0 image-to-video prompt"
     )
@@ -1115,10 +1116,7 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
         "same first-frame crop"
         in prompts["kling_3_video"]["motion_directives"]["must_preserve"]
     )
-    assert (
-        prompts["kling_3_video"]["negativePrompt"]
-        == "watermark, platform UI, copied person"
-    )
+    assert "negativePrompt" not in prompts["kling_3_video"]
 
 
 def test_imageat_prompt_builders_lock_expected_json_shape() -> None:

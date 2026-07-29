@@ -5,7 +5,6 @@ import json
 import os
 import sqlite3
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,6 @@ from campaign_factory.contracts import (
     validate_front_generation_plan,
     validate_variant_assignment,
 )
-from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
 from campaign_factory.daily_library_production import run_daily_library_production
 from campaign_factory.front_generation_stage import (
@@ -27,12 +25,7 @@ from campaign_factory.front_generation_stage import (
     run_front_generation_stage,
 )
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
-from campaign_factory.kling_selection_stage import (
-    run_kling_selection_stage,
-    validate_kling_selection_receipt,
-)
 from campaign_factory.learning_cohort import prepare_learning_cohort
-from campaign_factory.motion_edit_stage import run_motion_edit_stage
 from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
 from campaign_factory.static_mp4_stage import _duration_for_still, run_static_mp4_stage
 from campaign_factory.variation_stage import (
@@ -114,65 +107,6 @@ def patch_front_variant_spec(monkeypatch: pytest.MonkeyPatch) -> None:
             "provider_generation_count": 1,
         },
     )
-
-
-def create_approved_static_candidates(
-    cf: CampaignFactory,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[list[dict], list[Path]]:
-    add_source_asset(cf, tmp_path)
-
-    def fake_invoke(
-        _factory,
-        *,
-        still_path,
-        output_path,
-        duration_seconds,
-        dry_run,
-        allow_upscale,
-    ):
-        write_fake_static_mp4_outputs(output_path)
-        output_path.write_bytes(f"static:{still_path.name}".encode())
-        return fake_static_mp4_render(still_path, output_path, dry_run=dry_run)
-
-    monkeypatch.setattr(
-        "campaign_factory.static_mp4_stage._invoke_reel_factory_static_mp4",
-        fake_invoke,
-    )
-    stills = [tmp_path / "candidate-a.png", tmp_path / "candidate-b.png"]
-    assets: list[dict] = []
-    for index, still in enumerate(stills, start=1):
-        still.write_bytes(f"accepted-still-{index}".encode())
-        result = run_static_mp4_stage(
-            cf,
-            campaign_slug="may",
-            still_path=still,
-            dry_run=False,
-            apply=True,
-        )
-        asset = result["registeredAsset"]
-        add_audit_report(
-            cf,
-            rendered_asset_id=asset["id"],
-            audit_id=f"audit_static_{index}",
-        )
-        cf.conn.execute(
-            "UPDATE rendered_assets SET audit_status = 'approved_candidate' WHERE id = ?",
-            (asset["id"],),
-        )
-        cf.conn.commit()
-        cf.domains.finished_video.review_rendered_asset(
-            asset["id"], decision="approved", require_safe_audit=True
-        )
-        assets.append(
-            dict(
-                cf.conn.execute(
-                    "SELECT * FROM rendered_assets WHERE id = ?", (asset["id"],)
-                ).fetchone()
-            )
-        )
-    return assets, stills
 
 
 def test_daily_library_plan_is_deterministic_and_zero_cost(
@@ -1164,20 +1098,6 @@ def test_front_generation_preserves_original_static_when_sexy_candidate_fails_qc
         cf.close()
 
 
-def test_front_generation_rejects_retired_kling_mode_before_factory_access() -> None:
-    with pytest.raises(
-        ValueError, match="best_only_kling does not use the front-generation worker"
-    ):
-        run_front_generation_stage(
-            object(),
-            campaign_slug="may",
-            reference_image_path=Path("/definitely/missing.png"),
-            creator="Stacey",
-            execution_plan=build_generation_execution_plan("best_only_kling"),
-            dry_run=True,
-        )
-
-
 def test_front_generation_static_only_apply_needs_no_paid_authorization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1221,59 +1141,6 @@ def test_front_generation_static_only_apply_needs_no_paid_authorization(
         assert result["registeredAsset"] is None
     finally:
         cf.close()
-
-
-def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
-    finally:
-        cf.close()
-
-    library = tmp_path / "library"
-    library.mkdir()
-    (library / "selected.mp4").write_bytes(b"selected-library-mp4")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "campaign_factory.cli",
-            "generation",
-            "run",
-            "--mode",
-            "library_reuse",
-            "--campaign",
-            "may",
-            "--folder",
-            str(library),
-            "--model",
-            "model",
-            "--dry-run",
-        ],
-        cwd=PACKAGE_ROOT,
-        text=True,
-        capture_output=True,
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
-            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
-            "REEL_FACTORY_ROOT": str(tmp_path / "reel_factory"),
-            "CONTENTFORGE_ROOT": str(tmp_path / "contentforge"),
-            "THREADSDASH_ROOT": str(tmp_path / "ThreadsDashboard"),
-        },
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["schema"] == "campaign_factory.generation_workflow_run.v1"
-    assert payload["mode"] == "library_reuse"
-    assert payload["dryRun"] is True
-    assert payload["result"]["schema"] == "campaign_factory.library_reuse_preflight.v1"
-    assert payload["publishingAllowed"] is False
 
 
 def test_static_mp4_stage_dry_run_is_free_and_does_not_register_asset(
@@ -1419,12 +1286,20 @@ def test_static_mp4_stage_apply_is_idempotent_for_same_accepted_still(
         )
 
         assert first["registeredAsset"]["id"] == second["registeredAsset"]["id"]
+        assert first["generationAttemptId"] == second["generationAttemptId"]
         assert first["reused"] is False
         assert second["reused"] is True
         assert invoke_count == 1
         assert (
             cf.conn.execute(
                 "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'static_mp4'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM generation_attempts WHERE rendered_asset_id = ?",
+                (first["registeredAsset"]["id"],),
             ).fetchone()[0]
             == 1
         )
@@ -1535,241 +1410,6 @@ def test_static_mp4_stage_blocks_ambiguous_multi_source_lineage(
                 still_path=accepted,
                 dry_run=True,
             )
-    finally:
-        cf.close()
-
-
-def test_kling_selection_stage_registers_unique_best_approved_static(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        assets, stills = create_approved_static_candidates(cf, tmp_path, monkeypatch)
-
-        def fake_rank(_factory, *, manifest_path: Path, ranking_path: Path):
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            candidates = manifest["candidates"]
-            ranking = {
-                "schema": "reel_factory.kling_candidate_ranking.v1",
-                "batchId": manifest["batchId"],
-                "status": "selected",
-                "selectedCandidateId": candidates[1]["id"],
-                "candidateCount": 2,
-                "signalPresent": True,
-                "paidGenerationAuthorized": False,
-                "publishingAllowed": False,
-                "candidates": [
-                    {
-                        **candidates[1],
-                        "rank": 1,
-                        "score": 0.9,
-                        "predictedEngagement": {"score": 0.9, "matched": 2},
-                    },
-                    {
-                        **candidates[0],
-                        "rank": 2,
-                        "score": 0.9,
-                        "predictedEngagement": {"score": 0.4, "matched": 1},
-                    },
-                ],
-            }
-            ranking_path.write_text(json.dumps(ranking), encoding="utf-8")
-            return ranking
-
-        monkeypatch.setattr(
-            "campaign_factory.kling_selection_stage._invoke_reel_factory_rank",
-            fake_rank,
-        )
-        result = run_kling_selection_stage(
-            cf,
-            campaign_slug="may",
-            rendered_asset_ids=[assets[0]["id"], assets[1]["id"]],
-            batch_id="approved_pair",
-            dry_run=False,
-            apply=True,
-        )
-
-        assert result["selectedRenderedAssetId"] == assets[1]["id"]
-        assert result["paidGenerationAuthorized"] is False
-        receipt_path = Path(result["receiptPath"])
-        assert receipt_path.is_file()
-        receipt = validate_kling_selection_receipt(
-            cf,
-            receipt_path=receipt_path,
-            accepted_still_path=stills[1],
-            selected_static_asset=assets[1],
-        )
-        assert receipt["selectedRenderedAssetId"] == assets[1]["id"]
-        row = cf.conn.execute(
-            "SELECT * FROM kling_selection_receipts WHERE batch_id = 'approved_pair'"
-        ).fetchone()
-        assert row["status"] == "active"
-
-        receipt_bytes = receipt_path.read_bytes()
-        receipt_path.write_text("{}", encoding="utf-8")
-        with pytest.raises(ValueError, match="wrong schema|hash"):
-            validate_kling_selection_receipt(
-                cf,
-                receipt_path=receipt_path,
-                accepted_still_path=stills[1],
-                selected_static_asset=assets[1],
-            )
-        receipt_path.write_bytes(receipt_bytes)
-        Path(receipt["rankingPath"]).write_text("{}", encoding="utf-8")
-        with pytest.raises(ValueError, match="ranking result evidence changed"):
-            validate_kling_selection_receipt(
-                cf,
-                receipt_path=receipt_path,
-                accepted_still_path=stills[1],
-                selected_static_asset=assets[1],
-            )
-    finally:
-        cf.close()
-
-
-def test_kling_selection_stage_blocks_unapproved_or_ambiguous_batches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        assets, _stills = create_approved_static_candidates(cf, tmp_path, monkeypatch)
-        cf.domains.finished_video.review_rendered_asset(
-            assets[0]["id"], decision="rejected"
-        )
-        with pytest.raises(ValueError, match="lacks human approval"):
-            run_kling_selection_stage(
-                cf,
-                campaign_slug="may",
-                rendered_asset_ids=[assets[0]["id"], assets[1]["id"]],
-                dry_run=True,
-            )
-
-        cf.domains.finished_video.review_rendered_asset(
-            assets[0]["id"], decision="approved"
-        )
-
-        def ambiguous(_factory, *, manifest_path: Path, ranking_path: Path):
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            ranking = {
-                "schema": "reel_factory.kling_candidate_ranking.v1",
-                "batchId": manifest["batchId"],
-                "status": "ambiguous_top",
-                "selectedCandidateId": None,
-                "candidates": manifest["candidates"],
-            }
-            ranking_path.write_text(json.dumps(ranking), encoding="utf-8")
-            return ranking
-
-        monkeypatch.setattr(
-            "campaign_factory.kling_selection_stage._invoke_reel_factory_rank",
-            ambiguous,
-        )
-        with pytest.raises(ValueError, match="ambiguous_top"):
-            run_kling_selection_stage(
-                cf,
-                campaign_slug="may",
-                rendered_asset_ids=[assets[0]["id"], assets[1]["id"]],
-                batch_id="ambiguous",
-                dry_run=False,
-                apply=True,
-            )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM kling_selection_receipts").fetchone()[
-                0
-            ]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-def test_kling_selection_stage_rejects_selected_candidate_that_is_not_unique_best(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        assets, _stills = create_approved_static_candidates(cf, tmp_path, monkeypatch)
-
-        def inconsistent(_factory, *, manifest_path: Path, ranking_path: Path):
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            candidates = manifest["candidates"]
-            ranking = {
-                "schema": "reel_factory.kling_candidate_ranking.v1",
-                "batchId": manifest["batchId"],
-                "status": "selected",
-                "selectedCandidateId": candidates[1]["id"],
-                "candidateCount": 2,
-                "signalPresent": True,
-                "paidGenerationAuthorized": False,
-                "publishingAllowed": False,
-                "candidates": [
-                    {**candidates[0], "rank": 1, "score": 0.9},
-                    {**candidates[1], "rank": 2, "score": 0.4},
-                ],
-            }
-            ranking_path.write_text(json.dumps(ranking), encoding="utf-8")
-            return ranking
-
-        monkeypatch.setattr(
-            "campaign_factory.kling_selection_stage._invoke_reel_factory_rank",
-            inconsistent,
-        )
-        with pytest.raises(ValueError, match="rank-one"):
-            run_kling_selection_stage(
-                cf,
-                campaign_slug="may",
-                rendered_asset_ids=[assets[0]["id"], assets[1]["id"]],
-                batch_id="inconsistent",
-                dry_run=False,
-                apply=True,
-            )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM kling_selection_receipts").fetchone()[
-                0
-            ]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-@pytest.mark.parametrize(
-    ("dry_run", "apply"),
-    [(True, False), (False, True)],
-)
-def test_retired_motion_edit_stage_fails_before_any_mutation(
-    tmp_path: Path, dry_run: bool, apply: bool
-) -> None:
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        still_path = tmp_path / "still.png"
-        still_path.write_bytes(b"png")
-        before_assets = cf.conn.execute(
-            "SELECT COUNT(*) FROM rendered_assets"
-        ).fetchone()[0]
-        before_jobs = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[
-            0
-        ]
-
-        with pytest.raises(PermissionError, match="motion_edit_mode_retired"):
-            run_motion_edit_stage(
-                cf,
-                campaign_slug="may",
-                still_path=still_path,
-                caption="Retired mode caption",
-                dry_run=dry_run,
-                apply=apply,
-            )
-
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0]
-            == before_assets
-        )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
-            == before_jobs
-        )
     finally:
         cf.close()
 

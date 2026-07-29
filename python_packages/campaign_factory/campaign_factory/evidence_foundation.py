@@ -133,20 +133,6 @@ def compile_thin_evidence_records(
             "thin_evidence_required_analyzer_unregistered"
         )
 
-    if policy.get("creativeMode") == "library_reuse":
-        if benchmark_recipe.expected_provider_calls != 0:
-            raise ThinEvidenceCompatibilityError(
-                "thin_evidence_library_reuse_provider_calls_nonzero"
-            )
-        if policy.get("providers") or policy.get("paidImageGeneration") is not False:
-            raise ThinEvidenceCompatibilityError(
-                "thin_evidence_library_reuse_execution_policy_incompatible"
-            )
-        if policy.get("paidVideoGeneration") is not False:
-            raise ThinEvidenceCompatibilityError(
-                "thin_evidence_library_reuse_execution_policy_incompatible"
-            )
-
     return {
         "creatorIdentityProfile": creator_identity_profile.to_dict(),
         "contentIntent": content_intent.to_dict(),
@@ -191,36 +177,3 @@ def validate_compiled_thin_evidence_records(
         benchmark_recipe=recipe,
         analyzer_registry=registry,
     )
-
-
-def validate_library_reuse_evidence_binding(
-    evidence_records: Mapping[str, Any],
-    *,
-    model_slug: str,
-    selected_source_fingerprints: tuple[str, ...],
-    output_format: str,
-    variant_count: int,
-    workers: int,
-) -> dict[str, Any]:
-    """Bind validated evidence to the exact provider-free Library Reuse plan."""
-
-    records = validate_compiled_thin_evidence_records(evidence_records)
-    identity = CreatorIdentityProfileV1.from_dict(records["creatorIdentityProfile"])
-    intent = ContentIntentV1.from_dict(records["contentIntent"])
-    recipe = BenchmarkRecipeV1.from_dict(records["benchmarkRecipe"])
-
-    if identity.creator_key.strip().lower() != model_slug.strip().lower():
-        raise ThinEvidenceCompatibilityError("thin_evidence_creator_run_mismatch")
-    if intent.source_asset_fingerprints != selected_source_fingerprints:
-        raise ThinEvidenceCompatibilityError("thin_evidence_selected_input_mismatch")
-    if recipe.input_fingerprints != selected_source_fingerprints:
-        raise ThinEvidenceCompatibilityError("thin_evidence_benchmark_input_mismatch")
-
-    actual_parameters = {
-        "format": "reel" if output_format in {"auto", "reel"} else output_format,
-        "variantCount": variant_count,
-        "workers": workers,
-    }
-    if recipe.parameter_fingerprint != canonical_json_sha256(actual_parameters):
-        raise ThinEvidenceCompatibilityError("thin_evidence_parameter_mismatch")
-    return records

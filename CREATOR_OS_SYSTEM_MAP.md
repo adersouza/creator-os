@@ -172,42 +172,46 @@ Reel Factory has one local SQLite render queue. ContentForge runs as a direct,
 bounded headless command and has no HTTP server, daemon, background job API, or
 polling queue.
 
-## Two Operator Languages: Intent Versus Advanced Mode
+## Three Product Modes
 
-Normal production is intent-first:
+Normal production uses one of three product modes:
 
 ```bash
 scripts/creator-os create \
   --creator stacey \
-  --intent passive_selfie \
+  --mode calm_animation \
+  --style passive_selfie \
   --count 3 \
   --execution cloud \
   --accounts bennett_s33 \
-  --audio embedded_trending \
+  --audio embedded_trending_required \
   --max-credits 70
 ```
 
-The operator names the desired content, account scope, count, audio policy, and
-spend ceiling. The system resolves approved sources, the creator Soul ID, the
-pinned Higgsfield recipe, prompts, seeds, and job identities. Normal create
-does not accept a provider or model choice and cannot choose WaveSpeed or a
-local model.
+The operator names the product mode, optional style, account scope, count,
+audio policy, and spend ceiling. The system resolves approved sources, the
+creator Soul ID, the pinned Higgsfield recipe, prompts, seeds, and job
+identities. Create does not accept a provider or model choice and cannot choose
+WaveSpeed or a local model.
 
 Stacey, Larissa, and Lola each have a pinned completed Soul 2 identity. Their
-private Higgsfield Element bindings are also installed for structural Seedance
-recreation; no creator may inherit another creator's Soul or Element.
+approved creator images are supplied to OpenAI for model-specific prompt
+generation; no creator may inherit another creator's Soul or reference image.
 
-`creator-os generate` is a separate advanced/manual compatibility surface. It
-requires one explicit mode:
+`creator-os create` exposes three product modes:
 
-1. `library_reuse` — free owned-library media;
-2. `soul_static` — paid Soul still and free static MP4;
-3. `local_wan` — advanced local Wan/LTX research;
-4. `best_motion` — paid Higgsfield passive motion;
-5. `reference_video_remix` — paid structural reference-video experiment.
+1. `static_reel` — approved creator still to local static MP4;
+2. `calm_animation` — OpenAI prompt plus pinned Kling/Seedance motion;
+3. `recreate_reel` — authorized reference analysis, Soul anchor prompt, and
+   model-specific recreation prompt.
 
-An advanced mode is execution policy, not a content intent. Normal create does
-not ask the user to choose one. Neither surface schedules or publishes.
+Before any new generation, Campaign Factory automatically reuses enough exact
+approved, audited, creator/intent-matched MP4s when their bytes and required
+audio receipt verify. This `prefer_exact` policy returns the approved final
+bytes unchanged. `--reuse-policy require_fresh` bypasses reuse for deliberate
+inventory creation or experiments without adding another product mode. Local
+model tooling is standalone research and is not reachable from the Creator OS
+product CLI. No create mode schedules or publishes.
 
 ## Current Creative Product Truth
 
@@ -217,10 +221,10 @@ The operator's real would-post review is the model-selection authority:
 |---|---|---|
 | Soul still | **SUPPORTED** | Higgsfield Soul 2 with explicit creator Soul ID and exact reference/prompt lineage |
 | Static Reel | **SUPPORTED** | deterministic local MP4 from an accepted still; zero provider-video cost |
-| Passive selfie / portrait / outfit / lifestyle motion | **SUPPORTED** | product-pinned Higgsfield Kling 3 or Seedance 2, generated sound disabled |
+| Passive selfie / portrait / outfit / lifestyle motion | **SUPPORTED** | product-pinned Higgsfield Kling 3 Turbo or Seedance 2 with OpenAI-authored prompts, generated sound disabled |
 | Animate an already-approved still | **SUPPORTED** | same pinned passive Higgsfield lane |
 | Existing finished Creator OS media | **SUPPORTED** | strict intake/reconciliation with retained source, generation, audio, QC, and final-media hashes |
-| Structural reference-Reel recreation | **EXPERIMENTAL** | first-frame-matched creator anchor plus bound creator Element and one private motion-only reference through Seedance 2 Fast |
+| Prompt-driven reference-Reel recreation | **EXPERIMENTAL** | OpenAI-authored Soul/Seedance/Kling prompt pack from the approved creator image and sampled Reel frames; only the approved anchor and prompt reach Seedance/Kling |
 | Motion copy / dance transfer | **UNRESOLVED** | tested Kling Motion Control outputs were rejected; no approved replacement recipe |
 | Talking selfie | **UNRESOLVED** | no authenticated, operator-approved exact supplied-voice path |
 | Talking motion copy | **UNRESOLVED** | neither the transfer base nor exact supplied-audio lip-sync path is approved |
@@ -303,8 +307,8 @@ The active passive recipes are:
 
 | Recipe | Provider model | Duration | Output | Provider audio |
 |---|---|---:|---|---|
-| `higgsfield_kling3_i2v` | `kling3_0` | 5 seconds | 720×1280 | `sound=off` |
-| `higgsfield_seedance2_i2v` | `seedance_2_0` | 5 seconds | 720p portrait | `generate_audio=false` |
+| Calm animation | `kling3_0_turbo` | 5 seconds | 720p portrait | `sound=off` |
+| Reference recreation | `seedance_2_0` Fast | 4–15 seconds | 480p portrait, high bitrate | `generate_audio=false` |
 
 Product configuration chooses between the two operator-approved candidates.
 Normal operators do not supply these identifiers.
@@ -458,27 +462,46 @@ The intent-first recreation planner then continues:
 ```text
 canonical private reference
 -> deterministic source classification + bounded coherent excerpt
--> one clean-opening-frame-matched Soul 2 anchor, or two clean endpoint anchors
+-> OpenAI-authored Soul anchor plus Seedance/Kling prompts
+-> one text-only Soul 2 anchor from the OpenAI scene/composition prompt
 -> mandatory human identity + WOULD_USE_AS_ANCHOR review
--> passive Kling 3, experimental Motion Control, structural Seedance 2,
-   experimental Kling first/last, or precise talking entitlement blocker
+-> passive Kling 3 Turbo or prompt-driven Seedance 2 Fast
 -> provider audio disabled/replaced under the automatic audio policy
 -> technical QC + mode-specific human review + exact-SHA final audio binding
 ```
 
-The Seedance structural request binds the creator Element first, supplies the
-approved anchor as an image reference, supplies the Reel only as a video
-reference, uses the authenticated `seedance_2_0 mode=fast` contract at 480p/high
-bitrate, and disables generated audio. Its timecoded prompt contains reusable
-motion/camera structure but excludes OCR-recognized source writing. It does not
-mix start/end-image mode with reference-media mode.
+The Seedance request supplies the approved anchor as the start image, uses the
+authenticated `seedance_2_0 mode=fast` contract at 480p/high bitrate, and
+disables generated audio. Its OpenAI-authored timecoded prompt contains
+reusable motion/camera structure but excludes OCR-recognized source writing.
+The inspiration video remains lineage/audio evidence and is not sent to the
+video provider.
+
+OpenAI returns only an affirmative Soul anchor prompt, a Seedance prompt, a
+Kling prompt, and a motion/camera timeline. The response schema has no negative
+prompt field, every returned text field rejects negative-prompt language, and
+the final Soul/Kling contracts reject a `negativePrompt` property. Creator
+identity protection comes from the approved creator image, explicit Soul ID,
+structured identity guards, and provider settings rather than textual negative
+lists.
+
+Prompt planning is cached by the creator-image SHA, reference-video SHA, model,
+intent, builder version, instruction, and response schema. A cache hit makes no
+OpenAI call. A cache miss requires the current create operation's explicit
+`--apply` authorization before any paid OpenAI request. The receipt records the
+request-fingerprint scope, one-call maximum, cache-first check, current-run call
+count, exact structured result, response ID, token usage, and honestly reported
+cost status; unavailable API cost remains `not_exposed`, never zero.
 
 It does not register the inspiration Reel as a rendered asset, does not replace
-normal passive creation, and does not restore rejected Motion Control as a
-production default. AUTO may recommend experimental routes but cannot submit
-them silently. Seedance is never represented as character replacement, Motion
-Control does not promise exact choreography, and talking fails closed when
-supplied-voice entitlement/qualification is absent.
+normal passive creation, and does not restore rejected Motion Control. AUTO
+routes active reference recreation through the prompt-driven lane. Seedance is
+never represented as exact character replacement or exact choreography;
+talking results require an explicit lip-sync operator verdict.
+
+The retired `reference_video_remix_plan.v1` contract remains available only as
+a historical reader. It hard-codes paid generation and publishing to false and
+has no executable route.
 
 ## Fixed-Asset Learning Cohort
 
@@ -974,7 +997,6 @@ product decision and operator-approved evidence.
 ### Historical evidence that remains readable
 
 - WaveSpeed jobs, costs, receipts, hashes, media, and lineage;
-- retired `best_only_kling` and `motion_edit` records;
 - older local-model/Arena evidence;
 - prior runtime promotion receipts;
 - older schema versions through their read-only compatibility paths.

@@ -73,7 +73,10 @@ _FINAL_PROMPT_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _MOTION_PROMPT_RE = re.compile(
-    r"\bbad\s+hands\b|\bextra\s+limbs\b|\bwarped\s+face\b"
+    r"\b(?:no|not|avoid|without|never|exclude|prevent|prohibit)\b"
+    r"|\bdo\s+not\b|\bdon['’]t\b|\bmustn['’]t\b|\bshouldn['’]t\b"
+    r"|\bnegative[_ -]?prompts?\b"
+    r"|\bbad\s+hands\b|\bextra\s+limbs\b|\bwarped\s+face\b"
     r"|\bidentity\b"
     r"|\bhair\s+color\b|\beye\s+color\b|\bethnicity\b|\btattoos?\b"
     r"|\bperfect\s+face\b|\bhigh\s+detail\b|\bsharp\s+focus\b"
@@ -113,7 +116,8 @@ Kling motion prompt:
 - One shared motion prompt only.
 - The shared motion prompt is applied to the accepted 9:16 start image.
 - The shared prompt describes camera movement, body movement, transition behavior, pacing, and loop feel using positive desired-motion language.
-- The shared prompt may include explicit safety boundaries for no text/logos, no outfit change, and no head/face crop.
+- The shared prompt uses affirmative continuity language only.
+- Stable wardrobe, location, framing, and full head visibility are desired-result descriptions.
 
 Required output contract:
 {

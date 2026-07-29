@@ -12,9 +12,9 @@ from reel_factory.generation_execution_plan import load_generation_execution_pla
 def _write_plan(tmp_path: Path, **updates) -> Path:
     payload = {
         "schema": "campaign_factory.generation_execution_plan.v1",
-        "creativeMode": "best_only_kling",
-        "stillStrategy": "accepted_rank_one_still",
-        "motionStrategy": "kling_best_only",
+        "creativeMode": "best_motion",
+        "stillStrategy": "accepted_still",
+        "motionStrategy": "best_paid_motion",
         "costClassification": "paid_video",
         "providers": ["higgsfield", "kling"],
         "models": ["kling3_0", "static_mp4"],
@@ -53,7 +53,7 @@ def test_reel_worker_accepts_matching_campaign_execution_plan(tmp_path: Path) ->
         _write_plan(tmp_path), worker_action="video-dry-run"
     )
 
-    assert payload["creativeMode"] == "best_only_kling"
+    assert payload["creativeMode"] == "best_motion"
     assert payload["publishingAllowed"] is False
 
 
@@ -108,7 +108,7 @@ def test_generate_assets_cli_consumes_and_returns_supplied_plan(
     assert generate_assets.main() == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["executionPlan"]["creativeMode"] == "best_only_kling"
+    assert payload["executionPlan"]["creativeMode"] == "best_motion"
 
 
 @pytest.mark.parametrize(

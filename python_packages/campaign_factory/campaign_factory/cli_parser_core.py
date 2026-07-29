@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 from .closed_loop_proof import DEFAULT_STACEY_PROMPT_PATH
-from .creative_modes import creative_workflow_mode_ids
 
 
 def register_core_commands(sub) -> None:
@@ -15,31 +14,35 @@ def register_core_commands(sub) -> None:
     )
     create.add_argument("--creator", required=True)
     create.add_argument(
-        "--intent",
+        "--mode",
         required=True,
+        choices=["static_reel", "calm_animation", "recreate_reel"],
+    )
+    create.add_argument(
+        "--style",
         choices=[
             "passive_selfie",
             "flirty_portrait",
             "outfit",
             "lifestyle",
             "animate_existing",
-            "recreate_reel",
-            "motion_copy",
-            "dance",
-            "talking_selfie",
-            "talking_motion_copy",
         ],
+        default="passive_selfie",
     )
     create.add_argument("--count", type=int, default=1)
     create.add_argument("--execution", choices=["cloud"], default="cloud")
     create.add_argument("--max-credits", type=float, default=100.0)
     create.add_argument("--concurrency", type=int, default=2)
     create.add_argument("--accounts")
-    create.add_argument("--speech-audio", type=Path)
-    create.add_argument("--motion-reference", type=Path)
+    create.add_argument(
+        "--reuse-policy",
+        choices=["prefer_exact", "require_fresh"],
+        default="prefer_exact",
+    )
     reference_input = create.add_mutually_exclusive_group()
     reference_input.add_argument("--reference-video", type=Path)
     reference_input.add_argument("--reference-url")
+    create.add_argument("--creator-image", type=Path)
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
@@ -73,7 +76,7 @@ def register_core_commands(sub) -> None:
     )
     create.add_argument(
         "--recreate-mode",
-        choices=["auto", "passive", "motion", "structural", "first_last", "talking"],
+        choices=["auto", "calm", "structural"],
         default="auto",
     )
     create.add_argument("--through", choices=["analyze", "anchor"])
@@ -165,49 +168,6 @@ def register_core_commands(sub) -> None:
     variation_run.add_argument("--contentforge-base-url", default="cli://local")
     variation_run.add_argument("--dry-run", action="store_true")
     variation_run.add_argument("--apply", action="store_true")
-    generation = sub.add_parser("generation")
-    generation_sub = generation.add_subparsers(dest="generation_cmd", required=True)
-    generation_sub.add_parser("modes")
-    generation_run = generation_sub.add_parser(
-        "run", help="run exactly one explicit generation mode; never publishes"
-    )
-    generation_run.add_argument(
-        "--mode", choices=creative_workflow_mode_ids(), required=True
-    )
-    generation_run.add_argument("--campaign", required=True)
-    generation_execution = generation_run.add_mutually_exclusive_group(required=True)
-    generation_execution.add_argument("--dry-run", action="store_true")
-    generation_execution.add_argument("--apply", action="store_true")
-    generation_run.add_argument("--reference-image", type=Path)
-    generation_run.add_argument("--accepted-still", type=Path)
-    generation_run.add_argument("--reference-video", type=Path)
-    generation_run.add_argument("--target", dest="creator")
-    generation_run.add_argument("--soul-id")
-    generation_run.add_argument("--workspace", type=Path)
-    generation_run.add_argument("--confirm-paid", action="store_true")
-    generation_run.add_argument("--max-credits", type=float)
-    generation_run.add_argument("--max-usd", type=float)
-    generation_run.add_argument("--caption")
-    generation_run.add_argument("--duration", type=float)
-    generation_run.add_argument("--motion-model")
-    generation_run.add_argument("--local-evidence-bundle", type=Path)
-    generation_run.add_argument("--local-arena-summary", type=Path)
-    generation_run.add_argument("--router-override-operator")
-    generation_run.add_argument("--router-override-reason")
-    generation_run.add_argument(
-        "--motion-task",
-        choices=[
-            "text_to_video",
-            "image_to_video",
-            "audio_image_to_video",
-            "motion_control",
-            "video_lipsync",
-            "keyframe_interpolation",
-            "video_retake",
-            "video_extend",
-        ],
-        default="image_to_video",
-    )
     creative_approval = sub.add_parser(
         "creative-approval-build",
         help="build and sign one exact v2 approval from a generated review draft",
@@ -232,85 +192,6 @@ def register_core_commands(sub) -> None:
     creative_approval.add_argument(
         "--publish-mode", choices=["auto", "notify"], default=None
     )
-    generation_run.add_argument("--motion-prompt")
-    generation_run.add_argument("--audio", type=Path)
-    generation_run.add_argument("--generate-audio", action="store_true")
-    generation_run.add_argument(
-        "--audio-policy",
-        choices=[
-            "embedded_trending_required",
-            "native_trending_required",
-            "original_embedded",
-            "creator_voice",
-            "royalty_free",
-            "silent_allowed",
-        ],
-        default="embedded_trending_required",
-    )
-    generation_run.add_argument("--audio-track-id")
-    generation_run.add_argument("--audio-track-name")
-    generation_run.add_argument("--audio-source")
-    generation_run.add_argument("--audio-start-offset", type=float)
-    generation_run.add_argument("--audio-volume", type=float)
-    generation_run.add_argument("--audio-selected-reason")
-    generation_run.add_argument("--last-image", type=Path)
-    generation_run.add_argument("--source-video", type=Path)
-    generation_run.add_argument("--retake-start-frame", type=int)
-    generation_run.add_argument("--retake-end-frame", type=int)
-    generation_run.add_argument("--extend-frames", type=int)
-    generation_run.add_argument(
-        "--extend-direction", choices=["before", "after"], default="after"
-    )
-    generation_run.add_argument("--preserve-audio", action="store_true")
-    generation_run.add_argument(
-        "--motion-reference-image", type=Path, action="append", default=[]
-    )
-    generation_run.add_argument(
-        "--motion-reference-video", type=Path, action="append", default=[]
-    )
-    generation_run.add_argument("--resolution")
-    generation_run.add_argument("--seed", type=int, default=42)
-    generation_run.add_argument("--steps", type=int)
-    generation_run.add_argument("--enable-prompt-expansion", action="store_true")
-    generation_run.add_argument(
-        "--shot-type", choices=["single", "multi"], default="single"
-    )
-    generation_run.add_argument(
-        "--local-model-dir", "--local-wan-model-dir", dest="local_model_dir", type=Path
-    )
-    generation_run.add_argument("--motion-lora", type=Path)
-    generation_run.add_argument("--motion-lora-strength", type=float, default=1.0)
-    generation_run.add_argument("--count", type=int, default=3)
-    generation_run.add_argument("--account")
-    generation_run.add_argument("--folder", type=Path)
-    generation_run.add_argument("--model")
-    generation_run.add_argument(
-        "--format", choices=["reel", "slideshow", "auto"], default="auto"
-    )
-    generation_run.add_argument("--variant-count", type=int, default=20)
-    generation_run.add_argument("--workers", type=int, default=3)
-    generation_run.add_argument("--first-frame-approval-id")
-    generation_run.add_argument("--last-frame-approval-id")
-    generation_run.add_argument("--operator-selected", action="store_true")
-    generation_run.add_argument("--rights-confirmed", action="store_true")
-    generation_run.add_argument(
-        "--preferred-provider", choices=["auto", "seedance", "kling"], default="auto"
-    )
-    generation_run.add_argument(
-        "--available-provider",
-        choices=["seedance", "kling"],
-        action="append",
-        default=[],
-    )
-    generation_run.add_argument("--allow-upscale", action="store_true")
-    generation_run.add_argument("--wait", action="store_true")
-    generation_run.add_argument("--download", action="store_true")
-    select_kling = generation_sub.add_parser("select-kling")
-    select_kling.add_argument("--campaign", required=True)
-    select_kling.add_argument("--rendered-asset-id", action="append", required=True)
-    select_kling.add_argument("--batch-id")
-    select_kling.add_argument("--dry-run", action="store_true")
-    select_kling.add_argument("--apply", action="store_true")
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
     audit.add_argument("--min-score", type=int, default=85)

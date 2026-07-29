@@ -256,7 +256,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("Output exactly one standalone Higgsfield Soul ID prompt", prompt)
         self.assertIn("one shared Kling motion prompt", prompt)
         self.assertIn("accepted 9:16 start image", prompt)
-        self.assertIn("safety boundaries for no text/logos", prompt)
+        self.assertIn("affirmative continuity language only", prompt)
         self.assertNotIn("Animate the best panel", prompt)
         self.assertNotIn("best frame", prompt)
         self.assertNotIn("JSON-style creative brief", prompt)

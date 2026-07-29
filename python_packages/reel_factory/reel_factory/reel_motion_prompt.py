@@ -68,9 +68,9 @@ _MOTION_BY_SCENE = {
 
 _COMMON_SAFETY = (
     "Use the supplied 9:16 start image as the source frame. Preserve the same person, outfit, setting, pose family, "
-    "camera angle, and lighting. Keep the full head and face visible. Create a short realistic phone video, 5 seconds, "
-    "with no new text, logos, captions, extra people, outfit changes, location changes, jump cuts, "
-    "large camera moves, or major pose changes."
+    "camera angle, and lighting. Keep the full head and face visible. Create a short realistic 5-second creator video "
+    "as one clean continuous shot with one person, stable wardrobe and location, restrained camera motion, "
+    "and subtle movement within the original pose family."
 )
 
 PASSIVE_SAFETY_CONSTRAINTS = (
@@ -80,12 +80,12 @@ PASSIVE_SAFETY_CONSTRAINTS = (
     "same pose family",
     "restrained casual movement",
     "full face and head visibility",
-    "no unexpected text",
-    "no extra people",
-    "no cuts",
-    "no outfit changes",
-    "no location changes",
-    "no generated soundtrack",
+    "clean visual frame",
+    "one visible person",
+    "continuous shot",
+    "stable outfit",
+    "stable location",
+    "silent provider output",
 )
 
 

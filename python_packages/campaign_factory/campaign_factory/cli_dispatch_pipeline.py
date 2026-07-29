@@ -21,11 +21,9 @@ from .cli_support import (
     print_json,
 )
 from .control import operator_control_check
+from .creation_modes import run_creation_batch
 from .creative_approval import build_and_record_creative_approval_v2
-from .creative_modes import creative_workflow_modes
 from .daily_library_production import run_daily_library_production
-from .generation_workflow import run_generation_workflow
-from .kling_selection_stage import run_kling_selection_stage
 from .learning_cohort import (
     assign_learning_cohort_references,
     audit_learning_cohort,
@@ -37,8 +35,8 @@ from .learning_cohort import (
     record_learning_cohort_publish,
     run_learning_cohort_day,
 )
-from .production_lane import run_production_batch
 from .readiness_report import build_mass_production_readiness_report
+from .recreation_prompting import build_openai_prompt_pack
 from .reference_url_workflow import run_reference_analysis
 from .trial_reels import (
     graduate_trial_reel,
@@ -62,7 +60,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         print_json(operator_control_check(settings))
         return 0
     if args.cmd == "create":
-        if args.intent == "recreate_reel" and (
+        if args.mode == "recreate_reel" and (
             getattr(args, "reference_url", None) or args.reference_video
         ):
             print_json(
@@ -81,21 +79,21 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     through=getattr(args, "through", None),
                     audio_policy=args.audio_preference,
                     max_credits=args.max_credits,
+                    creator_image_path=args.creator_image,
                     apply=args.apply,
                 )
             )
             return 0
         print_json(
-            run_production_batch(
+            run_creation_batch(
                 cf,
                 creator=args.creator,
-                intent=args.intent,
+                mode=args.mode,
+                style=args.style,
                 count=args.count,
                 execution=args.execution,
                 accounts=args.accounts,
                 audio_preference=args.audio_preference,
-                speech_audio_path=args.speech_audio,
-                motion_reference_path=args.motion_reference,
                 reference_video_path=args.reference_video,
                 reference_platform=args.reference_platform,
                 reference_authorized=args.reference_authorized,
@@ -103,6 +101,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 apply=args.apply,
                 max_total_credits=args.max_credits,
                 max_concurrency=args.concurrency,
+                prompt_pack_provider=build_openai_prompt_pack,
+                reuse_policy=args.reuse_policy,
             )
         )
         return 0
@@ -252,92 +252,6 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     rendered_asset_ids=args.rendered_asset_id or None,
                     dry_run=not args.apply or args.dry_run,
                     contentforge_base_url=args.contentforge_base_url,
-                )
-            )
-        return 0
-    if args.cmd == "generation":
-        if args.generation_cmd == "modes":
-            print_json(creative_workflow_modes())
-        elif args.generation_cmd == "run":
-            print_json(
-                run_generation_workflow(
-                    cf,
-                    mode=args.mode,
-                    campaign_slug=args.campaign,
-                    reference_image_path=args.reference_image,
-                    accepted_still_path=args.accepted_still,
-                    reference_video_path=args.reference_video,
-                    creator=args.creator,
-                    soul_id=args.soul_id,
-                    workspace=args.workspace,
-                    paid_confirmation=args.confirm_paid,
-                    max_credits=args.max_credits,
-                    max_usd=args.max_usd,
-                    caption=args.caption,
-                    duration_seconds=args.duration,
-                    count=args.count,
-                    account=args.account,
-                    library_folder=args.folder,
-                    model_slug=args.model,
-                    output_format=args.format,
-                    variant_count=args.variant_count,
-                    workers=args.workers,
-                    first_frame_approval_id=args.first_frame_approval_id,
-                    last_frame_approval_id=args.last_frame_approval_id,
-                    operator_selected=args.operator_selected,
-                    rights_confirmed=args.rights_confirmed,
-                    preferred_provider=args.preferred_provider,
-                    available_providers=args.available_provider
-                    or ("seedance", "kling"),
-                    allow_upscale=args.allow_upscale,
-                    wait=args.wait,
-                    download=args.download,
-                    motion_model_id=args.motion_model,
-                    local_evidence_bundle_path=args.local_evidence_bundle,
-                    local_arena_summary_path=args.local_arena_summary,
-                    router_override_operator=args.router_override_operator,
-                    router_override_reason=args.router_override_reason,
-                    motion_prompt=args.motion_prompt,
-                    audio_path=args.audio,
-                    generate_audio=args.generate_audio,
-                    audio_policy=args.audio_policy,
-                    audio_track_id=args.audio_track_id,
-                    audio_track_name=args.audio_track_name,
-                    audio_source=args.audio_source,
-                    audio_start_offset=args.audio_start_offset,
-                    audio_volume=args.audio_volume,
-                    audio_selected_reason=args.audio_selected_reason,
-                    last_image_path=args.last_image,
-                    source_video_path=args.source_video,
-                    retake_start_frame=args.retake_start_frame,
-                    retake_end_frame=args.retake_end_frame,
-                    extend_frames=args.extend_frames,
-                    extend_direction=args.extend_direction,
-                    preserve_audio=args.preserve_audio,
-                    motion_reference_image_paths=args.motion_reference_image,
-                    motion_reference_video_paths=args.motion_reference_video,
-                    resolution=args.resolution,
-                    seed=args.seed,
-                    steps=args.steps,
-                    enable_prompt_expansion=args.enable_prompt_expansion,
-                    shot_type=args.shot_type,
-                    local_model_dir=args.local_model_dir,
-                    motion_task=args.motion_task,
-                    motion_lora_path=args.motion_lora,
-                    motion_lora_strength=args.motion_lora_strength,
-                    dry_run=args.dry_run,
-                    apply=args.apply,
-                )
-            )
-        elif args.generation_cmd == "select-kling":
-            print_json(
-                run_kling_selection_stage(
-                    cf,
-                    campaign_slug=args.campaign,
-                    rendered_asset_ids=args.rendered_asset_id,
-                    batch_id=args.batch_id,
-                    dry_run=not args.apply or args.dry_run,
-                    apply=args.apply,
                 )
             )
         return 0

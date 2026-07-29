@@ -14,7 +14,8 @@ Use the repository command from the monorepo root:
 ```bash
 scripts/creator-os create \
   --creator stacey \
-  --intent passive_selfie \
+  --mode calm_animation \
+  --style passive_selfie \
   --count 3 \
   --execution cloud \
   --accounts bennett_s33 \
@@ -22,19 +23,16 @@ scripts/creator-os create \
 
 scripts/creator-os create \
   --creator stacey \
-  --intent recreate_reel \
+  --mode recreate_reel \
   --reference-url 'https://www.instagram.com/reel/...' \
   --recreate-mode auto \
   --through analyze \
   --audio auto
 
-scripts/creator-os generate --mode library_reuse --apply \
-  --folder /path/to/media --campaign campaign_slug --model model_slug
-
-scripts/creator-os generate --list-modes
-
-scripts/creator-os generate --mode soul_static --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/accepted.png
+scripts/creator-os create \
+  --creator stacey \
+  --mode calm_animation \
+  --style flirty_portrait
 
 scripts/creator-os review --campaign campaign_slug --user-id user_id
 
@@ -42,19 +40,18 @@ scripts/creator-os export --dry-run \
   --campaign campaign_slug --user-id user_id --max-drafts 10
 ```
 
-Library reuse never exports and disables auto-approval. `draft-export` forces
-draft schedule mode; `--apply` may write validated drafts but cannot schedule
-or publish.
+Exact-final reuse runs automatically before generation and never modifies the
+approved bytes, exports, or auto-approves. Use
+`--reuse-policy require_fresh` for deliberate new inventory or experiments.
+`draft-export` forces draft schedule mode; `--apply` may write
+validated drafts but cannot schedule or publish.
 
-Ordinary production uses `create --creator --intent --count --execution`; it
-does not expose the provider, model, recipe, source path, seed, task ID, Arena,
-or Router. The older mode catalog remains the advanced/manual generation
-surface for library, still, and research workflows.
+Ordinary production uses `create --creator --mode --count`; it does not expose
+the provider, model, recipe, source path, seed, task ID, Arena, or Router.
 `recreate_reel` is the count-one exception that accepts one explicit
 reference URL or local video. Its analyze stage is provider-free and its
 planner keeps every Soul anchor and experimental video route approval-gated.
-The five current modes are `library_reuse`, `soul_static`, `local_wan`,
-`best_motion`, and `reference_video_remix`.
+The product modes are `static_reel`, `calm_animation`, and `recreate_reel`.
 
 ## Package CLI
 

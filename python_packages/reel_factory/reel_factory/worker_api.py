@@ -41,27 +41,32 @@ from .local_wan_prompt_expansion import (
     expand_wan_i2v_prompt,
     validate_wan_prompt_expansion,
 )
-from .reel_motion_prompt import (
-    PASSIVE_SAFETY_CONSTRAINTS as _PASSIVE_SAFETY_CONSTRAINTS,
-)
-from .reel_motion_prompt import passive_safety_prompt as _passive_safety_prompt
 from .reel_url_import import (
     canonicalize_reel_url as canonicalize_reel_url,
 )
 from .reel_url_import import download_reel_url as download_reel_url
-from .reference_video_remix import (
-    build_reference_video_remix_plan,
-    gemini_motion_analysis_instruction,
-)
 from .video_provider_models import video_model
 
-PASSIVE_SAFETY_CONSTRAINTS = _PASSIVE_SAFETY_CONSTRAINTS
 
+def gemini_motion_analysis_instruction(reference_id: str) -> str:
+    """Return the bounded prompt for the retained motion-analysis contract."""
 
-def passive_safety_prompt() -> str:
-    """Return the shared passive-motion safety language."""
-
-    return _passive_safety_prompt()
+    resolved = " ".join(str(reference_id or "").split())
+    if not resolved:
+        raise ValueError("reference_id is required")
+    return (
+        "Analyze the attached operator-selected reference video as motion structure "
+        "only. Return exactly one JSON object matching schema "
+        "reel_factory.reference_video_motion_analysis.v1 with referenceId "
+        f"{resolved}. The supported scope is one continuous 9:16 shot lasting 5 "
+        "to 12 seconds. Describe the first frame, last frame, subject motion, "
+        "camera motion, pacing, and a continuous timestamped timeline. Preserve "
+        "only reusable pose, framing, camera, pacing, motion-rhythm, or endpoint-"
+        "composition structure. Require changes to identity, surface text, and at "
+        "least one of wardrobe, setting, styling, or props. Do not return a "
+        "transcript, source wording, creator identity, or instructions to copy the "
+        "source asset literally. Set sourceTextPolicy.reuseVerbatim to false."
+    )
 
 
 def expand_local_wan_i2v_prompt(
@@ -494,7 +499,6 @@ __all__ = [
     "HiggsfieldProductionRequest",
     "admit_local_motion",
     "build_higgsfield_production_plan",
-    "build_reference_video_remix_plan",
     "discover_higgsfield_production_capabilities",
     "execute_higgsfield_production",
     "gemini_motion_analysis_instruction",
