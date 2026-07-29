@@ -1100,6 +1100,9 @@ def _execute_higgsfield_provider_job(
         campaign["id"],
         {
             "jobId": job["jobId"],
+            "authorizationId": (
+                authorization.get("authorizationId") if authorization else None
+            ),
             "sourceAssetId": job["sourceAssetId"],
             "sourceSha256": job["sourceSha256"],
             "modelId": job["productionRecipe"]["modelId"],
@@ -1110,7 +1113,11 @@ def _execute_higgsfield_provider_job(
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
-        request = _higgsfield_request(job, max_credits=max_credits)
+        request = _higgsfield_request(
+            job,
+            max_credits=max_credits,
+            attempt_id=f"{pipeline_job['id']}:1",
+        )
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))

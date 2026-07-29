@@ -384,15 +384,17 @@ def test_account_and_creator_audio_cooldowns_with_winner_override(
         candidates,
         creator="stacey",
         account="stacey-main",
-        now="2026-07-27T12:00:00Z",
+        now="2026-07-29T12:00:00Z",
     )
     winner = next(
         candidate
         for candidate in overridden
         if candidate.canonical_track_id == "track-1"
     )
-    assert winner.advisory_labels["measuredWinnerCooldownOverride"] is True
-    assert "excludedSegmentOffsetsSeconds" not in winner.advisory_labels
+    assert (
+        winner.advisory_labels["cooldownOverrideApplied"] == "measured_winner_bounded"
+    )
+    assert winner.advisory_labels["excludedSegmentOffsetsSeconds"] == [12.5]
 
 
 def test_golden_approved_source_to_generated_image_capability() -> None:

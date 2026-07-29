@@ -140,6 +140,16 @@ def active_audio_library_candidates(
                     "cachedByteSha256": row.get("byte_sha256"),
                     "acousticFingerprint": acoustic_fingerprint or None,
                     "cachedDurationSeconds": row.get("duration_seconds"),
+                    "usageRightsRequired": source_metadata.get(
+                        "usageRightsRequired", False
+                    ),
+                    "usageRightsStatus": source_metadata.get("usageRightsStatus"),
+                    "rightsSource": source_metadata.get("rightsSource"),
+                    "territory": source_metadata.get("territory"),
+                    "accountScope": source_metadata.get("accountScope"),
+                    "commercialUseAllowed": source_metadata.get("commercialUseAllowed"),
+                    "expiresAt": source_metadata.get("expiresAt"),
+                    "evidenceReceipt": source_metadata.get("evidenceReceipt"),
                 },
             )
         )
@@ -193,54 +203,72 @@ def apply_audio_usage_policy(
     account: str,
     now: str,
 ) -> list[TrendCandidate]:
-    """Apply configured account-track and creator-segment cooldowns."""
+    """Apply publication, pending-selection, and creator-segment cooldowns."""
 
     if connection is None:
         return candidates
     account_days = _env_days("CREATOR_OS_AUDIO_ACCOUNT_TRACK_COOLDOWN_DAYS", 7)
+    winner_days = _env_days("CREATOR_OS_AUDIO_WINNER_TRACK_COOLDOWN_DAYS", 3)
+    pinned_days = _env_days("CREATOR_OS_AUDIO_PINNED_TRACK_COOLDOWN_DAYS", 2)
+    minimum_hours = max(
+        24,
+        _env_int("CREATOR_OS_AUDIO_ABSOLUTE_MINIMUM_GAP_HOURS", 24, maximum=8760),
+    )
     creator_days = _env_days("CREATOR_OS_AUDIO_CREATOR_SEGMENT_COOLDOWN_DAYS", 14)
     winner_score = _env_float("CREATOR_OS_AUDIO_WINNER_SCORE", 1.0)
     current = _parse_time(now)
-    account_cutoff = current - timedelta(days=account_days)
     creator_cutoff = current - timedelta(days=creator_days)
-    recent_account_tracks: set[str] = set()
+    account_track_times: dict[str, list[datetime]] = {}
+    pending_account_tracks: set[str] = set()
     creator_segments: dict[str, list[float]] = {}
     try:
         rows = connection.execute(
             """
-            SELECT metadata_json, updated_at
-            FROM rendered_assets
-            WHERE metadata_json LIKE '%audioEmbeddingReceipt%'
-              AND updated_at >= ?
-            ORDER BY updated_at DESC
+            SELECT s.payload_json, s.selected_at, MAX(p.published_at) AS published_at
+            FROM audio_selections AS s
+            LEFT JOIN performance_snapshots AS p
+              ON p.rendered_asset_id = s.rendered_asset_id
+             AND p.published_at IS NOT NULL
+            WHERE s.status IN ('selected', 'verified')
+            GROUP BY s.id, s.payload_json, s.selected_at
+            ORDER BY COALESCE(MAX(p.published_at), s.selected_at) DESC
             """,
-            (min(account_cutoff, creator_cutoff).isoformat(),),
         ).fetchall()
     except sqlite3.OperationalError:
-        return candidates
+        rows = connection.execute(
+            """
+            SELECT metadata_json AS payload_json,
+                   updated_at AS selected_at,
+                   updated_at AS published_at
+            FROM rendered_assets
+            WHERE metadata_json LIKE '%audioEmbeddingReceipt%'
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
     for raw in rows:
         row = dict(raw)
-        updated = _parse_time(str(row.get("updated_at") or ""))
-        metadata = _json_object(row.get("metadata_json"))
-        receipt = metadata.get("audioEmbeddingReceipt")
-        if not isinstance(receipt, dict):
-            continue
-        context = receipt.get("creativeContext")
-        selection = receipt.get("selection")
-        segment = receipt.get("selectedSegment")
+        selected_at = _parse_time(str(row.get("selected_at") or ""))
+        published_at = _parse_time(str(row.get("published_at") or ""))
+        payload = _json_object(row.get("payload_json"))
+        legacy_receipt = payload.get("audioEmbeddingReceipt")
+        if isinstance(legacy_receipt, dict):
+            payload = legacy_receipt
+        context = payload.get("creativeContext")
+        selection = payload.get("selection")
+        segment = payload.get("selectedSegment")
         if not all(isinstance(value, dict) for value in (context, selection, segment)):
             continue
         receipt_identities = _selection_identities(selection)
         if not receipt_identities:
             continue
+        if account and str(context.get("account") or "") == account:
+            if published_at == datetime.min.replace(tzinfo=UTC):
+                pending_account_tracks.update(receipt_identities)
+            else:
+                for identity in receipt_identities:
+                    account_track_times.setdefault(identity, []).append(published_at)
         if (
-            updated >= account_cutoff
-            and account
-            and str(context.get("account") or "") == account
-        ):
-            recent_account_tracks.update(receipt_identities)
-        if (
-            updated >= creator_cutoff
+            selected_at >= creator_cutoff
             and creator
             and str(context.get("creator") or "") == creator
         ):
@@ -255,32 +283,45 @@ def apply_audio_usage_policy(
     for candidate in candidates:
         identities = _candidate_identities(candidate)
         labels = dict(candidate.advisory_labels)
+        if identities & pending_account_tracks:
+            continue
         winner_override = _measured_winner(
             connection,
             str(labels.get("audioCatalogId") or ""),
             winner_score=winner_score,
         )
         pinned_override = str(labels.get("lifecycleState") or "") == "PINNED"
-        if identities & recent_account_tracks and not (
-            winner_override or pinned_override
+        effective_days = (
+            pinned_days
+            if pinned_override
+            else winner_days
+            if winner_override
+            else account_days
+        )
+        account_cutoff = current - max(
+            timedelta(days=effective_days),
+            timedelta(hours=minimum_hours),
+        )
+        if any(
+            used_at > account_cutoff
+            for identity in identities
+            for used_at in account_track_times.get(identity, [])
         ):
             continue
-        excluded_offsets = (
-            []
-            if winner_override or pinned_override
-            else [
-                offset
-                for identity in identities
-                for offset in creator_segments.get(identity, [])
-            ]
-        )
+        excluded_offsets = [
+            offset
+            for identity in identities
+            for offset in creator_segments.get(identity, [])
+        ]
         if excluded_offsets:
             labels["excludedSegmentOffsetsSeconds"] = sorted(set(excluded_offsets))
             labels["creatorSegmentCooldownDays"] = creator_days
         if winner_override:
-            labels["measuredWinnerCooldownOverride"] = True
+            labels["cooldownOverrideApplied"] = "measured_winner_bounded"
         if pinned_override:
-            labels["pinnedCooldownOverride"] = True
+            labels["cooldownOverrideApplied"] = "pinned_bounded"
+        labels["accountTrackCooldownDays"] = effective_days
+        labels["absoluteMinimumGapHours"] = minimum_hours
         selected.append(replace(candidate, advisory_labels=labels))
     return selected
 
@@ -363,11 +404,15 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _env_days(name: str, default: int) -> int:
+    return _env_int(name, default, maximum=365)
+
+
+def _env_int(name: str, default: int, *, maximum: int) -> int:
     try:
         value = int(os.environ.get(name, str(default)))
     except ValueError:
         return default
-    return max(0, min(365, value))
+    return max(0, min(maximum, value))
 
 
 def _env_float(name: str, default: float) -> float:

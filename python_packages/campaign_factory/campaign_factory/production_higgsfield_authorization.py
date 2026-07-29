@@ -23,7 +23,12 @@ class _BoundHiggsfieldQuote:
         return dict(self._quote)
 
 
-def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
+def higgsfield_request(
+    job: Mapping[str, Any],
+    *,
+    max_credits: float,
+    attempt_id: str | None = None,
+) -> Any:
     from reel_factory.worker_api import HiggsfieldProductionRequest
 
     creator = str(job["creator"])
@@ -34,6 +39,13 @@ def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
             f"no pinned authenticated Higgsfield Soul identity for creator {creator}"
         ) from exc
     stage = list(job["productionRecipe"].get("stages") or [])[0]
+    authorization = job.get("_higgsfieldAuthorization")
+    authorization_id = (
+        str(authorization["authorizationId"])
+        if isinstance(authorization, Mapping) and authorization.get("authorizationId")
+        else None
+    )
+    work_item_id = str(job["jobId"])
     return HiggsfieldProductionRequest(
         recipe_id=(
             "higgsfield_recreate_reel"
@@ -56,6 +68,12 @@ def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
         duration_seconds=int(stage["durationSeconds"]),
         max_credits=max_credits,
         seed=int(job["seed"]),
+        work_item_id=work_item_id,
+        authorization_id=authorization_id,
+        attempt_id=attempt_id,
+        client_request_correlation_id=(
+            f"creator-os:{work_item_id}:{attempt_id}" if attempt_id else None
+        ),
     )
 
 

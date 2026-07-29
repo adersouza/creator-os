@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 
 def audio_intent_allows_live(intent: Any) -> bool:
     if not isinstance(intent, dict):
         return True
+    if not _rights_allow_live(intent.get("rights")):
+        return False
     policy = str(intent.get("policy") or "").strip().lower()
     if not intent.get("required", False):
         return policy == "silent_allowed"
@@ -32,13 +35,26 @@ def audio_intent_allows_live(intent: Any) -> bool:
             return base_complete
         assert isinstance(fulfillment, dict)
         verification = fulfillment.get("verification_receipt")
+        lineage = intent.get("lineage")
         return bool(
-            str(fulfillment.get("acquired_audio_sha256") or "").strip()
+            fulfillment.get("evidence_class") == "EXACT_BYTE_VERIFIED"
+            and str(fulfillment.get("acquired_audio_sha256") or "").strip()
             and str(fulfillment.get("embedded_audio_fingerprint") or "").strip()
             and isinstance(verification, dict)
             and verification.get("status") == "verified"
             and verification.get("audioPresent") is True
             and str(verification.get("audioCodec") or "").strip().lower() == "aac"
+            and isinstance(lineage, dict)
+            and _valid_sha256(lineage.get("embeddingReceiptSha256"))
+            and _valid_sha256(lineage.get("processedSegmentSha256"))
+            and lineage.get("acquiredAudioSha256")
+            == fulfillment.get("acquired_audio_sha256")
+            and lineage.get("finalMediaSha256") == fulfillment.get("output_sha256")
+            and lineage.get("finalAudioFingerprint")
+            == fulfillment.get("embedded_audio_fingerprint")
+            and isinstance(lineage.get("segmentStartSeconds"), (int, float))
+            and isinstance(lineage.get("segmentEndSeconds"), (int, float))
+            and lineage["segmentEndSeconds"] > lineage["segmentStartSeconds"]
         )
     if policy != "native_trending_required":
         return False
@@ -65,3 +81,38 @@ def audio_intent_allows_live(intent: Any) -> bool:
         selection.get(final_key).strip()
     )
     return bool(has_native_locator and has_selected_at and has_final_timestamp)
+
+
+def _valid_sha256(value: object) -> bool:
+    text = str(value or "")
+    return len(text) == 64 and all(
+        character in "0123456789abcdef" for character in text
+    )
+
+
+def _rights_allow_live(value: object) -> bool:
+    if not isinstance(value, dict) or value.get("required") is not True:
+        return True
+    if value.get("usageRightsStatus") not in {
+        "platform_native_authorized",
+        "operator_supplied_authorized",
+        "licensed",
+    }:
+        return False
+    if value.get("commercialUseAllowed") is not True:
+        return False
+    if not all(
+        value.get(key)
+        for key in ("rightsSource", "territory", "accountScope", "evidenceReceipt")
+    ):
+        return False
+    expires_at = value.get("expiresAt")
+    if not expires_at:
+        return True
+    try:
+        parsed = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC) > datetime.now(UTC)
