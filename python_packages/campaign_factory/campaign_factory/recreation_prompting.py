@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
+import math
 import mimetypes
 import os
 import re
@@ -13,6 +15,8 @@ import subprocess
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -22,7 +26,7 @@ from creator_os_core.runtime_paths import resolve_runtime_paths
 from .cli_support import _load_env_file
 
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
-PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v2"
+PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v3"
 _API_URL: Final = "https://api.openai.com/v1/responses"
 _ANCHOR_FORBIDDEN: Final = (
     "phone",
@@ -107,6 +111,11 @@ def build_openai_prompt_pack(
     key = api_key or _openai_api_key()
     if not key:
         raise RuntimeError("openai_prompt_generation_key_missing")
+    authorization = _authorize_openai_prompt_call(
+        request_core,
+        request_fingerprint=request_fingerprint,
+        cache_path=cache_path,
+    )
 
     with tempfile.TemporaryDirectory(prefix="creator-os-prompt-frames-") as raw_tmp:
         frames = _sample_frames(video, Path(raw_tmp)) if video else []
@@ -176,6 +185,7 @@ def build_openai_prompt_pack(
             "responseId": str(response.get("id") or "") or None,
             "usage": _json_record(response.get("usage")),
             "cost": _response_cost(response),
+            "authorization": authorization,
         },
         "creatorImage": {
             "sha256": _sha256(image),
@@ -201,7 +211,12 @@ def build_openai_prompt_pack(
                 "mode": "fast",
                 "bitrateMode": "high",
                 "generateAudio": False,
-                "conditioning": "approved_anchor_image_and_prompt",
+                "conditioning": (
+                    "approved_anchor_image_reference_plus_authorized_video_reference"
+                    "_and_creator_element_prompt_token"
+                    if video
+                    else "approved_anchor_image_and_prompt"
+                ),
             },
             "kling": {
                 "model": "kling3_0_turbo",
@@ -209,6 +224,7 @@ def build_openai_prompt_pack(
                 "generateAudio": False,
                 "conditioning": "approved_anchor_image_and_prompt",
                 "promptCharacterLimit": 2500,
+                "executionStatus": "planning_only_not_connected_for_recreation",
             },
         },
     }
@@ -438,6 +454,117 @@ def _write_prompt_cache(path: Path, pack: dict[str, Any]) -> None:
     os.chmod(path, 0o600)
 
 
+def _authorize_openai_prompt_call(
+    request_core: dict[str, Any],
+    *,
+    request_fingerprint: str,
+    cache_path: Path,
+) -> dict[str, Any]:
+    """Persist and verify a signed one-call maximum before a paid API request."""
+
+    secret = str(os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET") or "")
+    if len(secret.encode()) < 32:
+        raise RuntimeError("openai_prompt_spend_authorization_secret_missing")
+    quote_raw = str(os.environ.get("CREATOR_OS_OPENAI_PROMPT_QUOTE_USD") or "")
+    try:
+        quote_usd = float(quote_raw)
+    except ValueError as exc:
+        raise RuntimeError("openai_prompt_spend_quote_missing") from exc
+    if not math.isfinite(quote_usd) or quote_usd <= 0:
+        raise RuntimeError("openai_prompt_spend_quote_missing")
+    issued = datetime.now(UTC)
+    authorization_id = f"openaiauth_{uuid.uuid4().hex}"
+    attempt_id = f"openaiattempt_{uuid.uuid4().hex}"
+    core = {
+        "schema": "campaign_factory.openai_prompt_spend_authorization.v1",
+        "authorizationId": authorization_id,
+        "attemptId": attempt_id,
+        "issuer": "campaign_factory",
+        "status": "authorized",
+        "issuedAt": issued.isoformat(),
+        "expiresAt": (issued + timedelta(minutes=5)).isoformat(),
+        "scope": {
+            "provider": "openai",
+            "model": request_core["model"],
+            "operation": "recreation_prompt_pack",
+            "requestFingerprint": request_fingerprint,
+            "maximumCalls": 1,
+            "creatorImageSha256": request_core["creatorImageSha256"],
+            "referenceVideoSha256": request_core["referenceVideoSha256"],
+        },
+        "quote": {
+            "provider": "openai",
+            "model": request_core["model"],
+            "amount": quote_usd,
+            "unit": "USD",
+            "quoteClass": "operator_configured_maximum",
+            "source": "CREATOR_OS_OPENAI_PROMPT_QUOTE_USD",
+        },
+    }
+    signature = hmac.new(
+        secret.encode(),
+        _canonical_json(core).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    receipt = {
+        **core,
+        "signature": {
+            "algorithm": "HMAC-SHA256",
+            "value": signature,
+        },
+    }
+    _verify_openai_prompt_authorization(
+        receipt,
+        secret=secret,
+        request_fingerprint=request_fingerprint,
+    )
+    authorization_root = cache_path.parent / "authorizations"
+    authorization_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(authorization_root, 0o700)
+    receipt_path = authorization_root / f"{request_fingerprint}.{authorization_id}.json"
+    receipt_text = json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n"
+    atomic_write_text(receipt_path, receipt_text, encoding="utf-8")
+    os.chmod(receipt_path, 0o600)
+    return {
+        "authorizationId": authorization_id,
+        "attemptId": attempt_id,
+        "status": "authorized",
+        "requestFingerprint": request_fingerprint,
+        "maximumCalls": 1,
+        "quote": core["quote"],
+        "receiptPath": str(receipt_path),
+        "receiptSha256": hashlib.sha256(receipt_text.encode()).hexdigest(),
+        "signatureAlgorithm": "HMAC-SHA256",
+    }
+
+
+def _verify_openai_prompt_authorization(
+    receipt: dict[str, Any],
+    *,
+    secret: str,
+    request_fingerprint: str,
+) -> None:
+    signature = receipt.get("signature")
+    if not isinstance(signature, dict) or signature.get("algorithm") != "HMAC-SHA256":
+        raise PermissionError("openai_prompt_spend_authorization_invalid")
+    core = {key: value for key, value in receipt.items() if key != "signature"}
+    expected = hmac.new(
+        secret.encode(),
+        _canonical_json(core).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    scope = core.get("scope")
+    if (
+        not hmac.compare_digest(str(signature.get("value") or ""), expected)
+        or not isinstance(scope, dict)
+        or core.get("status") != "authorized"
+        or scope.get("requestFingerprint") != request_fingerprint
+        or scope.get("maximumCalls") != 1
+        or datetime.fromisoformat(str(core.get("expiresAt"))) <= datetime.now(UTC)
+    ):
+        raise PermissionError("openai_prompt_spend_authorization_invalid")
+
+
 def _json_record(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
@@ -564,6 +691,8 @@ def _sha256(path: Path) -> str:
 
 
 def _fingerprint(value: dict[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return hashlib.sha256(_canonical_json(value).encode()).hexdigest()
+
+
+def _canonical_json(value: dict[str, Any]) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))

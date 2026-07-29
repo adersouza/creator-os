@@ -298,12 +298,13 @@ def _explain_audio(database: Path, final_sha: str) -> dict[str, Any]:
                         if labels.get(key) is not None
                     },
                     "rankingExplanation": {
-                        "trendScore": labels.get("trendScore"),
-                        "performanceAdjustment": labels.get("performanceAdjustment"),
-                        "fitScore": labels.get("fitScore"),
-                        "fatiguePenalty": labels.get("fatiguePenalty"),
+                        **(
+                            selection.get("rankingComponents")
+                            if isinstance(selection.get("rankingComponents"), dict)
+                            else {}
+                        ),
                         "overrideApplied": labels.get("cooldownOverrideApplied"),
-                        "finalRank": selection.get("trendRank"),
+                        "finalRank": selection.get("finalRank"),
                         "rankedScore": selection.get("rankedScore"),
                         "bucket": selection.get("bucket"),
                         "selectedReason": selection.get("selectedReason"),

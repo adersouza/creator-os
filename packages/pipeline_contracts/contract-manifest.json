@@ -6,8 +6,8 @@
     "pipeline_contracts/schemas/account_eligibility_decision.v1.example.json": "ceb3d1543f201951de0d6d3ea0cc6ba11355edbe5604b05e92398a040556c250",
     "pipeline_contracts/schemas/account_eligibility_decision.v1.schema.json": "4ca3aaaae4aeba5828931ef31eb9703c4cd076ee488ed1ea2757593d992f7654",
     "pipeline_contracts/schemas/analyzer_registry.v1.schema.json": "9baa5e388b27c6641212435a5d548a48434cf0300105606f6a74d732e95442de",
-    "pipeline_contracts/schemas/assignment_eligibility.v1.example.json": "f99dfe682beeacf3f4b769b76beba61cebb0b0399026d5a8d9135da5149d675a",
-    "pipeline_contracts/schemas/assignment_eligibility.v1.schema.json": "d703344e020fa5200a15e26be2ccf63557f1abf3b32389d7d25c3cc1ad97bf3d",
+    "pipeline_contracts/schemas/assignment_eligibility.v1.example.json": "d41e9ebc8200fef2ce051c8660ff7f87af6beada1df4dc2f40c2537f1d36f76b",
+    "pipeline_contracts/schemas/assignment_eligibility.v1.schema.json": "54a5edc54c4a31568f19523d7278ddf7c2f186da7320438d4c664e76ef7b0c43",
     "pipeline_contracts/schemas/audio_catalog_export.v1.example.json": "61fc9e674341d8e94380298c405214d7cdc01bf96bd7e0d221e92207e81d99da",
     "pipeline_contracts/schemas/audio_catalog_export.v1.schema.json": "44cdd005f482e8840fd3d168a471dc766684bb3e1ed0b67c0a3cbbfda2b7e00d",
     "pipeline_contracts/schemas/audio_intent.v1.example.json": "907437705f3bcc9ee531e0fec5b7287f28ac301686aaa0a21be2bd7027622b77",
@@ -98,7 +98,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "9f0dc3014a9a229b56db66d9a7751f710d8570ba4a26345832cb389bcd46e162",
+    "typescript/generated-schemas.ts": "9036d1414baa92262a2c6ab28255003cc1b8ac8ec69b18d91b9cf038d36edd75",
     "typescript/index.ts": "e467ba50decdd642830fb53639f15d97219f1e1d9bcd79d9ab9f726f5dfbcfac"
   }
 }

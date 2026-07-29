@@ -247,7 +247,12 @@ class InventoryReservationRepository:
         reasons = list(
             dict.fromkeys(str(match["reason"]) for match in blocking_matches)
         )
-        return {**decision, "allowed": not reasons, "reasonCodes": reasons}
+        return {
+            **decision,
+            "allowed": not reasons,
+            "reasonCodes": reasons,
+            "variantCooldownCheck": reasons[0] if reasons else "clear",
+        }
 
     def reserve_experiment_pair(
         self,
@@ -903,10 +908,7 @@ class InventoryReservationRepository:
         )
 
     def commit_inventory_reservation(self, reservation_id: str) -> dict[str, Any]:
-        row = self.conn.execute(
-            "SELECT * FROM asset_inventory_reservations WHERE reservation_id = ? OR id = ?",
-            (reservation_id, reservation_id),
-        ).fetchone()
+        row = self._reservation_row(reservation_id)
         if not row:
             raise ValueError(f"reservation not found: {reservation_id}")
         if row["status"] == "committed":
@@ -920,12 +922,226 @@ class InventoryReservationRepository:
             "UPDATE asset_inventory_reservations SET status = 'committed', updated_at = ? WHERE id = ? AND status = 'pending'",
             (now, row["id"]),
         )
+        self._record_reservation_event(
+            row,
+            event_type="draft_ingest_accepted",
+            occurred_at=now,
+            evidence={
+                "reservationId": row["reservation_id"],
+                "assetId": row["asset_id"],
+                "status": "committed",
+            },
+        )
         self.conn.commit()
         return dict(
             self.conn.execute(
                 "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)
             ).fetchone()
         )
+
+    def cancel_inventory_reservation(
+        self,
+        reservation_id: str,
+        *,
+        post_id: str,
+        reason: str,
+        cancelled_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Terminalize a draft reservation from a durable cancellation event."""
+
+        row = self._reservation_row(reservation_id)
+        if not row:
+            raise ValueError(f"reservation not found: {reservation_id}")
+        post_id = self._required(post_id, "post_id")
+        reason = self._required(reason, "reason")
+        if row["status"] == "cancelled":
+            return dict(row)
+        if row["status"] not in {"pending", "committed"}:
+            raise ValueError(
+                f"reservation cannot be cancelled: {reservation_id} ({row['status']})"
+            )
+        now = cancelled_at or self._utc_now()
+        self.conn.execute(
+            """
+            UPDATE asset_inventory_reservations
+            SET status = 'cancelled', updated_at = ?
+            WHERE id = ? AND status IN ('pending', 'committed')
+            """,
+            (now, row["id"]),
+        )
+        self._record_reservation_event(
+            row,
+            event_type="draft_cancelled",
+            post_id=post_id,
+            occurred_at=now,
+            evidence={
+                "reservationId": row["reservation_id"],
+                "assetId": row["asset_id"],
+                "postId": post_id,
+                "reason": reason,
+                "status": "cancelled",
+            },
+        )
+        self.conn.commit()
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)
+            ).fetchone()
+        )
+
+    def publish_inventory_reservation(
+        self,
+        reservation_id: str,
+        *,
+        post_id: str,
+        instagram_media_id: str,
+        published_at: str,
+        instagram_account_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Terminalize a committed reservation and record its publication assignment."""
+
+        row = self._reservation_row(reservation_id)
+        if not row:
+            raise ValueError(f"reservation not found: {reservation_id}")
+        post_id = self._required(post_id, "post_id")
+        instagram_media_id = self._required(instagram_media_id, "instagram_media_id")
+        published_at = self._required(published_at, "published_at")
+        if row["status"] == "published":
+            event = self.conn.execute(
+                """
+                SELECT instagram_media_id
+                FROM asset_inventory_reservation_events
+                WHERE reservation_row_id = ? AND event_type = 'publication_confirmed'
+                """,
+                (row["id"],),
+            ).fetchone()
+            if event and event["instagram_media_id"] == instagram_media_id:
+                return dict(row)
+            raise ValueError(
+                f"reservation already published to another media id: {reservation_id}"
+            )
+        if row["status"] != "committed":
+            raise ValueError(
+                f"reservation is not committed: {reservation_id} ({row['status']})"
+            )
+        asset = self._rendered_asset(str(row["asset_id"]))
+        assignment_id = (
+            "assign_"
+            + self._canonical_sha256(
+                {
+                    "reservationId": row["reservation_id"],
+                    "instagramMediaId": instagram_media_id,
+                }
+            )[:24]
+        )
+        self.conn.execute(
+            """
+            INSERT INTO asset_account_assignments
+            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
+             source_family_id, perceptual_fingerprint, perceptual_cluster_id,
+             account_group_id, account_eligibility_json, assignment_eligibility_json,
+             notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (
+                assignment_id,
+                row["campaign_id"],
+                row["asset_id"],
+                row["account_id"],
+                instagram_account_id,
+                row["source_family_id"],
+                row["perceptual_fingerprint"],
+                row["perceptual_cluster_id"],
+                row["account_group_id"],
+                row["account_eligibility_json"],
+                row["assignment_eligibility_json"],
+                f"publication:{post_id}:{instagram_media_id}",
+                published_at,
+                published_at,
+            ),
+        )
+        self.conn.execute(
+            """
+            UPDATE asset_inventory_reservations
+            SET status = 'published', updated_at = ?
+            WHERE id = ? AND status = 'committed'
+            """,
+            (published_at, row["id"]),
+        )
+        self._record_reservation_event(
+            row,
+            event_type="publication_confirmed",
+            post_id=post_id,
+            instagram_media_id=instagram_media_id,
+            occurred_at=published_at,
+            evidence={
+                "reservationId": row["reservation_id"],
+                "assetId": row["asset_id"],
+                "assignmentId": assignment_id,
+                "postId": post_id,
+                "instagramMediaId": instagram_media_id,
+                "instagramAccountId": instagram_account_id,
+                "finalMediaSha256": asset.get("content_hash"),
+                "status": "published",
+            },
+        )
+        self.conn.commit()
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)
+            ).fetchone()
+        )
+
+    def _reservation_row(self, reservation_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            """
+            SELECT * FROM asset_inventory_reservations
+            WHERE reservation_id = ? OR id = ?
+            """,
+            (reservation_id, reservation_id),
+        ).fetchone()
+
+    def _record_reservation_event(
+        self,
+        row: sqlite3.Row,
+        *,
+        event_type: str,
+        occurred_at: str,
+        evidence: dict[str, Any],
+        post_id: str | None = None,
+        instagram_media_id: str | None = None,
+    ) -> None:
+        evidence_json = json.dumps(
+            evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        evidence_sha256 = hashlib.sha256(evidence_json.encode()).hexdigest()
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO asset_inventory_reservation_events
+            (id, reservation_row_id, reservation_id, event_type, post_id,
+             instagram_media_id, occurred_at, evidence_json, evidence_sha256)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"invresevt_{evidence_sha256[:24]}",
+                row["id"],
+                row["reservation_id"],
+                event_type,
+                post_id,
+                instagram_media_id,
+                occurred_at,
+                evidence_json,
+                evidence_sha256,
+            ),
+        )
+
+    @staticmethod
+    def _required(value: str, field: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError(f"{field} is required")
+        return normalized
 
     def reservation_reconciliation_report(
         self, *, now: str | None = None, apply: bool = False

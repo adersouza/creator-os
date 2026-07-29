@@ -21,7 +21,7 @@ Instagram/TikTok/Short/direct-media URL or local video
   -> timestamped OCR inventory kept outside the generation prompt
   -> timecoded motion/camera analysis when authenticated Gemini is available
   -> OpenAI watches the approved creator image and chronological Reel frames
-  -> model-specific Soul, Seedance, and Kling prompt pack
+  -> Soul and Seedance prompt pack plus a non-executable Kling planning prompt
   -> deterministic classification and bounded coherent excerpt
   -> one text-only Soul anchor from the OpenAI scene/composition prompt
   -> exact-SHA human anchor approval
@@ -69,20 +69,26 @@ catalog:
 
 | Mode | Contract | Status |
 |---|---|---|
-| `calm` | approved Soul anchor plus OpenAI prompt to Kling 3 Turbo at 720p | accepted after anchor approval |
-| `structural` | approved Soul anchor plus OpenAI action/timing prompt to Seedance 2 Fast at 480p/high bitrate, generated audio off | experimental prompt-driven recreation |
-| `auto` | selects `calm` or `structural` from measured reference evidence | no Motion Control route |
+| `calm` | approved Soul anchor plus OpenAI prompt through the Seedance 2 Fast recreation contract | experimental prompt-driven recreation |
+| `structural` | approved Soul anchor plus OpenAI action/timing prompt through Seedance 2 Fast at 480p/high bitrate, generated audio off | experimental prompt-driven recreation |
+| `auto` | selects the prompt shape from measured reference evidence, then uses Seedance | no Kling or Motion Control execution route |
 
 Soul is the upstream still-identity system. The OpenAI anchor prompt omits hair
 color, tattoos, and other permanent identity traits so the selected Soul owns
-them. Seedance/Kling receives the approved Soul-generated anchor bytes and its
-model-specific prompt, not the inspiration video. Source writing remains
-evidence only and is excluded from generation prompts.
+them. The executable Seedance request receives the approved Soul-generated
+anchor as an image reference, the authorized reference Reel as a video
+reference for broad motion/structure conditioning, and the resolved creator
+Element as a prompt token. Seedance does not consume `soul_id` directly.
+Source writing remains evidence only and is excluded from generation prompts.
+The Kling prompt in the pack is planning evidence and is not wired to a paid
+recreation request.
 
 OpenAI prompt packs are cached by exact input hashes and prompt-builder
-fingerprint. Receipts retain the model, response ID, usage, and cost status.
-The API currently exposes usage but may omit dollar cost; omitted cost remains
-`not_exposed`.
+fingerprint. On a cache miss, Campaign Factory must persist and verify a signed,
+five-minute, one-call authorization containing an operator-configured maximum
+USD quote before the paid request. Receipts retain that authorization, model,
+response ID, usage, and actual-cost status. The API currently exposes usage but
+may omit dollar cost; omitted actual cost remains `not_exposed`.
 
 Normal create never falls back to WaveSpeed or a local model. `AUTO` may plan
 prompt-driven Seedance, but paid submission still requires anchor approval,

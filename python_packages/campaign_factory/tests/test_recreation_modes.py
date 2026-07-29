@@ -66,7 +66,7 @@ def _prompt_pack() -> dict[str, Any]:
             "natural blinking, and subtle head movement."
         ),
         "promptPlanning": {
-            "builderVersion": "creator_os_openai_prompt_builder.v2",
+            "builderVersion": "creator_os_openai_prompt_builder.v3",
             "requestFingerprint": "e" * 64,
             "responseId": "response-test",
             "usage": {},

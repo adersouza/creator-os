@@ -124,6 +124,16 @@ def test_ranking_blocks_recent_and_scheduled_track_reuse() -> None:
 
     assert len(ranked) == 1
     assert ranked[0].candidate.canonical_track_id != first_id
+    assert ranked[0].final_rank == 1
+    assert set(ranked[0].components) == {
+        "trendScore",
+        "performanceAdjustment",
+        "creativeFitScore",
+        "fatiguePenalty",
+        "finalScore",
+    }
+    assert ranked[0].components["finalScore"] == ranked[0].score
+    assert ranked[0].as_dict()["reasons"] == list(ranked[0].reasons)
 
 
 def test_mainstream_platform_discovery_and_rights_labels_do_not_gate_candidates(

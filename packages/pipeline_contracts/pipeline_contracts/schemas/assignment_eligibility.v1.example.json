@@ -1,6 +1,7 @@
 {
   "schema": "campaign_factory.assignment_eligibility.v1",
   "allowed": true,
+  "variantCooldownCheck": "clear",
   "reasonCodes": [],
   "inputs": {
     "renderedAssetId": "asset_001",

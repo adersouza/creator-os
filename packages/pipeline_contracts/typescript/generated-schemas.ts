@@ -379,6 +379,7 @@ export const generatedPipelineContractSchemas = {
 	    "schema",
 	    "allowed",
 	    "reasonCodes",
+	    "variantCooldownCheck",
 	    "inputs",
 	    "matches",
 	    "policy",
@@ -396,6 +397,7 @@ export const generatedPipelineContractSchemas = {
 	      "items": {
 	        "type": "string",
 	        "enum": [
+	          "operator_rejected",
 	          "missing_identity_metadata",
 	          "exact_content_reuse_window",
 	          "source_family_reuse_window",
@@ -403,6 +405,17 @@ export const generatedPipelineContractSchemas = {
 	        ]
 	      },
 	      "uniqueItems": true
+	    },
+	    "variantCooldownCheck": {
+	      "type": "string",
+	      "enum": [
+	        "clear",
+	        "operator_rejected",
+	        "missing_identity_metadata",
+	        "exact_content_reuse_window",
+	        "source_family_reuse_window",
+	        "perceptual_reuse_window"
+	      ]
 	    },
 	    "inputs": {
 	      "type": "object",
@@ -557,6 +570,31 @@ export const generatedPipelineContractSchemas = {
 	        "properties": {
 	          "reasonCodes": {
 	            "minItems": 1
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "allowed": {
+	            "const": true
+	          }
+	        }
+	      },
+	      "then": {
+	        "properties": {
+	          "variantCooldownCheck": {
+	            "const": "clear"
+	          }
+	        }
+	      },
+	      "else": {
+	        "not": {
+	          "properties": {
+	            "variantCooldownCheck": {
+	              "const": "clear"
+	            }
 	          }
 	        }
 	      }

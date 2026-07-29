@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
+import pytest
 from campaign_factory.adapters.threadsdash_draft_delivery import (
     _commit_payload_inventory_reservations,
     _release_payload_inventory_reservations,
@@ -144,21 +146,18 @@ def test_reconciliation_reports_and_expires_stranded_reservations(
             expires_at="2026-07-28T00:00:00+00:00",
         )
 
-        preview = (
-            cf.domains.inventory_reservations.reservation_reconciliation_report(
-                now="2026-07-29T00:00:00+00:00"
-            )
+        preview = cf.domains.inventory_reservations.reservation_reconciliation_report(
+            now="2026-07-29T00:00:00+00:00"
         )
-        applied = (
-            cf.domains.inventory_reservations.reservation_reconciliation_report(
-                now="2026-07-29T00:00:00+00:00",
-                apply=True,
-            )
+        applied = cf.domains.inventory_reservations.reservation_reconciliation_report(
+            now="2026-07-29T00:00:00+00:00",
+            apply=True,
         )
 
         assert preview["strandedCount"] == 1
-        assert preview["strandedReservations"][0]["reservation_id"] == (
-            reservation["reservation_id"]
+        assert (
+            preview["strandedReservations"][0]["reservation_id"]
+            == (reservation["reservation_id"])
         )
         assert applied["expiredNow"] == 1
         assert applied["expiredReservations"][0]["status"] == "expired"
@@ -179,10 +178,104 @@ def test_missing_variant_cooldown_evidence_fails_closed(tmp_path: Path) -> None:
         )
         assert reason == "variantCooldownBlocked"
         assert (
-            cf.domains.creator_os_drafts.creator_os_gap_blocking_reason(
-                reason, [], {}
-            )
+            cf.domains.creator_os_drafts.creator_os_gap_blocking_reason(reason, [], {})
             == "unproven"
         )
+    finally:
+        cf.close()
+
+
+def test_publication_terminalizes_reservation_and_persists_assignment_event(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        digest, _ = _approved_asset(cf, tmp_path)
+        account = cf.domains.models.upsert_account("destination")
+        reservation = cf.domains.inventory_reservations.reserve_inventory_asset(
+            "asset-final",
+            account_id=account["id"],
+            surface="reel",
+        )
+        cf.domains.inventory_reservations.commit_inventory_reservation(
+            reservation["reservation_id"]
+        )
+
+        published = cf.domains.inventory_reservations.publish_inventory_reservation(
+            reservation["reservation_id"],
+            post_id="post-1",
+            instagram_media_id="ig-media-1",
+            instagram_account_id="ig-destination",
+            published_at="2026-07-29T15:00:00+00:00",
+        )
+
+        assert published["status"] == "published"
+        assignment = cf.conn.execute(
+            """
+            SELECT * FROM asset_account_assignments
+            WHERE rendered_asset_id = 'asset-final'
+            """
+        ).fetchone()
+        assert assignment["account_id"] == account["id"]
+        assert assignment["instagram_account_id"] == "ig-destination"
+        events = cf.conn.execute(
+            """
+            SELECT * FROM asset_inventory_reservation_events
+            WHERE reservation_id = ? ORDER BY occurred_at
+            """,
+            (reservation["reservation_id"],),
+        ).fetchall()
+        assert {event["event_type"] for event in events} == {
+            "draft_ingest_accepted",
+            "publication_confirmed",
+        }
+        publication_event = next(
+            event for event in events if event["event_type"] == "publication_confirmed"
+        )
+        evidence = json.loads(publication_event["evidence_json"])
+        assert evidence["finalMediaSha256"] == digest
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            cf.conn.execute(
+                """
+                UPDATE asset_inventory_reservation_events
+                SET event_type = 'changed'
+                WHERE id = ?
+                """,
+                (publication_event["id"],),
+            )
+    finally:
+        cf.close()
+
+
+def test_draft_cancellation_terminalizes_committed_reservation(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        _approved_asset(cf, tmp_path)
+        reservation = cf.domains.inventory_reservations.reserve_inventory_asset(
+            "asset-final",
+            surface="reel",
+        )
+        cf.domains.inventory_reservations.commit_inventory_reservation(
+            reservation["reservation_id"]
+        )
+
+        cancelled = cf.domains.inventory_reservations.cancel_inventory_reservation(
+            reservation["reservation_id"],
+            post_id="post-cancelled",
+            reason="operator_deleted_draft",
+        )
+
+        assert cancelled["status"] == "cancelled"
+        event = cf.conn.execute(
+            """
+            SELECT * FROM asset_inventory_reservation_events
+            WHERE reservation_id = ? AND event_type = 'draft_cancelled'
+            """,
+            (reservation["reservation_id"],),
+        ).fetchone()
+        assert event["post_id"] == "post-cancelled"
+        assert json.loads(event["evidence_json"])["reason"] == "operator_deleted_draft"
     finally:
         cf.close()

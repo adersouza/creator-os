@@ -233,10 +233,19 @@ def _qualified_reusable_assets(
             audio_policy=audio_policy,
         ):
             continue
+        approval = _creative_approval_for_asset(factory, str(asset["id"]))
+        if approval.get("state") != "approved":
+            continue
         asset["output_path"] = str(path)
         selected.append(asset)
         seen.add(digest)
     return selected
+
+
+def _creative_approval_for_asset(factory: Any, asset_id: str) -> dict[str, Any]:
+    """Read the exact-SHA Creative Approval v2 decision for reuse."""
+
+    return factory.domains.publishability.creative_approval_for_asset(asset_id)
 
 
 def _mapping_sha(reference: Mapping[str, Any]) -> str | None:
@@ -426,14 +435,22 @@ def _select_destination_reuse(
         ).fetchone()
         if active is not None:
             row = dict(active)
-            if row.get("account_id") == account_id:
+            stored_eligibility = _json_object(row.get("assignment_eligibility_json"))
+            if (
+                row.get("account_id") == account_id
+                and stored_eligibility.get("variantCooldownCheck") == "clear"
+            ):
                 selected.append(asset)
                 reservations.append(_reservation_summary(row, created=False))
             else:
                 blockers.append(
                     {
                         "assetId": asset["id"],
-                        "reason": "active_reservation_for_other_destination",
+                        "reason": (
+                            "active_reservation_for_other_destination"
+                            if row.get("account_id") != account_id
+                            else "variant_cooldown_unproven"
+                        ),
                     }
                 )
             if len(selected) == count:
@@ -452,6 +469,7 @@ def _select_destination_reuse(
                     "assetId": asset["id"],
                     "reason": "assignment_ineligible",
                     "reasonCodes": eligibility["reasonCodes"],
+                    "variantCooldownCheck": eligibility["variantCooldownCheck"],
                 }
             )
             continue
@@ -463,6 +481,7 @@ def _select_destination_reuse(
                     "accountId": account_id,
                     "reservationId": None,
                     "status": "eligible_unreserved",
+                    "variantCooldownCheck": eligibility["variantCooldownCheck"],
                 }
             )
         else:
@@ -510,6 +529,7 @@ def _select_destination_reuse(
 
 
 def _reservation_summary(row: Mapping[str, Any], *, created: bool) -> dict[str, Any]:
+    eligibility = _json_object(row.get("assignment_eligibility_json"))
     return {
         "assetId": row.get("asset_id"),
         "accountId": row.get("account_id"),
@@ -517,8 +537,19 @@ def _reservation_summary(row: Mapping[str, Any], *, created: bool) -> dict[str, 
         "status": row.get("status"),
         "reservedAt": row.get("reserved_at"),
         "expiresAt": row.get("expires_at"),
+        "variantCooldownCheck": eligibility.get("variantCooldownCheck") or "unproven",
         "createdByThisRequest": created,
     }
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _release_new_reservations(factory: Any, reservation: dict[str, Any]) -> None:

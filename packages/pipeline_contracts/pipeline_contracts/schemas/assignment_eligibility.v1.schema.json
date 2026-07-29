@@ -8,6 +8,7 @@
     "schema",
     "allowed",
     "reasonCodes",
+    "variantCooldownCheck",
     "inputs",
     "matches",
     "policy",
@@ -21,6 +22,7 @@
       "items": {
         "type": "string",
         "enum": [
+          "operator_rejected",
           "missing_identity_metadata",
           "exact_content_reuse_window",
           "source_family_reuse_window",
@@ -28,6 +30,17 @@
         ]
       },
       "uniqueItems": true
+    },
+    "variantCooldownCheck": {
+      "type": "string",
+      "enum": [
+        "clear",
+        "operator_rejected",
+        "missing_identity_metadata",
+        "exact_content_reuse_window",
+        "source_family_reuse_window",
+        "perceptual_reuse_window"
+      ]
     },
     "inputs": {
       "type": "object",
@@ -102,6 +115,13 @@
       "if": {"properties": {"allowed": {"const": true}}},
       "then": {"properties": {"reasonCodes": {"maxItems": 0}}},
       "else": {"properties": {"reasonCodes": {"minItems": 1}}}
+    },
+    {
+      "if": {"properties": {"allowed": {"const": true}}},
+      "then": {"properties": {"variantCooldownCheck": {"const": "clear"}}},
+      "else": {
+        "not": {"properties": {"variantCooldownCheck": {"const": "clear"}}}
+      }
     }
   ]
 }

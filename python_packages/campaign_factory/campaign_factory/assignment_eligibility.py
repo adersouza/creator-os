@@ -132,6 +132,7 @@ def evaluate_assignment_eligibility(
         "schema": SCHEMA,
         "allowed": not reason_codes,
         "reasonCodes": reason_codes,
+        "variantCooldownCheck": reason_codes[0] if reason_codes else "clear",
         "inputs": {
             "renderedAssetId": rendered_asset_id,
             "campaignId": asset["campaign_id"],

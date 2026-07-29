@@ -523,7 +523,7 @@ canonical private reference
 -> OpenAI-authored Soul anchor plus Seedance/Kling prompts
 -> one text-only Soul 2 anchor from the OpenAI scene/composition prompt
 -> mandatory human identity + WOULD_USE_AS_ANCHOR review
--> passive Kling 3 Turbo or prompt-driven Seedance 2 Fast
+-> prompt-driven Seedance 2 Fast
 -> provider audio disabled/replaced under the automatic audio policy
 -> technical QC + mode-specific human review + exact-SHA final audio binding
 ```
@@ -559,12 +559,15 @@ Soul generation and spend lineage, anchor approval, Seedance authorization and
 generation, resolved reference element, final MP4 SHA, audio receipt, technical
 QC, review decisions, and final approval state.
 
-The Seedance request supplies the approved anchor as the start image, uses the
-authenticated `seedance_2_0 mode=fast` contract at 480p/high bitrate, and
-disables generated audio. Its OpenAI-authored timecoded prompt contains
-reusable motion/camera structure but excludes OCR-recognized source writing.
-The inspiration video remains lineage/audio evidence and is not sent to the
-video provider.
+The executable recreation request is Seedance-only. It supplies the approved
+anchor as an image reference, the authorized inspiration Reel as a video
+reference for broad motion/structure conditioning, and the creator reference
+Element as a prompt token. It uses the authenticated `seedance_2_0 mode=fast`
+contract at 480p/high bitrate and disables generated audio. Seedance does not
+consume the creator's Soul ID directly; Soul owns the upstream anchor
+generation. The OpenAI-authored timecoded prompt excludes OCR-recognized source
+writing. The separate Kling prompt is retained as planning evidence only and
+has no executable recreation route.
 
 OpenAI returns only an affirmative Soul anchor prompt, a Seedance prompt, a
 Kling prompt, and a motion/camera timeline. The response schema has no negative
@@ -577,10 +580,12 @@ lists.
 Prompt planning is cached by the creator-image SHA, reference-video SHA, model,
 intent, builder version, instruction, and response schema. A cache hit makes no
 OpenAI call. A cache miss requires the current create operation's explicit
-`--apply` authorization before any paid OpenAI request. The receipt records the
-request-fingerprint scope, one-call maximum, cache-first check, current-run call
-count, exact structured result, response ID, token usage, and honestly reported
-cost status; unavailable API cost remains `not_exposed`, never zero.
+`--apply` authorization before any paid OpenAI request. Before that request,
+Campaign Factory persists and verifies a signed, five-minute, request-fingerprint
+scoped one-call authorization with an operator-configured maximum USD quote.
+The prompt pack then records that authorization receipt and the exact structured
+result, response ID, token usage, and honestly reported actual-cost status;
+unavailable API cost remains `not_exposed`, never zero.
 
 It does not register the inspiration Reel as a rendered asset, does not replace
 normal passive creation, and does not restore rejected Motion Control. AUTO

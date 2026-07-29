@@ -224,27 +224,16 @@ def apply_audio_usage_policy(
     try:
         rows = connection.execute(
             """
-            SELECT s.payload_json, s.selected_at, MAX(p.published_at) AS published_at
+            SELECT s.payload_json, s.selected_at, h.published_at
             FROM audio_selections AS s
-            LEFT JOIN performance_snapshots AS p
-              ON p.rendered_asset_id = s.rendered_asset_id
-             AND p.published_at IS NOT NULL
+            LEFT JOIN audio_publication_history AS h
+              ON h.audio_selection_id = s.id
             WHERE s.status IN ('selected', 'verified')
-            GROUP BY s.id, s.payload_json, s.selected_at
-            ORDER BY COALESCE(MAX(p.published_at), s.selected_at) DESC
+            ORDER BY COALESCE(h.published_at, s.selected_at) DESC
             """,
         ).fetchall()
     except sqlite3.OperationalError:
-        rows = connection.execute(
-            """
-            SELECT metadata_json AS payload_json,
-                   updated_at AS selected_at,
-                   updated_at AS published_at
-            FROM rendered_assets
-            WHERE metadata_json LIKE '%audioEmbeddingReceipt%'
-            ORDER BY updated_at DESC
-            """
-        ).fetchall()
+        return []
     for raw in rows:
         row = dict(raw)
         selected_at = _parse_time(str(row.get("selected_at") or ""))

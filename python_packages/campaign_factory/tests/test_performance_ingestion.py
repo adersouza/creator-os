@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -301,6 +302,23 @@ def test_future_embedded_audio_selection_links_exact_publication(
             if "startSeconds" in selected_segment
             else selected_segment["start_offset_seconds"]
         )
+        history = cf.conn.execute(
+            "SELECT * FROM audio_publication_history WHERE audio_selection_id = ?",
+            ("audsel_exact",),
+        ).fetchone()
+        assert history is not None
+        assert history["instagram_media_id"] == "18000000000000001"
+        assert history["published_at"] == "2026-07-27T12:00:00Z"
+        assert history["final_media_sha256"] == final_sha
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            cf.conn.execute(
+                """
+                UPDATE audio_publication_history
+                SET published_at = '2026-07-28T12:00:00Z'
+                WHERE id = ?
+                """,
+                (history["id"],),
+            )
         rollup = cf.conn.execute(
             "SELECT stats_json FROM audio_performance_rollups"
         ).fetchone()

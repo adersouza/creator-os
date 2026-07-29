@@ -9,6 +9,19 @@ from campaign_factory import creation_modes
 from campaign_test_support import make_factory
 
 
+@pytest.fixture(autouse=True)
+def _approved_v2_reuse_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        creation_modes,
+        "_creative_approval_for_asset",
+        lambda _factory, asset_id: {
+            "schema": "creator_os.creative_approval_state.v2",
+            "assetId": asset_id,
+            "state": "approved",
+        },
+    )
+
+
 def test_anchor_approval_is_only_valid_for_recreate_reel(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="only valid for recreate_reel"):
         creation_modes.run_creation_batch(
@@ -261,6 +274,56 @@ def test_static_reel_reuse_requires_exact_content_intent(
         assert result["route"] == "fresh_generation"
         assert result["reuseCandidatesFound"] == 0
         assert result["fallbackDecision"] == "fresh_full_batch_no_qualified_reuse"
+    finally:
+        cf.close()
+
+
+def test_reuse_fails_closed_without_exact_creative_approval_v2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        _seed_stacey_source(cf, tmp_path)
+        _approved_reusable_asset(
+            cf,
+            tmp_path,
+            asset_id="legacy-approved-only",
+            intent="passive_selfie",
+            recipe="higgsfield_kling3_turbo_i2v",
+            updated_at="2026-07-29T12:00:00Z",
+        )
+        monkeypatch.setattr(
+            creation_modes,
+            "_creative_approval_for_asset",
+            lambda _factory, _asset_id: {
+                "schema": "creator_os.creative_approval_state.v2",
+                "state": "missing",
+            },
+        )
+        monkeypatch.setattr(
+            creation_modes,
+            "run_production_batch",
+            lambda _factory, **_kwargs: {
+                "route": "fresh_generation",
+                "results": [],
+                "summary": {},
+            },
+        )
+
+        result = creation_modes.run_creation_batch(
+            cf,
+            creator="stacey",
+            mode="calm_animation",
+            style="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts=None,
+            audio_preference="embedded_trending_required",
+            apply=False,
+        )
+
+        assert result["route"] == "fresh_generation"
+        assert result["reuseCandidatesFound"] == 0
     finally:
         cf.close()
 
