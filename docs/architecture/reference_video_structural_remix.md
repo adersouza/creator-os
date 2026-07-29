@@ -18,8 +18,10 @@ Instagram/TikTok/Short/direct-media URL or local video
   -> private temporary download or local-file intake
   -> canonical platform/media identity + exact SHA
   -> full-source analysis, clean frame candidates, and reference-audio evidence
+  -> timestamped OCR inventory kept outside the generation prompt
+  -> timecoded motion/camera analysis when authenticated Gemini is available
   -> deterministic classification and bounded coherent excerpt
-  -> one scene-matched Soul anchor or two endpoint anchors
+  -> one clean-opening-frame-matched Soul anchor or two endpoint anchors
   -> exact-SHA human anchor approval
   -> truthfully matched Higgsfield recreation mode
   -> provider-generated audio disabled or explicitly replaced
@@ -51,7 +53,9 @@ It does not claim:
 - approved creator source inventory from which anchors may be planned;
 - `count=1`.
 
-`--through analyze` stops before a provider route or paid request. Dry-run uses
+`--through analyze` stops before a paid visual-generation request. The
+authenticated Gemini CLI may make one read-only semantic-analysis call whose
+cost is reported as unknown when the CLI does not expose it. Dry-run uses
 temporary files and makes no database mutation. Authorized apply persists
 private artifacts outside Git and remains idempotent for the same
 platform/media identity and exact SHA.
@@ -64,13 +68,17 @@ catalog:
 | Mode | Contract | Status |
 |---|---|---|
 | `passive` | approved Soul anchor to Kling 3, sound off | accepted after anchor approval |
-| `structural` | Soul anchor in `image_references`, Reel in `video_references`, Seedance 2 720p standard, generated audio off | experimental structural recreation |
+| `structural` | opening-frame-matched Soul anchor in `image_references`, creator Element first in the prompt, Reel motion-only in `video_references`, Seedance 2 Fast at 480p/high bitrate, generated audio off | experimental structural recreation |
 | `motion` | `kling3_0_motion_control`, image + video reference, Pro mode | experimental; never an automatic submission |
 | `first_last` | two approved Soul endpoints to Kling 3 start/end, sound off | experimental transition |
 | `talking` | exact supplied-voice entitlement required | blocked as `talking_route_not_entitled` |
 
-Soul is the upstream identity system. Seedance consumes the approved
-Soul-generated image bytes; it does not receive a raw Soul ID.
+Soul is the upstream still-identity system. Seedance receives the approved
+Soul-generated anchor bytes plus the bound creator Element, not a raw Soul ID.
+It does not mix `start_image`/`end_image` with reference-media mode. The source
+writing inventory remains evidence only; the generation prompt starts with the
+operator-proven creator replacement instruction and adds only the sanitized
+motion/camera timeline.
 
 Normal create never falls back to WaveSpeed or a local model. `AUTO` may
 recommend a compatible route but may not silently submit experimental Motion

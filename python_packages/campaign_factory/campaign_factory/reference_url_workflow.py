@@ -1,4 +1,4 @@
-"""Campaign orchestration for zero-provider reference URL analysis."""
+"""Campaign orchestration for reference URL intake and structural analysis."""
 
 from __future__ import annotations
 
@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
-from reel_factory.worker_api import canonicalize_reel_url, download_reel_url
+from reel_factory.worker_api import (
+    canonicalize_reel_url,
+    download_reel_url,
+    gemini_motion_analysis_instruction,
+)
+
+from pipeline_contracts import validate_reference_video_motion_analysis
 
 from .recreation_modes import plan_recreation
 from .reference_audio_intake import (
@@ -30,6 +36,9 @@ def run_reference_analysis(
     reference_platform: str | None,
     reference_authorized: bool,
     declared_talking: bool,
+    declared_non_talking: bool = False,
+    operator_classification: str | None = None,
+    operator_warnings: list[str] | None = None,
     recreate_mode: str = "auto",
     through: str | None = "analyze",
     audio_policy: str = "auto",
@@ -38,6 +47,8 @@ def run_reference_analysis(
 ) -> dict[str, Any]:
     if apply and not reference_authorized:
         raise ValueError("--apply reference intake requires --reference-authorized")
+    if declared_talking and declared_non_talking:
+        raise ValueError("reference cannot be both talking and non-talking")
     if bool(reference_url) == bool(reference_video_path):
         raise ValueError("provide exactly one of --reference-url or --reference-video")
     with tempfile.TemporaryDirectory(prefix="creator-os-url-intake-") as raw_tmp:
@@ -65,9 +76,11 @@ def run_reference_analysis(
                     f"reference URL download failed; use --reference-video fallback{suffix}"
                 ) from None
             source = Path(str(download["path"]))
+            source_metrics = download.get("sourceMetrics")
+            source_metrics = source_metrics if isinstance(source_metrics, dict) else {}
             metadata = {
                 **identity,
-                **dict(download.get("sourceMetrics") or {}),
+                **source_metrics,
                 "platform": download.get("platform") or identity["platform"],
                 "nativeMediaId": download.get("nativeMediaId")
                 or identity["nativeMediaId"],
@@ -110,7 +123,14 @@ def run_reference_analysis(
                 "metadata": _public_metadata(metadata),
             }
         metadata_path = staging / "reference_metadata.json"
-        metadata["declaredTalking"] = bool(declared_talking)
+        metadata["declaredTalking"] = bool(
+            declared_talking or operator_classification in {"talking", "lip_sync"}
+        )
+        metadata["declaredNonTalking"] = bool(declared_non_talking)
+        if operator_classification:
+            metadata["operatorClassification"] = operator_classification
+        if operator_warnings:
+            metadata["operatorWarnings"] = sorted(set(operator_warnings))
         atomic_write_text(
             metadata_path, json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -122,6 +142,12 @@ def run_reference_analysis(
             db_path=factory.settings.reference_factory_db,
             apply=apply,
         )
+        structural_analysis = _analyze_reference_structure(
+            source=source,
+            reference_id=str(reference["referenceId"]),
+            overlay_inventory=dict(reference.get("overlayTextInventory") or {}),
+        )
+        reference["structuralMotionAnalysis"] = structural_analysis
         persisted_path = (reference.get("source") or {}).get("path")
         audio_source = Path(str(persisted_path)) if persisted_path else source
         reference_id = str(reference["referenceId"])
@@ -138,8 +164,11 @@ def run_reference_analysis(
                 metadata=metadata,
                 artifact_root=factory.settings.campaigns_dir.parent,
                 apply=apply,
-                declared_talking=declared_talking,
-                dance_or_synchronized=False,
+                declared_talking=bool(metadata["declaredTalking"]),
+                dance_or_synchronized=bool(
+                    operator_classification == "dance"
+                    or audio_policy == "reference_audio_required"
+                ),
             )
         result = {
             "ok": True,
@@ -148,8 +177,10 @@ def run_reference_analysis(
             "intent": "recreate_reel",
             "through": through or "plan",
             "apply": apply,
-            "providerCalls": 0,
+            "providerCalls": int(structural_analysis.get("providerCalls") or 0),
             "paidSpend": 0,
+            "analysisProviderCalls": int(structural_analysis.get("providerCalls") or 0),
+            "analysisCost": structural_analysis.get("cost"),
             "download": download_evidence,
             "reference": reference,
             "audio": audio,
@@ -171,7 +202,7 @@ def run_reference_analysis(
             result["providerQuoteCalls"] = int(
                 _quote_provider_calls(result["recreation"])
             )
-            result["providerCalls"] = 0
+            result["providerCalls"] = int(structural_analysis.get("providerCalls") or 0)
             result["paidSpend"] = 0
             if apply:
                 result["applyStatus"] = "ANALYSIS_PERSISTED_ANCHOR_REVIEW_REQUIRED"
@@ -222,6 +253,80 @@ def _run_reference_factory(
         raise RuntimeError("Reference Factory intake returned invalid JSON") from exc
 
 
+def _analyze_reference_structure(
+    *,
+    source: Path,
+    reference_id: str,
+    overlay_inventory: dict[str, Any],
+) -> dict[str, Any]:
+    gemini = shutil.which("gemini")
+    if not gemini:
+        return {
+            "status": "unavailable",
+            "reason": "gemini_cli_unavailable",
+            "providerCalls": 0,
+            "cost": None,
+        }
+    instruction = gemini_motion_analysis_instruction(reference_id)
+    prompt = f"@{{{source}}} {instruction}"
+    completed = subprocess.run(
+        [
+            gemini,
+            "--approval-mode",
+            "plan",
+            "--output-format",
+            "json",
+            "--include-directories",
+            str(source.parent),
+            "--prompt",
+            prompt,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=source.parent,
+        timeout=300,
+    )
+    if completed.returncode != 0:
+        return {
+            "status": "unavailable",
+            "reason": "gemini_cli_analysis_failed",
+            "providerCalls": 1,
+            "cost": "not_exposed_by_cli",
+        }
+    try:
+        response = json.loads(completed.stdout)
+        analysis = _json_object(str(response.get("response") or ""))
+        validate_reference_video_motion_analysis(analysis)
+        if analysis["referenceId"] != reference_id:
+            raise ValueError("reference identity mismatch")
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return {
+            "status": "unavailable",
+            "reason": "gemini_cli_analysis_invalid",
+            "providerCalls": 1,
+            "cost": "not_exposed_by_cli",
+        }
+    return {
+        "status": "ready",
+        "providerCalls": 1,
+        "cost": "not_exposed_by_cli",
+        "analysis": analysis,
+        "overlayTextInventory": overlay_inventory,
+        "overlayTextExcludedFromGenerationPrompt": True,
+    }
+
+
+def _json_object(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1]
+        cleaned = cleaned.rsplit("```", 1)[0].strip()
+    value = json.loads(cleaned)
+    if not isinstance(value, dict):
+        raise ValueError("Gemini analysis must be a JSON object")
+    return value
+
+
 def _source_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -254,6 +359,8 @@ def _public_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "vcodec",
         "acodec",
         "redirectSummary",
+        "operatorClassification",
+        "operatorWarnings",
     }
     return {key: metadata[key] for key in sorted(keys) if metadata.get(key) is not None}
 

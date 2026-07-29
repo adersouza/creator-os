@@ -99,6 +99,24 @@ def _reference(tmp_path: Path, *, audio: bool = True) -> Path:
     return path
 
 
+def _reference_elements(tmp_path: Path, creator: str = "stacey") -> Path:
+    path = tmp_path / f"{creator}-reference-elements.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": f"{creator}-reference",
+                    "name": creator,
+                    "medias": [],
+                    "video_medias": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _capabilities() -> dict[str, Any]:
     return {
         "authentication": {"authenticated": True},
@@ -110,7 +128,10 @@ def _capabilities() -> dict[str, Any]:
                 "type": "soul_2",
             }
         ],
-        "models": [{"job_type": "seedance_2_0"}],
+        "models": [
+            {"job_type": "seedance_2_0_mini"},
+            {"job_type": "seedance_2_0"},
+        ],
         "workflows": [],
     }
 
@@ -173,11 +194,17 @@ def test_recreate_uses_internal_seedance_recipe_and_silent_contract(
     job = _plan(tmp_path)["jobs"][0]
     stage = job["productionRecipe"]["stages"][0]
     assert stage["providerModel"] == "seedance_2_0"
+    assert stage["resolution"] == "480p"
     assert stage["recipeId"] == "higgsfield_recreate_reel"
     assert stage["task"] == "reference_to_video"
     assert job["productionRecipe"]["status"] == "experimental"
-    assert job["compiledPrompt"]["text"].endswith(
-        "choreography similarity is advisory and must not be described as identical."
+    assert (
+        "for motion, timing, framing, and camera movement only"
+        in job["compiledPrompt"]["text"]
+    )
+    assert (
+        "Do not copy the other person's face, hair, body, clothing"
+        in job["compiledPrompt"]["text"]
     )
 
 
@@ -203,6 +230,7 @@ def test_seedance_request_uses_verified_video_and_image_reference_roles(
         model="seedance_2_0",
         duration_seconds=5,
         max_credits=30,
+        reference_elements_path=_reference_elements(tmp_path),
     )
     plan = build_higgsfield_production_plan(
         request,
@@ -480,6 +508,7 @@ def test_soul_identity_remains_bound_in_provider_plan(tmp_path: Path) -> None:
         model="seedance_2_0",
         duration_seconds=5,
         max_credits=30,
+        reference_elements_path=_reference_elements(tmp_path),
     )
     plan = build_higgsfield_production_plan(request, capabilities=_capabilities())
     assert plan["soul"]["id"] == "soul-stacey"
@@ -505,6 +534,7 @@ def test_quote_contract_uses_same_reference_roles_as_submission(
         model="seedance_2_0",
         duration_seconds=5,
         max_credits=30,
+        reference_elements_path=_reference_elements(tmp_path),
     )
     plan = build_higgsfield_production_plan(request, capabilities=_capabilities())
     assert plan["quoteCommand"][2:4] == ["cost", "seedance_2_0"]

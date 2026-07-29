@@ -15,10 +15,13 @@ High-priority reminders:
 
 - Active still-image path: `python -m reel_factory.generate_assets reference-image`
   or `reference-image-dry-run`.
-- Use Stacey Soul ID for Stacey generations:
-  `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Use the Campaign-selected pinned Soul ID for Stacey, Larissa, or Lola. Never
+  infer a creator from a generic image or silently substitute Stacey.
 - Active stills are direct Higgsfield reference-image generations with `--image <reference>`.
 - Active still aspect ratio is `9:16`.
+- Structural Seedance recreation also requires the matching private creator
+  Element. The prompt must bind that Element before the sanitized, timecoded
+  motion/camera breakdown and must exclude source overlay writing.
 - A normal reference-conditioned still is one pass. When the operator explicitly
   requests the settled Original + Sexy comparison, follow the repository-root
   two-pass recipe exactly: preserve Pass 1 as Original, clean its captured

@@ -27,7 +27,6 @@ PROVIDER_MODELS: dict[Provider, str] = {
     "seedance": "seedance_2_0",
     "kling": "kling3_0",
 }
-DEFAULT_SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 _FRAME_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 _REQUIRED_TRANSFORMS = {"identity", "surface_text"}
@@ -521,8 +520,8 @@ def main() -> int:
     parser.add_argument("--source-first-frame", required=True)
     parser.add_argument("--source-last-frame", required=True)
     parser.add_argument("--analysis-json", required=True)
-    parser.add_argument("--creator", default="Stacey")
-    parser.add_argument("--soul-id", default=DEFAULT_SOUL_ID)
+    parser.add_argument("--creator", required=True)
+    parser.add_argument("--soul-id", required=True)
     parser.add_argument(
         "--preferred-provider", choices=["auto", "seedance", "kling"], default="auto"
     )

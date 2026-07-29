@@ -10,7 +10,7 @@ what Creator OS can offer.
 | --- | --- | --- |
 | `soul_static` | Soul 2.0 still plus deterministic local static MP4 | SUPPORTED |
 | `passive_selfie` | Kling 3 (`kling3_0`) or Seedance 2 (`seedance_2_0`) | SUPPORTED |
-| `recreate_reel` | Seedance 2 (`seedance_2_0`) with one approved creator image and one private video reference | EXPERIMENTAL |
+| `recreate_reel` | Seedance 2 Fast (`seedance_2_0`, `mode=fast`) with a first-frame-matched creator anchor, bound creator Element, and one private motion reference | EXPERIMENTAL |
 | `talking_selfie` | No exact supplied-audio contract exposed | UNRESOLVED |
 | `motion_copy` / `dance` | No operator-approved distinct transfer recipe | UNRESOLVED |
 | `talking_motion` | Requires both approved motion and supplied-audio lip-sync | UNRESOLVED |
@@ -21,15 +21,27 @@ Higgsfield call is retained for reconciliation and is never silently retried
 or routed to WaveSpeed.
 
 `recreate_reel` is a bounded structural recreation, not precision motion copy.
-It retains the private reference path and SHA in an analysis receipt, ranks only
-already-approved same-creator images, and sends the selected image through
-Seedance's `image_references` role and the inspiration Reel through
-`video_references`. Soul remains the upstream identity system; the authenticated
-Seedance contract accepts the resulting image bytes, not a raw Soul ID.
-Generation is fixed to 9:16, 720p, 4–15 seconds, standard mode, and
-`generate_audio=false`. The prompt asks Seedance to closely follow broad
-structure, performance, and camera progression without claiming identical
-choreography.
+It retains the private reference path and SHA, extracts the clean opening frame,
+records source writing separately with timestamped OCR evidence, and obtains a
+contract-shaped motion-only timeline. The selected creator anchor is generated
+from the clean opening frame rather than a generic portrait. Seedance receives
+the approved anchor through `image_references`, the inspiration Reel only
+through `video_references`, and the matching creator Element first in the prompt.
+It never receives the driving video as `start_image`.
+
+The authenticated CLI contract exposes `seedance_2_0` with `mode=fast`; Fast is
+a mode of that model, not a separate model ID. Recreation is fixed to 9:16,
+480p, high bitrate, 4–15 seconds, and `generate_audio=false`. The prompt starts
+with the matching creator Element instruction, then adds only the
+timestamped motion/camera breakdown. OCR-recognized source writing remains
+evidence and is stripped from the generation prompt so the clean video can use
+different Reel Factory overlays later. Seedance Mini remains blocked for
+identity-critical recreation after two operator-rejected Stacey outputs.
+
+The authenticated account currently has completed Soul 2 identities and
+completed character Elements for Stacey, Larissa, and Lola. Creator OS resolves
+those private bindings by creator name and fails closed if either identity
+binding is absent or mismatched.
 
 Kling 3 runs with `sound=off`; Seedance 2 runs with
 `generate_audio=false`. Creator OS then selects a duration-compatible Audio
@@ -93,7 +105,7 @@ for audit and migration. They are absent from normal create, active paid
 routing, fallbacks, help, and runtime credential requirements.
 
 Reference URL intake and analysis use the same intent-first surface and stop
-before any provider:
+before any paid visual-generation request:
 
 ```bash
 scripts/creator-os create \
@@ -105,9 +117,13 @@ scripts/creator-os create \
   --audio auto
 ```
 
-Dry-run media and derivatives are temporary. Authorized apply persists the
+Dry-run media and derivatives are temporary. A locally authenticated Gemini CLI
+may make one read-only video-analysis call to produce the timestamped structural
+contract; its cost is recorded as unknown when the CLI does not expose it.
+Unavailable or invalid semantic analysis remains explicit and never invents
+actions. Authorized apply persists the
 canonical Reference Factory source/anchor receipt and the Campaign Audio Radar
-audio identity/occurrence. It makes no Higgsfield call. Creator OS never sends
+audio identity/occurrence. It makes no Higgsfield generation call. Creator OS never sends
 the URL to a third-party downloader website.
 
 Without `--through analyze`, the same command adds a zero-paid-call recreation
@@ -136,8 +152,9 @@ The mode contracts are:
 - `motion`: current authenticated `kling3_0_motion_control` contract with one
   image reference, one video reference, `background_source=input_image`, and
   Pro mode; experimental and never an AUTO submission;
-- `structural`: Seedance 2 start image plus video reference, 720p standard mode,
-  generated audio off; no character-replacement claim;
+- `structural`: first-frame-matched creator anchor plus matching creator Element and
+  motion-only video reference, Seedance 2 Fast at 480p/high bitrate, generated
+  audio off; identity remains a mandatory operator verdict;
 - `first_last`: two reviewed Soul anchors into Kling 3 start/end, sound off;
 - `talking`: `talking_route_not_entitled`, with no Veo/Seedance fallback.
 

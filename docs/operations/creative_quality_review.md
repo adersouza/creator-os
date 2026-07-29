@@ -77,13 +77,16 @@ Talking and motion copy remain unresolved production capabilities.
 ## Reference-Reel recreation review
 
 `recreate_reel` is EXPERIMENTAL. Seedance 2 receives one approved
-Soul-generated creator image plus one private video reference; it is not an
-exact-choreography or creator-voice claim. Review remains bound to the exact
-final MP4 SHA and preserves separate judgments for creator identity, facial and
-body consistency, hands/anatomy, clothing and background stability, broad
-action fidelity, camera/framing fidelity, pacing fidelity, choreography
-fidelity, social-native appearance, attractiveness, obvious AI artifacts,
-audio synchronization, and would-post.
+opening-frame-matched Soul-generated creator anchor, the bound creator Element,
+and one private motion-only video reference. The authenticated CLI request uses
+`seedance_2_0 mode=fast`, 480p/high bitrate, and generated audio off. Timestamped
+source writing is retained as OCR evidence but excluded from the timecoded
+motion/camera prompt. This is not an exact-choreography or creator-voice claim.
+Review remains bound to the exact final MP4 SHA and preserves separate
+judgments for creator identity, facial and body consistency, hands/anatomy,
+clothing and background stability, broad action fidelity, camera/framing
+fidelity, pacing fidelity, choreography fidelity, social-native appearance,
+attractiveness, obvious AI artifacts, audio synchronization, and would-post.
 
 Duration ratio, frame-rate difference, shot-count difference, cut timing,
 coarse motion energy, and framing progression are advisory measurements. They

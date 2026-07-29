@@ -258,15 +258,21 @@ system.
 - Authorized apply deduplicates by platform/media identity and exact SHA,
   stores private artifacts outside Git, and records the reference audio as one
   canonical Audio Radar identity plus occurrence.
-- `--through analyze` stops before provider selection, spend authorization, or
-  generation.
+- `--through analyze` stops before visual-provider selection, spend
+  authorization, or generation. An authenticated Gemini CLI may make one
+  read-only structural-analysis call and records its unexposed cost honestly.
 - Planning classifies the source, selects a bounded coherent excerpt, and
-  proposes scene-matched Soul anchors.
+  records source writing separately, creates a timecoded motion/camera
+  breakdown, and proposes a clean-opening-frame-matched Soul anchor.
 - Every generated anchor requires human identity and
   `WOULD_USE_AS_ANCHOR` approval before video generation.
 - `AUTO` may recommend an experimental route but may not silently submit it.
 - Passive Kling 3 is accepted; structural Seedance, Motion Control, and
   first/last remain explicitly reviewed experimental routes.
+- Structural Seedance uses `seedance_2_0 mode=fast`, the bound creator Element
+  first, the approved anchor as an image reference, and the Reel only as a
+  video reference. It does not combine reference-media mode with start/end
+  images or copy source writing into its prompt.
 - Motion Control does not claim exact choreography, Seedance does not claim
   performer replacement, and talking remains blocked when exact supplied-voice
   entitlement is absent.

@@ -29,12 +29,12 @@ PROMPT_SCHEMA: Final = "campaign_factory.recreate_reel_prompt.v1"
 REVIEW_SCHEMA: Final = "campaign_factory.recreate_reel_review.v1"
 SUPPORTED_SUFFIXES: Final = frozenset({".mp4", ".mov", ".m4v", ".webm"})
 RECREATE_REEL_STAGE: Final[dict[str, Any]] = {
-    "modelId": "higgsfield_seedance2_recreate_reel",
+    "modelId": "higgsfield_seedance2_fast_recreate_reel",
     "providerModel": "seedance_2_0",
     "recipeId": "higgsfield_recreate_reel",
     "durationSeconds": None,
-    "resolution": "720p",
-    "mode": "std",
+    "resolution": "480p",
+    "mode": "fast",
     "sound": "off",
     "generatedAudio": False,
     "task": "reference_to_video",
@@ -280,18 +280,15 @@ def build_recreation_prompt(analysis: dict[str, Any]) -> dict[str, Any]:
     validate_reference_analysis(analysis)
     structure = analysis["structure"]
     prompt = (
-        "Closely follow the supplied reference video's broad performance sequence, "
-        "shot progression, pacing, social energy, and camera/framing progression. "
-        "Use the supplied approved creator image as the same person throughout. "
-        "Recreate the performance with stable facial identity, natural anatomy, "
-        "consistent clothing and a casual social-native vertical-video appearance. "
+        "Use the supplied reference video for motion, timing, framing, and camera "
+        "movement only. Do not copy the other person's face, hair, body, clothing, "
+        "or source writing. Return clean vertical footage with no writing or graphic "
+        "borders, generated music, ambient audio, or new dialogue. "
         f"The reference has {structure['shotCount']} shot(s), "
         f"{structure['motionIntensity']} motion intensity, and cut timestamps "
         f"{structure['cutTimestampsSeconds']}. "
-        "Do not reproduce source text overlays. Do not add titles, interface chrome, "
-        "generated music, ambient audio, or new dialogue. Preserve structure, "
-        "performance, and camera progression; choreography similarity is advisory "
-        "and must not be described as identical."
+        "Follow its reusable action sequence and pacing without claiming exact "
+        "choreography."
     )
     core = {
         "schema": PROMPT_SCHEMA,

@@ -6,12 +6,16 @@ These are the current hard rules for Reel Factory and Creator OS handoffs.
 
 - Active still-image generation uses `generate_assets.py reference-image` / `reference-image-dry-run`.
 - The active path passes a single-person reference image to Higgsfield with `--image <reference>`.
-- Stacey generations use Soul ID `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Stacey, Larissa, and Lola generations use their distinct Campaign-selected
+  pinned Soul IDs. Cross-creator substitution is forbidden.
 - Active stills are `9:16`.
 - Soul ID owns identity.
 - Optional body emphasis is append-only: `none`, `bust`, or `bust_hips`.
 - Do not rewrite Higgsfield's own reference-image prompt; only append approved body emphasis when requested.
-- Kling video generation is off unless explicitly requested.
+- Paid video generation is off unless explicitly requested and authorized.
+  Normal passive motion may use the product-pinned Higgsfield Kling 3 or
+  Seedance 2 recipe; structural recreation uses Seedance 2 Fast only after its
+  creator-matched anchor/Element review gates.
 - Accepted stills use `reel_motion_prompt.py` for deterministic motion prompts.
 
 ## Legacy Paths
@@ -39,14 +43,16 @@ direct reference-image generation path.
 
 Allowed:
 
-- Use `AudioProviderV1` metadata selection.
-- Use official TikTok Commercial Music Library / Commercial Sounds exports or manually saved official lists.
-- Refresh local CML cache from JSON/CSV drop folder.
-- Track selected audio by stable `track_id`.
+- Discover trends through SocialCrawl TikTok and optional Instagram.
+- Treat Creative Center as optional best-effort enrichment only.
+- Resolve selected TikTok music IDs through TikLiveAPI.
+- Select a duration-compatible cached segment, embed verified AAC, and bind the
+  exact segment and final MP4 hashes.
+- Apply only supervised, publication-linked audio performance ranking.
 
 Not allowed:
 
-- Do not scrape TikTok Creative Center pages.
-- Do not automate TikTok login.
-- Do not call private TikTok APIs.
-- Do not build audio matching AI, beat sync, or a recommendation engine until audio is proven to be a bottleneck.
+- Do not automate TikTok login or call private TikTok APIs.
+- Do not treat provider failure or invalid empty results as valid absence.
+- Do not invent historical audio attribution or replace exact embedded audio
+  with an inferred native-platform selection.

@@ -37,7 +37,9 @@ from campaign_factory.production_quality_policy import production_quality_policy
 from PIL import Image
 
 
-def _production_factory(tmp_path: Path, *, source_count: int = 2) -> SimpleNamespace:
+def _production_factory(
+    tmp_path: Path, *, source_count: int = 2, creator: str = "stacey"
+) -> SimpleNamespace:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(
@@ -93,8 +95,11 @@ def _production_factory(tmp_path: Path, *, source_count: int = 2) -> SimpleNames
         );
         """
     )
-    conn.execute("INSERT INTO campaigns VALUES ('campaign-1', 'stacey-main', '2026')")
-    conn.execute("INSERT INTO models VALUES ('model-1', 'stacey')")
+    conn.execute(
+        "INSERT INTO campaigns VALUES ('campaign-1', ?, '2026')",
+        (f"{creator}-main",),
+    )
+    conn.execute("INSERT INTO models VALUES ('model-1', ?)", (creator,))
     for index in range(source_count):
         path = tmp_path / f"approved-{index}.png"
         Image.new("RGB", (360, 640), color=(index, 20, 40)).save(path)
@@ -443,6 +448,47 @@ def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) ->
     assert all(
         job["compiledPrompt"]["compiledPromptFingerprint"] for job in batch["jobs"]
     )
+
+
+@pytest.mark.parametrize("creator", ["stacey", "larissa", "lola"])
+@pytest.mark.parametrize(
+    "intent",
+    ["passive_selfie", "flirty_portrait", "outfit", "lifestyle", "animate_existing"],
+)
+def test_supported_cloud_intents_bind_each_creator_soul(
+    tmp_path: Path, creator: str, intent: str
+) -> None:
+    batch = plan_production_batch(
+        _production_factory(tmp_path, creator=creator),
+        creator=creator,
+        intent=intent,
+        count=1,
+        execution="cloud",
+        accounts=f"{creator}-main",
+        audio_preference="embedded_trending_required",
+    )
+
+    job = batch["jobs"][0]
+    assert job["creator"] == creator
+    assert job["productionRecipe"]["creator"] == creator
+    assert job["productionRecipe"]["provider"] == "higgsfield"
+    assert job["productionRecipe"]["stages"][0]["sound"] == "off"
+
+
+def test_unknown_creator_fails_before_provider_planning(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="no pinned authenticated Higgsfield Soul identity",
+    ):
+        plan_production_batch(
+            _production_factory(tmp_path),
+            creator="unknown",
+            intent="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts="unknown-main",
+            audio_preference="embedded_trending_required",
+        )
 
 
 def test_non_talking_production_requires_embedded_trending(tmp_path: Path) -> None:

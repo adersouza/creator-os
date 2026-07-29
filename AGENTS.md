@@ -137,7 +137,7 @@ intent-first `create`, audits, tests, status checks, or other read-only work.
 ```text
 single-person reference image
 → Higgsfield direct reference-image still
-→ Stacey Soul ID d63ea9c7-b2c7-439c-bf0c-edfdf9938a36
+→ Campaign-selected Stacey, Larissa, or Lola Soul ID
 → one 9:16 still
 → captured Higgsfield prompt + lineage
 → optional append-only body emphasis
@@ -167,7 +167,7 @@ when a clean cropped derivative exists.
 
 ### Higgsfield Prompt UI Trigger Rule
 
-For Stacey/Soul text prompts, do not mention app/UI concepts, even as negatives.
+For creator/Soul text prompts, do not mention app/UI concepts, even as negatives.
 Avoid `phone`, `iPhone`, `smartphone`, `story`, `screenshot`, `social media`,
 `interface`, `icons`, `watermark`, `caption`, `overlay text`, and "for later
 text" wording. If room for future Reel Factory captions is needed, say "clean

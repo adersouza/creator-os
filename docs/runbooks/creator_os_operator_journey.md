@@ -104,7 +104,7 @@ jobs must preserve partial successes and produce three local review-ready MP4s.
 
 ## 5. Recreate From An Authorized Reference Reel
 
-Analyze a public URL without a provider call or persistent write:
+Analyze a public URL without a paid visual-generation call or persistent write:
 
 ```bash
 creator-os create \
@@ -117,11 +117,14 @@ creator-os create \
 ```
 
 An authorized apply persists only the canonical private reference, frame/anchor
-evidence, and exact reference-audio identity. Omit `--through analyze` to
-receive the deterministic recreation plan and bounded read-only quotes. Review
-the proposed excerpt and Soul anchor requests; every anchor and experimental
-video route remains separately approval-gated. No intake or planning command
-exports, schedules, or publishes.
+evidence, timestamped source-writing inventory, and exact reference-audio
+identity. When available, the authenticated Gemini CLI makes one read-only call
+to describe motion/camera structure by time; it never submits visual
+generation. Omit `--through analyze` to receive the deterministic recreation
+plan and bounded read-only quotes. Review the proposed excerpt and
+opening-frame-matched Soul anchor request; every anchor and experimental video
+route remains separately approval-gated. No intake or planning command exports,
+schedules, or publishes.
 
 ## 6. Review
 
