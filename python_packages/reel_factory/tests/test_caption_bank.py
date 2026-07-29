@@ -11,6 +11,7 @@ from reel_factory.caption_bank import (
     ACTIVE_BANKS,
     CaptionBankStore,
     caption_hash,
+    caption_hook_payload,
     caption_static_metadata,
     default_mixes,
     load_or_build_caption_bank_store,
@@ -84,6 +85,117 @@ class CaptionBankTests(unittest.TestCase):
         self.assertEqual(store.bank_items("winner_bank"), [])
         for bank in ACTIVE_BANKS:
             self.assertIn(bank, store.banks)
+
+    def test_timed_items_keep_segments_and_separate_payload_hash(self):
+        root = self._root_with_sources()
+        store = CaptionBankStore.build(root)
+        timed = next(
+            item for item in store.all_items() if item["variant_type"] == "timed"
+        )
+
+        self.assertEqual(timed["static_text_hash"], timed["caption_hash"])
+        self.assertNotEqual(timed["caption_payload_hash"], timed["static_text_hash"])
+        self.assertEqual(
+            caption_hook_payload(timed),
+            {"segments": [{"text": "read this backwards", "end": 2.0}]},
+        )
+
+    def test_same_text_with_different_timing_keeps_two_payloads(self):
+        root = self._root_with_sources()
+        (root / "01_captions" / "clip_003.json").write_text(
+            json.dumps(
+                {
+                    "hooks": [
+                        {"segments": [{"text": "same words", "end": 1.0}]},
+                        {"segments": [{"text": "same words", "end": 2.0}]},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        matching = [
+            item
+            for item in CaptionBankStore.build(root).all_items()
+            if item["text"] == "same words"
+        ]
+
+        self.assertEqual(len(matching), 2)
+        self.assertEqual(len({item["caption_payload_hash"] for item in matching}), 2)
+        self.assertEqual(len({item["static_text_hash"] for item in matching}), 1)
+
+    def test_build_is_deterministic_and_source_fingerprint_is_stable(self):
+        root = self._root_with_sources()
+
+        first = CaptionBankStore.build(root)
+        second = CaptionBankStore.build(root)
+
+        self.assertEqual(first.source_hash, second.source_hash)
+        self.assertEqual(first.banks, second.banks)
+
+    def test_v1_static_bank_hydrates_without_regeneration(self):
+        root = self._root_with_sources()
+        base = root / "caption_banks"
+        base.mkdir()
+        item = {
+            "caption_hash": caption_hash("legacy approved static"),
+            "text": "legacy approved static",
+            "banks": ["comment_bait"],
+            "source_type": "legacy",
+            "source_file": "legacy.json",
+            "source_clip": None,
+            "source_index": 0,
+        }
+        (base / "banks.json").write_text(
+            json.dumps({"banks": {"comment_bait": [item]}}),
+            encoding="utf-8",
+        )
+        (base / "mixes.json").write_text(
+            json.dumps({"mixes": default_mixes()}),
+            encoding="utf-8",
+        )
+
+        loaded = CaptionBankStore.from_root(root)
+        hydrated = loaded.bank_items("comment_bait")[0]
+
+        self.assertEqual(loaded.version, "caption_banks_v1")
+        self.assertEqual(hydrated["variant_type"], "static")
+        self.assertEqual(hydrated["caption_hash"], hydrated["static_text_hash"])
+        self.assertTrue(hydrated["caption_payload_hash"])
+
+    def test_default_mix_excludes_timed_items(self):
+        root = self._root_with_sources()
+        store = CaptionBankStore.build(root)
+
+        selected = store.resolve_mix("Stacey", limit=None, seed=7)
+
+        self.assertTrue(selected)
+        self.assertTrue(all(item["variant_type"] == "static" for item in selected))
+
+    def test_rebuild_preserves_existing_winner_bank(self):
+        root = self._root_with_sources()
+        base = root / "caption_banks"
+        base.mkdir()
+        winner = {
+            "caption_hash": caption_hash("proven winner"),
+            "text": "proven winner",
+            "banks": ["winner_bank"],
+            "source_type": "operator_approved",
+            "source_file": "approved.json",
+            "source_clip": None,
+            "source_index": 0,
+        }
+        (base / "banks.json").write_text(
+            json.dumps({"banks": {"winner_bank": [winner]}}),
+            encoding="utf-8",
+        )
+
+        store = CaptionBankStore.build(root)
+
+        self.assertEqual(
+            [item["text"] for item in store.bank_items("winner_bank")],
+            ["proven winner"],
+        )
 
     def test_creator_mixes_resolve_weighted_caption_pools(self):
         root = self._root_with_sources()

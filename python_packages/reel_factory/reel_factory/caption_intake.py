@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import html
 import json
 import re
@@ -19,6 +20,7 @@ from .caption_bank import (
     DEFAULT_EXCLUDED_BANKS,
     CaptionBankStore,
     caption_hash,
+    caption_payload_hash,
     classify_caption,
 )
 from .discoverability_safety import discoverability_safe_content_contract
@@ -473,31 +475,36 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
 def promote(root: Path, approved_path: Path) -> dict[str, Any]:
     reel_root = _reel_root(root)
     existing = _existing_keys(reel_root)
-    approved = _approved_texts(Path(approved_path))
-    promoted: list[str] = []
-    rejected: list[dict[str, Any]] = []
+    approved, rejected = _approved_items(Path(approved_path))
+    promoted: list[dict[str, Any]] = []
 
-    for text in approved:
-        cleaned = _clean_caption(text)
-        h = caption_hash(cleaned)
+    for approved_item in approved:
+        hook = approved_item["hook"]
+        cleaned = _clean_caption(approved_item["text"])
+        variant_type = str(approved_item["variant_type"])
+        payload_hash = str(approved_item["caption_payload_hash"])
+        text_hash = caption_hash(cleaned)
         key = _caption_key(cleaned)
         contract = discoverability_safe_content_contract(cleaned)
         if (
             not cleaned
-            or h in existing
-            or key in existing
+            or payload_hash in existing
+            or (variant_type == "static" and (text_hash in existing or key in existing))
             or not contract["discoverabilitySafe"]
         ):
             rejected.append(
                 {
                     "text": cleaned,
+                    "variantType": variant_type,
                     "reason": "duplicate_or_unsafe",
                     "blockedTerms": contract.get("blockedTerms", []),
                 }
             )
             continue
-        existing.update({h, key})
-        promoted.append(cleaned)
+        existing.add(payload_hash)
+        if variant_type == "static":
+            existing.update({text_hash, key})
+        promoted.append(hook)
 
     sidecar = None
     if promoted:
@@ -556,6 +563,7 @@ def swipe_review(
     *,
     mode: str = "static",
     include_generated_seed: bool = False,
+    reviewer: str | None = None,
 ) -> dict[str, Any]:
     reel_root = _reel_root(root)
     candidate_path = reel_root / "caption_banks" / "candidate_intake.json"
@@ -571,6 +579,9 @@ def swipe_review(
         ]
     if mode not in {"static", "timed"}:
         raise ValueError("mode must be static or timed")
+    reviewer = str(reviewer or "").strip()
+    if mode == "timed" and not reviewer:
+        raise ValueError("timed swipe review requires reviewer")
     if mode == "timed":
         rows = [
             row
@@ -585,6 +596,7 @@ def swipe_review(
     decisions = {
         "schema": "reel_factory.caption_swipe_decisions.v1",
         "reviewMode": mode,
+        "reviewer": reviewer or None,
         "sourceCandidateFile": str(candidate_path),
         "createdAt": int(time.time()),
         "count": len(rows),
@@ -646,6 +658,7 @@ def _existing_keys(reel_root: Path) -> set[str]:
     for item in store.all_items():
         text = str(item.get("text") or "")
         keys.add(str(item.get("caption_hash")))
+        keys.add(str(item.get("caption_payload_hash") or ""))
         keys.add(_caption_key(text))
     keys.update(_quarantined_caption_keys(reel_root))
     return keys
@@ -1262,31 +1275,164 @@ def _ocr_candidates(text: str) -> Iterable[str]:
         yield "\n".join(lines)
 
 
-def _approved_texts(path: Path) -> list[str]:
-    raw = path.read_text(encoding="utf-8")
+def _approved_items(
+    path: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    raw_bytes = path.read_bytes()
+    raw = raw_bytes.decode("utf-8")
+    approval_file_sha = hashlib.sha256(raw_bytes).hexdigest()
+    payload: Any = None
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        return [line.strip() for line in raw.splitlines() if line.strip()]
-    if isinstance(payload, list):
-        return [
-            str(item.get("text") if isinstance(item, dict) else item)
-            for item in payload
-        ]
-    if isinstance(payload, dict):
-        if isinstance(payload.get("items"), list):
-            return [
-                str(item.get("text"))
-                for item in payload["items"]
-                if isinstance(item, dict)
-                and item.get("status") == "approved"
-                and item.get("text")
-            ]
-        rows = payload.get("candidates") or payload.get("hooks") or []
-        return [
-            str(item.get("text") if isinstance(item, dict) else item) for item in rows
-        ]
-    return []
+        rows: list[Any] = [line.strip() for line in raw.splitlines() if line.strip()]
+        require_approval = False
+    else:
+        require_approval = isinstance(payload, dict) and (
+            isinstance(payload.get("items"), list)
+            or str(payload.get("schema") or "")
+            in {
+                "reel_factory.caption_swipe_decisions.v1",
+                "reel_factory.caption_swipe_approved.v1",
+            }
+        )
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict):
+            rows = (
+                payload.get("items")
+                or payload.get("candidates")
+                or payload.get("hooks")
+                or payload.get("captions")
+                or []
+            )
+        else:
+            rows = []
+
+    approved: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    payload_reviewer = payload.get("reviewer") if isinstance(payload, dict) else None
+    payload_decided_at = payload.get("decidedAt") if isinstance(payload, dict) else None
+    for index, raw_item in enumerate(rows):
+        item = dict(raw_item) if isinstance(raw_item, dict) else {"text": raw_item}
+        text = _clean_caption(item.get("text"))
+        if require_approval and item.get("status") != "approved":
+            continue
+        reviewer = str(
+            item.get("reviewer")
+            or item.get("approvedBy")
+            or item.get("approved_by")
+            or payload_reviewer
+            or ""
+        ).strip()
+        decided_at = str(
+            item.get("decidedAt")
+            or item.get("decisionTimestamp")
+            or payload_decided_at
+            or ""
+        ).strip()
+        if require_approval and (not reviewer or not decided_at):
+            rejected.append(
+                {
+                    "text": text,
+                    "reason": "exact_approval_evidence_missing",
+                    "blockedTerms": [],
+                }
+            )
+            continue
+        candidate_id = str(
+            item.get("id") or item.get("caption_hash") or caption_hash(text)
+        )
+        candidate_payload = {
+            "id": candidate_id,
+            "text": text,
+            "hookVariants": item.get("hookVariants"),
+            "placementIntent": item.get("placementIntent"),
+        }
+        candidate_payload_hash = hashlib.sha256(
+            json.dumps(candidate_payload, sort_keys=True, ensure_ascii=False).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        approved_uses = item.get("approvedUse") if require_approval else ["static"]
+        approved_uses = approved_uses if isinstance(approved_uses, list) else []
+        variants = {
+            "static" if str(value) in {"normal", "static"} else str(value)
+            for value in approved_uses
+        }
+        for variant_type in sorted(variants):
+            if variant_type == "static":
+                hook: str | dict[str, Any] = {"text": text}
+            elif variant_type == "timed":
+                timed = (
+                    (item.get("hookVariants") or {}).get("timed")
+                    if isinstance(item.get("hookVariants"), dict)
+                    else None
+                )
+                segments = timed.get("segments") if isinstance(timed, dict) else None
+                if not isinstance(segments, list) or not segments:
+                    rejected.append(
+                        {
+                            "text": text,
+                            "variantType": "timed",
+                            "reason": "approved_timed_variant_missing_segments",
+                            "blockedTerms": [],
+                        }
+                    )
+                    continue
+                hook = {
+                    "text": text,
+                    "segments": [
+                        dict(segment)
+                        for segment in segments
+                        if isinstance(segment, dict)
+                    ],
+                }
+            else:
+                rejected.append(
+                    {
+                        "text": text,
+                        "variantType": variant_type,
+                        "reason": "unsupported_approved_variant",
+                        "blockedTerms": [],
+                    }
+                )
+                continue
+            placement_intent = item.get("placementIntent")
+            if isinstance(placement_intent, dict):
+                hook["placement_intent"] = placement_intent
+            payload_hash = caption_payload_hash(
+                hook,
+                placement_intent=placement_intent
+                if isinstance(placement_intent, dict)
+                else None,
+            )
+            approval_id = hashlib.sha256(
+                (
+                    f"{approval_file_sha}:{candidate_id}:{variant_type}:{payload_hash}"
+                ).encode()
+            ).hexdigest()
+            hook.update(
+                {
+                    "variant_type": variant_type,
+                    "source_candidate_id": candidate_id,
+                    "source_candidate_payload_hash": candidate_payload_hash,
+                    "approval_id": approval_id,
+                    "approval_file_sha": approval_file_sha,
+                    "approval_reviewer": reviewer or None,
+                    "approval_decided_at": decided_at or None,
+                }
+            )
+            approved.append(
+                {
+                    "hook": hook,
+                    "text": text,
+                    "variant_type": variant_type,
+                    "caption_payload_hash": payload_hash,
+                    "source_index": index,
+                }
+            )
+    return approved, rejected
 
 
 def _placement_intent(text: str) -> dict[str, Any]:
@@ -1426,6 +1572,8 @@ def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
       if (!item) return;
       item.status = status;
       item.approvedUse = uses || [];
+      item.reviewer = data.reviewer;
+      item.decidedAt = new Date().toISOString();
       save();
       if (index < data.items.length - 1) index += 1;
       show();
@@ -1445,11 +1593,17 @@ def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
     document.getElementById("downloadApproved").onclick = () => download(`caption_${{data.reviewMode || "static"}}_swipe_approved.json`, {{
       schema: "reel_factory.caption_swipe_approved.v1",
       candidates: data.items.filter(item => item.status === "approved").map(item => ({{
+        id: item.id,
         text: item.text,
         caption_hash: item.caption_hash,
+        status: item.status,
         approvedUse: item.approvedUse,
         banks: item.banks,
-        source: item.source
+        source: item.source,
+        placementIntent: item.placementIntent,
+        hookVariants: item.hookVariants,
+        reviewer: item.reviewer || data.reviewer,
+        decidedAt: item.decidedAt
       }}))
     }});
     document.addEventListener("keydown", event => {{
@@ -1579,6 +1733,7 @@ def main() -> int:
     swipe.add_argument("--out-dir")
     swipe.add_argument("--mode", choices=["static", "timed"], default="static")
     swipe.add_argument("--include-generated-seed", action="store_true")
+    swipe.add_argument("--reviewer")
 
     args = parser.parse_args()
     if args.command == "scan-local":
@@ -1597,6 +1752,7 @@ def main() -> int:
             Path(args.out_dir) if args.out_dir else None,
             mode=args.mode,
             include_generated_seed=args.include_generated_seed,
+            reviewer=args.reviewer,
         )
     else:
         report = promote(Path(args.root), Path(args.approved))
