@@ -45,7 +45,9 @@ def summarize_threadsdash_usage(
     user_id: str,
     supabase_url: str | None,
     supabase_service_role_key: str | None,
-    limit: int = 1000,
+    # ponytail: bounded exhaustive read; replace with server-side fingerprint lookup
+    # when a single portfolio exceeds 100k post rows.
+    limit: int = 100_000,
     rendered_asset_ids: list[str] | None = None,
     draft_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:

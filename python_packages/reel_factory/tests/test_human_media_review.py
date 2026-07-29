@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from creator_os_core.evidence_attestation import payload_fingerprint
 from reel_factory.human_media_review import (
     UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
     HumanMediaReview,
@@ -96,6 +97,14 @@ def test_review_round_trip_requires_exact_fingerprint(tmp_path: Path) -> None:
     assert legacy.operator_attestation is None
     with pytest.raises(LocalQueueError, match="unsigned_not_promotion_eligible"):
         legacy.qc_receipt()
+
+
+def test_review_fingerprint_normalizes_integer_valued_floats(tmp_path: Path) -> None:
+    output = tmp_path / "output.mp4"
+    output.write_bytes(b"measured output")
+    review = review_for(output)
+
+    assert review.review_fingerprint == payload_fingerprint(review._semantic_payload())
 
 
 def test_review_rejects_version_provenance_and_unavailable_score_errors(

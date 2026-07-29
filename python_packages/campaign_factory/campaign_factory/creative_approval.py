@@ -32,6 +32,7 @@ from .motion_qc_publishability import (
     MOTION_QC_POLICY_VERSION,
     MotionQcPublishabilityMixin,
 )
+from .production_quality_policy import is_observed_passive_derivative
 
 SCHEMA: Final = "campaign_factory.creative_approval.v1"
 SCHEMA_V2: Final = "campaign_factory.creative_approval.v2"
@@ -100,6 +101,8 @@ def _asset_metadata(asset: dict[str, Any]) -> dict[str, Any]:
 def asset_requires_creative_approval(asset: dict[str, Any]) -> bool:
     """Derive approval policy from immutable generation lineage, never a draft marker."""
 
+    if is_observed_passive_derivative(asset):
+        return False
     metadata = _asset_metadata(asset)
     production_recipe = metadata.get("productionMotionRecipe")
     if (

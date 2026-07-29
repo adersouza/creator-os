@@ -121,7 +121,8 @@ SAFE_BOTTOM = 480
 def _font_for_lines(
     font_path: Path, line_count: int, scale: float = 1.0
 ) -> ImageFont.FreeTypeFont:
-    fontsize_table = {1: 88, 2: 76, 3: 66, 4: 58}
+    # Condensed glyph boxes must clear ContentForge's 3.5% frame-height floor.
+    fontsize_table = {1: 110, 2: 96, 3: 84, 4: 74}
     fs = round(fontsize_table.get(line_count, 52) * scale)
     return ImageFont.truetype(str(font_path), max(fs, 20))
 

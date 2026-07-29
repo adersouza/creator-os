@@ -11,12 +11,333 @@ from reel_factory.worker_api import (
     render_observed_profile,
 )
 
-from pipeline_contracts import validate_visual_derivative_receipt
+from pipeline_contracts import (
+    validate_caption_outcome_context,
+    validate_visual_derivative_receipt,
+)
 
 from .persistence import json_load
 
 
 class ObservedVariantLineageMixin:
+    def _eligible_existing_media_parent(self: Any, asset: dict[str, Any]) -> bool:
+        digest = str(asset.get("content_hash") or "").lower()
+        path = Path(str(asset.get("output_path") or "")).expanduser().resolve()
+        if (
+            not digest
+            or not path.is_file()
+            or path.is_symlink()
+            or self._sha256_file(path).lower() != digest
+        ):
+            return False
+        row = self.conn.execute(
+            """
+            SELECT emi.manifest_path, emi.manifest_sha256,
+                   emi.audio_receipt_path, emi.audio_receipt_sha256,
+                   emi.qc_receipt_path, emi.qc_receipt_sha256
+            FROM existing_media_intakes emi
+            WHERE emi.rendered_asset_id = ?
+              AND emi.final_sha256 = ?
+              AND emi.eligibility_state = 'ELIGIBLE'
+              AND EXISTS (
+                SELECT 1 FROM existing_media_asset_reviews review
+                WHERE review.rendered_asset_id = emi.rendered_asset_id
+                  AND review.final_sha256 = emi.final_sha256
+                  AND review.verdict = 'WOULD_POST'
+              )
+              AND EXISTS (
+                SELECT 1 FROM existing_media_caption_freezes freeze
+                WHERE freeze.rendered_asset_id = emi.rendered_asset_id
+                  AND freeze.final_sha256 = emi.final_sha256
+                  AND freeze.overlay_state = 'NONE_FROZEN'
+              )
+            ORDER BY emi.updated_at DESC, emi.id DESC
+            LIMIT 1
+            """,
+            (asset["id"], digest),
+        ).fetchone()
+        if row is None:
+            return False
+        return all(
+            receipt_path.is_file()
+            and not receipt_path.is_symlink()
+            and self._sha256_file(receipt_path).lower()
+            == str(row[sha_column] or "").lower()
+            for path_column, sha_column in (
+                ("manifest_path", "manifest_sha256"),
+                ("audio_receipt_path", "audio_receipt_sha256"),
+                ("qc_receipt_path", "qc_receipt_sha256"),
+            )
+            if (
+                receipt_path := Path(str(row[path_column] or "")).expanduser().resolve()
+            )
+        )
+
+    def _observed_source(
+        self: Any, parent: dict[str, Any], *, source_media_path: str | None
+    ) -> tuple[Path, str, str]:
+        metadata = json_load(parent.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        receipt = metadata.get("audioEmbeddingReceipt")
+        original = receipt.get("originalVideo") if isinstance(receipt, dict) else None
+        if not isinstance(original, dict) and parent.get("parent_asset_id"):
+            ancestor = self.conn.execute(
+                "SELECT metadata_json FROM rendered_assets WHERE id = ?",
+                (parent["parent_asset_id"],),
+            ).fetchone()
+            ancestor_metadata = (
+                json_load(ancestor["metadata_json"], {}) if ancestor else {}
+            )
+            ancestor_receipt = (
+                ancestor_metadata.get("audioEmbeddingReceipt")
+                if isinstance(ancestor_metadata, dict)
+                else None
+            )
+            original = (
+                ancestor_receipt.get("originalVideo")
+                if isinstance(ancestor_receipt, dict)
+                else None
+            )
+        candidates: list[tuple[Path, str, str]] = []
+        if (
+            isinstance(original, dict)
+            and original.get("path")
+            and original.get("sha256")
+        ):
+            candidates.append(
+                (
+                    Path(str(original["path"])).expanduser(),
+                    str(original["sha256"]).lower(),
+                    "audio_receipt_original_visual",
+                )
+            )
+        parent_path = Path(
+            str(parent.get("campaign_path") or parent.get("output_path") or "")
+        ).expanduser()
+        parent_sha = str(parent.get("content_hash") or "").lower()
+        if parent_sha:
+            candidates.append((parent_path, parent_sha, "parent_final"))
+        if source_media_path:
+            selected = Path(source_media_path).expanduser().resolve()
+            actual = self._sha256_file(selected)
+            for _, expected, provenance in candidates:
+                if actual == expected:
+                    return selected, actual, provenance
+            raise ValueError("source_media_path SHA is absent from parent lineage")
+        for path, expected, provenance in candidates:
+            resolved = path.resolve()
+            if (
+                resolved.is_file()
+                and not resolved.is_symlink()
+                and self._sha256_file(resolved) == expected
+            ):
+                return resolved, expected, provenance
+        raise ValueError("verified pre-audio source media is missing")
+
+    def bind_observed_caption(
+        self: Any,
+        *,
+        rendered_asset_id: str,
+        output_path: Path,
+    ) -> dict[str, Any]:
+        """Bind Reel Factory's exact caption render before final audio embedding."""
+
+        asset = self.rendered_asset(rendered_asset_id)
+        metadata = json_load(asset.get("metadata_json"), {})
+        if (
+            asset.get("review_state") != "review_ready"
+            or not isinstance(metadata, dict)
+            or not isinstance(metadata.get("visualDerivativeReceipt"), dict)
+        ):
+            raise ValueError("asset is not a review-ready observed derivative")
+        current_path = _safe_observed_file(asset.get("output_path"), "current asset")
+        current_sha = self._sha256_file(current_path)
+        if current_sha != str(asset.get("content_hash") or "").strip().lower():
+            raise ValueError("current observed derivative bytes do not match its SHA")
+        observed_visual_sha = (
+            str(metadata["visualDerivativeReceipt"].get("outputSha256") or "")
+            .strip()
+            .lower()
+        )
+
+        output = _safe_observed_file(output_path, "captioned output")
+        caption_path = Path(str(output) + ".caption_lineage.json")
+        generated_path = Path(str(output) + ".generated_asset_lineage.json")
+        caption_lineage = _load_observed_json(caption_path, "caption lineage")
+        generated_lineage = _load_observed_json(
+            generated_path, "generated asset lineage"
+        )
+        source = generated_lineage.get("source")
+        render = generated_lineage.get("render")
+        caption_source_sha = (
+            str(source.get("sourceVideoHash") or "").strip().lower()
+            if isinstance(source, dict)
+            else ""
+        )
+        if caption_source_sha != observed_visual_sha:
+            raise ValueError("caption render source SHA does not match observed asset")
+        if current_sha != observed_visual_sha:
+            audio_receipt = metadata.get("audioEmbeddingReceipt")
+            final_video = (
+                audio_receipt.get("finalVideo")
+                if isinstance(audio_receipt, dict)
+                else None
+            )
+            if (
+                not isinstance(final_video, dict)
+                or str(final_video.get("sha256") or "").strip().lower() != current_sha
+            ):
+                raise ValueError("current final is not a verified retryable derivative")
+        if (
+            not isinstance(render, dict)
+            or Path(str(render.get("outputPath") or "")).resolve() != output
+        ):
+            raise ValueError("generated asset lineage is not bound to captioned output")
+        output_sha = self._sha256_file(output)
+        if generated_lineage.get("contentFingerprint") != output_sha:
+            raise ValueError("captioned output SHA does not match generated lineage")
+
+        context = caption_lineage.get("captionOutcomeContext")
+        pixel = caption_lineage.get("captionPixelRenderEvidence")
+        if (
+            caption_lineage.get("captionBurnedIn") is not True
+            or not isinstance(pixel, dict)
+            or pixel.get("rendered") is not True
+            or Path(str(pixel.get("outputPath") or "")).resolve() != output
+            or (caption_lineage.get("overlaySemanticQc") or {}).get("passed")
+            is not True
+            or (caption_lineage.get("captionTimingQc") or {}).get("passed") is not True
+            or (caption_lineage.get("captionPlacementDecision") or {}).get("status")
+            != "passed"
+            or not isinstance(context, dict)
+        ):
+            raise ValueError(
+                "caption lineage does not prove an accepted burned caption"
+            )
+        validate_caption_outcome_context(context)
+        context = {
+            **context,
+            "render_recipe": "reel_factory_observed_profile_captioned",
+        }
+
+        attempt = self.conn.execute(
+            """
+            SELECT id FROM generation_attempts
+            WHERE rendered_asset_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (rendered_asset_id,),
+        ).fetchone()
+        if not attempt:
+            raise ValueError("observed derivative has no generation attempt lineage")
+
+        now = self._utc_now()
+        caption_text = str(caption_lineage.get("rawCaptionText") or "").strip()
+        caption_hash = str(caption_lineage.get("captionHash") or "").strip()
+        selected_banks = caption_lineage.get("selectedBanks") or []
+        selected_mix = str(caption_lineage.get("selectedMix") or "").strip() or None
+        caption_generation = {
+            "generatedAssetLineage": generated_lineage,
+            "captionLineage": caption_lineage,
+        }
+        receipt = {
+            "schema": "campaign_factory.observed_caption_binding.v1",
+            "inputSha256": caption_source_sha,
+            "replacesSha256": current_sha,
+            "outputSha256": output_sha,
+            "outputPath": str(output),
+            "captionLineagePath": str(caption_path),
+            "captionLineageSha256": self._sha256_file(caption_path),
+            "generatedAssetLineagePath": str(generated_path),
+            "generatedAssetLineageSha256": self._sha256_file(generated_path),
+            "boundAt": now,
+        }
+        publishability = metadata.get("publishability")
+        if not isinstance(publishability, dict):
+            publishability = {}
+        blocking = [
+            str(value)
+            for value in (publishability.get("blockingIssues") or [])
+            if str(value) != "parent_audio_rebinding_required"
+        ]
+        if "parent_audio_rebinding_required" not in blocking:
+            blocking.append("parent_audio_rebinding_required")
+        metadata.update(
+            {
+                "asset_state": "review_ready",
+                "burnedCaption": True,
+                "captionRenderReceipt": receipt,
+                "publishability": {
+                    **publishability,
+                    "status": "blocked",
+                    "blockingIssues": blocking,
+                },
+            }
+        )
+        blob_id = f"blob_caption_{output_sha[:24]}"
+        edge_id = f"edge_caption_{output_sha[:24]}"
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO generation_output_blobs
+                (id, content_sha256, byte_size, media_type, created_at)
+                VALUES (?, ?, ?, 'video', ?)
+                """,
+                (blob_id, output_sha, output.stat().st_size, now),
+            )
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO generation_lineage_edges
+                (id, generation_attempt_id, source_asset_id, rendered_asset_id,
+                 output_blob_id, relation, lineage_json, created_at)
+                VALUES (?, ?, ?, ?, ?, 'caption_render', ?, ?)
+                """,
+                (
+                    edge_id,
+                    str(attempt["id"]),
+                    str(asset["source_asset_id"]),
+                    rendered_asset_id,
+                    blob_id,
+                    json.dumps(receipt, ensure_ascii=False, sort_keys=True),
+                    now,
+                ),
+            )
+            self.conn.execute(
+                """
+                UPDATE rendered_assets
+                SET content_hash = ?, output_path = ?, campaign_path = ?, filename = ?,
+                    caption = ?, caption_hash = ?, caption_banks_json = ?,
+                    creator_mix = COALESCE(?, creator_mix),
+                    caption_outcome_context_json = ?, caption_generation_json = ?,
+                    metadata_json = ?, audit_status = 'pending',
+                    review_state = 'review_ready', updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    output_sha,
+                    str(output),
+                    str(output),
+                    output.name,
+                    caption_text,
+                    caption_hash,
+                    json.dumps(selected_banks, ensure_ascii=False),
+                    selected_mix,
+                    json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+                    json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                    now,
+                    rendered_asset_id,
+                ),
+            )
+        return {
+            **receipt,
+            "renderedAssetId": rendered_asset_id,
+            "lineageEdgeId": edge_id,
+            "reviewState": "review_ready",
+        }
+
     def _generate_observed_variants(
         self: Any,
         *,
@@ -484,3 +805,25 @@ class ObservedVariantLineageMixin:
         self.conn.execute(f"RELEASE SAVEPOINT {savepoint}")
         self.conn.commit()
         return registered
+
+
+def _safe_observed_file(value: object, label: str) -> Path:
+    path = Path(str(value or "")).expanduser()
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    path = path.resolve()
+    if not path.is_file():
+        raise ValueError(f"{label} is missing")
+    return path
+
+
+def _load_observed_json(path: Path, label: str) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{label} is missing or unsafe")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return value

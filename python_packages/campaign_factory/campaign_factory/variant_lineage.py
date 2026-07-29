@@ -239,59 +239,6 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
             ).fetchone()
         )
 
-    def _eligible_existing_media_parent(self, asset: dict[str, Any]) -> bool:
-        digest = str(asset.get("content_hash") or "").lower()
-        path = Path(str(asset.get("output_path") or "")).expanduser().resolve()
-        if (
-            not digest
-            or not path.is_file()
-            or path.is_symlink()
-            or self._sha256_file(path).lower() != digest
-        ):
-            return False
-        row = self.conn.execute(
-            """
-            SELECT emi.manifest_path, emi.manifest_sha256,
-                   emi.audio_receipt_path, emi.audio_receipt_sha256,
-                   emi.qc_receipt_path, emi.qc_receipt_sha256
-            FROM existing_media_intakes emi
-            WHERE emi.rendered_asset_id = ?
-              AND emi.final_sha256 = ?
-              AND emi.eligibility_state = 'ELIGIBLE'
-              AND EXISTS (
-                SELECT 1 FROM existing_media_asset_reviews review
-                WHERE review.rendered_asset_id = emi.rendered_asset_id
-                  AND review.final_sha256 = emi.final_sha256
-                  AND review.verdict = 'WOULD_POST'
-              )
-              AND EXISTS (
-                SELECT 1 FROM existing_media_caption_freezes freeze
-                WHERE freeze.rendered_asset_id = emi.rendered_asset_id
-                  AND freeze.final_sha256 = emi.final_sha256
-                  AND freeze.overlay_state = 'NONE_FROZEN'
-              )
-            ORDER BY emi.updated_at DESC, emi.id DESC
-            LIMIT 1
-            """,
-            (asset["id"], digest),
-        ).fetchone()
-        if row is None:
-            return False
-        return all(
-            receipt_path.is_file()
-            and not receipt_path.is_symlink()
-            and self._sha256_file(receipt_path).lower()
-            == str(row[sha_column] or "").lower()
-            for path_column, sha_column in (
-                ("manifest_path", "manifest_sha256"),
-                ("audio_receipt_path", "audio_receipt_sha256"),
-                ("qc_receipt_path", "qc_receipt_sha256"),
-            )
-            if (
-                receipt_path := Path(str(row[path_column] or "")).expanduser().resolve()
-            )
-        )
-
     def variant_plan(
         self,
         *,
@@ -560,68 +507,6 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
             "receiptPath": str(receipt_path),
             "receiptSha256": metadata["rendererEquivalenceReceipt"]["sha256"],
         }
-
-    def _observed_source(
-        self, parent: dict[str, Any], *, source_media_path: str | None
-    ) -> tuple[Path, str, str]:
-        metadata = json_load(parent.get("metadata_json"), {})
-        if not isinstance(metadata, dict):
-            metadata = {}
-        receipt = metadata.get("audioEmbeddingReceipt")
-        original = receipt.get("originalVideo") if isinstance(receipt, dict) else None
-        if not isinstance(original, dict) and parent.get("parent_asset_id"):
-            ancestor = self.conn.execute(
-                "SELECT metadata_json FROM rendered_assets WHERE id = ?",
-                (parent["parent_asset_id"],),
-            ).fetchone()
-            ancestor_metadata = (
-                json_load(ancestor["metadata_json"], {}) if ancestor else {}
-            )
-            ancestor_receipt = (
-                ancestor_metadata.get("audioEmbeddingReceipt")
-                if isinstance(ancestor_metadata, dict)
-                else None
-            )
-            original = (
-                ancestor_receipt.get("originalVideo")
-                if isinstance(ancestor_receipt, dict)
-                else None
-            )
-        candidates: list[tuple[Path, str, str]] = []
-        if (
-            isinstance(original, dict)
-            and original.get("path")
-            and original.get("sha256")
-        ):
-            candidates.append(
-                (
-                    Path(str(original["path"])).expanduser(),
-                    str(original["sha256"]).lower(),
-                    "audio_receipt_original_visual",
-                )
-            )
-        parent_path = Path(
-            str(parent.get("campaign_path") or parent.get("output_path") or "")
-        ).expanduser()
-        parent_sha = str(parent.get("content_hash") or "").lower()
-        if parent_sha:
-            candidates.append((parent_path, parent_sha, "parent_final"))
-        if source_media_path:
-            selected = Path(source_media_path).expanduser().resolve()
-            actual = self._sha256_file(selected)
-            for _, expected, provenance in candidates:
-                if actual == expected:
-                    return selected, actual, provenance
-            raise ValueError("source_media_path SHA is absent from parent lineage")
-        for path, expected, provenance in candidates:
-            resolved = path.resolve()
-            if (
-                resolved.is_file()
-                and not resolved.is_symlink()
-                and self._sha256_file(resolved) == expected
-            ):
-                return resolved, expected, provenance
-        raise ValueError("verified pre-audio source media is missing")
 
     def _generate_legacy_contentforge_variants(
         self,
