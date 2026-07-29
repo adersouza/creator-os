@@ -53,23 +53,62 @@ class ObservedVariantLineageMixin:
         metadata = json_load(parent.get("metadata_json"), {})
         if not isinstance(metadata, dict):
             metadata = {}
-        captioned = bool(
-            str(parent.get("caption") or "").strip()
-            or str(parent.get("caption_hash") or "").strip()
-            or metadata.get("burnedCaption")
+        ancestor_metadata: dict[str, Any] = {}
+        if parent.get("parent_asset_id"):
+            ancestor = self.conn.execute(
+                "SELECT metadata_json FROM rendered_assets WHERE id = ?",
+                (parent["parent_asset_id"],),
+            ).fetchone()
+            if ancestor:
+                loaded = json_load(ancestor["metadata_json"], {})
+                if isinstance(loaded, dict):
+                    ancestor_metadata = loaded
+        explicit_caption_state = metadata.get(
+            "burnedCaption", metadata.get("captionBurned")
         )
+        captioned = bool(
+            explicit_caption_state
+            if explicit_caption_state is not None
+            else source_provenance == "parent_final"
+            and (
+                str(parent.get("caption") or "").strip()
+                or str(parent.get("caption_hash") or "").strip()
+            )
+        )
+        production_recipe = metadata.get("productionMotionRecipe")
+        ancestor_recipe = ancestor_metadata.get("productionMotionRecipe")
+        motion_intent = str(
+            metadata.get("motionIntent")
+            or (
+                production_recipe.get("intent")
+                if isinstance(production_recipe, dict)
+                else ""
+            )
+            or ancestor_metadata.get("motionIntent")
+            or (
+                ancestor_recipe.get("intent")
+                if isinstance(ancestor_recipe, dict)
+                else ""
+            )
+            or ""
+        ).lower()
         synchronized = bool(
             metadata.get("synchronizedContent")
             or metadata.get("referenceTalking")
-            or str(metadata.get("motionIntent") or "").lower()
-            in {"talking", "dance", "motion_copy", "recreate_reel"}
+            or ancestor_metadata.get("synchronizedContent")
+            or ancestor_metadata.get("referenceTalking")
+            or motion_intent in {"talking", "dance", "motion_copy", "recreate_reel"}
         )
         passive = media["mediaType"] == "image" or bool(
             metadata.get("passiveContent")
-            or str(metadata.get("creationMode") or "").lower()
+            or ancestor_metadata.get("passiveContent")
+            or str(
+                metadata.get("creationMode")
+                or ancestor_metadata.get("creationMode")
+                or ""
+            ).lower()
             in {"static_reel", "calm_animation"}
-            or str(metadata.get("motionIntent") or "").lower()
-            in {"ambient", "calm", "passive", "passive_selfie"}
+            or motion_intent in {"ambient", "calm", "passive", "passive_selfie"}
         )
         audio_state = (
             "final_bound"

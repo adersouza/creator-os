@@ -124,7 +124,11 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         content_surface = self._normalize_content_surface(asset.get("content_surface"))
         if content_surface == "reel":
             publishability = self.explain_publishability(rendered_asset_id)
-            if not publishability.get("publishableCandidate"):
+            existing_media_control = self._eligible_existing_media_parent(asset)
+            if (
+                not publishability.get("publishableCandidate")
+                and not existing_media_control
+            ):
                 self._capture_publishability_rejection_evidence_from_result(
                     rendered_asset_id,
                     publishability,
@@ -158,6 +162,13 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         payload = {
             "operator": operator,
             "audioIntent": audio_intent,
+            "controlAdmission": (
+                "eligible_existing_media"
+                if existing_media_control
+                else "publishable_candidate"
+            )
+            if content_surface == "reel"
+            else "surface_handoff_ready",
             **(metadata or {}),
         }
         self.conn.execute(
@@ -228,6 +239,59 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
             ).fetchone()
         )
 
+    def _eligible_existing_media_parent(self, asset: dict[str, Any]) -> bool:
+        digest = str(asset.get("content_hash") or "").lower()
+        path = Path(str(asset.get("output_path") or "")).expanduser().resolve()
+        if (
+            not digest
+            or not path.is_file()
+            or path.is_symlink()
+            or self._sha256_file(path).lower() != digest
+        ):
+            return False
+        row = self.conn.execute(
+            """
+            SELECT emi.manifest_path, emi.manifest_sha256,
+                   emi.audio_receipt_path, emi.audio_receipt_sha256,
+                   emi.qc_receipt_path, emi.qc_receipt_sha256
+            FROM existing_media_intakes emi
+            WHERE emi.rendered_asset_id = ?
+              AND emi.final_sha256 = ?
+              AND emi.eligibility_state = 'ELIGIBLE'
+              AND EXISTS (
+                SELECT 1 FROM existing_media_asset_reviews review
+                WHERE review.rendered_asset_id = emi.rendered_asset_id
+                  AND review.final_sha256 = emi.final_sha256
+                  AND review.verdict = 'WOULD_POST'
+              )
+              AND EXISTS (
+                SELECT 1 FROM existing_media_caption_freezes freeze
+                WHERE freeze.rendered_asset_id = emi.rendered_asset_id
+                  AND freeze.final_sha256 = emi.final_sha256
+                  AND freeze.overlay_state = 'NONE_FROZEN'
+              )
+            ORDER BY emi.updated_at DESC, emi.id DESC
+            LIMIT 1
+            """,
+            (asset["id"], digest),
+        ).fetchone()
+        if row is None:
+            return False
+        return all(
+            receipt_path.is_file()
+            and not receipt_path.is_symlink()
+            and self._sha256_file(receipt_path).lower()
+            == str(row[sha_column] or "").lower()
+            for path_column, sha_column in (
+                ("manifest_path", "manifest_sha256"),
+                ("audio_receipt_path", "audio_receipt_sha256"),
+                ("qc_receipt_path", "qc_receipt_sha256"),
+            )
+            if (
+                receipt_path := Path(str(row[path_column] or "")).expanduser().resolve()
+            )
+        )
+
     def variant_plan(
         self,
         *,
@@ -259,11 +323,10 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         )
         if observed_profile:
             caption_lineage_ok = caption_version_id is None
-        can_generate = (
-            concept is not None
-            and self.explain_publishability(parent_asset_id).get("publishableCandidate")
-            and caption_lineage_ok
-        )
+        publishable = self.explain_publishability(parent_asset_id).get(
+            "publishableCandidate"
+        ) or self._eligible_existing_media_parent(asset)
+        can_generate = concept is not None and publishable and caption_lineage_ok
         family_key = ":".join(
             str(part or "")
             for part in (
@@ -506,6 +569,24 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
             metadata = {}
         receipt = metadata.get("audioEmbeddingReceipt")
         original = receipt.get("originalVideo") if isinstance(receipt, dict) else None
+        if not isinstance(original, dict) and parent.get("parent_asset_id"):
+            ancestor = self.conn.execute(
+                "SELECT metadata_json FROM rendered_assets WHERE id = ?",
+                (parent["parent_asset_id"],),
+            ).fetchone()
+            ancestor_metadata = (
+                json_load(ancestor["metadata_json"], {}) if ancestor else {}
+            )
+            ancestor_receipt = (
+                ancestor_metadata.get("audioEmbeddingReceipt")
+                if isinstance(ancestor_metadata, dict)
+                else None
+            )
+            original = (
+                ancestor_receipt.get("originalVideo")
+                if isinstance(ancestor_receipt, dict)
+                else None
+            )
         candidates: list[tuple[Path, str, str]] = []
         if (
             isinstance(original, dict)
