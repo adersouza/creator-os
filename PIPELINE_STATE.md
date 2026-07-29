@@ -14,12 +14,13 @@ operation.
 
 | Layer | Current evidence |
 |---|---|
-| Reconciliation source before this local change | clean `main` and `origin/main` at `817235bd1689e34e4f508c784a2251c3aa7fd16b` |
-| Authoritative source | query `git rev-parse origin/main`; this documentation commit necessarily advances the recorded baseline |
-| Hosted release/security | required on the exact final merge SHA before runtime promotion |
-| Machine runtime at reconciliation | clean checkout at `817235bd1689e34e4f508c784a2251c3aa7fd16b` |
-| Alignment proof | source and runtime status both resolved to the exact same clean SHA |
-| Current local work | prompt-driven recreation changes are uncommitted and not runtime-promoted |
+| Three-mode feature baseline | PR [#557](https://github.com/adersouza/creator-os/pull/557) merged as `289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983` |
+| Authoritative current source | query `git rev-parse origin/main`; documentation-only commits may advance beyond the feature baseline |
+| PR-head verification | affected, hygiene, and secret-scan checks succeeded |
+| Exact current-SHA release/security | pending unless separately run against the final current source SHA |
+| Machine runtime | clean detached checkout at prior SHA `817235bd1689e34e4f508c784a2251c3aa7fd16b` |
+| Source/runtime alignment | not aligned; guarded promotion and runtime-health verification remain pending |
+| Cleanup state | at reconciliation, no unrelated development worktrees or feature branches remained |
 
 Run this before relying on the snapshot:
 
@@ -30,7 +31,7 @@ scripts/creator-os status --json
 /Users/aderdesouza/Developer/creator-os-runtime/scripts/creator-os status --json
 ```
 
-## Current Read-Only Health Snapshot
+## Pre-Promotion Runtime Health Snapshot
 
 The 2026-07-29 local status check confirmed:
 
@@ -43,12 +44,11 @@ The 2026-07-29 local status check confirmed:
   `~/.creator-os/state`;
 - the configured Campaign database is readable and contains the Stacey learning
   cohort campaign;
-- the failed incomplete 8.3 GB runtime backup was removed after a focused
-  source-approval database backup passed integrity verification;
-- runtime backup preserves historical symlink records instead of dereferencing
-  missing retired-media targets;
-- source and runtime were clean and aligned at
-  `817235bd1689e34e4f508c784a2251c3aa7fd16b` before the current local work.
+- the latest focused state backup passed integrity verification, and runtime
+  backup preserves historical symlinks without dereferencing retired targets;
+- runtime remains clean at `817235bd1689e34e4f508c784a2251c3aa7fd16b`;
+- merged source is now `289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983`,
+  so the next runtime operation is an explicit guarded promotion.
 
 Provider readiness and the ThreadsDashboard handshake were `NOT_RUN` in this
 snapshot because only local read-only status was requested. Do not infer a live
@@ -58,16 +58,15 @@ provider or product seam pass.
 
 Authenticated read-only checks confirmed:
 
-| Creator | Completed Soul 2 | Completed private Element | Approved images | Imported images | Imported videos | Other |
-|---|---:|---:|---:|---:|---:|---:|
-| Stacey | yes | yes | 3 | 131 | 335 | 1 guarded review package |
-| Larissa | yes | yes | 3 | 0 | 208 | 0 |
-| Lola | yes | yes | 3 | 0 | 203 | 0 |
+| Creator | Completed Soul 2 | Approved images | Imported images | Imported videos | Other |
+|---|---:|---:|---:|---:|---:|
+| Stacey | yes | 3 | 131 | 335 | 1 guarded review package |
+| Larissa | yes | 3 | 0 | 208 | 0 |
+| Lola | yes | 3 | 0 | 203 | 0 |
 
-Stacey has one trained Soul and several old single-image Elements created during
-earlier tests. Those numbered/test Elements are not extra trained identities.
-Creator OS binds the canonical Stacey Element; the unused account objects do
-not participate in routing.
+Stacey has one canonical Soul 2 identity and three approved creator images.
+Older test Elements remain provider-side historical inventory but do not
+participate in active three-mode routing.
 
 Larissa and Lola now each have a deliberately small approved set: one close,
 one mid-body, and one wider/full-body source. Every selected file is
@@ -75,15 +74,17 @@ creator-bound, byte-present, SHA-valid, and backed by a
 `source_approval_decided` audit event. The older 208/203 imported rows are
 videos, not still images; they were not bulk-approved.
 
-## Current Product Capability
+## Implemented And Source-Verified Capability
 
 ### Supported
 
-- intent-first `creator-os create`;
+- three-mode `creator-os create`;
 - Higgsfield as the only normal visual-generation provider;
 - direct Soul 2 still generation with explicit identity and lineage;
 - free deterministic static MP4;
-- product-pinned Higgsfield Kling 3 Turbo or Seedance 2 passive motion;
+- `calm_animation` through pinned Kling 3 Turbo at 720p;
+- `recreate_reel` through approved calm Kling or structural Seedance 2 Fast
+  routing;
 - provider-generated sound disabled for passive motion;
 - live private Audio Radar cache and verified embedded AAC;
 - exact final MP4/audio receipt binding;
@@ -109,8 +110,8 @@ videos, not still images; they were not bulk-approved.
 ### Unresolved
 
 - exact supplied-voice talking selfie;
-- motion copy and dance transfer;
-- talking motion copy.
+- exact motion copy and dance transfer; prompt-authored dancing remains available;
+- exact supplied-voice talking motion copy.
 
 ### Historical or advanced only
 
@@ -154,18 +155,6 @@ Instagram publication. Fixed-cohort windows are proposals for consecutive
 eligible account-local days with `learnedTiming=false`; ThreadsDashboard
 remains final scheduling authority.
 
-## Current Repository Weight
-
-Tracked source was approximately 16.88 MiB before the current documentation
-deduplication and 16.69 MiB afterward. Runtime environments, private media,
-Audio Radar bytes, QC models, databases, receipts, and backups live outside
-tracked source and must not be treated as repository bloat.
-
-Repository cleanup removes merged development worktrees and their local/remote
-branches after proving their PR or patch landed. It does not delete the runtime
-checkout, canonical state, media, model files, receipts, databases, backups, or
-rollback evidence.
-
 ## Still Separate And Operator-Gated
 
 - runtime promotion when source and runtime differ;
@@ -182,8 +171,10 @@ The repository contains no Creator OS schedule or publish command.
 
 Use these exact claims:
 
-- `make affected` or `pnpm check:all` proves source checks.
-- A successful hosted release proves the exact merged source SHA.
+- Passing local or PR-head checks proves source verification in that
+  checkout/tree.
+- The merge commit on `origin/main` proves merged status.
+- Exact-target-SHA release and security workflows prove released status.
 - `creator-os promote` plus its receipt proves runtime promotion.
 - A Higgsfield generation ID and output SHA prove one provider result.
 - a Creative Approval proves operator acceptance of one exact final SHA.

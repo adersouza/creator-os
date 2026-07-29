@@ -13,6 +13,27 @@ For a new ChatGPT session, provide this map, `PIPELINE_STATE.md`, and
 `docs/operations/creator_os_master_operating_spec.md`. Together they describe
 durable architecture, current operational truth, and active product policy.
 
+## Repository Closure Snapshot — 2026-07-29
+
+The three-mode simplification is complete and frozen at merge
+`289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983` through PR
+[#557](https://github.com/adersouza/creator-os/pull/557).
+
+| Layer | Status |
+|---|---|
+| Architecture | **COMPLETE** — three public creation modes |
+| Implementation | **COMPLETE** — merged on `main` |
+| Hosted source verification | **COMPLETE** — affected, hygiene, and secret-scan checks passed |
+| Runtime promotion | **PENDING** — protected runtime remains on the prior SHA |
+| Live visual qualification | **PENDING** — one bounded paid `recreate_reel` run |
+| ThreadsDashboard handoff qualification | **PENDING** — only after exact-final operator review |
+
+Freeze this creation-mode architecture. Do not add public modes, restore local
+execution to the product CLI, or revive Motion Control, legacy remix, or other
+removed execution routes. Prompt authoring may describe talking or dancing
+performances, but that does not claim exact supplied-audio lip sync or exact
+choreography transfer.
+
 ## The System In One Sentence
 
 Creator OS turns approved creator identity and content intent into an
@@ -201,9 +222,13 @@ generation; no creator may inherit another creator's Soul or reference image.
 `creator-os create` exposes three product modes:
 
 1. `static_reel` — approved creator still to local static MP4;
-2. `calm_animation` — OpenAI prompt plus pinned Kling/Seedance motion;
+2. `calm_animation` — OpenAI prompt plus pinned Kling 3 Turbo motion;
 3. `recreate_reel` — authorized reference analysis, Soul anchor prompt, and
    model-specific recreation prompt.
+
+This three-mode list is the frozen public contract. Talking, dancing, outfit,
+portrait, and lifestyle concepts are prompt/content characteristics inside
+these modes, not additional execution modes.
 
 Before any new generation, Campaign Factory automatically reuses enough exact
 approved, audited, creator/intent-matched MP4s when their bytes and required
@@ -221,12 +246,14 @@ The operator's real would-post review is the model-selection authority:
 |---|---|---|
 | Soul still | **SUPPORTED** | Higgsfield Soul 2 with explicit creator Soul ID and exact reference/prompt lineage |
 | Static Reel | **SUPPORTED** | deterministic local MP4 from an accepted still; zero provider-video cost |
-| Passive selfie / portrait / outfit / lifestyle motion | **SUPPORTED** | product-pinned Higgsfield Kling 3 Turbo or Seedance 2 with OpenAI-authored prompts, generated sound disabled |
+| Passive selfie / portrait / outfit / lifestyle motion | **SUPPORTED** | `calm_animation` uses product-pinned Higgsfield Kling 3 Turbo with OpenAI-authored prompts and generated sound disabled |
 | Animate an already-approved still | **SUPPORTED** | same pinned passive Higgsfield lane |
 | Existing finished Creator OS media | **SUPPORTED** | strict intake/reconciliation with retained source, generation, audio, QC, and final-media hashes |
 | Prompt-driven reference-Reel recreation | **EXPERIMENTAL** | OpenAI-authored Soul/Seedance/Kling prompt pack from the approved creator image and sampled Reel frames; only the approved anchor and prompt reach Seedance/Kling |
-| Motion copy / dance transfer | **UNRESOLVED** | tested Kling Motion Control outputs were rejected; no approved replacement recipe |
-| Talking selfie | **UNRESOLVED** | no authenticated, operator-approved exact supplied-voice path |
+| Prompt-authored dancing performance | **AVAILABLE AS PROMPTED CONTENT** | OpenAI may describe dancing actions for Kling/Seedance; exact source choreography transfer is not claimed |
+| Prompt-authored talking performance | **AVAILABLE AS PROMPTED CONTENT** | OpenAI may describe speaking performance; exact supplied-voice lip sync is not claimed |
+| Motion copy / exact dance transfer | **UNRESOLVED** | tested Kling Motion Control outputs were rejected; no approved exact-transfer recipe |
+| Exact supplied-voice talking selfie | **UNRESOLVED** | no authenticated, operator-approved exact supplied-voice path |
 | Talking motion copy | **UNRESOLVED** | neither the transfer base nor exact supplied-audio lip-sync path is approved |
 | WaveSpeed O3/Vidu/InfiniteTalk | **REJECTED FOR NORMAL PRODUCTION** | historical receipts remain readable; no active route or fallback |
 | Local Wan/LTX/LongCat | **ADVANCED RESEARCH ONLY** | not a normal production default or fallback |
@@ -457,7 +484,7 @@ Authorized apply stores private artifacts outside Git with 0700 directories
 and 0600 files. Platform/media ID is the primary idempotency key, downloaded SHA
 is second, and URL aliases are only a pre-download hint.
 
-The intent-first recreation planner then continues:
+The `recreate_reel` planner then continues:
 
 ```text
 canonical private reference
@@ -932,7 +959,7 @@ remains unresolved.
 | `creator-os reference-refresh` | preview/apply local Reference and audio catalog refresh |
 | `creator-os audio status` | read-only active-library summary |
 | `creator-os audio refresh` | bounded private discovery/cache refresh; no Reel or publishing |
-| `creator-os create` | intent-first production dry-run/apply; no export/schedule/publish |
+| `creator-os create` | three-mode production dry-run/apply; no export/schedule/publish |
 | `creator-os video-bakeoff` | inspect retained provider bakeoff evidence only |
 | `creator-os quality-benchmark` | validate the fixed exact-source creative benchmark without generation |
 | `creator-os review` | read-only creative/QC review |
@@ -941,7 +968,6 @@ remains unresolved.
 | `creator-os performance-sync` | preview/apply canonical metrics ingestion |
 | `creator-os learning-refresh` | versioned pack export/import and recommendation refresh |
 | `creator-os learning-review` | list, approve, reject, pin, or revoke recommendations |
-| `creator-os generate` | advanced explicit-mode compatibility surface |
 | `creator-os advanced` | developer-only local model, queue, benchmark, Arena, Router, analyzer diagnostics |
 | `creator-os promote` | guarded source-to-runtime promotion only |
 
