@@ -32,6 +32,9 @@ from .threadsdash_draft_integrity import (
     verify_rendered_media_asset,
     with_content_fingerprint,
 )
+from .threadsdash_inventory_reservations import (
+    active_inventory_reservation as _active_inventory_reservation,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -454,28 +457,6 @@ def build_draft_payloads(
         "manifest": manifest,
         "drafts": drafts,
     }
-
-
-def _active_inventory_reservation(
-    factory: CampaignFactory,
-    *,
-    rendered_asset_id: str,
-    account_id: str | None,
-) -> dict[str, Any] | None:
-    if not account_id:
-        return None
-    row = factory.conn.execute(
-        """
-        SELECT *
-        FROM asset_inventory_reservations
-        WHERE asset_id = ? AND account_id = ?
-          AND status IN ('pending', 'committed')
-        ORDER BY reserved_at DESC
-        LIMIT 1
-        """,
-        (rendered_asset_id, account_id),
-    ).fetchone()
-    return dict(row) if row else None
 
 
 def _normalize_draft_payload_schema(value: str) -> str:

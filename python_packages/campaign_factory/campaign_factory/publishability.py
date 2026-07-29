@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .ai_disclosure import AI_DISCLOSURE_BLOCKER, AiDisclosurePublishabilityMixin
-from .asset_evidence import verify_registered_asset_bytes
-from .caption_outcome import load_context_json
+from .asset_evidence import final_artifact_integrity_for_publishability
+from .caption_outcome import clean_without_overlay_fallback, load_context_json
 from .caption_policy import (
     SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
     WARNING_CLASS_HARD_BLOCKER,
@@ -971,20 +971,7 @@ class PublishabilityRepository(
             or (caption_context or {}).get("caption_placement_policy")
         )
         placement_decision = (caption_context or {}).get("captionPlacementDecision")
-        caption_fallback = (caption_context or {}).get("captionFallback")
-        clean_caption_fallback = (
-            isinstance(placement_decision, dict)
-            and placement_decision.get("status") == "failed"
-            and placement_decision.get("reasonCode")
-            in {
-                "no_safe_caption_lane",
-                "insufficient_caption_placement_evidence",
-            }
-            and placement_decision.get("renderPolicy") == "clean_without_overlay"
-            and isinstance(caption_fallback, dict)
-            and caption_fallback.get("renderPolicy") == "clean_without_overlay"
-            and (caption_context or {}).get("captionBurnedIn") is False
-        )
+        clean_caption_fallback = clean_without_overlay_fallback(caption_context)
         placement_qc_passed = (
             placement_policy == "focal_safe_v1"
             and isinstance(placement_decision, dict)
@@ -1034,13 +1021,9 @@ class PublishabilityRepository(
             or caption_hash
         )
         content_fingerprint = asset.get("content_hash") or asset.get("contentHash")
-        final_artifact_integrity = verify_registered_asset_bytes(asset)
-        audited_integrity = (latest_audit or {}).get("finalArtifactIntegrity")
-        if (
-            isinstance(audited_integrity, dict)
-            and audited_integrity.get("subjectSha256") == content_fingerprint
-        ):
-            final_artifact_integrity = audited_integrity
+        final_artifact_integrity = final_artifact_integrity_for_publishability(
+            asset, latest_audit
+        )
         readiness_blockers = list(
             ((latest_audit or {}).get("readinessSummary") or {}).get("blockingReasons")
             or []

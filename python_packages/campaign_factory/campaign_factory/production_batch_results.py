@@ -101,6 +101,183 @@ def provider_receipt_summary(
     }
 
 
+def failed_provider_execution(
+    factory: Any, job: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    try:
+        review_root_value = str(job.get("providerReviewRoot") or "").strip()
+        if review_root_value:
+            receipt_dir = Path(review_root_value).expanduser().resolve() / "receipts"
+            higgsfield_matches: list[dict[str, Any]] = []
+            for path in receipt_dir.glob("*.higgsfield_submission.json"):
+                if path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    receipt = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if isinstance(receipt, dict) and receipt.get(
+                    "requestFingerprint"
+                ) == job.get("providerPlanFingerprint"):
+                    higgsfield_matches.append(receipt)
+            if len(higgsfield_matches) == 1:
+                receipt = higgsfield_matches[0]
+                final = receipt.get("finalOutput")
+                final = final if isinstance(final, dict) else {}
+                return {
+                    "requestId": receipt.get("generationId"),
+                    "model": receipt.get("model"),
+                    "status": receipt.get("status"),
+                    "submittedAt": receipt.get("submittedAt"),
+                    "completedAt": receipt.get("completedAt"),
+                    "outputSha256": final.get("sha256"),
+                    "generationDurationSeconds": receipt.get(
+                        "generationDurationSeconds"
+                    ),
+                    "providerCostCredits": receipt.get("creditsConsumed"),
+                    "requestFingerprint": receipt.get("requestFingerprint"),
+                    "evidencePath": receipt.get("evidencePath"),
+                }
+        campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
+        model_slug = factory.domains.reel_execution.model_slug_for_campaign(
+            campaign["id"]
+        )
+        evidence_dir = (
+            factory.domains.campaign_dirs(model_slug, campaign["slug"])["audits"]
+            / "motion_generation"
+        )
+        prompt_sha = hashlib.sha256(
+            " ".join(str(job["prompt"]).split()).encode("utf-8")
+        ).hexdigest()
+        stages = list(job["productionRecipe"].get("stages") or [])
+        expected_provider_model = (
+            str(stages[0].get("providerModel") or "") if stages else ""
+        )
+        wavespeed_matches: list[tuple[dict[str, Any], Path]] = []
+        for path in evidence_dir.glob("*.wavespeed_submission.json"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                receipt = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(receipt, dict):
+                continue
+            if (
+                receipt.get("creator") == job.get("creator")
+                and receipt.get("intent") == job.get("intent")
+                and receipt.get("sourceSha256") == job.get("sourceSha256")
+                and receipt.get("expandedPromptSha256") == prompt_sha
+                and receipt.get("providerModel") == expected_provider_model
+                and (
+                    receipt.get("requestIdentitySeed") == job.get("seed")
+                    or receipt.get("seed") == job.get("seed")
+                )
+                and receipt.get("predictionId")
+            ):
+                wavespeed_matches.append((receipt, path))
+        if len(wavespeed_matches) != 1:
+            return None
+        receipt, path = wavespeed_matches[0]
+        return provider_receipt_summary(receipt, evidence_path=path)
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+        return None
+
+
+def run_production_hard_qc(
+    *, job: Mapping[str, Any], generation_result: dict[str, Any]
+) -> dict[str, Any]:
+    blockers: list[str] = []
+    source_path = Path(str(job["sourcePath"])).expanduser().resolve()
+    if (
+        source_path.is_symlink()
+        or not source_path.is_file()
+        or _sha256_file(source_path) != job["sourceSha256"]
+    ):
+        blockers.append("source_substitution")
+    stage = _motion_stage_result(generation_result)
+    registered = stage.get("registeredAsset")
+    if not isinstance(registered, dict):
+        blockers.append("unreadable_or_corrupt_media")
+        return _hard_qc_receipt(job, blockers=blockers, output_sha256=None, probe=None)
+    output = Path(str(registered.get("output_path") or "")).expanduser()
+    output_sha: str | None = None
+    probe: dict[str, Any] | None = None
+    if output.is_symlink() or not output.resolve().is_file():
+        blockers.append("unreadable_or_corrupt_media")
+    else:
+        output = output.resolve()
+        try:
+            output_sha = _sha256_file(output)
+            if output_sha != str(registered.get("content_hash") or ""):
+                blockers.append("source_substitution")
+            probe = probe_production_video(output)
+            if probe["durationSeconds"] <= 0 or probe["durationSeconds"] > 60:
+                blockers.append("invalid_duration_or_codec")
+            if probe["codec"] not in {"h264", "hevc", "av1", "vp9"}:
+                blockers.append("invalid_duration_or_codec")
+            ratio = probe["width"] / probe["height"]
+            if not 0.50 <= ratio <= 0.65:
+                blockers.append("invalid_duration_or_codec")
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            blockers.append("unreadable_or_corrupt_media")
+    provider = provider_execution(generation_result)
+    if provider is not None:
+        stages = list(job["productionRecipe"].get("stages") or [])
+        expected_model = str(stages[-1].get("providerModel") or "") if stages else None
+        if (
+            provider.get("model") != expected_model
+            or provider.get("outputSha256") != output_sha
+            or provider.get("requestFingerprint") is None
+        ):
+            blockers.append("source_substitution")
+    return _hard_qc_receipt(
+        job, blockers=blockers, output_sha256=output_sha, probe=probe
+    )
+
+
+def _hard_qc_receipt(
+    job: Mapping[str, Any],
+    *,
+    blockers: list[str],
+    output_sha256: str | None,
+    probe: dict[str, Any] | None,
+) -> dict[str, Any]:
+    unique_blockers = sorted(set(blockers))
+    receipt = {
+        "schema": "campaign_factory.production_hard_qc.v1",
+        "jobId": job["jobId"],
+        "sourceSha256": job["sourceSha256"],
+        "outputSha256": output_sha256,
+        "checks": {
+            "sourceBinding": "failed"
+            if "source_substitution" in unique_blockers
+            else "passed",
+            "mediaIntegrity": (
+                "failed"
+                if {
+                    "unreadable_or_corrupt_media",
+                    "invalid_duration_or_codec",
+                }.intersection(unique_blockers)
+                else "passed"
+            ),
+            "identityAndAnatomy": "not_reported_by_available_analyzers",
+        },
+        "probe": probe,
+        "blockers": unique_blockers,
+        "status": "blocked" if unique_blockers else "passed",
+    }
+    return {**receipt, "receiptFingerprint": _fingerprint(receipt)}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def block_duplicate_provider_outputs(results: list[dict[str, Any]]) -> None:
     seen: set[str] = set()
     for item in results:

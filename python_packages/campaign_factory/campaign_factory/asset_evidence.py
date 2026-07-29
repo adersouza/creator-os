@@ -36,6 +36,16 @@ def verify_registered_asset_bytes(asset: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def final_artifact_integrity_for_publishability(
+    asset: dict[str, Any], audit: dict[str, Any] | None
+) -> dict[str, Any]:
+    registered = str(asset.get("content_hash") or asset.get("contentHash") or "")
+    audited = (audit or {}).get("finalArtifactIntegrity")
+    if isinstance(audited, dict) and audited.get("subjectSha256") == registered:
+        return audited
+    return verify_registered_asset_bytes(asset)
+
+
 def verify_final_artifact_integrity(asset: dict[str, Any]) -> dict[str, Any]:
     """Verify the exact final video after every byte-changing operation."""
 

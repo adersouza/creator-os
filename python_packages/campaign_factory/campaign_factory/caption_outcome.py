@@ -195,6 +195,23 @@ def context_has_signal(context: dict[str, Any] | None) -> bool:
     )
 
 
+def clean_without_overlay_fallback(context: dict[str, Any] | None) -> bool:
+    if not isinstance(context, dict):
+        return False
+    placement = context.get("captionPlacementDecision")
+    fallback = context.get("captionFallback")
+    return bool(
+        isinstance(placement, dict)
+        and placement.get("status") == "failed"
+        and placement.get("reasonCode")
+        in {"no_safe_caption_lane", "insufficient_caption_placement_evidence"}
+        and placement.get("renderPolicy") == "clean_without_overlay"
+        and isinstance(fallback, dict)
+        and fallback.get("renderPolicy") == "clean_without_overlay"
+        and context.get("captionBurnedIn") is False
+    )
+
+
 def context_json(context: dict[str, Any] | None) -> str:
     if not isinstance(context, dict) or not context_has_signal(context):
         return "{}"

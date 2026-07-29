@@ -34,6 +34,15 @@ from ..learning_score import (
 from ..lineage_v2 import (
     lineage_v2_is_learning_traceable,
 )
+from .threadsdash_metric_observations import (
+    record_immutable_performance_observation as _record_immutable_performance_observation,
+)
+from .threadsdash_metric_values import (
+    int_metric as _int_metric,
+)
+from .threadsdash_metric_values import (
+    watch_time_seconds as _watch_time_seconds,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -788,63 +797,6 @@ def _dead_letter_performance_sync_row(
     )
 
 
-def _record_immutable_performance_observation(
-    conn: Any, snapshot: dict[str, Any]
-) -> str:
-    raw_json = str(snapshot.get("raw_json") or "{}")
-    try:
-        raw_payload = json.loads(raw_json)
-    except json.JSONDecodeError:
-        raw_payload = raw_json
-    canonical_raw = json.dumps(
-        raw_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    source_hash = hashlib.sha256(canonical_raw.encode("utf-8")).hexdigest()
-    observation_id = (
-        "perfobs_"
-        + hashlib.sha256(
-            f"{snapshot['post_id']}:{snapshot['snapshot_at']}:{source_hash}".encode()
-        ).hexdigest()[:24]
-    )
-    previous = conn.execute(
-        """
-        SELECT id, source_hash
-        FROM performance_snapshot_observations
-        WHERE post_id = ? AND snapshot_at = ?
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
-        """,
-        (snapshot["post_id"], snapshot["snapshot_at"]),
-    ).fetchone()
-    if previous is not None and previous["source_hash"] == source_hash:
-        return str(previous["id"])
-    normalized = {
-        key: value
-        for key, value in snapshot.items()
-        if key not in {"id", "created_at", "raw_json"}
-    }
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO performance_snapshot_observations
-        (id, post_id, snapshot_at, source_hash, raw_json, normalized_json,
-         supersedes_observation_id, correction_reason, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            observation_id,
-            snapshot["post_id"],
-            snapshot["snapshot_at"],
-            source_hash,
-            canonical_raw,
-            json.dumps(normalized, ensure_ascii=False, sort_keys=True),
-            str(previous["id"]) if previous is not None else None,
-            "source_payload_changed" if previous is not None else None,
-            snapshot["created_at"],
-        ),
-    )
-    return observation_id
-
-
 def _performance_snapshot_from_row(
     *, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1497,63 +1449,4 @@ def _default_metric_names_for_surface(surface: str) -> list[str]:
 def _nested_dict(value: Any, key: str) -> dict[str, Any] | None:
     if isinstance(value, dict) and isinstance(value.get(key), dict):
         return value[key]
-    return None
-
-
-def _int_metric(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> int | None:
-    value = _metric_value(row, meta, *keys)
-    if value is None or value == "":
-        return None
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _float_metric(
-    row: dict[str, Any], meta: dict[str, Any], *keys: str
-) -> float | None:
-    value = _metric_value(row, meta, *keys)
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _watch_time_seconds(row: dict[str, Any], meta: dict[str, Any]) -> float | None:
-    """Normalize ThreadsDashboard watch-time fields to total seconds.
-
-    Creator OS stores total watch time in ``performance_snapshots``. Explicit
-    normalized fields already use seconds. Meta's Reel insight fields are raw
-    milliseconds: prefer total view time, or derive it from average watch time
-    and views when the total is unavailable.
-    """
-    normalized = _float_metric(
-        row, meta, "watch_time_seconds", "watchTimeSeconds", "watch_time"
-    )
-    if normalized is not None:
-        return normalized
-
-    total_ms = _float_metric(row, meta, "ig_reels_video_view_total_time")
-    if total_ms is not None:
-        return total_ms / 1000.0
-
-    average_ms = _float_metric(row, meta, "ig_reels_avg_watch_time")
-    if average_ms is None:
-        return None
-    views = _int_metric(row, meta, "views", "view_count", "views_count", "ig_views")
-    if views is None:
-        return None
-    return average_ms * views / 1000.0
-
-
-def _metric_value(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if row.get(key) is not None:
-            return row.get(key)
-    for key in keys:
-        if meta.get(key) is not None:
-            return meta.get(key)
     return None
