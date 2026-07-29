@@ -326,6 +326,11 @@ def build_draft_payloads(
                 destination_content_hash,
             )
             post_key = _stable_export_key("post", draft_key)
+            inventory_reservation = _active_inventory_reservation(
+                factory,
+                rendered_asset_id=asset["renderedAssetId"],
+                account_id=account_id,
+            )
             draft = {
                 "userId": user_id,
                 "workspaceId": os.environ.get("THREADSDASH_WORKSPACE_ID"),
@@ -415,6 +420,12 @@ def build_draft_payloads(
                 "campaignFactoryDraftKey": draft_key,
                 "campaignFactoryMediaKey": media_key,
                 "campaignFactoryPostKey": post_key,
+                "inventoryReservationId": (
+                    inventory_reservation or {}
+                ).get("reservation_id"),
+                "inventoryReservationStatus": (
+                    inventory_reservation or {}
+                ).get("status"),
                 "auditStatus": asset.get("auditStatus"),
                 "publishability": publishability,
                 "handoffManifest": publishability.get("handoff_manifest"),
@@ -443,6 +454,28 @@ def build_draft_payloads(
         "manifest": manifest,
         "drafts": drafts,
     }
+
+
+def _active_inventory_reservation(
+    factory: CampaignFactory,
+    *,
+    rendered_asset_id: str,
+    account_id: str | None,
+) -> dict[str, Any] | None:
+    if not account_id:
+        return None
+    row = factory.conn.execute(
+        """
+        SELECT *
+        FROM asset_inventory_reservations
+        WHERE asset_id = ? AND account_id = ?
+          AND status IN ('pending', 'committed')
+        ORDER BY reserved_at DESC
+        LIMIT 1
+        """,
+        (rendered_asset_id, account_id),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def _normalize_draft_payload_schema(value: str) -> str:
@@ -1252,6 +1285,8 @@ def _draft_metadata(
             "asset_id": draft["renderedAssetId"],
             "source_asset_id": draft["sourceAssetId"],
             "rendered_asset_id": draft["renderedAssetId"],
+            "inventory_reservation_id": draft.get("inventoryReservationId"),
+            "inventory_reservation_status": draft.get("inventoryReservationStatus"),
             "content_hash": draft.get("contentHash"),
             "content_fingerprint": publishability.get("content_fingerprint")
             or publishability.get("contentFingerprint")

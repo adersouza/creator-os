@@ -197,6 +197,12 @@ class ReelPipelineTests(unittest.TestCase):
             scores={"top": 2.0, "center": 1.0, "bottom": 0.0},
             sample_count=5,
             reason="test",
+            metadata={
+                "captionPlacementDecision": {
+                    "status": "passed",
+                    "selectedLane": "bottom",
+                }
+            },
         )
         with tempfile.TemporaryDirectory() as td:
             result = asyncio.run(
@@ -252,6 +258,12 @@ class ReelPipelineTests(unittest.TestCase):
             scores={"top": 2.0, "center": 1.0, "bottom": 0.0},
             sample_count=5,
             reason="test",
+            metadata={
+                "captionPlacementDecision": {
+                    "status": "passed",
+                    "selectedLane": "bottom",
+                }
+            },
         )
         with tempfile.TemporaryDirectory() as td:
             result = asyncio.run(
@@ -302,6 +314,60 @@ class ReelPipelineTests(unittest.TestCase):
             [row["band"] for row in persisted["segments"]],
             ["top", "bottom"],
         )
+
+    def test_no_safe_lane_dry_run_plans_clean_media_without_overlay_inputs(self):
+        class EmptyManifest:
+            def has_job(self, _key):
+                return False
+
+        summary = PlacementSummary(
+            lane="bottom",
+            scores={"top": 100.0, "center": 100.0, "bottom": 100.0},
+            sample_count=5,
+            reason="all unsafe",
+            metadata={
+                "captionPlacementDecision": {
+                    "status": "failed",
+                    "decisionClass": "failed_no_safe_lane",
+                    "reasonCode": "no_safe_caption_lane",
+                    "selectedLane": None,
+                    "rejectedLanes": ["top", "center", "bottom"],
+                    "renderPolicy": "clean_without_overlay",
+                }
+            },
+        )
+        with tempfile.TemporaryDirectory() as td:
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip.mp4",
+                    "sending one-word replies",
+                    0,
+                    Recipe("v01_original"),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    EmptyManifest(),
+                    "4ddd4a07",
+                    5.0,
+                    {"4ddd4a07": "light"},
+                    {
+                        "4ddd4a07": (
+                            "bottom",
+                            "ig",
+                            DEFAULT_CAPTION_FONT,
+                            summary,
+                        )
+                    },
+                    asyncio.Semaphore(1),
+                    dry_run=True,
+                )
+            )
+
+        self.assertEqual(result["status"], "dry")
+        self.assertEqual(result["overlayInputCount"], 0)
+        self.assertEqual(
+            result["captionFallback"]["reasonCode"], "no_safe_caption_lane"
+        )
+        self.assertIsNone(result["captionFallback"]["burnedCaptionText"])
 
     def test_incomplete_hook_is_allowed_when_recipe_does_not_burn_overlay(self):
         class CachedManifest:
@@ -1607,6 +1673,34 @@ class ReelPipelineTests(unittest.TestCase):
 
         self.assertEqual(summary.lane, "center")
         self.assertEqual(summary.metadata.get("captionPlacementPolicy"), "legacy")
+        self.assertEqual(
+            summary.metadata["captionPlacementDecision"]["decisionClass"],
+            "legacy_selected",
+        )
+
+    def test_focal_safe_scoring_fails_when_every_lane_is_unsafe(self):
+        summary = score_lanes(
+            stddev_samples=[(10.0, 10.0, 10.0)],
+            face_samples=[(100.0, 100.0, 100.0)],
+            focal_samples=[(100.0, 100.0, 100.0)],
+            placement_policy="focal-safe",
+        )
+
+        decision = summary.metadata["captionPlacementDecision"]
+        self.assertEqual(decision["status"], "failed")
+        self.assertEqual(decision["reasonCode"], "no_safe_caption_lane")
+        self.assertIsNone(decision["selectedLane"])
+        self.assertEqual(decision["renderPolicy"], "clean_without_overlay")
+
+    def test_focal_safe_scoring_fails_closed_without_subject_evidence(self):
+        summary = score_lanes(
+            stddev_samples=[(10.0, 12.0, 11.0)],
+            placement_policy="focal-safe",
+        )
+
+        decision = summary.metadata["captionPlacementDecision"]
+        self.assertEqual(decision["decisionClass"], "insufficient_evidence")
+        self.assertEqual(decision["status"], "failed")
 
     def test_timed_caption_default_job_key_matches_segment_placement(self):
         recipe = Recipe("v01_original")

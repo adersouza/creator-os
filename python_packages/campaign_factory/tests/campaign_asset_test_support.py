@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 import zlib
@@ -30,6 +31,7 @@ def add_audit_report(
     warning_codes = warning_codes or []
     report_path = Path(asset["campaign_path"]).with_suffix(f".{audit_id}.json")
     report_payload = {
+        "subjectSha256": asset["content_hash"],
         "readinessSummary": {
             "uploadReady": upload_ready,
             "blockingReasons": failed,
@@ -52,14 +54,15 @@ def add_audit_report(
     cf.conn.execute(
         """
         INSERT INTO audit_reports
-        (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+        (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score, status,
          layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
-        VALUES (?, ?, ?, 'run_1', ?, ?, ?, '{}', '{}', ?, 1, ?, ?, ?)
+        VALUES (?, ?, ?, ?, 'run_1', ?, ?, ?, '{}', '{}', ?, 1, ?, ?, ?)
         """,
         (
             audit_id,
             asset["campaign_id"],
             rendered_asset_id,
+            asset["content_hash"],
             str(report_path),
             100 if status == "approved_candidate" else 0,
             status,
@@ -151,7 +154,7 @@ def add_schedule_safe_production_asset(
             campaign["id"],
             source["id"],
             parent_asset_id,
-            f"hash_{asset_id}",
+            hashlib.sha256(rendered_path.read_bytes()).hexdigest(),
             str(rendered_path),
             str(rendered_path),
             rendered_path.name,
@@ -186,6 +189,7 @@ def add_variant_fixture(
     parent = cf.domains.rendered_asset("asset_1")
     rendered_path = tmp_path / f"{variant_asset_id}.mp4"
     rendered_path.write_bytes(f"rendered-{variant_asset_id}".encode())
+    registered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
     now = "2026-01-02T00:00:00+00:00"
     cf.conn.execute(
         """
@@ -199,7 +203,7 @@ def add_variant_fixture(
             variant_asset_id,
             parent["campaign_id"],
             parent["source_asset_id"],
-            content_hash or f"hash_{variant_asset_id}",
+            registered_hash,
             str(rendered_path),
             str(rendered_path),
             rendered_path.name,
@@ -258,14 +262,15 @@ def add_variant_fixture(
     cf.conn.execute(
         """
         INSERT INTO audit_reports
-        (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+        (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score, status,
          layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
-        VALUES (?, ?, ?, 'run_variant', ?, ?, 'pass', '{}', '{}', 'pass', 1, '[]', '[]', ?)
+        VALUES (?, ?, ?, ?, 'run_variant', ?, ?, 'pass', '{}', '{}', 'pass', 1, '[]', '[]', ?)
         """,
         (
             f"audit_{variant_asset_id}",
             parent["campaign_id"],
             variant_asset_id,
+            registered_hash,
             str(audit_path),
             quality_score,
             now,
@@ -358,7 +363,7 @@ def add_inventory_parent_fixture(
             asset_id,
             campaign["id"],
             source["id"],
-            f"hash_{asset_id}",
+            hashlib.sha256(rendered_path.read_bytes()).hexdigest(),
             str(rendered_path),
             str(rendered_path),
             rendered_path.name,

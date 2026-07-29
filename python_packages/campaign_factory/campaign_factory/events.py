@@ -10,6 +10,55 @@ from typing import Any
 
 from .persistence import json_load
 
+_PIPELINE_SAFE_REPLAY_CLASSES = {
+    "contentforge_audit": "LOCAL",
+    "static_mp4": "LOCAL",
+    "sync_performance": "IDEMPOTENT_EXTERNAL",
+}
+
+
+def _pipeline_recovery_state(row: dict[str, Any]) -> dict[str, Any]:
+    input_payload = json_load(row.get("input_json"), {})
+    result_payload = json_load(row.get("result_json"), {})
+    safe_replay_class = _PIPELINE_SAFE_REPLAY_CLASSES.get(
+        str(row.get("job_type")), "NEVER_AUTOMATIC"
+    )
+    if row.get("status") == "queued":
+        effect_state = "PRE_EFFECT"
+        reconciliation_required = False
+    elif safe_replay_class in {"LOCAL", "IDEMPOTENT_EXTERNAL"}:
+        effect_state = "SUBMISSION_STARTED"
+        reconciliation_required = False
+    else:
+        effect_state = "AMBIGUOUS"
+        reconciliation_required = True
+
+    def first_string(*values: Any) -> str | None:
+        return next(
+            (value for value in values if isinstance(value, str) and value.strip()),
+            None,
+        )
+
+    return {
+        "workItemId": str(row["id"]),
+        "authorizationId": first_string(
+            input_payload.get("authorizationId"),
+            result_payload.get("authorizationId"),
+        ),
+        "attemptId": f"{row['id']}:{int(row.get('attempt_count') or 0)}",
+        "externalOperationId": first_string(
+            result_payload.get("externalOperationId"),
+            result_payload.get("generationId"),
+            result_payload.get("containerId"),
+            input_payload.get("externalOperationId"),
+            input_payload.get("generationId"),
+            input_payload.get("containerId"),
+        ),
+        "effectState": effect_state,
+        "reconciliationRequired": reconciliation_required,
+        "safeReplayClass": safe_replay_class,
+    }
+
 
 class EventRepository:
     def __init__(
@@ -408,9 +457,9 @@ class EventRepository:
     ) -> dict[str, Any]:
         """Recover pipeline jobs stranded in 'queued'/'running' by a crashed worker.
 
-        action='fail' marks stale jobs failed; action='requeue' returns them to
-        'queued' (unless max_attempts is set and already reached, in which case
-        the job is failed instead). Returns a summary with the touched jobs.
+        action='fail' marks stale jobs failed. action='requeue' is allowed only
+        for jobs proven pre-effect or registered as safely replayable; unknown
+        running work is put in a terminal manual hold.
         """
         if stuck_hours <= 0:
             raise ValueError("stuck_hours must be positive")
@@ -428,8 +477,15 @@ class EventRepository:
                 if not stuck:
                     continue
                 attempts = int(row.get("attempt_count") or 0)
-                requeue = action == "requeue" and (
-                    max_attempts is None or attempts < max_attempts
+                recovery = _pipeline_recovery_state(row)
+                requeue = (
+                    action == "requeue"
+                    and (max_attempts is None or attempts < max_attempts)
+                    and (
+                        recovery["effectState"] == "PRE_EFFECT"
+                        or recovery["safeReplayClass"]
+                        in {"LOCAL", "IDEMPOTENT_EXTERNAL"}
+                    )
                 )
                 expected_status = str(row["status"])
                 expected_updated_at = str(row["updated_at"])
@@ -445,7 +501,13 @@ class EventRepository:
                     )
                     outcome = "requeued"
                 else:
-                    if age_hours is None:
+                    manual_hold = (
+                        action == "requeue"
+                        and recovery["reconciliationRequired"] is True
+                    )
+                    if manual_hold:
+                        error = "manual_hold_unknown_external_effect"
+                    elif age_hours is None:
                         error = (
                             "reclaimed as stale: unparseable updated_at/created_at "
                             f"timestamps (threshold {stuck_hours}h)"
@@ -470,7 +532,7 @@ class EventRepository:
                             expected_updated_at,
                         ),
                     )
-                    outcome = "failed"
+                    outcome = "manual_hold" if manual_hold else "failed"
                 if cursor.rowcount != 1:
                     continue
                 reclaimed.append(
@@ -484,6 +546,7 @@ class EventRepository:
                             round(age_hours, 3) if age_hours is not None else None
                         ),
                         "outcome": outcome,
+                        **recovery,
                     }
                 )
         return {
@@ -530,6 +593,7 @@ class EventRepository:
                 round(age_hours, 3) if age_hours is not None else None
             )
             payload["stuckThresholdHours"] = stuck_hours
+        payload["recovery"] = _pipeline_recovery_state(row)
         return payload
 
 

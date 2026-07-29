@@ -336,7 +336,7 @@
           "type": "boolean"
         },
         "recommendedAction": {
-          "enum": ["approve_candidate", "review", "reject"]
+          "enum": ["review_candidate", "review", "reject"]
         }
       }
     }

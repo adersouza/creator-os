@@ -833,6 +833,7 @@ export const generatedPipelineContractSchemas = {
 	              "output_sha256",
 	              "acquired_audio_sha256",
 	              "embedded_audio_fingerprint",
+	              "evidence_class",
 	              "proof_type",
 	              "verification_receipt"
 	            ],
@@ -842,13 +843,92 @@ export const generatedPipelineContractSchemas = {
 	              },
 	              "proof_type": {
 	                "const": "embedded_output_audio_stream"
+	              },
+	              "evidence_class": {
+	                "const": "EXACT_BYTE_VERIFIED"
 	              }
 	            }
+	          },
+	          "lineage": {
+	            "type": "object",
+	            "required": [
+	              "embeddingReceiptSha256",
+	              "processedSegmentSha256",
+	              "segmentStartSeconds",
+	              "segmentEndSeconds",
+	              "acquiredAudioSha256",
+	              "finalMediaSha256",
+	              "finalAudioFingerprint"
+	            ]
 	          }
 	        },
 	        "required": [
-	          "fulfillment"
+	          "fulfillment",
+	          "lineage"
 	        ]
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "rights": {
+	            "properties": {
+	              "required": {
+	                "const": true
+	              }
+	            },
+	            "required": [
+	              "required"
+	            ]
+	          }
+	        },
+	        "required": [
+	          "rights"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "rights": {
+	            "required": [
+	              "usageRightsStatus",
+	              "rightsSource",
+	              "territory",
+	              "accountScope",
+	              "commercialUseAllowed",
+	              "evidenceReceipt"
+	            ],
+	            "properties": {
+	              "usageRightsStatus": {
+	                "enum": [
+	                  "platform_native_authorized",
+	                  "operator_supplied_authorized",
+	                  "licensed"
+	                ]
+	              },
+	              "rightsSource": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "territory": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "accountScope": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "commercialUseAllowed": {
+	                "const": true
+	              },
+	              "evidenceReceipt": {
+	                "type": [
+	                  "string",
+	                  "object"
+	                ]
+	              }
+	            }
+	          }
+	        }
 	      }
 	    }
 	  ],
@@ -1370,6 +1450,18 @@ export const generatedPipelineContractSchemas = {
 	            "null"
 	          ]
 	        },
+	        "evidence_class": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "enum": [
+	            "EXACT_BYTE_VERIFIED",
+	            "REQUEST_BOUND_AND_TYPE_CONFIRMED",
+	            "OPERATOR_CONFIRMED",
+	            null
+	          ]
+	        },
 	        "proof_note": {
 	          "type": [
 	            "string",
@@ -1456,6 +1548,107 @@ export const generatedPipelineContractSchemas = {
 	        "verified_at": {
 	          "type": [
 	            "string",
+	            "null"
+	          ]
+	        }
+	      }
+	    },
+	    "lineage": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": false,
+	      "properties": {
+	        "embeddingReceiptSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "processedSegmentSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "segmentStartSeconds": {
+	          "type": "number",
+	          "minimum": 0
+	        },
+	        "segmentEndSeconds": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "acquiredAudioSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "finalMediaSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "finalAudioFingerprint": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        }
+	      }
+	    },
+	    "rights": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": false,
+	      "required": [
+	        "required",
+	        "usageRightsStatus"
+	      ],
+	      "properties": {
+	        "required": {
+	          "type": "boolean"
+	        },
+	        "usageRightsStatus": {
+	          "type": "string",
+	          "enum": [
+	            "platform_native_authorized",
+	            "operator_supplied_authorized",
+	            "licensed",
+	            "rights_unknown",
+	            "blocked"
+	          ]
+	        },
+	        "rightsSource": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "territory": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "accountScope": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "commercialUseAllowed": {
+	          "type": [
+	            "boolean",
+	            "null"
+	          ]
+	        },
+	        "expiresAt": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "format": "date-time"
+	        },
+	        "evidenceReceipt": {
+	          "type": [
+	            "string",
+	            "object",
 	            "null"
 	          ]
 	        }
@@ -3417,7 +3610,7 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "recommendedAction": {
 	          "enum": [
-	            "approve_candidate",
+	            "review_candidate",
 	            "review",
 	            "reject"
 	          ]
@@ -3621,6 +3814,7 @@ export const generatedPipelineContractSchemas = {
 	    "output",
 	    "qcEvidence",
 	    "reviewManifest",
+	    "operatorReview",
 	    "exportProjection",
 	    "contentSemantics",
 	    "operatorAttestation",
@@ -3687,6 +3881,9 @@ export const generatedPipelineContractSchemas = {
 	      }
 	    },
 	    "reviewManifest": {
+	      "$ref": "#/$defs/file"
+	    },
+	    "operatorReview": {
 	      "$ref": "#/$defs/file"
 	    },
 	    "exportProjection": {
@@ -3878,6 +4075,7 @@ export const generatedPipelineContractSchemas = {
 	        "instagramPostCaptionHash",
 	        "burnedCaptionText",
 	        "burnedCaptionHash",
+	        "captionFallbackReason",
 	        "overlaySemanticQcFingerprint",
 	        "captionTimingQcFingerprint",
 	        "publishMode",
@@ -3985,6 +4183,12 @@ export const generatedPipelineContractSchemas = {
 	            {
 	              "type": "null"
 	            }
+	          ]
+	        },
+	        "captionFallbackReason": {
+	          "type": [
+	            "string",
+	            "null"
 	          ]
 	        },
 	        "overlaySemanticQcFingerprint": {

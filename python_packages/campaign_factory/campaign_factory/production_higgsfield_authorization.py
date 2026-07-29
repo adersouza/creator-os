@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.provider_spend import build_generate_assets_spend_scope
+from creator_os_core.recreation_anchor_approval import (
+    load_recreation_anchor_approval,
+)
 
 from .production_prompts import CREATOR_SOUL_IDS
 from .provider_spend import issue_provider_spend_authorization
@@ -23,7 +26,12 @@ class _BoundHiggsfieldQuote:
         return dict(self._quote)
 
 
-def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
+def higgsfield_request(
+    job: Mapping[str, Any],
+    *,
+    max_credits: float,
+    attempt_id: str | None = None,
+) -> Any:
     from reel_factory.worker_api import HiggsfieldProductionRequest
 
     creator = str(job["creator"])
@@ -34,6 +42,21 @@ def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
             f"no pinned authenticated Higgsfield Soul identity for creator {creator}"
         ) from exc
     stage = list(job["productionRecipe"].get("stages") or [])[0]
+    authorization = job.get("_higgsfieldAuthorization")
+    authorization_id = (
+        str(authorization["authorizationId"])
+        if isinstance(authorization, Mapping) and authorization.get("authorizationId")
+        else None
+    )
+    work_item_id = str(job["jobId"])
+    if stage["recipeId"] == "higgsfield_recreate_reel":
+        anchor = _validated_recreation_anchor(job, creator=creator, soul_id=soul_id)
+        source_approval = str(anchor["approvalFingerprint"])
+        source_image_path = Path(str(anchor["anchorFilePath"]))
+    else:
+        anchor = None
+        source_approval = str(job["sourceAssetId"])
+        source_image_path = Path(str(job["sourcePath"]))
     return HiggsfieldProductionRequest(
         recipe_id=(
             "higgsfield_recreate_reel"
@@ -42,8 +65,8 @@ def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
         ),
         creator=creator,
         soul_id=soul_id,
-        source_approval=str(job["sourceAssetId"]),
-        source_image_path=Path(str(job["sourcePath"])),
+        source_approval=source_approval,
+        source_image_path=source_image_path,
         driving_video_path=(
             Path(str(job["referenceVideoPath"]))
             if job.get("referenceVideoPath")
@@ -56,11 +79,31 @@ def higgsfield_request(job: Mapping[str, Any], *, max_credits: float) -> Any:
         duration_seconds=int(stage["durationSeconds"]),
         max_credits=max_credits,
         seed=int(job["seed"]),
+        work_item_id=work_item_id,
+        authorization_id=authorization_id,
+        attempt_id=attempt_id,
+        client_request_correlation_id=(
+            f"creator-os:{work_item_id}:{attempt_id}" if attempt_id else None
+        ),
+        recreation_anchor_approval=anchor,
     )
 
 
 def higgsfield_spend_scope(job: Mapping[str, Any]) -> dict[str, Any]:
     stage = list(job["productionRecipe"].get("stages") or [])[0]
+    creator = str(job["creator"])
+    soul_id = CREATOR_SOUL_IDS[creator]
+    start_image = (
+        str(
+            _validated_recreation_anchor(
+                job,
+                creator=creator,
+                soul_id=soul_id,
+            )["anchorFilePath"]
+        )
+        if stage["recipeId"] == "higgsfield_recreate_reel"
+        else str(job["sourcePath"])
+    )
     args = [
         "video",
         "--stem",
@@ -72,7 +115,7 @@ def higgsfield_spend_scope(job: Mapping[str, Any]) -> dict[str, Any]:
         "--cohort-id",
         str(job["jobId"]),
         "--start-image",
-        str(job["sourcePath"]),
+        start_image,
         "--video-model",
         str(stage["providerModel"]),
         "--video-aspect-ratio",
@@ -87,6 +130,38 @@ def higgsfield_spend_scope(job: Mapping[str, Any]) -> dict[str, Any]:
     if job.get("referenceVideoPath"):
         args.extend(["--video-reference", str(job["referenceVideoPath"])])
     return build_generate_assets_spend_scope(args, root=Path.cwd())
+
+
+def _validated_recreation_anchor(
+    job: Mapping[str, Any],
+    *,
+    creator: str,
+    soul_id: str,
+) -> dict[str, Any]:
+    approval_path = job.get("recreationAnchorApprovalPath")
+    prompt_card = job.get("promptCard")
+    prompt_fingerprint = (
+        prompt_card.get("openaiPromptPackFingerprint")
+        if isinstance(prompt_card, Mapping)
+        else None
+    )
+    if not approval_path or not prompt_fingerprint:
+        raise PermissionError("recreation_anchor_approval_required_before_quote")
+    anchor = load_recreation_anchor_approval(
+        Path(str(approval_path)),
+        expected_creator=creator,
+        expected_soul_id=soul_id,
+        expected_creator_image_sha256=str(job["sourceSha256"]),
+        expected_reference_video_sha256=str(job["referenceVideoSha256"]),
+        expected_prompt_pack_fingerprint=str(prompt_fingerprint),
+    )
+    if (
+        job.get("recreationAnchorApprovalFingerprint") != anchor["approvalFingerprint"]
+        or job.get("recreationAnchorSha256") != anchor["anchorFileSha256"]
+        or job.get("recreationAnchorPath") != anchor["anchorFilePath"]
+    ):
+        raise PermissionError("recreation_anchor_job_binding_mismatch")
+    return anchor
 
 
 def prepare_higgsfield_job_quotes(
@@ -238,9 +313,15 @@ def _completed_higgsfield_recovery(
         raise PermissionError("higgsfield_recovery_output_binding_mismatch")
     source = receipt.get("source")
     driving = receipt.get("drivingVideo")
+    planned_source = provider_plan.get("source")
+    expected_source_sha = (
+        planned_source.get("sha256")
+        if isinstance(planned_source, Mapping)
+        else job.get("recreationAnchorSha256") or job.get("sourceSha256")
+    )
     if (
         not isinstance(source, dict)
-        or source.get("sha256") != job.get("sourceSha256")
+        or source.get("sha256") != expected_source_sha
         or (
             job.get("referenceVideoSha256")
             and (

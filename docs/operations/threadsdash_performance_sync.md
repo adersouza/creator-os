@@ -2,7 +2,7 @@
 
 Run performance sync locally, not from GitHub Actions. The learning SQLite
 databases are gitignored local state, so an ephemeral GitHub runner cannot feed
-the Reel Factory learning loop.
+the Campaign and Reference learning loop.
 
 Required environment:
 
@@ -13,7 +13,6 @@ export SUPABASE_URL="..."
 export SUPABASE_SERVICE_ROLE_KEY="..."
 export LEARNING_LOOP_CUTOVER="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export CAMPAIGN_FACTORY_DB="$HOME/.creator-os/state/campaign_factory/campaign_factory.sqlite"
-export REEL_FACTORY_MANIFEST_DB="$HOME/.creator-os/state/reel_factory/manifest.sqlite"
 export REFERENCE_FACTORY_DB="$HOME/.creator-os/state/reference_factory/reference_factory.sqlite"
 export CAMPAIGN_FACTORY_SYNC_LIMIT=10000
 ```
@@ -30,8 +29,8 @@ Roll out the lineage migration in this order:
    `.v2`.
 3. Deploy the Creator OS v2 producer and set `LEARNING_LOOP_CUTOVER` to that
    deployment instant.
-4. Run the hourly command once manually and verify all three destination
-reports before enabling the recurring job.
+4. Run the hourly command once manually and verify both destination reports
+   before enabling the recurring job.
 
 The hourly job reads only the explicit active campaign list in
 `CAMPAIGN_FACTORY_SYNC_CAMPAIGNS`. Its default scan ceiling is 10,000 posts;
@@ -44,10 +43,11 @@ contain both halves during review, but the production order remains strict.
 
 The hourly command has two phases in one job: Campaign Factory imports the raw
 ThreadsDashboard snapshots, then `scripts/learning_fanout.py` fans only
-`learning_eligible` snapshots to Campaign, Reel, and Reference through
+`learning_eligible` snapshots to Campaign and Reference through
 `learning_fanout_ledger`. Do not restore the old standalone
 `metrics_store.py refresh-outcomes` command; it bypasses cutover/provenance and
-the correction/retraction ledger.
+the correction/retraction ledger. The Reel projection is retired; Campaign
+`performance_snapshots` is the sole measured-facts source.
 
 For the Stacey learning cohort, the import phase also reconciles an approved
 Notify Publish assignment when ThreadsDashboard's published post retains the
@@ -74,7 +74,7 @@ UPDATE learning_fanout_ledger
 SET status = 'pending', attempt_count = 0, last_error = NULL
 WHERE post_id = '<post-id>'
   AND snapshot_at = '<exact-snapshot-at>'
-  AND destination = '<campaign|reel|reference>'
+  AND destination = '<campaign|reference>'
   AND status = 'failed_capped';
 ```
 

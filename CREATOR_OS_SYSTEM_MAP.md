@@ -78,10 +78,10 @@ flowchart LR
     Audio["Audio Radar<br/>discover, cache, rank, segment"]
     Forge["ContentForge<br/>inspect and block"]
     Approval["Campaign approval<br/>exact final SHA"]
-    Export["Validated HMAC draft handoff"]
+    Export["HMAC-signed draft-ingest request"]
     TD["ThreadsDashboard / Juno<br/>accounts, schedule, publish"]
     Instagram["Instagram"]
-    Metrics["Canonical metric history<br/>1h, 24h, 72h"]
+    Metrics["Canonical metric history<br/>approximately 1h, 24h, 72h"]
     Learning["Supervised learning<br/>pack, recommendation, approval"]
 
     Operator --> Campaign
@@ -105,6 +105,9 @@ flowchart LR
 The operator does not manually coordinate six products. The supported
 `scripts/creator-os` command delegates to these internal owners and keeps the
 cross-component receipts connected.
+
+The canonical gate-by-gate explanation is
+[`docs/architecture/approval_to_publication_boundaries.md`](docs/architecture/approval_to_publication_boundaries.md).
 
 ## Product Boundary
 
@@ -237,6 +240,33 @@ bytes unchanged. `--reuse-policy require_fresh` bypasses reuse for deliberate
 inventory creation or experiments without adding another product mode. Local
 model tooling is standalone research and is not reachable from the Creator OS
 product CLI. No create mode schedules or publishes.
+
+Reuse selection and destination reservation are one fail-closed operation only
+when `--accounts` resolves to one concrete eligible account. Campaign Factory
+atomically creates a pending reservation for each reused asset, exports its
+reservation ID with the draft, commits it only after ThreadsDashboard accepts
+the draft ingest, and releases a still-pending reservation when ingest fails.
+An unresolved or ineligible destination cannot claim destination-ready reuse;
+the batch records its blockers and generates the required fresh fallback.
+Partial qualified reuse fills only the remaining shortfall. `require_fresh`
+creates the full requested batch without consulting reusable inventory.
+
+Missing `variantCooldownCheck` evidence is `unproven`, never implicitly clear.
+Read-only operator proof is available through:
+
+```text
+creator-os asset explain --sha <FINAL_SHA>
+creator-os asset inventory [--campaign <SLUG>] [--surface <SURFACE>]
+creator-os asset reservations reconcile [--apply]
+creator-os asset reservations cancel --reservation <RESERVATION_ID>
+```
+
+The SHA explanation connects retained source, generation attempts and lineage
+edges, overlay placement, audio receipt, exact final bytes, review decisions,
+reservations, assignments, cooldown evidence, and reuse eligibility. Inventory
+reports distinguish gross, reserved, assigned/used, cooldown-blocked, and net
+inventory. Reconciliation reports expired and stranded reservations; `--apply`
+expires only the reported stale rows.
 
 ## Current Creative Product Truth
 
@@ -439,7 +469,8 @@ Creative Approval binds:
 - export projection.
 
 `creator-os export --dry-run` writes nothing. `--apply` creates only validated,
-HMAC-signed draft handoff evidence. It cannot create a schedule or publish.
+HMAC-signed draft-ingest request evidence. It cannot create a schedule or
+publish.
 
 ## Existing-Media Path
 
@@ -496,6 +527,37 @@ canonical private reference
 -> provider audio disabled/replaced under the automatic audio policy
 -> technical QC + mode-specific human review + exact-SHA final audio binding
 ```
+
+`--through anchor --apply` is an executable boundary, not a planning
+placeholder. Campaign Factory issues a one-call Soul spend authorization,
+Reel Factory performs the text-only Soul 2 request, downloads the exact image
+bytes, writes provider/lineage receipts, and registers the image as an
+`imported` recreation-anchor review candidate. The candidate does not become a
+canonical creator source. `creator-os recreation approve-anchor` verifies that
+registered generation and writes an immutable exact-SHA approval receipt;
+Seedance fails closed without that receipt and its retained managed anchor
+file.
+
+Paid retries never cross attempt boundaries automatically. An anchor rejection
+records `new_soul_anchor`; a final-video rejection records
+`retain_anchor_new_seedance`. Either branch requires a new explicit
+`--recreation-attempt-id`, producing a new spend fingerprint and one fresh
+authorization. Provider and technical completion remain truthful when the
+creative decision is rejected; publishability stays blocked and
+`learningEligible` stays false.
+
+Final recreation review must compare the output with both the approved anchor
+SHA and the canonical creator-reference source SHA. The complete retained chain
+is available read-only with:
+
+```text
+creator-os recreation explain --job <pipeline-job-id>
+```
+
+The explanation includes the reference SHA, selected frame SHA, prompt pack,
+Soul generation and spend lineage, anchor approval, Seedance authorization and
+generation, resolved reference element, final MP4 SHA, audio receipt, technical
+QC, review decisions, and final approval state.
 
 The Seedance request supplies the approved anchor as the start image, uses the
 authenticated `seedance_2_0 mode=fast` contract at 480p/high bitrate, and
@@ -584,8 +646,12 @@ possible, cross-platform matches, and local usage/performance.
 
 Production selection uses:
 
-- track cooldown per account;
-- segment cooldown per creator;
+- actual publication time for account-track fatigue;
+- active `audio_selections.selected_at` records to exclude unpublished draft and
+  scheduled inventory;
+- bounded 7-day normal, 3-day measured-winner, and 2-day pinned account
+  cooldowns with an absolute 24-hour floor;
+- a 14-day segment cooldown per creator, including winners and pinned tracks;
 - within-batch track and segment uniqueness where practical;
 - duration compatibility;
 - cached playable bytes;
@@ -595,6 +661,28 @@ Production selection uses:
 
 Audio trend strength and internal performance are separate signals. A trending
 track is not automatically an internal winner.
+
+The full Campaign receipt binds the cached track bytes, exact decoded PCM
+segment, embedding operation, and final MP4. Its compact downstream audio intent
+retains `embeddingReceiptSha256`, `processedSegmentSha256`, exact segment bounds,
+`acquiredAudioSha256`, `finalMediaSha256`, and `finalAudioFingerprint`.
+Embedded fulfillment is `EXACT_BYTE_VERIFIED`. Native attachment is
+`REQUEST_BOUND_AND_TYPE_CONFIRMED`; manual native handoff is
+`OPERATOR_CONFIRMED`. Those evidence classes are not interchangeable.
+
+ThreadsDashboard submits the exact approved MP4 source bytes without replacing
+embedded audio. Meta may transcode them; the local final SHA proves the outbound
+source, while the Instagram media ID proves platform publication.
+
+Successful acquisition and byte lineage do not prove usage rights. Rights
+status, source, territory, account scope, commercial-use permission, expiry,
+and evidence remain a separate fail-closed gate wherever the campaign requires
+them.
+
+For non-speaking visuals, embedding replaces existing audio. The worker also
+has a speaking mix primitive that preserves source speech and lowers music to
+`speech_music_volume`; this is not proof of a supported talking or lip-sync
+product workflow.
 
 ## Media Quality Evidence
 
@@ -693,7 +781,11 @@ schedule and publication authority remains ThreadsDashboard.
 - 1h, 24h, and 72h observations are calculated from actual publication time
   and may overlap.
 
-ThreadsDashboard makes the final scheduling decision.
+ThreadsDashboard makes the final scheduling decision. Its read-only smart-time
+plan may prefer a learned hour only from comparable 24-hour metric-history
+snapshots, then applies active hours, account gaps, cross-plan minimum spacing,
+and deterministic jitter. The receipt includes the safe-slot baseline and
+whether the learned preference actually changed the timestamp.
 
 ## Publication Boundary
 
@@ -704,7 +796,7 @@ sequenceDiagram
     participant I as Instagram
 
     C->>C: approve exact final MP4 SHA
-    C->>T: validated HMAC draft payload
+    C->>T: HMAC-signed draft-ingest request
     T->>T: account, media, audio, schedule, publish preflight
     T->>I: explicit approved publish
     I-->>T: Instagram media identity
@@ -715,6 +807,67 @@ sequenceDiagram
 Publication closure requires the real Instagram media ID and exact media
 identity. Upload success, route success, schedule insertion, notification, or
 QStash dispatch alone is insufficient.
+
+## Failure Recovery
+
+The recovery boundary is not whether an operation is external. It is whether
+replay could create a duplicate paid, published, or otherwise non-idempotent
+effect.
+
+```mermaid
+flowchart TD
+    A["Recovery requested"] --> B{"Could replay duplicate a paid, published, or non-idempotent effect?"}
+    B -->|No: local or same durable idempotency key| C["Validate current state and replay with CAS"]
+    B -->|Yes, definitely pre-effect| D["Retry the same authorized attempt"]
+    B -->|Yes, effect may exist| E["Reconcile the existing external operation"]
+    E -->|Effect confirmed| F["Finalize locally; do not resubmit"]
+    E -->|No effect confirmed| G["A new attempt requires valid authority"]
+    E -->|Still ambiguous| H["Manual hold; no replay"]
+```
+
+Every side-effecting receipt separates:
+
+- `workItemId`: the logical task;
+- `authorizationId`: the approval or spend authority;
+- `attemptId`: one concrete execution;
+- `externalOperationId`: the provider generation, container, message, or media
+  identity.
+
+Safe recovery points:
+
+| Failure | Safe retry point | Replay rule |
+| --- | --- | --- |
+| Stale queued pipeline job | `PRE_EFFECT` | Requeue with the same work item. |
+| Stale running local or registered idempotent job | Typed safe-replay policy | Replay with CAS and the same durable identity. |
+| Stale running job with unknown effect state | None | Terminal manual hold; reconcile before any new authorized attempt. |
+| Higgsfield generation ID known | Existing provider generation | Poll/download the same generation; never submit again. |
+| Higgsfield submission ambiguous without an ID | Exact provider-history match | Search the bounded submission window using the stored request fingerprint inputs. Bind and resume only one exact match; zero or multiple matches remain on manual hold. |
+| Instagram/Threads publish response lost | Existing container plus account/provider history | Persist `unknown_external_effect`, keep `publishing`, and exclude from automatic retry and stale cleanup. |
+| Provider proves no publication | `resolved_no_effect` | Retry only under still-valid publication authority. |
+| Missing metric while its window is open | Exact post/platform/window ledger row | Redispatch with a new dispatch-attempt identity; upsert the same observation identity. |
+| Metric window expired without a durable observation | None | Persist `MISSED_EXPIRED`; never substitute later counters. |
+| Retracted learning projection | Immutable raw snapshot | Retract the projection. Current-pack matching immediately makes recommendations from the previous pack unusable. |
+
+Higgsfield pre-submission evidence includes the request fingerprint, work,
+authorization and attempt IDs when supplied, quoted amount, scrubbed provider
+account/balance snapshot, submission time, model, source hash, seed, and client
+correlation ID. If submission returns no generation ID, recovery searches
+provider history inside the recorded time window and compares model, exact
+prompt, duration, aspect ratio, and seed when present. Exactly one match is
+bound to the original attempt and resumed. Zero or multiple matches remain a
+manual reconciliation hold and never authorize resubmission.
+
+QStash uses three distinct identities:
+
+```text
+schedule identity     = post ID + scheduled timestamp
+dispatch attempt      = unique message/delivery attempt
+publication identity  = the single canonical post claim
+```
+
+A new QStash dispatch attempt may target the same schedule identity; the
+receiver's state check and atomic publication claim ensure only one publication
+identity wins. Reusing a prior QStash deduplication ID may suppress redispatch.
 
 ## Performance And Learning
 
@@ -736,10 +889,11 @@ Instagram publication identity
 
 A recommendation may affect production only when:
 
-- at least three canonical measured outcomes support it;
+- at least three canonical measured outcomes support an operator-reviewed
+  early advisory;
 - publication identity is real and confirmed;
 - creator identity matches;
-- account scope matches or an explicit global scope was approved;
+- exact account scope matches;
 - content intent matches;
 - source and final-media lineage validate;
 - observations share an equal-age 24-hour or 72-hour cohort;
@@ -749,6 +903,23 @@ A recommendation may affect production only when:
 One-hour evidence is advisory. Missing metrics remain missing, never zero.
 Fixtures, fallbacks, failed publications, invalid lineage, pre-cutover rows,
 and mismatched observation ages are excluded.
+
+Evidence language is intentionally bounded:
+
+- 3-4 comparable outcomes: `early_advisory`;
+- 5-9: `preliminary_direction`;
+- 10 or more: `stronger_directional_evidence`;
+- an explicitly controlled matched experiment: `causal_evidence_candidate`.
+
+Account-group, creator-wide, and global rollups are emitted as advisory
+hierarchical evidence only. They do not override or satisfy the exact-account
+production match.
+
+The frozen default reward remains
+`account_normalized_decay_shrinkage.v1`. An explicitly supplied supported
+learning objective selects `objective_weighted_outcome.v2`, which weights
+saves, shares, watch quality, profile visits, follows, and link actions
+according to that objective. The v1 formula is not changed in place.
 
 ### Recommendation states
 
@@ -959,6 +1130,7 @@ remains unresolved.
 | `creator-os reference-refresh` | preview/apply local Reference and audio catalog refresh |
 | `creator-os audio status` | read-only active-library summary |
 | `creator-os audio refresh` | bounded private discovery/cache refresh; no Reel or publishing |
+| `creator-os audio explain --final-sha <sha256>` | read-only track, segment, cooldown, rights, approval, and publication lineage for one final MP4 |
 | `creator-os create` | three-mode production dry-run/apply; no export/schedule/publish |
 | `creator-os video-bakeoff` | inspect retained provider bakeoff evidence only |
 | `creator-os quality-benchmark` | validate the fixed exact-source creative benchmark without generation |
@@ -966,6 +1138,8 @@ remains unresolved.
 | `creator-os approve` | immutable exact-SHA creative approval |
 | `creator-os export` | bounded validated draft handoff only |
 | `creator-os performance-sync` | preview/apply canonical metrics ingestion |
+| `creator-os status --drafts` | read-only stale-draft inventory with required re-export/re-approval actions |
+| `creator-os learning-reset --post-id ... --snapshot-at ... --destination ... --operator ... --reason ... --apply` | exact compare-and-swap reset of one capped metric observation with a durable operator receipt |
 | `creator-os learning-refresh` | versioned pack export/import and recommendation refresh |
 | `creator-os learning-review` | list, approve, reject, pin, or revoke recommendations |
 | `creator-os advanced` | developer-only local model, queue, benchmark, Arena, Router, analyzer diagnostics |
@@ -1042,6 +1216,9 @@ tree; Git history remains their archive.
   source copies.
 
 ## What “Creator OS Is Working” Means
+
+The detailed QC, exact-SHA, warning, rejection, and operator-authority contract
+is canonical in `docs/architecture/qc_and_review_gates.md`.
 
 For source:
 

@@ -23,7 +23,7 @@
       "informational": []
     },
     "uploadReady": true,
-    "recommendedAction": "approve_candidate"
+    "recommendedAction": "review_candidate"
   },
   "ocr": null,
   "captionBoxes": [],

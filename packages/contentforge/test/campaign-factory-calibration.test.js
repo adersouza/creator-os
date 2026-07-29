@@ -67,7 +67,7 @@ function assertContract(body) {
   assert.equal(Array.isArray(body.readinessSummary.operatorLabels.needsReview), true);
   assert.equal(Array.isArray(body.readinessSummary.operatorLabels.advisory), true);
   assert.equal(Array.isArray(body.readinessSummary.operatorLabels.informational), true);
-  assert.equal(["approve_candidate", "review", "reject"].includes(body.readinessSummary.recommendedAction), true);
+  assert.equal(["review_candidate", "review", "reject"].includes(body.readinessSummary.recommendedAction), true);
   assert.equal(typeof body.verdictCodes, "object");
   assert.equal(typeof body.ocr, "object");
   assert.equal(Array.isArray(body.captionBoxes), true);

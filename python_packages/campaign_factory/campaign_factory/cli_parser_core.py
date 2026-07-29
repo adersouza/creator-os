@@ -43,6 +43,15 @@ def register_core_commands(sub) -> None:
     reference_input.add_argument("--reference-video", type=Path)
     reference_input.add_argument("--reference-url")
     create.add_argument("--creator-image", type=Path)
+    create.add_argument(
+        "--recreation-anchor-approval",
+        type=Path,
+        help="exact-SHA Soul anchor approval required for paid recreate execution",
+    )
+    create.add_argument(
+        "--recreation-attempt-id",
+        help="explicit new paid-attempt identity; changing it requires fresh authorization",
+    )
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
@@ -97,6 +106,58 @@ def register_core_commands(sub) -> None:
         default="embedded_trending_required",
     )
     create.add_argument("--apply", action="store_true")
+    anchor_approval = sub.add_parser(
+        "recreation-anchor-approve",
+        help="approve exact downloaded Soul 2 anchor bytes for recreate execution",
+    )
+    anchor_approval.add_argument("--creator", required=True)
+    anchor_approval.add_argument("--anchor-file", type=Path, required=True)
+    anchor_approval.add_argument("--anchor-generation-id", required=True)
+    anchor_approval.add_argument("--prompt-pack", type=Path, required=True)
+    anchor_approval.add_argument(
+        "--selected-composition-frame-sha256",
+        required=True,
+    )
+    anchor_approval.add_argument("--approved-by", required=True)
+    anchor_approval.add_argument("--output-dir", type=Path)
+    recreation = sub.add_parser(
+        "recreation",
+        help="review or explain one recreation lineage chain",
+    )
+    recreation_sub = recreation.add_subparsers(dest="recreation_cmd", required=True)
+    recreation_explain = recreation_sub.add_parser("explain")
+    recreation_explain.add_argument("--job", required=True)
+    recreation_review = recreation_sub.add_parser("review")
+    recreation_review.add_argument("--job", required=True)
+    recreation_review.add_argument(
+        "--stage", required=True, choices=["anchor", "final_video"]
+    )
+    recreation_review.add_argument(
+        "--decision", required=True, choices=["approved", "rejected"]
+    )
+    recreation_review.add_argument("--reviewed-by", required=True)
+    recreation_review.add_argument("--notes")
+    asset = sub.add_parser(
+        "asset",
+        help="explain exact asset lineage and inspect reuse inventory",
+    )
+    asset_sub = asset.add_subparsers(dest="asset_cmd", required=True)
+    asset_explain = asset_sub.add_parser("explain")
+    asset_explain.add_argument("--sha", required=True)
+    asset_inventory = asset_sub.add_parser("inventory")
+    asset_inventory.add_argument("--campaign")
+    asset_inventory.add_argument(
+        "--surface",
+        choices=["reel", "story", "feed_single", "feed_carousel"],
+    )
+    asset_reservations = asset_sub.add_parser("reservations")
+    reservation_sub = asset_reservations.add_subparsers(
+        dest="reservation_cmd", required=True
+    )
+    reservation_reconcile = reservation_sub.add_parser("reconcile")
+    reservation_reconcile.add_argument("--apply", action="store_true")
+    reservation_cancel = reservation_sub.add_parser("cancel")
+    reservation_cancel.add_argument("--reservation", required=True)
     sub.add_parser(
         "control-check",
         help="check Campaign Factory's local component/tooling dependencies",
@@ -176,6 +237,7 @@ def register_core_commands(sub) -> None:
     creative_approval.add_argument("--rendered-asset-id", required=True)
     creative_approval.add_argument("--user-id", required=True)
     creative_approval.add_argument("--approved-by", required=True)
+    creative_approval.add_argument("--review-decision", type=Path, required=True)
     creative_approval.add_argument("--root", type=Path)
     creative_approval.add_argument(
         "--surface",
@@ -198,6 +260,8 @@ def register_core_commands(sub) -> None:
     audit.add_argument("--contentforge-base-url", default="cli://local")
     audit.add_argument("--layer", action="append", default=[])
     audit.add_argument("--rendered-asset-id", action="append", default=[])
+    qc_explain = sub.add_parser("qc-explain")
+    qc_explain.add_argument("--asset", required=True)
     approve = sub.add_parser("approve")
     approve.add_argument("--rendered-asset-id", required=True)
     approve.add_argument("--notes")
@@ -361,6 +425,8 @@ def register_core_commands(sub) -> None:
         default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
     )
     export.add_argument("--allow-warnings", action="store_true")
+    export.add_argument("--warning-override-reason")
+    export.add_argument("--warning-override-by")
     export.add_argument("--content-pillar")
     export.add_argument("--cta-type")
     export.add_argument("--language")

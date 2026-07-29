@@ -860,17 +860,25 @@ class AssetImportRepository:
         )
         now = self._utc_now()
         audit_id = self._new_id("audit")
+        subject_row = self.conn.execute(
+            "SELECT content_hash FROM rendered_assets WHERE id = ?",
+            (rendered_asset_id,),
+        ).fetchone()
+        if not subject_row:
+            raise ValueError("review audit rendered asset missing")
+        subject_sha256 = str(subject_row["content_hash"])
         self.conn.execute(
             """
             INSERT INTO audit_reports
-            (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+            (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score, status,
              layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 audit_id,
                 campaign["id"],
                 rendered_asset_id,
+                subject_sha256,
                 str(audit_payload.get("runId") or "reel_review_batch"),
                 str(audit_path),
                 100 if status == "approved_candidate" else 0,

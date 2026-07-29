@@ -240,12 +240,6 @@ async def process_one(
             "overlaySemanticQc": overlay_semantic_qc,
         }
 
-    if not preview and not rerender_all and manifest.has_job(key):
-        materialized = manifest.materialize_cached_job(src.stem, key)
-        suffix = "materialized" if materialized else "cached"
-        log.info(f"skip {src.stem} h{hook_idx} {recipe.name} ({suffix})")
-        return {"status": "skipped", "key": key}
-
     # Decide caption color
     color = recipe.caption_color
     if color == "auto":
@@ -278,6 +272,35 @@ async def process_one(
             f"band→{auto_layout[0]} style→{auto_layout[1]} font→{auto_layout[2]}"
         )
     auto_band, auto_style, auto_font, _placement_summary = auto_layout
+    placement_decision = (
+        _placement_summary.metadata.get("captionPlacementDecision")
+        if isinstance(_placement_summary.metadata, dict)
+        else {}
+    )
+    placement_allows_overlay = (
+        isinstance(placement_decision, dict)
+        and placement_decision.get("status") == "passed"
+    )
+    burn_caption = bool(recipe.burn_caption and placement_allows_overlay)
+    caption_fallback = None
+    if recipe.burn_caption and not burn_caption:
+        reason_code = (
+            placement_decision.get("reasonCode")
+            if isinstance(placement_decision, dict)
+            else None
+        ) or "insufficient_caption_placement_evidence"
+        caption_fallback = {
+            "reasonCode": reason_code,
+            "renderPolicy": "clean_without_overlay",
+            "burnedCaptionText": None,
+            "instagramPostCaptionSourceText": caption_for_manifest,
+        }
+        key = sha256_str(f"{key}|clean_without_overlay|{reason_code}")
+    if not preview and not rerender_all and manifest.has_job(key):
+        materialized = manifest.materialize_cached_job(src.stem, key)
+        suffix = "materialized" if materialized else "cached"
+        log.info(f"skip {src.stem} h{hook_idx} {recipe.name} ({suffix})")
+        return {"status": "skipped", "key": key}
 
     is_timed_caption = isinstance(caption, dict)
     if recipe.caption_band != "auto":
@@ -330,7 +353,7 @@ async def process_one(
     # band="top" with no start/end (full duration) while body segments use
     # band="bottom" with their own timing — both overlay simultaneously since
     # each PNG is transparent outside its band.
-    if recipe.burn_caption and isinstance(caption, dict):
+    if burn_caption and isinstance(caption, dict):
         seg_plans: list[CaptionSegmentPlan] = []
         resolved_segments = caption_timing_qc["segments"]
         for i, seg in enumerate(resolved_segments):
@@ -350,7 +373,7 @@ async def process_one(
                     seg_png, start, end, seg_text, seg_band, explicit_band
                 )
             )
-    elif recipe.burn_caption:
+    elif burn_caption:
         single_png = out_dir / f"_cap_h{hook_idx:02d}_{recipe.name}_{color}.png"
         seg_plans = [
             CaptionSegmentPlan(
@@ -376,7 +399,7 @@ async def process_one(
         placement_debug=placement_debug,
     )
 
-    if recipe.burn_caption:
+    if burn_caption:
         caption_timing_qc = evaluate_overlay_timing(
             [
                 {
@@ -397,7 +420,7 @@ async def process_one(
         )
 
     caption_pngs = [(s.png_path, s.start, s.end) for s in seg_plans]
-    caption_pngs_for_render = caption_pngs if recipe.burn_caption else []
+    caption_pngs_for_render = caption_pngs if burn_caption else []
     target_dims = target_dimensions(target_ratio)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -472,6 +495,9 @@ async def process_one(
             ),
             # A dry run plans pixels but renders none.
             "captionBurnedIn": False,
+            "captionPlacementDecision": placement_decision,
+            "captionFallback": caption_fallback,
+            "overlayInputCount": len(caption_pngs_for_render),
         }
 
     # Render each caption segment to a transparent 1080x1920 PNG via PIL+Pilmoji.
@@ -575,7 +601,7 @@ async def process_one(
             msg = err.decode(errors="replace")[-800:]
             log.error(f"preview failed {src.stem} h{hook_idx} {recipe.name}: {msg}")
             return {"status": "failed", "key": key}
-        caption_pixels_rendered = bool(recipe.burn_caption and caption_pngs_for_render)
+        caption_pixels_rendered = bool(burn_caption and caption_pngs_for_render)
         caption_hash = sha256_str(caption_for_manifest)
         placement_decision = (
             _placement_summary.metadata.get("captionPlacementDecision")
@@ -592,6 +618,7 @@ async def process_one(
             {
                 **(caption_lineage or {}),
                 "captionBurnedIn": caption_pixels_rendered,
+                "captionFallback": caption_fallback,
                 "captionTimingQc": caption_timing_qc,
                 "resolvedCaptionRenderPlan": (
                     caption_timing_qc.get("resolved_render_plan")
@@ -604,17 +631,7 @@ async def process_one(
                     "outputPath": str(preview_path),
                 },
                 "captionPlacementPolicy": placement_policy,
-                "captionPlacementDecision": {
-                    **(
-                        placement_decision
-                        if isinstance(placement_decision, dict)
-                        else {}
-                    ),
-                    "selectedLane": ",".join(
-                        dict.fromkeys([seg.band for seg in seg_plans])
-                    )
-                    or band,
-                },
+                "captionPlacementDecision": placement_decision,
             },
             caption_text=caption_for_manifest,
             caption_hash=caption_hash,
@@ -832,7 +849,7 @@ async def process_one(
             return {"status": "failed", "key": key}
         caption_hash = sha256_str(caption_for_manifest)
         caption_pixels_rendered = bool(
-            recipe.burn_caption and caption_pngs_for_render and out_path.is_file()
+            burn_caption and caption_pngs_for_render and out_path.is_file()
         )
         caption_pixel_render_evidence = {
             "rendered": caption_pixels_rendered,
@@ -845,6 +862,7 @@ async def process_one(
             {
                 **(caption_lineage or {}),
                 "captionBurnedIn": caption_pixels_rendered,
+                "captionFallback": caption_fallback,
                 "captionTimingQc": caption_timing_qc,
                 "resolvedCaptionRenderPlan": (
                     caption_timing_qc.get("resolved_render_plan")
@@ -928,7 +946,11 @@ async def process_one(
     except OSError:
         pass
 
-    caption_position = ",".join(dict.fromkeys([seg.band for seg in seg_plans])) or band
+    caption_position = (
+        ",".join(dict.fromkeys([seg.band for seg in seg_plans])) or band
+        if burn_caption
+        else "none"
+    )
     generation_id = (
         caption.get("generationId") or caption.get("generation_id")
         if isinstance(caption, dict)
@@ -948,6 +970,7 @@ async def process_one(
         **(caption_lineage or {}),
         "captionHash": caption_hash,
         "captionBurnedIn": caption_pixels_rendered,
+        "captionFallback": caption_fallback,
         "overlaySemanticQc": overlay_semantic_qc,
         "captionTimingQc": caption_timing_qc,
         "resolvedCaptionRenderPlan": (
@@ -957,10 +980,7 @@ async def process_one(
         ),
         "captionPixelRenderEvidence": caption_pixel_render_evidence,
         "captionPlacementPolicy": placement_policy,
-        "captionPlacementDecision": {
-            **(placement_decision if isinstance(placement_decision, dict) else {}),
-            "selectedLane": caption_position,
-        },
+        "captionPlacementDecision": placement_decision,
     }
     write_caption_lineage_sidecar(
         out_path,

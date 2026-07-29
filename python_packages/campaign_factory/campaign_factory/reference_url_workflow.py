@@ -20,6 +20,7 @@ from reel_factory.worker_api import (
 
 from pipeline_contracts import validate_reference_video_motion_analysis
 
+from .recreation_lifecycle import generate_recreation_anchor
 from .recreation_modes import plan_recreation
 from .recreation_prompting import build_openai_prompt_pack
 from .reference_audio_intake import (
@@ -45,6 +46,7 @@ def run_reference_analysis(
     audio_policy: str = "auto",
     max_credits: float | None = None,
     creator_image_path: Path | None = None,
+    recreation_attempt_id: str | None = None,
     apply: bool,
 ) -> dict[str, Any]:
     if apply and not reference_authorized:
@@ -250,7 +252,21 @@ def run_reference_analysis(
                 )
                 os.chmod(prompt_path, 0o600)
                 result["promptPackPath"] = str(prompt_path)
-                result["applyStatus"] = "ANALYSIS_PERSISTED_ANCHOR_REVIEW_REQUIRED"
+                if through == "anchor":
+                    anchor_generation = generate_recreation_anchor(
+                        factory,
+                        creator=creator,
+                        prompt_pack_path=prompt_path,
+                        attempt_id=recreation_attempt_id,
+                        max_credits=float(max_credits or 0),
+                    )
+                    result["anchorGeneration"] = anchor_generation
+                    result["paidSpend"] = anchor_generation.get("campaignSpendReceipt")
+                    result["applyStatus"] = (
+                        "ANCHOR_GENERATED_DOWNLOADED_REGISTERED_REVIEW_REQUIRED"
+                    )
+                else:
+                    result["applyStatus"] = "ANALYSIS_PERSISTED_ANCHOR_REVIEW_REQUIRED"
                 result["paidExecutionBlocked"] = True
         return result
 

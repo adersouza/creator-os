@@ -25,6 +25,7 @@ def run_static_mp4_stage(
     *,
     campaign_slug: str,
     still_path: Path,
+    content_intent: str | None = None,
     duration_seconds: float | None = None,
     dry_run: bool = True,
     apply: bool = False,
@@ -73,6 +74,7 @@ def run_static_mp4_stage(
                 factory,
                 campaign_id=campaign["id"],
                 parent_still_hash=still_fingerprint,
+                content_intent=content_intent,
             )
             if apply and not dry_run
             else None
@@ -106,6 +108,7 @@ def run_static_mp4_stage(
                 campaign=campaign,
                 source_asset=source_asset,
                 render=render,
+                content_intent=content_intent,
             )
         generation_attempt_id = (
             _ensure_static_generation_lineage(
@@ -324,6 +327,7 @@ def _register_rendered_asset(
     campaign: dict[str, Any],
     source_asset: dict[str, Any],
     render: dict[str, Any],
+    content_intent: str | None,
 ) -> dict[str, Any]:
     output_path = Path(str(render.get("outputPath") or ""))
     if not output_path.exists() or output_path.stat().st_size <= 0:
@@ -351,6 +355,11 @@ def _register_rendered_asset(
         (campaign["id"], content_fingerprint),
     ).fetchone()
     if existing:
+        metadata = _json_object(existing["metadata_json"])
+        if content_intent is not None and metadata.get("contentIntent") != (
+            content_intent
+        ):
+            raise ValueError("static MP4 existing content intent mismatch")
         return dict(existing)
     caption_hash = factory.domains.publishability.text_hash("")
     source_prompt = _source_prompt(source_asset)
@@ -437,6 +446,8 @@ def _register_rendered_asset(
         "generatedAssetLineagePath": str(lineage_path),
         "generatedAssetLineage": lineage,
     }
+    if content_intent is not None:
+        metadata["contentIntent"] = content_intent
     now = utc_now()
     factory.conn.execute(
         """
@@ -690,7 +701,11 @@ def _source_prompt(source_asset: dict[str, Any]) -> dict[str, Any]:
 
 
 def _existing_static_asset(
-    factory: Any, *, campaign_id: str, parent_still_hash: str
+    factory: Any,
+    *,
+    campaign_id: str,
+    parent_still_hash: str,
+    content_intent: str | None,
 ) -> dict[str, Any] | None:
     rows = factory.conn.execute(
         """
@@ -703,6 +718,10 @@ def _existing_static_asset(
     for row in rows:
         asset = dict(row)
         metadata = _json_object(asset.get("metadata_json"))
+        if content_intent is not None and metadata.get("contentIntent") != (
+            content_intent
+        ):
+            continue
         lineage = metadata.get("generatedAssetLineage")
         source = lineage.get("source") if isinstance(lineage, dict) else None
         if not isinstance(source, dict) or source.get("parentStillHash") != (

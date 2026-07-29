@@ -438,6 +438,7 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
         report_path,
         json.dumps(
             {
+                "subjectSha256": asset["content_hash"],
                 "readinessSummary": {
                     "uploadReady": True,
                     "blockingReasons": [],
@@ -459,12 +460,12 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
     factory.conn.execute(
         """
         INSERT INTO audit_reports
-        (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+        (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score, status,
          layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
-        VALUES ('audit_smoke', ?, 'asset_smoke', 'run_smoke', ?, 100, 'approved_candidate',
+        VALUES ('audit_smoke', ?, 'asset_smoke', ?, 'run_smoke', ?, 100, 'approved_candidate',
                 '{}', '{}', 'pass', 1, '[]', '[]', '2026-05-22T00:00:00+00:00')
         """,
-        (asset["campaign_id"], str(report_path)),
+        (asset["campaign_id"], asset["content_hash"], str(report_path)),
     )
     factory.conn.commit()
 

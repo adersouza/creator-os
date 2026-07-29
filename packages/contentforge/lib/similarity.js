@@ -505,7 +505,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
     .sort(function (a, b) { return warningPriority(a) - warningPriority(b); })
     .slice(0, 5);
   var uploadReady = blockingReasons.length === 0;
-  var recommendedAction = !uploadReady ? "reject" : warnings.length > 0 ? "review" : "approve_candidate";
+  var recommendedAction = !uploadReady ? "reject" : warnings.length > 0 ? "review" : "review_candidate";
   var operatorLabels = operatorLabelGroups(blockingItems, warningItems);
   return {
     summaryText: !uploadReady

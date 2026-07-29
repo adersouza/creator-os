@@ -17,6 +17,7 @@ from campaign_factory.learning_score import (
     learning_loop_cutover,
     learning_loop_cutover_iso,
     learning_summary,
+    objective_snapshot_reward,
     performance_planning_score,
     performance_score,
     snapshot_normalized_reward,
@@ -390,6 +391,38 @@ def test_negative_reach_falls_through_to_positive_impressions():
     snapshot["metrics"]["impressions"] = 500
 
     assert snapshot_reward(snapshot) == pytest.approx(0.621661, abs=0.000001)
+
+
+def test_objective_v2_weights_saves_above_likes_without_changing_v1():
+    likes = _snapshot(
+        post_id="likes",
+        views=1000,
+        likes=10,
+        comments=0,
+        shares=0,
+        saves=0,
+    )
+    saves = _snapshot(
+        post_id="saves",
+        views=1000,
+        likes=0,
+        comments=0,
+        shares=0,
+        saves=10,
+    )
+
+    assert snapshot_reward(likes) == snapshot_reward(saves)
+    assert objective_snapshot_reward(
+        saves, objective="engagement"
+    ) > objective_snapshot_reward(likes, objective="engagement")
+    summary = learning_summary(
+        [saves],
+        account_baselines={},
+        reference_now=datetime(2026, 6, 1, tzinfo=UTC),
+        objective="engagement",
+    )
+    assert summary["scoringVersion"] == "objective_weighted_outcome.v2"
+    assert summary["objective"] == "engagement"
 
 
 def test_real_account_winner_outranks_zero_baseline_revival():

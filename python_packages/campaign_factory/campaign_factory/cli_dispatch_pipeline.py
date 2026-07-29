@@ -14,6 +14,7 @@ from .adapters.threadsdash_draft_readiness import (
     verify_threadsdash_export,
 )
 from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
+from .asset_inventory import explain_asset, inventory_report
 from .cli_support import (
     decision_ledger_kwargs,
     load_hooks,
@@ -35,7 +36,10 @@ from .learning_cohort import (
     record_learning_cohort_publish,
     run_learning_cohort_day,
 )
+from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
+from .recreation_anchor_approval import approve_recreation_anchor
+from .recreation_lifecycle import explain_recreation_job, record_recreation_review
 from .recreation_prompting import build_openai_prompt_pack
 from .reference_url_workflow import run_reference_analysis
 from .trial_reels import (
@@ -59,9 +63,74 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
     if args.cmd == "control-check":
         print_json(operator_control_check(settings))
         return 0
+    if args.cmd == "recreation-anchor-approve":
+        print_json(
+            approve_recreation_anchor(
+                factory=cf,
+                creator=args.creator,
+                anchor_file=args.anchor_file,
+                anchor_generation_id=args.anchor_generation_id,
+                prompt_pack_path=args.prompt_pack,
+                selected_composition_frame_sha256=(
+                    args.selected_composition_frame_sha256
+                ),
+                approved_by=args.approved_by,
+                output_dir=(
+                    args.output_dir
+                    or settings.reference_reels_root / "anchor_approvals"
+                ),
+            )
+        )
+        return 0
+    if args.cmd == "recreation":
+        if args.recreation_cmd == "explain":
+            print_json(explain_recreation_job(cf, args.job))
+        else:
+            print_json(
+                record_recreation_review(
+                    cf,
+                    job_id=args.job,
+                    stage=args.stage,
+                    decision=args.decision,
+                    reviewed_by=args.reviewed_by,
+                    notes=args.notes,
+                )
+            )
+        return 0
+    if args.cmd == "asset":
+        if args.asset_cmd == "explain":
+            print_json(explain_asset(cf, args.sha))
+        elif args.asset_cmd == "inventory":
+            print_json(
+                inventory_report(
+                    cf,
+                    campaign_slug=args.campaign,
+                    content_surface=args.surface,
+                )
+            )
+        elif args.reservation_cmd == "reconcile":
+            print_json(
+                cf.domains.inventory_reservations.reservation_reconciliation_report(
+                    apply=args.apply
+                )
+            )
+        else:
+            print_json(
+                cf.domains.inventory_reservations.release_inventory_reservation(
+                    args.reservation,
+                    status="cancelled",
+                )
+            )
+        return 0
     if args.cmd == "create":
-        if args.mode == "recreate_reel" and (
-            getattr(args, "reference_url", None) or args.reference_video
+        if args.recreation_anchor_approval and getattr(args, "reference_url", None):
+            raise ValueError(
+                "approved-anchor recreate execution requires --reference-video"
+            )
+        if (
+            args.mode == "recreate_reel"
+            and (getattr(args, "reference_url", None) or args.reference_video)
+            and not args.recreation_anchor_approval
         ):
             print_json(
                 run_reference_analysis(
@@ -80,6 +149,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     audio_policy=args.audio_preference,
                     max_credits=args.max_credits,
                     creator_image_path=args.creator_image,
+                    recreation_attempt_id=args.recreation_attempt_id,
                     apply=args.apply,
                 )
             )
@@ -103,6 +173,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 max_concurrency=args.concurrency,
                 prompt_pack_provider=build_openai_prompt_pack,
                 reuse_policy=args.reuse_policy,
+                recreation_anchor_approval_path=args.recreation_anchor_approval,
+                recreation_attempt_id=args.recreation_attempt_id,
             )
         )
         return 0
@@ -114,11 +186,15 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 rendered_asset_id=args.rendered_asset_id,
                 user_id=args.user_id,
                 approved_by=args.approved_by,
+                review_decision=load_json_object(args.review_decision),
                 root=args.root or settings.creative_approvals_dir,
                 surface=args.surface,
                 publish_mode=args.publish_mode,
             )
         )
+        return 0
+    if args.cmd == "qc-explain":
+        print_json(explain_asset_qc(cf, args.asset))
         return 0
     if args.cmd == "learning-cohort":
         if args.learning_cohort_cmd == "prepare":
@@ -409,6 +485,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 supabase_service_role_key=args.supabase_service_role_key,
                 supabase_storage_bucket=args.supabase_storage_bucket,
                 allow_warnings=args.allow_warnings,
+                warning_override_reason=args.warning_override_reason,
+                warning_override_by=args.warning_override_by,
                 content_pillar=args.content_pillar,
                 cta_type=args.cta_type,
                 language=args.language,

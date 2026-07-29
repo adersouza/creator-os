@@ -92,6 +92,18 @@ class FinishedVideoRepository:
         ).fetchone()
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
+        if decision == "approved":
+            rejected = self.conn.execute(
+                """
+                SELECT 1 FROM approval_decisions
+                WHERE rendered_asset_id = ? AND subject_sha256 = ?
+                  AND decision = 'rejected'
+                LIMIT 1
+                """,
+                (rendered_asset_id, row["content_hash"]),
+            ).fetchone()
+            if rejected:
+                raise ValueError("approval blocked: operator_rejected_current_sha")
         approvable_audit_statuses = {"approved_candidate", "needs_review"}
         if (
             decision == "approved"
@@ -101,6 +113,10 @@ class FinishedVideoRepository:
             raise ValueError(
                 f"approval blocked: audit_status:{row['audit_status']}; run audit or use an explicit force override"
             )
+        if decision == "approved" and require_safe_audit:
+            from .asset_evidence import require_current_asset_audit
+
+            require_current_asset_audit(self.conn, dict(row))
         now = self._utc_now()
         decision_id = self._new_id("approval")
         self.conn.execute(
@@ -108,9 +124,34 @@ class FinishedVideoRepository:
             (decision, now, rendered_asset_id),
         )
         self.conn.execute(
-            "INSERT INTO approval_decisions (id, campaign_id, rendered_asset_id, decision, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (decision_id, row["campaign_id"], rendered_asset_id, decision, notes, now),
+            "INSERT INTO approval_decisions (id, campaign_id, rendered_asset_id, subject_sha256, decision, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                decision_id,
+                row["campaign_id"],
+                rendered_asset_id,
+                row["content_hash"],
+                decision,
+                notes,
+                now,
+            ),
         )
+        if decision == "rejected":
+            self.conn.execute(
+                """
+                UPDATE asset_inventory_reservations
+                SET status = 'expired', updated_at = ?
+                WHERE asset_id = ? AND status IN ('pending', 'committed')
+                """,
+                (now, rendered_asset_id),
+            )
+            self.conn.execute(
+                """
+                UPDATE performance_snapshots
+                SET metrics_eligible = 0
+                WHERE rendered_asset_id = ? OR content_hash = ?
+                """,
+                (rendered_asset_id, row["content_hash"]),
+            )
         approval_graph_id = self._ensure_graph_node(
             "approval_decision",
             local_table="approval_decisions",
@@ -140,6 +181,7 @@ class FinishedVideoRepository:
                 "decision": decision,
                 "notes": notes,
                 "approvalDecisionId": decision_id,
+                "subjectSha256": row["content_hash"],
             },
             commit=False,
         )
@@ -932,6 +974,7 @@ class FinishedVideoRepository:
         audit_id = f"audit_finished_{digest[:12]}"
         audit_payload = {
             "schema": "campaign_factory.finished_video_operator_audit.v1",
+            "subjectSha256": digest,
             "targetFile": str(staged),
             "overallVerdict": "pass",
             "readinessSummary": {
@@ -961,12 +1004,13 @@ class FinishedVideoRepository:
         self.conn.execute(
             """
             INSERT INTO audit_reports
-            (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score,
+            (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score,
              status, layers_json, verdicts_json, overall_verdict, files_analyzed,
              failed_checks_json, warnings_json, created_at)
-            VALUES (?, ?, ?, ?, ?, 90, 'pass', '{}', '{}', 'pass', 1, '[]', '[]', ?)
+            VALUES (?, ?, ?, ?, ?, ?, 90, 'pass', '{}', '{}', 'pass', 1, '[]', '[]', ?)
             ON CONFLICT(id) DO UPDATE SET
               report_path = excluded.report_path,
+              subject_sha256 = excluded.subject_sha256,
               score = excluded.score,
               status = excluded.status,
               overall_verdict = excluded.overall_verdict,
@@ -978,6 +1022,7 @@ class FinishedVideoRepository:
                 audit_id,
                 campaign["id"],
                 rendered_id,
+                digest,
                 "operator_finished_video_audit",
                 str(audit_path),
                 now,

@@ -846,6 +846,7 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
                 audit_id = f"audit_variant_{digest[:12]}"
                 audit_payload = {
                     "schema": "campaign_factory.contentforge_variant_audit.v1",
+                    "subjectSha256": digest,
                     "targetFile": str(dest),
                     "contentforgeRunId": report.get("runId"),
                     "contentforgeSchema": report.get("schema"),
@@ -878,12 +879,13 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
                 self.conn.execute(
                     """
                 INSERT INTO audit_reports
-                (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score,
+                (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score,
                  status, layers_json, verdicts_json, overall_verdict, files_analyzed,
                  failed_checks_json, warnings_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'pass', '{}', '{}', 'pass', 1, '[]', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pass', '{}', '{}', 'pass', 1, '[]', ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   report_path = excluded.report_path,
+                  subject_sha256 = excluded.subject_sha256,
                   score = excluded.score,
                   status = excluded.status,
                   layers_json = excluded.layers_json,
@@ -897,6 +899,7 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
                         audit_id,
                         parent["campaign_id"],
                         row["id"],
+                        digest,
                         report.get("runId"),
                         str(audit_path),
                         int(

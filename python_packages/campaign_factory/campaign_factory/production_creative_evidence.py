@@ -63,6 +63,7 @@ def persist_asset_creative_evidence(
             **(
                 {
                     "referenceVideo": job["referenceVideo"],
+                    "recreationAnchorApproval": job.get("recreationAnchorApproval"),
                     "recreationCharacterCompatibility": job.get(
                         "recreationCharacterCompatibility"
                     ),
@@ -72,6 +73,33 @@ def persist_asset_creative_evidence(
             ),
         }
     )
+    if job.get("referenceVideo"):
+        approval = job.get("recreationAnchorApproval")
+        approval = approval if isinstance(approval, Mapping) else {}
+        metadata["recreationReview"] = {
+            "schema": "campaign_factory.recreate_reel_review.v1",
+            "finalSha256": registered["content_hash"],
+            "referenceVideoSha256": job["referenceVideoSha256"],
+            "approvedAnchorSha256": approval.get("anchorFileSha256"),
+            "canonicalCreatorReferences": [
+                {
+                    "sourceAssetId": job["sourceAssetId"],
+                    "sha256": job["sourceSha256"],
+                }
+            ],
+            "identityComparisonRequired": {
+                "approvedAnchor": True,
+                "canonicalCreatorReferences": True,
+            },
+            "identityComparisonStatus": "operator_review_required",
+            "providerExecutionStatus": "completed",
+            "technicalArtifactStatus": "completed",
+            "creativeDecision": "pending",
+            "publishability": "blocked_pending_explicit_final_approval",
+            "learningEligible": False,
+            "wouldPost": None,
+            "operatorReviewRequired": True,
+        }
     conn.execute(
         "UPDATE rendered_assets SET metadata_json = ? WHERE id = ?",
         (json.dumps(metadata, sort_keys=True, separators=(",", ":")), registered["id"]),

@@ -148,9 +148,18 @@ MIN_ACCOUNT_BASELINE_SAMPLES = 2
 EXPLORATION_FLOOR = 0.15
 EXPLORATION_MIN_EFFECTIVE_TRIALS = 5.0
 SCORING_VERSION = "account_normalized_decay_shrinkage.v1"
+OBJECTIVE_SCORING_VERSION = "objective_weighted_outcome.v2"
+SUPPORTED_OBJECTIVES = {
+    "growth",
+    "engagement",
+    "profile_curiosity",
+    "content_testing",
+}
 
 
-def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float]:
+def account_reward_baselines(
+    snapshots: list[dict[str, Any]], *, objective: str | None = None
+) -> dict[str, float]:
     rewards: dict[str, list[float]] = {}
     for snapshot in latest_snapshots_by_post(snapshots):
         account = str(
@@ -158,7 +167,7 @@ def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float
         ).strip()
         if not account:
             continue
-        reward = snapshot_reward(snapshot)
+        reward = _snapshot_reward_for_objective(snapshot, objective)
         if reward is None:
             continue
         rewards.setdefault(account, []).append(reward)
@@ -173,10 +182,13 @@ def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float
 
 
 def snapshot_normalized_reward(
-    snapshot: dict[str, Any], baselines: dict[str, float]
+    snapshot: dict[str, Any],
+    baselines: dict[str, float],
+    *,
+    objective: str | None = None,
 ) -> float:
     """Return the unshrunk per-snapshot reward relative to its account baseline."""
-    reward = snapshot_reward(snapshot)
+    reward = _snapshot_reward_for_objective(snapshot, objective)
     if reward is None:
         raise ValueError("snapshot has no measurable exposure")
     account = str(
@@ -189,7 +201,10 @@ def snapshot_normalized_reward(
 
 
 def account_reward_baseline_provenance(
-    snapshots: list[dict[str, Any]], *, computed_at: str
+    snapshots: list[dict[str, Any]],
+    *,
+    computed_at: str,
+    objective: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Describe the exact baseline a new Reference outcome stamp will freeze."""
     rewards: dict[str, list[float]] = {}
@@ -199,7 +214,7 @@ def account_reward_baseline_provenance(
         ).strip()
         if not account:
             continue
-        reward = snapshot_reward(snapshot)
+        reward = _snapshot_reward_for_objective(snapshot, objective)
         if reward is not None:
             rewards.setdefault(account, []).append(reward)
     result: dict[str, dict[str, Any]] = {}
@@ -230,6 +245,7 @@ def aggregate_performance(
     *,
     account_baselines: dict[str, float] | None = None,
     reference_now: datetime | None = None,
+    objective: str | None = None,
 ) -> dict[str, Any]:
     latest = latest_snapshots_by_post(snapshots)
     totals = {
@@ -267,7 +283,10 @@ def aggregate_performance(
         ),
     }
     learning = learning_summary(
-        latest, account_baselines=account_baselines or {}, reference_now=reference_now
+        latest,
+        account_baselines=account_baselines or {},
+        reference_now=reference_now,
+        objective=objective,
     )
     return {
         "count": count,
@@ -309,11 +328,16 @@ def learning_summary(
     *,
     account_baselines: dict[str, float],
     reference_now: datetime | None = None,
+    objective: str | None = None,
 ) -> dict[str, Any]:
+    scoring_version = OBJECTIVE_SCORING_VERSION if objective else SCORING_VERSION
+    if objective and objective not in SUPPORTED_OBJECTIVES:
+        raise ValueError(f"unsupported learning objective: {objective}")
     if not snapshots:
         return {
             "status": "unmeasured",
-            "scoringVersion": SCORING_VERSION,
+            "scoringVersion": scoring_version,
+            "objective": objective,
             "score": None,
             "effectiveSampleSize": 0.0,
             "priorRelativeReward": PRIOR_RELATIVE_REWARD,
@@ -337,7 +361,7 @@ def learning_summary(
     miss_weight = 0.0
     baseline_source_counts = {"account_median": 0, "default_prior": 0}
     for snapshot in snapshots:
-        reward = snapshot_reward(snapshot)
+        reward = _snapshot_reward_for_objective(snapshot, objective)
         if reward is None:
             unmeasured += 1
             continue
@@ -354,7 +378,9 @@ def learning_summary(
         if weight <= 0:
             unmeasured += 1
             continue
-        relative_reward = snapshot_normalized_reward(snapshot, account_baselines)
+        relative_reward = snapshot_normalized_reward(
+            snapshot, account_baselines, objective=objective
+        )
         weighted_total += relative_reward * weight
         weight_total += weight
         if relative_reward >= PRIOR_RELATIVE_REWARD:
@@ -365,7 +391,8 @@ def learning_summary(
     if measured == 0 or weight_total <= 0:
         return {
             "status": "unmeasured",
-            "scoringVersion": SCORING_VERSION,
+            "scoringVersion": scoring_version,
+            "objective": objective,
             "score": None,
             "measuredCount": 0,
             "unmeasuredCount": unmeasured,
@@ -386,7 +413,8 @@ def learning_summary(
     )
     return {
         "status": "measured",
-        "scoringVersion": SCORING_VERSION,
+        "scoringVersion": scoring_version,
+        "objective": objective,
         "score": int(max(0, min(100, round(score)))),
         "measuredCount": measured,
         "unmeasuredCount": unmeasured,
@@ -443,6 +471,7 @@ def latest_snapshots_by_post(snapshots: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def snapshot_reward(snapshot: dict[str, Any]) -> float | None:
+    """Frozen v1 reward. Do not change this formula in place."""
     metrics = snapshot.get("metrics") or {}
     exposure = _first_positive_number(
         metrics.get("reach"),
@@ -457,6 +486,99 @@ def snapshot_reward(snapshot: dict[str, Any]) -> float | None:
     )
     engagement_rate = engagement / exposure
     return math.log1p(exposure) * engagement_rate
+
+
+def objective_snapshot_reward(
+    snapshot: dict[str, Any], *, objective: str
+) -> float | None:
+    """Versioned v2 reward with explicit objective-specific weights."""
+    if objective not in SUPPORTED_OBJECTIVES:
+        raise ValueError(f"unsupported learning objective: {objective}")
+    metrics = snapshot.get("metrics") or {}
+    exposure = _first_positive_number(
+        metrics.get("reach"),
+        metrics.get("impressions"),
+        metrics.get("views"),
+    )
+    if not exposure or exposure <= 0:
+        return None
+    rates = {
+        "likes": _nonnegative_metric(metrics, "likes") / exposure,
+        "comments": _nonnegative_metric(metrics, "comments", "replies") / exposure,
+        "shares": _nonnegative_metric(metrics, "shares", "reposts") / exposure,
+        "saves": _nonnegative_metric(metrics, "saves") / exposure,
+        "profile_visits": _nonnegative_metric(
+            metrics, "profileVisits", "profile_visits"
+        )
+        / exposure,
+        "follows": _nonnegative_metric(metrics, "follows") / exposure,
+        "link_clicks": _nonnegative_metric(metrics, "linkClicks", "link_clicks")
+        / exposure,
+        "watch_quality": _watch_quality(metrics),
+    }
+    if objective == "growth":
+        signal = (
+            rates["shares"] * 2
+            + rates["watch_quality"] * 0.5
+            + rates["profile_visits"] * 2
+            + rates["follows"] * 4
+        )
+    elif objective == "engagement":
+        signal = (
+            rates["likes"]
+            + rates["comments"] * 2
+            + rates["shares"] * 4
+            + rates["saves"] * 4
+        )
+    elif objective == "profile_curiosity":
+        signal = (
+            rates["profile_visits"] * 2
+            + rates["follows"] * 4
+            + rates["link_clicks"] * 3
+        )
+    else:
+        signal = (
+            rates["shares"] * 2
+            + rates["saves"] * 2
+            + rates["watch_quality"] * 0.5
+        )
+    return math.log1p(exposure) * signal
+
+
+def _snapshot_reward_for_objective(
+    snapshot: dict[str, Any], objective: str | None
+) -> float | None:
+    return (
+        objective_snapshot_reward(snapshot, objective=objective)
+        if objective
+        else snapshot_reward(snapshot)
+    )
+
+
+def _nonnegative_metric(metrics: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        value = _number(metrics.get(key))
+        if value is not None:
+            return max(0.0, value)
+    return 0.0
+
+
+def _watch_quality(metrics: dict[str, Any]) -> float:
+    completion = _number(
+        metrics.get("completionRate", metrics.get("completion_rate"))
+    )
+    if completion is not None and 0 <= completion <= 1:
+        return completion
+    watch_seconds = _nonnegative_metric(
+        metrics, "watchTimeSeconds", "watch_time_seconds"
+    )
+    views = _nonnegative_metric(metrics, "views")
+    duration = _nonnegative_metric(
+        metrics, "videoDurationSeconds", "video_duration_seconds"
+    )
+    if not views or not duration:
+        return 0.0
+    return min(1.0, watch_seconds / (views * duration))
 
 
 def recency_weight(value: Any, *, now: datetime) -> float:

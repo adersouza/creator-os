@@ -76,7 +76,7 @@ validates it again after the Node subprocess boundary.
     },
     "blockingCodes": [],
     "warningCodes": [],
-    "recommendedAction": "approve_candidate|review|reject"
+    "recommendedAction": "review_candidate|review|reject"
   },
   "ocr": {
     "available": true,
@@ -290,7 +290,7 @@ validates it again after the Node subprocess boundary.
 - `recommendedAction: "reject"` is used for blockers.
 - `recommendedAction: "review"` is used for upload-ready candidates with
   nonblocking warnings.
-- `recommendedAction: "approve_candidate"` is used only for clean candidates.
+- `recommendedAction: "review_candidate"` means no configured automated blocker was found; operator review is still required.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
 - `campaign_factory_audit.v1.10` keeps missing overlay text and unavailable OCR
   advisory, filters implausible/noisy OCR boxes, and blocks heuristic

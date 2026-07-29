@@ -30,6 +30,7 @@ def audit_report_payload(row: dict[str, Any]) -> dict[str, Any]:
     report = {
         "id": row["id"],
         "contentForgeRunId": row["contentforge_run_id"],
+        "subjectSha256": row.get("subject_sha256"),
         "reportPath": row["report_path"],
         "score": row["score"],
         "status": row["status"],

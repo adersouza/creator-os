@@ -326,6 +326,8 @@ def export_threadsdash(
     supabase_service_role_key: str | None = None,
     supabase_storage_bucket: str = "media",
     allow_warnings: bool = False,
+    warning_override_reason: str | None = None,
+    warning_override_by: str | None = None,
     content_pillar: str | None = None,
     cta_type: str | None = None,
     language: str | None = None,
@@ -375,6 +377,8 @@ def export_threadsdash(
                 "hasSupabaseServiceRoleKey": bool(supabase_service_role_key),
                 "supabaseStorageBucket": supabase_storage_bucket,
                 "allowWarnings": allow_warnings,
+                "warningOverrideReason": warning_override_reason,
+                "warningOverrideBy": warning_override_by or user_id,
                 "contentPillar": content_pillar,
                 "ctaType": cta_type,
                 "language": language,
@@ -465,7 +469,7 @@ def export_threadsdash(
                 + ", ".join(readiness_blockers)
             )
         if not dry_run and readiness.get("warnings") and not allow_warnings:
-            warning_codes = [
+            unreviewed_warning_codes = [
                 str(item.get("code") or item.get("type") or item)
                 if isinstance(item, dict)
                 else str(item)
@@ -473,8 +477,25 @@ def export_threadsdash(
             ]
             raise ValueError(
                 "export has readiness warnings; review them or explicitly pass "
-                "allow_warnings: " + ", ".join(warning_codes)
+                "allow_warnings: " + ", ".join(unreviewed_warning_codes)
             )
+        warning_codes: list[str] = []
+        warning_override_reason_normalized = ""
+        if not dry_run and readiness.get("warnings") and allow_warnings:
+            warning_override_reason_normalized = str(
+                warning_override_reason or ""
+            ).strip()
+            if not warning_override_reason_normalized:
+                raise ValueError(
+                    "warning override requires a non-empty warning_override_reason"
+                )
+            warning_codes = [
+                str(item.get("code") or item.get("type") or item)
+                if isinstance(item, dict)
+                else str(item)
+                for item in readiness.get("warnings") or []
+            ]
+        warning_override: dict[str, Any] | None = None
         uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
         # Validate the exact local payload before any handshake, storage upload,
         # nonce claim, or ingest write. The second validation below proves that
@@ -516,6 +537,22 @@ def export_threadsdash(
                 "Campaign Factory exports are draft-only; scheduling and publishing belong to ThreadsDashboard"
             )
         validate_threadsdash_draft_payload_strict(payload)
+        if warning_codes:
+            warning_override = {
+                "schema": "campaign_factory.export_warning_override.v1",
+                "warningCodes": sorted(set(warning_codes)),
+                "operatorIdentity": str(warning_override_by or user_id),
+                "overrideReason": warning_override_reason_normalized,
+                "payloadFingerprint": hashlib.sha256(
+                    json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+                "recordedAt": utc_now(),
+            }
         out_path = exports_dir / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
         result: dict[str, Any] = {
             "schema": "campaign_factory.supabase_export.v1",
@@ -530,6 +567,7 @@ def export_threadsdash(
             "scheduleHandoffRequired": normalized_schedule_mode in {"preview", "live"},
             "payload": payload,
             "readiness": readiness,
+            "warningOverride": warning_override,
             "supabase": {"attempted": False, "media": [], "posts": []},
             "dashboardIngest": {
                 "attempted": False,
@@ -554,6 +592,7 @@ def export_threadsdash(
             ingest_url=threadsdash_ingest_url,
             ingest_secret=threadsdash_ingest_secret,
         )
+        _commit_payload_inventory_reservations(factory, payload)
         reconciled_post_ids = _reconcile_dashboard_ingest_post_ids(
             payload=payload,
             ingest_result=result["dashboardIngest"],
@@ -631,6 +670,7 @@ def export_threadsdash(
                 "postIds": post_ids,
                 "blockingReasons": readiness.get("blockingReasons") or [],
                 "warnings": readiness.get("warnings") or [],
+                "warningOverride": warning_override,
                 "scheduleMode": normalized_schedule_mode,
                 "draftPayloadSchema": payload.get("schema"),
                 "selectedDraftPayload": (contract_negotiation or {}).get(
@@ -655,12 +695,15 @@ def export_threadsdash(
                     "selectedDraftPayload"
                 ),
                 "previewCleanup": result.get("previewCleanup") or {},
+                "warningOverride": warning_override,
             },
         )
         return result
     except Exception as exc:
         if dry_run:
             raise
+        if "payload" in locals():
+            _release_payload_inventory_reservations(factory, payload)
         assert pipeline_job is not None
         failed_path = (
             exports_dir
@@ -676,6 +719,7 @@ def export_threadsdash(
             "pipelineJobId": pipeline_job["id"],
             "draftPayloadSchema": normalized_draft_payload_schema,
             "error": str(exc),
+            "warningOverride": locals().get("warning_override"),
         }
         failed_path.parent.mkdir(parents=True, exist_ok=True)
         failed_path.write_text(
@@ -704,6 +748,36 @@ def export_threadsdash(
         )
         factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
+
+
+def _payload_inventory_reservation_ids(payload: dict[str, Any]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            str(draft.get("inventoryReservationId"))
+            for draft in payload.get("drafts") or []
+            if isinstance(draft, dict) and draft.get("inventoryReservationId")
+        )
+    )
+
+
+def _commit_payload_inventory_reservations(
+    factory: CampaignFactory, payload: dict[str, Any]
+) -> None:
+    for reservation_id in _payload_inventory_reservation_ids(payload):
+        factory.domains.inventory_reservations.commit_inventory_reservation(
+            reservation_id
+        )
+
+
+def _release_payload_inventory_reservations(
+    factory: CampaignFactory, payload: dict[str, Any]
+) -> None:
+    for reservation_id in _payload_inventory_reservation_ids(payload):
+        factory.domains.inventory_reservations.release_inventory_reservation(
+            reservation_id,
+            status="released",
+            pending_only=True,
+        )
 
 
 def _validate_exact_creative_approvals(

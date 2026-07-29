@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from creator_os_core.recreation_anchor_approval import (
+    write_recreation_anchor_approval,
+)
 from reel_factory import higgsfield_production as subject
 
 
@@ -83,6 +87,29 @@ def _request(tmp_path: Path, **overrides: Any) -> subject.HiggsfieldProductionRe
         "max_credits": 20.0,
     }
     values.update(overrides)
+    if (
+        values["recipe_id"] == "higgsfield_recreate_reel"
+        and values.get("driving_video_path")
+        and not values.get("recreation_anchor_approval")
+    ):
+        driving = Path(values["driving_video_path"])
+        approval = write_recreation_anchor_approval(
+            output_dir=tmp_path / "anchor-approvals",
+            creator=str(values["creator"]),
+            soul_id=str(values["soul_id"]),
+            anchor_generation_id="anchor-generation-1",
+            anchor_file=Path(values["source_image_path"]),
+            prompt_pack_id="prompt-pack-1",
+            prompt_pack_fingerprint="a" * 64,
+            anchor_prompt_fingerprint="b" * 64,
+            creator_image_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+            reference_video_sha256=hashlib.sha256(driving.read_bytes()).hexdigest(),
+            selected_composition_frame_sha256="c" * 64,
+            approved_by="operator@test",
+        )
+        values["source_approval"] = approval["approvalFingerprint"]
+        values["source_image_path"] = Path(approval["anchorFilePath"])
+        values["recreation_anchor_approval"] = approval
     return subject.HiggsfieldProductionRequest(**values)
 
 
@@ -276,7 +303,10 @@ def test_recreate_qualification_uses_seedance_fast_with_creator_reference(
         "approved_creator_reference_element"
         not in command[command.index("--prompt") + 1]
     )
-    assert command[command.index("--image-references") + 1].endswith("source.png")
+    assert (
+        command[command.index("--image-references") + 1]
+        == plan["recreationAnchorApproval"]["anchorFilePath"]
+    )
     assert command[command.index("--mode") + 1] == "fast"
     assert plan["command"][plan["command"].index("--resolution") + 1] == "480p"
     assert command[command.index("--bitrate_mode") + 1] == "high"
@@ -482,6 +512,14 @@ def test_success_hashes_registers_and_preserves_review_fields(
     output = Path(receipt["finalOutput"]["path"])
     assert receipt["status"] == "completed"
     assert receipt["generationId"] == "generation-1"
+    assert receipt["externalOperationId"] == "generation-1"
+    assert receipt["operationReceipt"] == {
+        "schema": "pipeline.operation_receipt.v1",
+        "workItemId": receipt["workItemId"],
+        "authorizationId": receipt["authorizationId"],
+        "attemptId": receipt["attemptId"],
+        "externalOperationId": "generation-1",
+    }
     assert receipt["model"] == "kling3_0"
     assert receipt["creditsConsumed"] == 8.75
     assert receipt["creditsConsumedSource"] == "account_balance_delta"
@@ -539,8 +577,15 @@ def test_ambiguous_submission_is_never_retried(
     receipt_path = next((tmp_path / "review" / "receipts").glob("*.json"))
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "submission_ambiguous"
+    assert receipt["requestFingerprint"]
+    assert receipt["creditQuote"]["amount"] == 8.75
+    assert receipt["balanceBefore"] == 100.0
+    assert receipt["providerAccountSnapshot"]["credits"] == 100.0
+    assert receipt["submittedAt"]
+    assert receipt["model"]
+    assert receipt["source"]["sha256"]
 
-    second = FakeAdapter([{"credits": 8.75}, {"credits": 100.0}])
+    second = FakeAdapter([{"credits": 8.75}, {"credits": 100.0}, {"items": []}])
     with pytest.raises(subject.HiggsfieldSubmissionNeedsReconciliation):
         subject.execute_higgsfield_production(
             _request(tmp_path),
@@ -549,3 +594,60 @@ def test_ambiguous_submission_is_never_retried(
             confirm_paid=True,
         )
     assert all(command[2] != "create" for command in second.commands)
+
+
+def test_ambiguous_submission_reconciles_one_exact_history_match(
+    tmp_path: Path,
+) -> None:
+    request = _request(
+        tmp_path,
+        work_item_id="work-1",
+        authorization_id="auth-1",
+        attempt_id="attempt-1",
+        client_request_correlation_id="creator-os:work-1:attempt-1",
+    )
+    plan = subject.build_higgsfield_production_plan(
+        request,
+        capabilities=_capabilities(),
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+    )
+    adapter = FakeAdapter(
+        [
+            {
+                "items": [
+                    {
+                        "id": "generation-reconciled",
+                        "created_at": "2026-07-29T12:00:10Z",
+                        "job_type": "kling3_0",
+                        "status": "completed",
+                        "params": {
+                            "prompt": plan["prompt"],
+                            "duration": 5,
+                            "aspect_ratio": "9:16",
+                        },
+                    }
+                ]
+            }
+        ]
+    )
+
+    match = subject._reconcile_submission_history(
+        request,
+        plan=plan,
+        receipt={"submittedAt": "2026-07-29T12:00:00Z"},
+        adapter=adapter,  # type: ignore[arg-type]
+    )
+
+    assert match is not None
+    assert match["id"] == "generation-reconciled"
+    assert adapter.commands == [
+        [
+            "higgsfield",
+            "generate",
+            "list",
+            "--video",
+            "--size",
+            "100",
+            "--json",
+        ]
+    ]
