@@ -29,6 +29,7 @@ def test_backup_runtime_state_vacuums_dbs_and_copies_runtime_dirs(tmp_path: Path
     audio = repo / "python_packages/reel_factory/03_audio_library"
     audio.mkdir(parents=True)
     (audio / "track.json").write_text("{}", encoding="utf-8")
+    (audio / "historical.mp4").symlink_to(repo / "removed-source.mp4")
 
     result = backup_runtime_state(repo, tmp_path / "backups", timestamp="test")
 
@@ -56,6 +57,12 @@ def test_backup_runtime_state_vacuums_dbs_and_copies_runtime_dirs(tmp_path: Path
         tmp_path
         / "backups/test/python_packages/reel_factory/03_audio_library/track.json"
     ).exists()
+    historical = (
+        tmp_path
+        / "backups/test/python_packages/reel_factory/03_audio_library/historical.mp4"
+    )
+    assert historical.is_symlink()
+    assert historical.readlink() == repo / "removed-source.mp4"
     verification = verify_backup(backup_root)
     assert verification["status"] == "ok"
     assert {row["name"] for row in verification["databases"]} == set(backed_up)

@@ -110,6 +110,7 @@ def backup_runtime_state(
                 source,
                 dest,
                 dirs_exist_ok=True,
+                symlinks=True,
                 ignore=shutil.ignore_patterns(*CREDENTIAL_PATTERNS),
             )
             entry |= {"status": "backed_up", "path": str(dest.relative_to(target))}
