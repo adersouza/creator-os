@@ -78,10 +78,10 @@ flowchart LR
     Audio["Audio Radar<br/>discover, cache, rank, segment"]
     Forge["ContentForge<br/>inspect and block"]
     Approval["Campaign approval<br/>exact final SHA"]
-    Export["Validated HMAC draft handoff"]
+    Export["HMAC-signed draft-ingest request"]
     TD["ThreadsDashboard / Juno<br/>accounts, schedule, publish"]
     Instagram["Instagram"]
-    Metrics["Canonical metric history<br/>1h, 24h, 72h"]
+    Metrics["Canonical metric history<br/>approximately 1h, 24h, 72h"]
     Learning["Supervised learning<br/>pack, recommendation, approval"]
 
     Operator --> Campaign
@@ -105,6 +105,9 @@ flowchart LR
 The operator does not manually coordinate six products. The supported
 `scripts/creator-os` command delegates to these internal owners and keeps the
 cross-component receipts connected.
+
+The canonical gate-by-gate explanation is
+[`docs/architecture/approval_to_publication_boundaries.md`](docs/architecture/approval_to_publication_boundaries.md).
 
 ## Product Boundary
 
@@ -439,7 +442,8 @@ Creative Approval binds:
 - export projection.
 
 `creator-os export --dry-run` writes nothing. `--apply` creates only validated,
-HMAC-signed draft handoff evidence. It cannot create a schedule or publish.
+HMAC-signed draft-ingest request evidence. It cannot create a schedule or
+publish.
 
 ## Existing-Media Path
 
@@ -693,7 +697,11 @@ schedule and publication authority remains ThreadsDashboard.
 - 1h, 24h, and 72h observations are calculated from actual publication time
   and may overlap.
 
-ThreadsDashboard makes the final scheduling decision.
+ThreadsDashboard makes the final scheduling decision. Its read-only smart-time
+plan may prefer a learned hour only from comparable 24-hour metric-history
+snapshots, then applies active hours, account gaps, cross-plan minimum spacing,
+and deterministic jitter. The receipt includes the safe-slot baseline and
+whether the learned preference actually changed the timestamp.
 
 ## Publication Boundary
 
@@ -704,7 +712,7 @@ sequenceDiagram
     participant I as Instagram
 
     C->>C: approve exact final MP4 SHA
-    C->>T: validated HMAC draft payload
+    C->>T: HMAC-signed draft-ingest request
     T->>T: account, media, audio, schedule, publish preflight
     T->>I: explicit approved publish
     I-->>T: Instagram media identity
@@ -736,10 +744,11 @@ Instagram publication identity
 
 A recommendation may affect production only when:
 
-- at least three canonical measured outcomes support it;
+- at least three canonical measured outcomes support an operator-reviewed
+  early advisory;
 - publication identity is real and confirmed;
 - creator identity matches;
-- account scope matches or an explicit global scope was approved;
+- exact account scope matches;
 - content intent matches;
 - source and final-media lineage validate;
 - observations share an equal-age 24-hour or 72-hour cohort;
@@ -749,6 +758,23 @@ A recommendation may affect production only when:
 One-hour evidence is advisory. Missing metrics remain missing, never zero.
 Fixtures, fallbacks, failed publications, invalid lineage, pre-cutover rows,
 and mismatched observation ages are excluded.
+
+Evidence language is intentionally bounded:
+
+- 3-4 comparable outcomes: `early_advisory`;
+- 5-9: `preliminary_direction`;
+- 10 or more: `stronger_directional_evidence`;
+- an explicitly controlled matched experiment: `causal_evidence_candidate`.
+
+Account-group, creator-wide, and global rollups are emitted as advisory
+hierarchical evidence only. They do not override or satisfy the exact-account
+production match.
+
+The frozen default reward remains
+`account_normalized_decay_shrinkage.v1`. An explicitly supplied supported
+learning objective selects `objective_weighted_outcome.v2`, which weights
+saves, shares, watch quality, profile visits, follows, and link actions
+according to that objective. The v1 formula is not changed in place.
 
 ### Recommendation states
 

@@ -7,11 +7,15 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from .learning_score import learning_summary
+from .learning_score import (
+    SUPPORTED_OBJECTIVES,
+    account_reward_baselines,
+    learning_summary,
+)
 from .persistence import json_load
 
 LEARNING_RECOMMENDATION_SCOPE = "learning_consumption"
-LEARNING_RECOMMENDATION_VERSION = "learning_consumption.v1"
+LEARNING_RECOMMENDATION_VERSION = "learning_consumption.v2"
 MINIMUM_PRODUCTION_EXAMPLES = 3
 PRODUCTION_BUCKETS = ("approximately_72h", "approximately_24h")
 RECOMMENDATION_MAX_AGE_DAYS = 42
@@ -23,6 +27,20 @@ RECOMMENDATION_STATES = {
     "EXPIRED",
     "BLOCKED",
 }
+
+
+def evidence_tier(
+    sample_count: int, *, controlled_matched_experiment: bool = False
+) -> str:
+    if controlled_matched_experiment:
+        return "causal_evidence_candidate"
+    if sample_count >= 10:
+        return "stronger_directional_evidence"
+    if sample_count >= 5:
+        return "preliminary_direction"
+    if sample_count >= 3:
+        return "early_advisory"
+    return "insufficient_evidence"
 
 
 def observation_bucket(published_at: object, snapshot_at: object) -> str | None:
@@ -84,6 +102,7 @@ def build_measured_recommendations(
             defaultdict(list)
         )
         invalid_reasons: set[str] = set()
+        eligible_provenance: list[dict[str, Any]] = []
         for provenance in pattern.get("measuredOutcomeProvenance") or []:
             if not isinstance(provenance, Mapping):
                 invalid_reasons.add("invalid_outcome_provenance")
@@ -96,6 +115,7 @@ def build_measured_recommendations(
             if reasons:
                 invalid_reasons.update(reasons)
                 continue
+            eligible_provenance.append(dict(provenance))
             grouped[
                 (
                     str(outcome["creatorId"]),
@@ -125,6 +145,7 @@ def build_measured_recommendations(
                     content_intent=content_intent,
                     bucket=bucket,
                     now=reference_now,
+                    scope_pool=eligible_provenance,
                 )
             )
         if not grouped and pattern.get("measuredOutcomeProvenance"):
@@ -248,6 +269,8 @@ def build_audio_recommendations(
                 "recommendationFingerprint": fingerprint,
                 "classification": "ADVISORY",
                 "eligibleForOperatorApproval": eligible,
+                "evidenceTier": evidence_tier(sample_count),
+                "evidenceLabel": evidence_tier(sample_count).replace("_", " "),
                 "sampleCount": sample_count,
                 "score": int(round(score)),
                 "confidence": "medium" if eligible else "low",
@@ -295,6 +318,9 @@ def production_outcome_ineligibility_reasons(
         reasons.append("failed_or_unpublished")
     if outcome.get("fixture") is True:
         reasons.append("fixture")
+    objective = str(outcome.get("learningObjective") or "").strip()
+    if objective and objective not in SUPPORTED_OBJECTIVES:
+        reasons.append("unsupported_learning_objective")
     expected_bucket = observation_bucket(
         outcome.get("publishedAt"), outcome.get("snapshotAt")
     )
@@ -878,6 +904,7 @@ def _pattern_recommendation(
     content_intent: str,
     bucket: str,
     now: datetime,
+    scope_pool: list[dict[str, Any]],
 ) -> dict[str, Any]:
     unique = {
         str((item.get("outcome") or {}).get("performanceSnapshotId")): item
@@ -888,6 +915,13 @@ def _pattern_recommendation(
     sample_count = len(outcomes)
     production_eligible = (
         sample_count >= MINIMUM_PRODUCTION_EXAMPLES and bucket in PRODUCTION_BUCKETS
+    )
+    tier = evidence_tier(
+        sample_count,
+        controlled_matched_experiment=all(
+            (item.get("outcome") or {}).get("controlledMatchedExperiment") is True
+            for item in outcomes
+        ),
     )
     latest_observation = max(
         str((item.get("outcome") or {}).get("snapshotAt") or "") for item in outcomes
@@ -904,6 +938,12 @@ def _pattern_recommendation(
         }
         for item in outcomes
     ]
+    objectives = {
+        str((item.get("outcome") or {}).get("learningObjective") or "").strip()
+        for item in outcomes
+    }
+    objectives.discard("")
+    objective = next(iter(objectives)) if len(objectives) == 1 else None
     baseline_values = [
         (item.get("baselineProvenance") or {}).get("medianValue") for item in outcomes
     ]
@@ -915,10 +955,16 @@ def _pattern_recommendation(
         ),
         0.35,
     )
+    baselines = (
+        account_reward_baselines(metrics_snapshots, objective=objective)
+        if objective
+        else {account_id: baseline}
+    )
     learning = learning_summary(
         metrics_snapshots,
-        account_baselines={account_id: baseline},
+        account_baselines=baselines,
         reference_now=_parse_time(latest_observation) or now,
+        objective=objective,
     )
     source_hashes = {
         str((item.get("outcome") or {}).get("sourceSha256") or "") for item in outcomes
@@ -940,6 +986,7 @@ def _pattern_recommendation(
         "creatorIdentityProfile": creator_identity_profile,
         "accountId": account_id,
         "contentIntent": content_intent,
+        "learningObjective": objective,
         "observationBucket": bucket,
         "referencePatternId": _imported_pattern_id(pattern),
         "sourcePatternCardId": str(pattern.get("id") or ""),
@@ -964,8 +1011,19 @@ def _pattern_recommendation(
         "recommendationFingerprint": fingerprint,
         "classification": "ADVISORY",
         "eligibleForOperatorApproval": production_eligible,
+        "evidenceTier": tier,
+        "evidenceLabel": tier.replace("_", " "),
+        "hierarchicalEvidence": _hierarchical_evidence(
+            scope_pool,
+            account_id=account_id,
+            creator_id=creator_id,
+            creator_identity_profile=creator_identity_profile,
+            content_intent=content_intent,
+            bucket=bucket,
+        ),
         "sampleCount": sample_count,
         "score": int(learning.get("score") or 0),
+        "scoringVersion": learning.get("scoringVersion"),
         "confidence": "medium" if production_eligible else "low",
         "latestObservationAt": latest_observation,
         "recencyDays": round(age_days, 4),
@@ -1002,6 +1060,8 @@ def _ineligible_pattern_recommendation(
         "recommendationFingerprint": recommendation_fingerprint(core),
         "classification": "INELIGIBLE",
         "eligibleForOperatorApproval": False,
+        "evidenceTier": "insufficient_evidence",
+        "evidenceLabel": "insufficient evidence",
         "sampleCount": 0,
         "score": 0,
         "confidence": "low",
@@ -1010,6 +1070,94 @@ def _ineligible_pattern_recommendation(
         "reasons": reasons,
         "risks": reasons,
     }
+
+
+def _hierarchical_evidence(
+    provenance: list[dict[str, Any]],
+    *,
+    account_id: str,
+    creator_id: str,
+    creator_identity_profile: str,
+    content_intent: str,
+    bucket: str,
+) -> list[dict[str, Any]]:
+    def unique_count(items: list[dict[str, Any]]) -> int:
+        return len(
+            {
+                str((item.get("outcome") or {}).get("performanceSnapshotId"))
+                for item in items
+                if (item.get("outcome") or {}).get("performanceSnapshotId")
+            }
+        )
+
+    comparable = [
+        item
+        for item in provenance
+        if (item.get("outcome") or {}).get("contentIntent") == content_intent
+        and (item.get("outcome") or {}).get("observationBucket") == bucket
+    ]
+    exact = [
+        item
+        for item in comparable
+        if (item.get("outcome") or {}).get("accountId") == account_id
+    ]
+    creator = [
+        item
+        for item in comparable
+        if (item.get("outcome") or {}).get("creatorId") == creator_id
+        and (item.get("outcome") or {}).get("creatorIdentityProfile")
+        == creator_identity_profile
+    ]
+    account_groups = {
+        str((item.get("outcome") or {}).get("accountGroupId") or "").strip()
+        for item in exact
+    }
+    account_groups.discard("")
+    rows = [
+        {
+            "scope": "account",
+            "scopeId": account_id,
+            "sampleCount": unique_count(exact),
+            "evidenceTier": evidence_tier(unique_count(exact)),
+            "activation": "operator_approval_eligible",
+        }
+    ]
+    if len(account_groups) == 1:
+        group_id = next(iter(account_groups))
+        group = [
+            item
+            for item in creator
+            if str((item.get("outcome") or {}).get("accountGroupId") or "")
+            == group_id
+        ]
+        rows.append(
+            {
+                "scope": "account_group",
+                "scopeId": group_id,
+                "sampleCount": unique_count(group),
+                "evidenceTier": evidence_tier(unique_count(group)),
+                "activation": "advisory_only",
+            }
+        )
+    rows.extend(
+        [
+            {
+                "scope": "creator",
+                "scopeId": creator_id,
+                "sampleCount": unique_count(creator),
+                "evidenceTier": evidence_tier(unique_count(creator)),
+                "activation": "advisory_only",
+            },
+            {
+                "scope": "global",
+                "scopeId": None,
+                "sampleCount": unique_count(comparable),
+                "evidenceTier": evidence_tier(unique_count(comparable)),
+                "activation": "advisory_only",
+            },
+        ]
+    )
+    return rows
 
 
 def _preferred_prompt(

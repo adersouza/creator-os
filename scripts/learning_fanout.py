@@ -751,6 +751,20 @@ def _production_learning_outcome(
         or lineage.get("contentIntent")
         or ""
     ).strip()
+    account_group_id = str(
+        meta.get("account_group_id")
+        or meta.get("accountGroupId")
+        or raw.get("account_group_id")
+        or raw.get("accountGroupId")
+        or ""
+    ).strip()
+    learning_objective = str(
+        meta.get("learning_objective")
+        or meta.get("learningObjective")
+        or raw.get("learning_objective")
+        or raw.get("learningObjective")
+        or ""
+    ).strip()
     return {
         "performanceSnapshotId": row.get("id"),
         "instagramMediaId": media_id or None,
@@ -758,8 +772,10 @@ def _production_learning_outcome(
         "creatorId": creator or None,
         "creatorIdentityProfile": identity_profile or None,
         "accountId": row.get("account_id"),
+        "accountGroupId": account_group_id or None,
         "instagramAccountId": row.get("instagram_account_id"),
         "contentIntent": intent or None,
+        "learningObjective": learning_objective or None,
         "publishedAt": public.get("publishedAt"),
         "snapshotAt": public.get("snapshotAt"),
         "observationBucket": observation_bucket(

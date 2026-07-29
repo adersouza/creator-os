@@ -361,6 +361,8 @@ def register_core_commands(sub) -> None:
         default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
     )
     export.add_argument("--allow-warnings", action="store_true")
+    export.add_argument("--warning-override-reason")
+    export.add_argument("--warning-override-by")
     export.add_argument("--content-pillar")
     export.add_argument("--cta-type")
     export.add_argument("--language")

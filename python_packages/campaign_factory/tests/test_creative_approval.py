@@ -589,6 +589,8 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
             max_drafts=1,
             publish_mode="notify",
             allow_warnings=True,
+            warning_override_reason="Reviewed exact approved notify draft.",
+            warning_override_by="operator-user",
             supabase_url="https://example.supabase.co",
             supabase_service_role_key="service-role",
             threadsdash_ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",

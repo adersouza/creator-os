@@ -1117,6 +1117,8 @@ def export_td(body: dict[str, Any] = Body(...)):
             supabase_storage_bucket=body.get("supabaseStorageBucket")
             or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
             allow_warnings=bool(body.get("allowWarnings")),
+            warning_override_reason=body.get("warningOverrideReason"),
+            warning_override_by=body.get("warningOverrideBy"),
             content_pillar=body.get("contentPillar"),
             cta_type=body.get("ctaType"),
             language=body.get("language"),

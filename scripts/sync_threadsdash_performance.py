@@ -25,7 +25,6 @@ from creator_os_core.runtime_paths import resolve_runtime_paths  # noqa: E402
 
 _PATHS = resolve_runtime_paths(REPO_ROOT)
 DEFAULT_CAMPAIGN_FACTORY_DB = _PATHS.campaign_factory_db
-DEFAULT_REEL_MANIFEST_DB = _PATHS.reel_manifest_db
 DEFAULT_REFERENCE_FACTORY_DB = _PATHS.reference_factory_db
 
 

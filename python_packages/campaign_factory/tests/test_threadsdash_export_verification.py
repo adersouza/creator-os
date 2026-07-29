@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -293,6 +294,14 @@ def test_threadsdash_export_warnings_require_explicit_operator_override(
                 user_id="user_1",
                 dry_run=False,
             )
+        with pytest.raises(ValueError, match="warning_override_reason"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+                allow_warnings=True,
+            )
     finally:
         cf.close()
 
@@ -448,6 +457,7 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
     def upload(_factory, payload, **_kwargs):
         boundary_order.append("upload")
         observed["upload"] = keys(payload)
+        payload["_fingerprintTest"] = "hydrated-before-ingest"
         return []
 
     def ingest(payload, **_kwargs):
@@ -501,6 +511,8 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
             dry_run=False,
             max_drafts=1,
             allow_warnings=True,
+            warning_override_reason="Reviewed bounded export warnings.",
+            warning_override_by="operator-1",
             supabase_url="https://example.supabase.co",
             supabase_service_role_key="service-role",
             threadsdash_ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
@@ -508,6 +520,27 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
         )
 
         assert result["draftCount"] == 1
+        assert result["warningOverride"] == {
+            "schema": "campaign_factory.export_warning_override.v1",
+            "warningCodes": result["warningOverride"]["warningCodes"],
+            "operatorIdentity": "operator-1",
+            "overrideReason": "Reviewed bounded export warnings.",
+            "payloadFingerprint": result["warningOverride"]["payloadFingerprint"],
+            "recordedAt": result["warningOverride"]["recordedAt"],
+        }
+        assert len(result["warningOverride"]["payloadFingerprint"]) == 64
+        assert (
+            result["warningOverride"]["payloadFingerprint"]
+            == hashlib.sha256(
+                json.dumps(
+                    result["payload"],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        assert result["warningOverride"]["warningCodes"]
         assert observed == {
             "readiness": ["draft_asset_1_ig_1"],
             "negotiation": ["campaign_factory.threadsdash_drafts.v2"],

@@ -330,9 +330,14 @@ ThreadsDashboard owns:
 Queue, upload, handoff, schedule, and notification evidence are not publication.
 Publication requires a real reconciled Instagram media ID.
 
+Notify/manual completion is an operator assertion, not publication identity.
+ThreadsDashboard keeps that post in `publishing` until account sync binds a
+real Instagram media ID and records the reconciliation method and confidence.
+Both auto/API and notify/manual handoffs require ThreadsDashboard post approval.
+
 ## Learning Policy
 
-Production influence requires:
+Eligibility for an operator-reviewed early advisory requires:
 
 - at least three real eligible examples;
 - same creator and identity profile;
@@ -345,6 +350,12 @@ Production influence requires:
 - explicit operator approval.
 
 One-hour evidence is advisory. Missing is never zero.
+Three or four comparable outcomes remain `early_advisory`; five through nine
+are `preliminary_direction`; ten or more are
+`stronger_directional_evidence`. Only a controlled matched experiment may be
+described as a causal-evidence candidate. Account-group, creator-wide, and
+global evidence remains advisory-only; current production consumption still
+requires the exact account match.
 
 Only `SUPERVISED_ACTIVE` recommendations may affect:
 

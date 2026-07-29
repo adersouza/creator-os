@@ -409,6 +409,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 supabase_service_role_key=args.supabase_service_role_key,
                 supabase_storage_bucket=args.supabase_storage_bucket,
                 allow_warnings=args.allow_warnings,
+                warning_override_reason=args.warning_override_reason,
+                warning_override_by=args.warning_override_by,
                 content_pillar=args.content_pillar,
                 cta_type=args.cta_type,
                 language=args.language,
