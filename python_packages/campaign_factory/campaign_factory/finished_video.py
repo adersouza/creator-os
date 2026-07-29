@@ -111,6 +111,15 @@ class FinishedVideoRepository:
             "INSERT INTO approval_decisions (id, campaign_id, rendered_asset_id, decision, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (decision_id, row["campaign_id"], rendered_asset_id, decision, notes, now),
         )
+        from .derived_stills import sync_derived_source_review
+
+        sync_derived_source_review(
+            self.conn,
+            rendered_asset_id=rendered_asset_id,
+            decision=decision,
+            approval_decision_id=decision_id,
+            decided_at=now,
+        )
         approval_graph_id = self._ensure_graph_node(
             "approval_decision",
             local_table="approval_decisions",

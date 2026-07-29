@@ -16,6 +16,7 @@ from .core import (
     sha256_file,
     slugify,
 )
+from .derived_stills import derived_receipt_for_source
 from .lineage_v2 import build_lineage_v2_core, finalize_lineage_v2
 from .persistence import utc_now
 
@@ -354,6 +355,7 @@ def _register_rendered_asset(
         return dict(existing)
     caption_hash = factory.domains.publishability.text_hash("")
     source_prompt = _source_prompt(source_asset)
+    derived_still_source = derived_receipt_for_source(source_asset)
     upstream_lineage = _enriched_upstream_lineage(
         source_prompt, output_still=Path(render["stillPath"])
     )
@@ -390,6 +392,12 @@ def _register_rendered_asset(
         "audioBurned": False,
         "quality": render["quality"],
     }
+    if derived_still_source is not None:
+        lineage["derivedStillSource"] = derived_still_source
+        lineage["captionPlacementConstraints"] = {
+            "avoidGarmentRegion": True,
+            "noSafeLanePolicy": "clean_reel",
+        }
     lineage["review"].update(
         {
             "parentStillAccepted": True,
@@ -437,6 +445,12 @@ def _register_rendered_asset(
         "generatedAssetLineagePath": str(lineage_path),
         "generatedAssetLineage": lineage,
     }
+    if derived_still_source is not None:
+        metadata["derivedStillSource"] = derived_still_source
+        metadata["captionPlacementConstraints"] = {
+            "avoidGarmentRegion": True,
+            "noSafeLanePolicy": "clean_reel",
+        }
     now = utc_now()
     factory.conn.execute(
         """
@@ -682,6 +696,36 @@ def _source_prompt(source_asset: dict[str, Any]) -> dict[str, Any]:
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("source asset prompt metadata must be a JSON object")
+    derived = derived_receipt_for_source(source_asset)
+    if derived is not None:
+        payload = {
+            **payload,
+            "promptId": payload.get("promptId")
+            or f"prompt_derived_{str(source_asset['content_hash'])[:16]}",
+            "referenceId": payload.get("referenceId")
+            or f"source_{derived['rootSourceAssetId']}",
+            "generatedAssetLineage": payload.get("generatedAssetLineage")
+            or {
+                "schema": "campaign_factory.generated_asset_lineage.v2",
+                "source": {
+                    "assetId": source_asset["id"],
+                    "sha256": source_asset["content_hash"],
+                    "derivedStillSource": derived,
+                },
+                "features": {
+                    "sourceTier": derived["sourceTier"],
+                    "operation": derived["operation"],
+                    "provider": derived.get("provider"),
+                    "model": derived.get("model"),
+                    "batchingFormat": (derived.get("evidence") or {}).get(
+                        "batchingFormat"
+                    ),
+                    "requestFingerprint": (derived.get("evidence") or {}).get(
+                        "requestFingerprint"
+                    ),
+                },
+            },
+        }
     if not str(payload.get("promptId") or "").strip():
         raise ValueError("static MP4 registration requires source promptId")
     if not str(payload.get("referenceId") or "").strip():
@@ -777,6 +821,17 @@ def _source_records_accepted_still(
     still_path: Path,
     still_fingerprint: str,
 ) -> bool:
+    derived = derived_receipt_for_source(source_asset)
+    if derived is not None:
+        stored = Path(str(source_asset.get("stored_path") or "")).expanduser()
+        return bool(
+            source_asset.get("status") == "approved"
+            and (derived.get("approval") or {}).get("decision") == "approved"
+            and (derived.get("approval") or {}).get("exactOutputSha256")
+            == still_fingerprint
+            and stored.resolve() == still_path
+            and source_asset.get("content_hash") == still_fingerprint
+        )
     prompt = _json_object(source_asset.get("source_prompt"))
     lineage = prompt.get("generatedAssetLineage")
     review = lineage.get("review") if isinstance(lineage, dict) else None
