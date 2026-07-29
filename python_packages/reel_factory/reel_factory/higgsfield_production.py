@@ -388,8 +388,11 @@ def execute_higgsfield_production(
     review_root = Path(plan["reviewRoot"])
     receipt_dir = review_root / "receipts"
     receipt_dir.mkdir(parents=True, exist_ok=True)
+    attempt_key = hashlib.sha256(
+        str(request.attempt_id or "attempt-unknown").encode("utf-8")
+    ).hexdigest()[:16]
     receipt_path = receipt_dir / (
-        f"{plan['requestFingerprint']}.higgsfield_submission.json"
+        f"{plan['requestFingerprint']}.{attempt_key}.higgsfield_submission.json"
     )
     existing = _read_receipt(receipt_path) if receipt_path.exists() else None
     if existing is not None:
@@ -509,20 +512,28 @@ def _recover_higgsfield_generation(
     if receipt.get("status") == "submission_ambiguous" and not receipt.get(
         "generationId"
     ):
-        generation = _reconcile_submission_history(
+        reconciliation = _reconcile_submission_history(
             request,
             plan=plan,
             receipt=receipt,
             adapter=adapter,
         )
-        if generation is None:
+        receipt["submissionHistoryReconciliation"] = reconciliation["evidence"]
+        _write_receipt(receipt_path, receipt)
+        if reconciliation["classification"] != "EXACT_MATCH":
             raise HiggsfieldSubmissionNeedsReconciliation(
-                "Higgsfield submission history did not yield one exact match; "
-                "do not resubmit"
+                "Higgsfield submission reconciliation is "
+                f"{reconciliation['classification']}; do not resubmit"
+            )
+        generation = reconciliation["match"]
+        if not isinstance(generation, dict):
+            raise HiggsfieldSubmissionNeedsReconciliation(
+                "Higgsfield exact-match reconciliation omitted the provider job"
             )
         _bind_external_operation(receipt, str(generation["id"]))
         receipt["status"] = str(generation.get("status") or "reconciled")
         receipt["submissionHistoryReconciliation"] = {
+            **reconciliation["evidence"],
             "status": "matched",
             "matchedAt": _utc_now(),
             "providerCreatedAt": generation.get("created_at"),
@@ -569,12 +580,21 @@ def _reconcile_submission_history(
     plan: dict[str, Any],
     receipt: dict[str, Any],
     adapter: HiggsfieldCliAdapter,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     """Bind one ambiguous submission to one exact recent provider job."""
 
     submitted_at = _provider_timestamp(receipt.get("submittedAt"))
     if submitted_at is None:
-        return None
+        return {
+            "classification": "HISTORY_UNAVAILABLE",
+            "match": None,
+            "evidence": {
+                "schema": "reel_factory.higgsfield_history_reconciliation.v1",
+                "classification": "HISTORY_UNAVAILABLE",
+                "reason": "submitted_at_missing_or_invalid",
+                "reconciledAt": _utc_now(),
+            },
+        }
     try:
         history = adapter.run_json(
             [
@@ -587,8 +607,17 @@ def _reconcile_submission_history(
                 "--json",
             ]
         )
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-        return None
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        return {
+            "classification": "HISTORY_UNAVAILABLE",
+            "match": None,
+            "evidence": {
+                "schema": "reel_factory.higgsfield_history_reconciliation.v1",
+                "classification": "HISTORY_UNAVAILABLE",
+                "reason": type(exc).__name__,
+                "reconciledAt": _utc_now(),
+            },
+        }
     matches = [
         item
         for item in _items(history)
@@ -599,7 +628,34 @@ def _reconcile_submission_history(
             submitted_at=submitted_at,
         )
     ]
-    return matches[0] if len(matches) == 1 else None
+    classification = (
+        "EXACT_MATCH"
+        if len(matches) == 1
+        else "ZERO_MATCHES"
+        if not matches
+        else "MULTIPLE_MATCHES"
+    )
+    return {
+        "classification": classification,
+        "match": matches[0] if len(matches) == 1 else None,
+        "evidence": {
+            "schema": "reel_factory.higgsfield_history_reconciliation.v1",
+            "classification": classification,
+            "matchCount": len(matches),
+            "candidateExternalOperationIds": sorted(
+                str(item.get("id")) for item in matches if item.get("id")
+            ),
+            "historyResponseFingerprint": hashlib.sha256(
+                json.dumps(
+                    _scrub_provider_payload(history),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest(),
+            "reconciledAt": _utc_now(),
+        },
+    }
 
 
 def _history_item_matches(

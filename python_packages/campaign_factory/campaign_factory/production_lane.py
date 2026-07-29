@@ -1242,6 +1242,21 @@ def _execute_higgsfield_provider_job(
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            recovered_external_id = str(
+                receipt.get("externalOperationId") or receipt.get("generationId") or ""
+            ).strip()
+            if recovered_external_id:
+                factory.domains.events.mark_pipeline_effect_state(
+                    pipeline_job["id"],
+                    "EXTERNAL_ID_KNOWN",
+                    authorization_id=(
+                        str(authorization["authorizationId"])
+                        if authorization
+                        else None
+                    ),
+                    external_operation_id=recovered_external_id,
+                    evidence={"receiptPath": str(receipt_path)},
+                )
             cost_binding = _recovered_higgsfield_cost_binding(
                 factory,
                 job=job,
@@ -1249,6 +1264,14 @@ def _execute_higgsfield_provider_job(
                 spend_scope=scope,
             )
         else:
+            factory.domains.events.mark_pipeline_effect_state(
+                pipeline_job["id"],
+                "SUBMISSION_STARTED",
+                authorization_id=(
+                    str(authorization["authorizationId"]) if authorization else None
+                ),
+                evidence={"requestFingerprint": job["requestFingerprint"]},
+            )
             receipt = execute_higgsfield_production(
                 request,
                 capabilities=capabilities,

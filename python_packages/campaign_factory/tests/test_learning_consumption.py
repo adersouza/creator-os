@@ -227,6 +227,7 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
         "runsInserted": 0,
         "itemsInserted": 0,
         "itemsUnchanged": 1,
+        "itemsSuperseded": 0,
     }
     sources = [
         {"id": "source_1", "content_hash": "a" * 64, "status": "approved"},

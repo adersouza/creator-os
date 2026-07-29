@@ -346,7 +346,51 @@ def persist_measured_recommendations(
     inserted_runs = 0
     inserted_items = 0
     unchanged_items = 0
+    superseded_items = 0
     with conn:
+        current_pack_id = str(pack["packId"])
+        current_pack_fingerprint = str(pack["sourceFingerprint"])
+        historical = conn.execute(
+            """
+            SELECT ri.id, ri.status, ri.evidence_json, ri.decision_json
+            FROM recommendation_items ri
+            JOIN recommendation_runs rr ON rr.id = ri.run_id
+            WHERE rr.scope = ? AND ri.status IN ('proposed', 'accepted')
+            """,
+            (LEARNING_RECOMMENDATION_SCOPE,),
+        ).fetchall()
+        for row in historical:
+            evidence = json_load(row["evidence_json"], {})
+            if (
+                evidence.get("knowledgePackId") == current_pack_id
+                and evidence.get("knowledgePackSourceFingerprint")
+                == current_pack_fingerprint
+            ):
+                continue
+            decision = json_load(row["decision_json"], {})
+            decision["supersession"] = {
+                "schema": "campaign_factory.recommendation_supersession.v1",
+                "reason": "knowledge_pack_changed",
+                "previousKnowledgePackId": evidence.get("knowledgePackId"),
+                "previousKnowledgePackSourceFingerprint": evidence.get(
+                    "knowledgePackSourceFingerprint"
+                ),
+                "currentKnowledgePackId": current_pack_id,
+                "currentKnowledgePackSourceFingerprint": current_pack_fingerprint,
+                "supersededAt": now,
+            }
+            conn.execute(
+                """
+                UPDATE recommendation_items
+                SET status = 'superseded', decision_json = ?
+                WHERE id = ? AND status IN ('proposed', 'accepted')
+                """,
+                (
+                    json.dumps(decision, ensure_ascii=False, sort_keys=True),
+                    row["id"],
+                ),
+            )
+            superseded_items += 1
         for campaign_id, items in sorted(by_campaign.items()):
             campaign_exists = conn.execute(
                 "SELECT 1 FROM campaigns WHERE id = ?", (campaign_id,)
@@ -474,6 +518,7 @@ def persist_measured_recommendations(
         "runsInserted": inserted_runs,
         "itemsInserted": inserted_items,
         "itemsUnchanged": unchanged_items,
+        "itemsSuperseded": superseded_items,
     }
 
 
@@ -674,6 +719,8 @@ def recommendation_state(
 ) -> str:
     if stored_status == "rejected":
         return "BLOCKED"
+    if stored_status == "superseded":
+        return "EXPIRED"
     if evidence.get("knowledgePackId") != current_pack_id:
         return "EXPIRED"
     latest = _parse_time(evidence.get("latestObservationAt"))

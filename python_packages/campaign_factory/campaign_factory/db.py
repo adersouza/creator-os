@@ -151,6 +151,20 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _ensure_columns(
         conn,
+        "pipeline_jobs",
+        {
+            "effect_state": "TEXT NOT NULL DEFAULT 'PRE_EFFECT'",
+            "recovery_policy": "TEXT NOT NULL DEFAULT 'NEVER_AUTOMATIC'",
+            "work_item_id": "TEXT",
+            "authorization_id": "TEXT",
+            "attempt_id": "TEXT",
+            "external_operation_id": "TEXT",
+            "reconciliation_classification": "TEXT",
+            "reconciliation_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
+    _ensure_columns(
+        conn,
         "proof_runs",
         {
             "current_state": "TEXT NOT NULL DEFAULT 'creative_approved'",

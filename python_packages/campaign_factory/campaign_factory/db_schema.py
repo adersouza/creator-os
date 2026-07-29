@@ -640,6 +640,36 @@ CREATE INDEX IF NOT EXISTS idx_performance_source_asset ON performance_snapshots
 CREATE INDEX IF NOT EXISTS idx_performance_caption_hash ON performance_snapshots(caption_hash);
 CREATE INDEX IF NOT EXISTS idx_performance_recipe ON performance_snapshots(recipe);
 
+CREATE TABLE IF NOT EXISTS performance_snapshot_observations (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  snapshot_at TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  raw_json TEXT NOT NULL,
+  normalized_json TEXT NOT NULL,
+  supersedes_observation_id TEXT,
+  correction_reason TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(post_id, snapshot_at, source_hash),
+  FOREIGN KEY(supersedes_observation_id)
+    REFERENCES performance_snapshot_observations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_performance_observation_window
+  ON performance_snapshot_observations(post_id, snapshot_at, created_at);
+
+CREATE TRIGGER IF NOT EXISTS performance_observations_immutable_update
+BEFORE UPDATE ON performance_snapshot_observations
+BEGIN
+  SELECT RAISE(ABORT, 'raw performance observations are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS performance_observations_immutable_delete
+BEFORE DELETE ON performance_snapshot_observations
+BEGIN
+  SELECT RAISE(ABORT, 'raw performance observations are immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS learning_fanout_ledger (
   post_id TEXT NOT NULL,
   snapshot_at TEXT NOT NULL,
@@ -721,6 +751,14 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
   job_type TEXT NOT NULL,
   campaign_id TEXT,
   status TEXT NOT NULL DEFAULT 'queued',
+  effect_state TEXT NOT NULL DEFAULT 'PRE_EFFECT',
+  recovery_policy TEXT NOT NULL DEFAULT 'NEVER_AUTOMATIC',
+  work_item_id TEXT,
+  authorization_id TEXT,
+  attempt_id TEXT,
+  external_operation_id TEXT,
+  reconciliation_classification TEXT,
+  reconciliation_json TEXT NOT NULL DEFAULT '{}',
   input_json TEXT NOT NULL DEFAULT '{}',
   result_json TEXT NOT NULL DEFAULT '{}',
   error TEXT,

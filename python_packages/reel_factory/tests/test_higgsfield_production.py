@@ -594,6 +594,10 @@ def test_ambiguous_submission_is_never_retried(
             confirm_paid=True,
         )
     assert all(command[2] != "create" for command in second.commands)
+    classified = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert classified["submissionHistoryReconciliation"]["classification"] == (
+        "ZERO_MATCHES"
+    )
 
 
 def test_ambiguous_submission_reconciles_one_exact_history_match(
@@ -638,8 +642,8 @@ def test_ambiguous_submission_reconciles_one_exact_history_match(
         adapter=adapter,  # type: ignore[arg-type]
     )
 
-    assert match is not None
-    assert match["id"] == "generation-reconciled"
+    assert match["classification"] == "EXACT_MATCH"
+    assert match["match"]["id"] == "generation-reconciled"
     assert adapter.commands == [
         [
             "higgsfield",

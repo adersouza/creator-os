@@ -97,9 +97,12 @@ def test_reclaim_requeue_holds_unknown_running_effects(tmp_path: Path):
         ambiguous = cf.domains.events.create_pipeline_job(
             "higgsfield_motion_generation",
             campaign["id"],
-            {"authorizationId": "auth-1", "generationId": "gen-1"},
+            {"authorizationId": "auth-1"},
         )
         cf.domains.events.start_pipeline_job(ambiguous["id"])
+        cf.domains.events.mark_pipeline_effect_state(
+            ambiguous["id"], "SUBMISSION_STARTED"
+        )
         _backdate_job(cf, ambiguous["id"], 5)
 
         summary = cf.domains.events.reclaim_stale_pipeline_jobs(2.0, action="requeue")
@@ -110,11 +113,81 @@ def test_reclaim_requeue_holds_unknown_running_effects(tmp_path: Path):
         assert entry["safeReplayClass"] == "NEVER_AUTOMATIC"
         assert entry["reconciliationRequired"] is True
         assert entry["authorizationId"] == "auth-1"
-        assert entry["externalOperationId"] == "gen-1"
+        assert entry["externalOperationId"] is None
         assert entry["attemptId"] == f"{ambiguous['id']}:1"
         held = cf.domains.events.pipeline_job(ambiguous["id"])
-        assert held["status"] == "failed"
+        assert held["status"] == "running"
+        assert held["recovery"]["effectState"] == "AMBIGUOUS"
         assert "manual_hold_unknown_external_effect" in held["error"]
+    finally:
+        cf.close()
+
+
+def test_ambiguous_job_requires_reconciliation_and_fresh_authorization(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.domains.models.upsert_campaign("may", "model")
+        job = cf.domains.events.create_pipeline_job(
+            "higgsfield_motion_generation",
+            campaign["id"],
+            {"authorizationId": "auth-1"},
+        )
+        cf.domains.events.start_pipeline_job(job["id"])
+        cf.domains.events.mark_pipeline_effect_state(
+            job["id"], "SUBMISSION_STARTED"
+        )
+        cf.domains.events.fail_pipeline_job(job["id"], "provider timeout")
+        held = cf.domains.events.pipeline_job(job["id"])
+        assert held["status"] == "running"
+        assert held["recovery"]["effectState"] == "AMBIGUOUS"
+
+        resolved = cf.domains.events.reconcile_pipeline_external_effect(
+            job["id"],
+            classification="PROVIDER_PROVED_NO_EFFECT",
+            operator="operator-1",
+            evidence={"providerCase": "case-1"},
+        )
+        assert resolved["recovery"]["effectState"] == "NO_EFFECT_CONFIRMED"
+        assert resolved["recovery"]["reconciliationClassification"] == (
+            "PROVIDER_PROVED_NO_EFFECT"
+        )
+
+        retried = cf.domains.events.authorize_pipeline_retry(
+            job["id"],
+            authorization_id="auth-2",
+            operator="operator-1",
+        )
+        assert retried["status"] == "queued"
+        assert retried["recovery"]["effectState"] == "PRE_EFFECT"
+        assert retried["recovery"]["authorizationId"] == "auth-2"
+        assert retried["recovery"]["attemptId"].endswith(":1")
+    finally:
+        cf.close()
+
+
+def test_known_external_id_is_held_for_polling_not_failed(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.domains.models.upsert_campaign("may", "model")
+        job = cf.domains.events.create_pipeline_job(
+            "higgsfield_motion_generation",
+            campaign["id"],
+            {"authorizationId": "auth-1", "generationId": "gen-1"},
+        )
+        cf.domains.events.start_pipeline_job(job["id"])
+        _backdate_job(cf, job["id"], 5)
+
+        result = cf.domains.events.reclaim_stale_pipeline_jobs(
+            2.0, action="requeue"
+        )
+        assert result["reclaimed"][0]["outcome"] == "manual_hold"
+        held = cf.domains.events.pipeline_job(job["id"])
+        assert held["status"] == "running"
+        assert held["recovery"]["effectState"] == "EXTERNAL_ID_KNOWN"
+        assert held["recovery"]["externalOperationId"] == "gen-1"
+        assert held["error"] == "known_external_operation_awaiting_poll"
     finally:
         cf.close()
 
