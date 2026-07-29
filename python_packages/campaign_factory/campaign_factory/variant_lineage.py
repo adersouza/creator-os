@@ -124,7 +124,11 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         content_surface = self._normalize_content_surface(asset.get("content_surface"))
         if content_surface == "reel":
             publishability = self.explain_publishability(rendered_asset_id)
-            if not publishability.get("publishableCandidate"):
+            existing_media_control = self._eligible_existing_media_parent(asset)
+            if (
+                not publishability.get("publishableCandidate")
+                and not existing_media_control
+            ):
                 self._capture_publishability_rejection_evidence_from_result(
                     rendered_asset_id,
                     publishability,
@@ -158,6 +162,13 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         payload = {
             "operator": operator,
             "audioIntent": audio_intent,
+            "controlAdmission": (
+                "eligible_existing_media"
+                if existing_media_control
+                else "publishable_candidate"
+            )
+            if content_surface == "reel"
+            else "surface_handoff_ready",
             **(metadata or {}),
         }
         self.conn.execute(
@@ -259,11 +270,10 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         )
         if observed_profile:
             caption_lineage_ok = caption_version_id is None
-        can_generate = (
-            concept is not None
-            and self.explain_publishability(parent_asset_id).get("publishableCandidate")
-            and caption_lineage_ok
-        )
+        publishable = self.explain_publishability(parent_asset_id).get(
+            "publishableCandidate"
+        ) or self._eligible_existing_media_parent(asset)
+        can_generate = concept is not None and publishable and caption_lineage_ok
         family_key = ":".join(
             str(part or "")
             for part in (
@@ -497,50 +507,6 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
             "receiptPath": str(receipt_path),
             "receiptSha256": metadata["rendererEquivalenceReceipt"]["sha256"],
         }
-
-    def _observed_source(
-        self, parent: dict[str, Any], *, source_media_path: str | None
-    ) -> tuple[Path, str, str]:
-        metadata = json_load(parent.get("metadata_json"), {})
-        if not isinstance(metadata, dict):
-            metadata = {}
-        receipt = metadata.get("audioEmbeddingReceipt")
-        original = receipt.get("originalVideo") if isinstance(receipt, dict) else None
-        candidates: list[tuple[Path, str, str]] = []
-        if (
-            isinstance(original, dict)
-            and original.get("path")
-            and original.get("sha256")
-        ):
-            candidates.append(
-                (
-                    Path(str(original["path"])).expanduser(),
-                    str(original["sha256"]).lower(),
-                    "audio_receipt_original_visual",
-                )
-            )
-        parent_path = Path(
-            str(parent.get("campaign_path") or parent.get("output_path") or "")
-        ).expanduser()
-        parent_sha = str(parent.get("content_hash") or "").lower()
-        if parent_sha:
-            candidates.append((parent_path, parent_sha, "parent_final"))
-        if source_media_path:
-            selected = Path(source_media_path).expanduser().resolve()
-            actual = self._sha256_file(selected)
-            for _, expected, provenance in candidates:
-                if actual == expected:
-                    return selected, actual, provenance
-            raise ValueError("source_media_path SHA is absent from parent lineage")
-        for path, expected, provenance in candidates:
-            resolved = path.resolve()
-            if (
-                resolved.is_file()
-                and not resolved.is_symlink()
-                and self._sha256_file(resolved) == expected
-            ):
-                return resolved, expected, provenance
-        raise ValueError("verified pre-audio source media is missing")
 
     def _generate_legacy_contentforge_variants(
         self,

@@ -23,6 +23,7 @@ from .canonical_analyzer_registry import (
     validate_canonical_analyzer_registry,
 )
 from .persistence import json_load
+from .production_quality_policy import is_observed_passive_derivative
 
 MOTION_QC_POLICY_ID = "contentforge.motion_specific_qc"
 MOTION_QC_POLICY_VERSION = "2.0.0"
@@ -739,7 +740,7 @@ class MotionQcPublishabilityMixin:
             for value in publishability.get("blockingIssues") or []
             if isinstance(value, str)
         }
-        generated_motion = bool(
+        generated_motion = not is_observed_passive_derivative(asset) and bool(
             metadata.get("schema") == "campaign_factory.motion_generation_asset.v1"
             or str(asset.get("frame_type") or "") == "generated_motion"
             or blocking_issues & MOTION_QC_BLOCKING_CODES

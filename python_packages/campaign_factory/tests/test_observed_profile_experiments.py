@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from campaign_factory.content_director_operations import design_experiment
+from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.observed_experiment_reporting import (
     OBSERVED_MEASUREMENT_PLAN,
     _bootstrap_interval,
@@ -50,7 +51,7 @@ def _silent_video(path: Path, *, color: str) -> Path:
     return path
 
 
-def _mux_audio(source: Path, output: Path) -> Path:
+def _mux_audio(source: Path, output: Path, *, frequency: int = 440) -> Path:
     subprocess.run(
         [
             "ffmpeg",
@@ -63,7 +64,7 @@ def _mux_audio(source: Path, output: Path) -> Path:
             "-f",
             "lavfi",
             "-i",
-            "sine=frequency=440:sample_rate=44100:duration=1.2",
+            f"sine=frequency={frequency}:sample_rate=44100:duration=1.2",
             "-map",
             "0:v:0",
             "-map",
@@ -344,6 +345,235 @@ def _fixture(tmp_path: Path, monkeypatch):
     return cf, experiment_id, items, accounts, slots
 
 
+def _caption_binding_fixture(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    source_folder = tmp_path / "caption_sources"
+    source_folder.mkdir()
+    visual = source_folder / "visual.mp4"
+    visual.write_bytes(b"observed visual")
+    captioned = tmp_path / "captioned.mp4"
+    captioned.write_bytes(b"captioned observed visual")
+    cf.domains.asset_import.import_folder(
+        source_folder, campaign_slug="observed", model_slug="stacey"
+    )
+    campaign_id = cf.domains.campaign_by_slug("observed")["id"]
+    source = cf.domains.asset_import.assets_for_campaign(campaign_id)[0]
+    _insert_asset(
+        cf,
+        asset_id="caption_treatment",
+        source_id=source["id"],
+        path=visual,
+        parent_asset_id=None,
+        metadata={
+            "visualDerivativeReceipt": {"outputSha256": _sha(visual)},
+            "publishability": {
+                "status": "blocked",
+                "blockingIssues": [
+                    "exact_final_sha_approval_required",
+                    "parent_audio_rebinding_required",
+                ],
+            },
+        },
+    )
+    now = "2026-07-29T00:00:00+00:00"
+    cf.conn.execute(
+        """
+        INSERT INTO generation_output_blobs
+        (id, content_sha256, byte_size, media_type, created_at)
+        VALUES ('caption_visual_blob', ?, ?, 'video', ?)
+        """,
+        (_sha(visual), visual.stat().st_size, now),
+    )
+    cf.conn.execute(
+        """
+        INSERT INTO generation_attempts
+        (id, campaign_id, source_asset_id, rendered_asset_id, output_blob_id,
+         model_id, motion_task, input_json, worker_result_json,
+         attempted_output_path, duplicate_disposition, created_at)
+        VALUES ('caption_visual_attempt', ?, ?, 'caption_treatment',
+                'caption_visual_blob', 'observed', 'visual_derivative', '{}', '{}',
+                ?, 'unique_output', ?)
+        """,
+        (campaign_id, source["id"], str(visual), now),
+    )
+    cf.conn.execute(
+        """
+        UPDATE rendered_assets
+        SET review_state = 'review_ready'
+        WHERE id = 'caption_treatment'
+        """
+    )
+    context = {
+        "schema": "campaign_factory.caption_outcome_context.v1",
+        "caption_hash": "caption-hash",
+        "caption_text": "be honest",
+        "caption_banks": ["winner_bank"],
+        "creator_mix": "Stacey",
+    }
+    caption_lineage = {
+        "captionBurnedIn": True,
+        "rawCaptionText": "be honest",
+        "captionHash": "caption-hash",
+        "selectedBanks": ["winner_bank"],
+        "selectedMix": "Stacey",
+        "overlaySemanticQc": {"passed": True},
+        "captionTimingQc": {"passed": True},
+        "captionPlacementDecision": {"status": "passed"},
+        "captionPixelRenderEvidence": {
+            "rendered": True,
+            "outputPath": str(captioned),
+        },
+        "captionOutcomeContext": context,
+    }
+    generated_lineage = {
+        "source": {"sourceVideoHash": _sha(visual)},
+        "render": {"outputPath": str(captioned)},
+        "contentFingerprint": _sha(captioned),
+    }
+    Path(str(captioned) + ".caption_lineage.json").write_text(
+        json.dumps(caption_lineage), encoding="utf-8"
+    )
+    Path(str(captioned) + ".generated_asset_lineage.json").write_text(
+        json.dumps(generated_lineage), encoding="utf-8"
+    )
+    cf.conn.commit()
+    return cf, captioned
+
+
+def test_observed_caption_binding_preserves_exact_lineage(tmp_path: Path):
+    cf, captioned = _caption_binding_fixture(tmp_path)
+    try:
+        result = cf.domains.variant_lineage.bind_observed_caption(
+            rendered_asset_id="caption_treatment",
+            output_path=captioned,
+        )
+        row = cf.conn.execute(
+            """
+            SELECT content_hash, caption, review_state, metadata_json
+            FROM rendered_assets WHERE id = 'caption_treatment'
+            """
+        ).fetchone()
+        metadata = json.loads(row["metadata_json"])
+        assert result["outputSha256"] == _sha(captioned) == row["content_hash"]
+        assert row["caption"] == "be honest"
+        assert row["review_state"] == "review_ready"
+        assert metadata["burnedCaption"] is True
+        assert (
+            cf.conn.execute(
+                """
+                SELECT relation FROM generation_lineage_edges
+                WHERE rendered_asset_id = 'caption_treatment'
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """
+            ).fetchone()[0]
+            == "caption_render"
+        )
+    finally:
+        cf.close()
+
+
+def test_observed_passive_derivative_does_not_inherit_generated_motion_gate(
+    tmp_path: Path,
+) -> None:
+    cf, _captioned = _caption_binding_fixture(tmp_path)
+    try:
+        row = cf.conn.execute(
+            "SELECT metadata_json FROM rendered_assets WHERE id = 'caption_treatment'"
+        ).fetchone()
+        metadata = json.loads(row["metadata_json"])
+        metadata["observedProfile"] = TEST_PROFILE
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET frame_type = 'generated_motion',
+                recipe = 'reel_factory_observed_profile',
+                metadata_json = ?
+            WHERE id = 'caption_treatment'
+            """,
+            (json.dumps(metadata),),
+        )
+        asset = cf.domains.publishability.rendered_asset("caption_treatment")
+
+        assert cf.domains.publishability.motion_qc_requirements(asset) == {
+            "motion": False,
+            "audioAlignment": False,
+            "lipSync": False,
+        }
+        assert asset_requires_creative_approval(asset) is False
+    finally:
+        cf.close()
+
+
+def test_observed_caption_binding_rejects_source_sha_mismatch(tmp_path: Path):
+    cf, captioned = _caption_binding_fixture(tmp_path)
+    try:
+        generated_path = Path(str(captioned) + ".generated_asset_lineage.json")
+        generated = json.loads(generated_path.read_text(encoding="utf-8"))
+        generated["source"]["sourceVideoHash"] = "0" * 64
+        generated_path.write_text(json.dumps(generated), encoding="utf-8")
+        with pytest.raises(ValueError, match="source SHA"):
+            cf.domains.variant_lineage.bind_observed_caption(
+                rendered_asset_id="caption_treatment",
+                output_path=captioned,
+            )
+    finally:
+        cf.close()
+
+
+def test_observed_caption_binding_allows_verified_final_qc_retry(tmp_path: Path):
+    cf, captioned = _caption_binding_fixture(tmp_path)
+    try:
+        first = cf.domains.variant_lineage.bind_observed_caption(
+            rendered_asset_id="caption_treatment",
+            output_path=captioned,
+        )
+        final = tmp_path / "failed_final.mp4"
+        final.write_bytes(b"verified audio final")
+        row = cf.conn.execute(
+            "SELECT metadata_json FROM rendered_assets WHERE id = 'caption_treatment'"
+        ).fetchone()
+        metadata = json.loads(row["metadata_json"])
+        metadata["audioEmbeddingReceipt"] = {
+            "finalVideo": {"path": str(final), "sha256": _sha(final)}
+        }
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET content_hash = ?, output_path = ?, campaign_path = ?, metadata_json = ?
+            WHERE id = 'caption_treatment'
+            """,
+            (_sha(final), str(final), str(final), json.dumps(metadata)),
+        )
+        retry = tmp_path / "captioned_retry.mp4"
+        retry.write_bytes(b"larger accepted caption")
+        caption_lineage = json.loads(
+            Path(str(captioned) + ".caption_lineage.json").read_text(encoding="utf-8")
+        )
+        caption_lineage["captionPixelRenderEvidence"]["outputPath"] = str(retry)
+        generated_lineage = json.loads(
+            Path(str(captioned) + ".generated_asset_lineage.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        generated_lineage["render"]["outputPath"] = str(retry)
+        generated_lineage["contentFingerprint"] = _sha(retry)
+        Path(str(retry) + ".caption_lineage.json").write_text(
+            json.dumps(caption_lineage), encoding="utf-8"
+        )
+        Path(str(retry) + ".generated_asset_lineage.json").write_text(
+            json.dumps(generated_lineage), encoding="utf-8"
+        )
+        result = cf.domains.variant_lineage.bind_observed_caption(
+            rendered_asset_id="caption_treatment",
+            output_path=retry,
+        )
+        assert result["inputSha256"] == first["inputSha256"]
+        assert result["replacesSha256"] == _sha(final)
+        assert result["outputSha256"] == _sha(retry)
+    finally:
+        cf.close()
+
+
 def test_atomic_pair_assignment_is_idempotent_immutable_and_retained(
     tmp_path: Path, monkeypatch
 ):
@@ -445,6 +675,167 @@ def test_atomic_pair_assignment_is_idempotent_immutable_and_retained(
             ).fetchone()[0]
         )
         assert metadata["experimentRetention"][0]["protectedThroughDecision"] is True
+    finally:
+        cf.close()
+
+
+def test_observed_source_follows_parent_audio_receipt(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source_folder = tmp_path / "sources"
+        source_folder.mkdir()
+        visual = _silent_video(source_folder / "visual.mp4", color="blue")
+        final = _mux_audio(visual, tmp_path / "final.mp4")
+        child_final = _mux_audio(visual, tmp_path / "child_final.mp4", frequency=660)
+        cf.domains.asset_import.import_folder(
+            source_folder, campaign_slug="observed", model_slug="stacey"
+        )
+        campaign_id = cf.domains.campaign_by_slug("observed")["id"]
+        source = cf.domains.asset_import.assets_for_campaign(campaign_id)[0]
+        _insert_asset(
+            cf,
+            asset_id="audio_parent",
+            source_id=source["id"],
+            path=final,
+            parent_asset_id=None,
+            metadata={
+                "audioEmbeddingReceipt": _audio_receipt(visual, final),
+                "productionMotionRecipe": {"intent": "passive_selfie"},
+            },
+        )
+        _insert_asset(
+            cf,
+            asset_id="approved_child",
+            source_id=source["id"],
+            path=child_final,
+            parent_asset_id="audio_parent",
+            metadata={},
+        )
+
+        child = cf.domains.variant_lineage.rendered_asset("approved_child")
+        selected, digest, provenance = cf.domains.variant_lineage._observed_source(
+            child, source_media_path=None
+        )
+
+        assert selected == visual.resolve()
+        assert digest == _sha(visual)
+        assert provenance == "audio_receipt_original_visual"
+    finally:
+        cf.close()
+
+
+def test_eligible_existing_media_can_register_as_parent(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source_folder = tmp_path / "sources"
+        source_folder.mkdir()
+        visual = _silent_video(source_folder / "visual.mp4", color="blue")
+        final = _mux_audio(visual, tmp_path / "final.mp4")
+        cf.domains.asset_import.import_folder(
+            source_folder, campaign_slug="observed", model_slug="stacey"
+        )
+        campaign_id = cf.domains.campaign_by_slug("observed")["id"]
+        source = cf.domains.asset_import.assets_for_campaign(campaign_id)[0]
+        _insert_asset(
+            cf,
+            asset_id="existing_control",
+            source_id=source["id"],
+            path=final,
+            parent_asset_id=None,
+            metadata={"audioEmbeddingReceipt": _audio_receipt(visual, final)},
+        )
+        now = "2026-07-29T00:00:00+00:00"
+        receipt_paths = []
+        for name in ("manifest", "audio", "qc"):
+            path = tmp_path / f"{name}.json"
+            path.write_text(json.dumps({"status": "passed"}), encoding="utf-8")
+            receipt_paths.append(path)
+        final_sha = _sha(final)
+        cf.conn.execute(
+            """
+            INSERT INTO generation_output_blobs
+            (id, content_sha256, byte_size, media_type, created_at)
+            VALUES ('blob_existing_control', ?, ?, 'video', ?)
+            """,
+            (final_sha, final.stat().st_size, now),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO generation_attempts
+            (id, campaign_id, source_asset_id, rendered_asset_id, output_blob_id,
+             model_id, motion_task, input_json, worker_result_json,
+             attempted_output_path, duplicate_disposition, created_at)
+            VALUES ('attempt_existing_control', ?, ?, 'existing_control',
+                    'blob_existing_control', 'stacey', 'image_to_video', '{}', '{}',
+                    ?, 'canonical_output', ?)
+            """,
+            (campaign_id, source["id"], str(final), now),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO existing_media_intakes
+            (id, intake_identity, campaign_id, source_asset_id, rendered_asset_id,
+             generation_attempt_id, final_sha256, manifest_path, manifest_sha256,
+             audio_receipt_path, audio_receipt_sha256, qc_receipt_path,
+             qc_receipt_sha256, eligibility_state, receipt_json, created_at, updated_at)
+            VALUES ('intake_existing_control', 'identity_existing_control', ?, ?,
+                    'existing_control', 'attempt_existing_control', ?, ?, ?, ?, ?, ?,
+                    ?, 'ELIGIBLE', '{}', ?, ?)
+            """,
+            (
+                campaign_id,
+                source["id"],
+                final_sha,
+                str(receipt_paths[0]),
+                _sha(receipt_paths[0]),
+                str(receipt_paths[1]),
+                _sha(receipt_paths[1]),
+                str(receipt_paths[2]),
+                _sha(receipt_paths[2]),
+                now,
+                now,
+            ),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO existing_media_asset_reviews
+            (id, rendered_asset_id, final_sha256, creator, reviewer, verdict,
+             contract_version, created_at)
+            VALUES ('review_existing_control', 'existing_control', ?, 'stacey',
+                    'operator', 'WOULD_POST', 'test.v1', ?)
+            """,
+            (final_sha, now),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO existing_media_caption_freezes
+            (id, rendered_asset_id, final_sha256, caption, caption_hash,
+             overlay_state, pattern_source, reviewer, contract_version,
+             freeze_fingerprint, created_at)
+            VALUES ('freeze_existing_control', 'existing_control', ?, 'caption',
+                    'caption_hash', 'NONE_FROZEN', 'test', 'operator', 'test.v1',
+                    'freeze_fingerprint', ?)
+            """,
+            (final_sha, now),
+        )
+        cf.conn.commit()
+
+        parent = cf.domains.variant_lineage.register_parent_reel(
+            "existing_control", operator="tester"
+        )
+        plan = cf.domains.variant_lineage.variant_plan(
+            parent_asset_id="existing_control", count=1, profile=TEST_PROFILE
+        )
+
+        assert parent["parentAssetId"] == "existing_control"
+        assert plan["canGenerate"] is True
+        metadata = json.loads(
+            cf.conn.execute(
+                "SELECT metadata_json FROM concepts WHERE id = ?",
+                (parent["conceptId"],),
+            ).fetchone()[0]
+        )
+        assert metadata["controlAdmission"] == "eligible_existing_media"
     finally:
         cf.close()
 

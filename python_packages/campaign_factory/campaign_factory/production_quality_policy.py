@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -27,6 +28,23 @@ SOFT_RANKING_SIGNALS: Final[tuple[str, ...]] = (
     "minor_artifacts",
     "aesthetic_preference",
 )
+
+
+def is_observed_passive_derivative(asset: Mapping[str, Any]) -> bool:
+    metadata = asset.get("metadata")
+    if not isinstance(metadata, dict):
+        try:
+            metadata = json.loads(str(asset.get("metadata_json") or "{}"))
+        except json.JSONDecodeError:
+            return False
+    receipt = metadata.get("visualDerivativeReceipt")
+    return bool(
+        asset.get("media_type") == "video"
+        and asset.get("recipe") == "reel_factory_observed_profile"
+        and str(metadata.get("observedProfile") or "").strip()
+        and isinstance(receipt, dict)
+        and str(receipt.get("outputSha256") or "").strip()
+    )
 
 
 def production_quality_policy() -> dict[str, Any]:

@@ -9,6 +9,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 class CaptionRenderTests(unittest.TestCase):
+    def test_default_condensed_caption_size_clears_qc_floor(self):
+        from reel_factory.caption_render import _font_for_lines
+
+        font_path = (
+            Path(__file__).resolve().parents[1]
+            / "fonts"
+            / "InstagramSansCondensed-Regular.woff2"
+        )
+        self.assertGreaterEqual(_font_for_lines(font_path, 2).size, 96)
+
     def test_long_caption_renders_inside_canvas(self):
         try:
             from reel_factory.caption_render import render_caption_png

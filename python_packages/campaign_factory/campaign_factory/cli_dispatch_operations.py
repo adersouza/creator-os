@@ -123,6 +123,14 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 )
             )
         return 0
+    if args.cmd == "bind-observed-caption":
+        print_json(
+            cf.domains.variant_lineage.bind_observed_caption(
+                rendered_asset_id=args.rendered_asset_id,
+                output_path=args.output,
+            )
+        )
+        return 0
     if args.cmd == "qualify-observed-renderer-control":
         print_json(
             cf.domains.variant_lineage.qualify_observed_renderer_control(

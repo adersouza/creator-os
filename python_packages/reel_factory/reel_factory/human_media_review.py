@@ -16,13 +16,14 @@ from typing import Any, Final
 from creator_os_core.evidence_attestation import (
     EvidenceAttestationError,
     load_evidence_secret,
+    payload_fingerprint,
     sign_evidence_attestation,
     verify_evidence_attestation,
 )
 
 from pipeline_contracts import validate_human_media_review
 
-from .local_generation_queue import AppendOnlyJournal, LocalQueueError, fingerprint
+from .local_generation_queue import AppendOnlyJournal, LocalQueueError
 
 SCHEMA: Final = "reel_factory.human_media_review.v1"
 RUBRIC_VERSION: Final = "1.0.0"
@@ -437,7 +438,7 @@ class HumanMediaReview:
 
     @property
     def review_fingerprint(self) -> str:
-        return fingerprint(self._semantic_payload())
+        return payload_fingerprint(self._semantic_payload())
 
     def _semantic_payload(self) -> dict[str, Any]:
         return {

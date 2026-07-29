@@ -199,7 +199,7 @@ def evaluate_export_readiness(
     user_id: str,
     supabase_url: str | None = None,
     supabase_service_role_key: str | None = None,
-    limit: int = 1000,
+    limit: int = 100_000,
     content_pillar: str | None = None,
     cta_type: str | None = None,
     language: str | None = None,
