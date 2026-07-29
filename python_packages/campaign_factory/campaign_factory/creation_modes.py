@@ -8,6 +8,7 @@ from typing import Any, Final
 
 from .account_eligibility import evaluate_account_eligibility
 from .assignment_eligibility import evaluate_assignment_eligibility
+from .derived_stills import validate_static_source_assets
 from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
@@ -48,6 +49,7 @@ def run_creation_batch(
     reuse_policy: str = "prefer_exact",
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
+    source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Run one of the three product modes, reusing qualified media first."""
 
@@ -61,6 +63,10 @@ def run_creation_batch(
         raise ValueError("--recreation-anchor-approval is only valid for recreate_reel")
     if recreation_attempt_id is not None and mode != "recreate_reel":
         raise ValueError("--recreation-attempt-id is only valid for recreate_reel")
+    if source_asset_ids and mode != "static_reel":
+        raise ValueError("--source-asset-id is only valid for static_reel")
+    if source_asset_ids:
+        validate_static_source_assets(factory, source_asset_ids)
     intent = "recreate_reel" if mode == "recreate_reel" else style
     reference_sha = (
         _sha256_file(reference_video_path.expanduser().resolve())
@@ -76,7 +82,7 @@ def run_creation_batch(
             audio_policy=_audio_policy(audio_preference),
             reference_sha256=reference_sha,
         )
-        if reuse_policy == "prefer_exact"
+        if reuse_policy == "prefer_exact" and not source_asset_ids
         else []
     )
     destination = _resolve_destination_account(factory, accounts)
@@ -113,6 +119,7 @@ def run_creation_batch(
                 accounts=accounts,
                 audio_preference=audio_preference,
                 apply=apply,
+                source_asset_ids=source_asset_ids,
             )
         else:
             result = run_production_batch(
@@ -658,6 +665,7 @@ def _run_static_reel_batch(
     accounts: str | None,
     audio_preference: str,
     apply: bool,
+    source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -667,6 +675,7 @@ def _run_static_reel_batch(
         execution=execution,
         accounts=accounts,
         audio_preference=audio_preference,
+        selected_source_asset_ids=source_asset_ids,
     )
     plan.update(
         {

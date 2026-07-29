@@ -17,12 +17,27 @@ from creator_os_core.task_parameters import (
     task_parameter_fingerprint,
 )
 
+from .anatomy_qc import assess_image_qc as assess_image_qc
 from .audio_intent import read_audio_intent
 from .caption_bank import (
     CaptionBankStore,
     caption_hook_payload,
     load_or_build_caption_bank_store,
 )
+from .derived_stills import (
+    DERIVED_STILL_SCHEMA as DERIVED_STILL_SCHEMA,
+)
+from .derived_stills import PILOT_COLORWAYS as PILOT_COLORWAYS
+from .derived_stills import PROMPT_BUILDER_VERSION as PROMPT_BUILDER_VERSION
+from .derived_stills import assess_edit_locality as assess_edit_locality
+from .derived_stills import build_edit_prompt as build_edit_prompt
+from .derived_stills import evaluate_harvest_frame as evaluate_harvest_frame
+from .derived_stills import harvest_animation_frames as harvest_animation_frames
+from .derived_stills import (
+    materialize_individual_outputs as materialize_individual_outputs,
+)
+from .derived_stills import provider_adapter as provider_adapter
+from .derived_stills import split_grid_2x3 as split_grid_2x3
 from .higgsfield_production import (
     HiggsfieldProductionRequest,
     build_higgsfield_production_plan,
@@ -31,6 +46,7 @@ from .higgsfield_production import (
     quote_higgsfield_production_plan,
 )
 from .human_media_review import HumanMediaReviewStore
+from .identity_verification import verify_identity as verify_identity
 from .local_generation_queue import (
     _macos_available_memory_bytes,
     default_local_generation_queue,
