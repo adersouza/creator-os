@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 import sys
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -485,44 +485,176 @@ def _identity_reference_fingerprint(factory: CampaignFactory) -> str:
 def _daily_hooks(
     factory: CampaignFactory, *, count: int, seed_key: str
 ) -> list[dict[str, Any]]:
-    from reel_factory.worker_api import load_or_build_caption_bank_store
+    from reel_factory.worker_api import (
+        caption_hook_payload,
+        load_or_build_caption_bank_store,
+    )
 
     store = load_or_build_caption_bank_store(factory.settings.reel_factory_root)
     seed = int(hashlib.sha256(seed_key.encode()).hexdigest()[:16], 16)
-    candidates = store.resolve_mix("Stacey", limit=100, seed=seed)
-    safe = [
+    candidates = store.resolve_mix(
+        "Stacey",
+        limit=200,
+        seed=seed,
+        variant_types={"static", "timed"},
+    )
+    used_keys = _recent_used_caption_keys(factory.conn)
+    timed = [
         item
         for item in candidates
+        if item.get("variant_type") == "timed"
+        and item.get("approval_id")
+        and item.get("approval_file_sha")
+        and item.get("approval_reviewer")
+        and item.get("approval_decided_at")
         if factory.domains.reference.reference_hook_is_schedule_safe(
+            str(item.get("text") or "")
+        )
+        and 2 <= len(item.get("segments") or []) <= 4
+        and all(
+            isinstance(segment, dict) and bool(str(segment.get("text") or "").strip())
+            for segment in item.get("segments") or []
+        )
+        and not {
+            str(item.get("static_text_hash") or ""),
+            str(item.get("caption_payload_hash") or ""),
+        }.intersection(used_keys)
+    ]
+    static = [
+        item
+        for item in candidates
+        if item.get("variant_type") == "static"
+        and factory.domains.reference.reference_hook_is_schedule_safe(
             str(item.get("text") or "")
         )
         and int(item.get("line_count") or 1) <= 2
         and int(item.get("word_count") or 0) <= 5
         and int(item.get("char_count") or len(str(item.get("text") or ""))) <= 24
+        and not {
+            str(item.get("static_text_hash") or ""),
+            str(item.get("caption_payload_hash") or ""),
+        }.intersection(used_keys)
     ]
-    if len(safe) < count:
+    safe = [*timed, *static]
+    selected: list[dict[str, Any]] = []
+    selected_keys: set[str] = set()
+    for item in safe:
+        keys = {
+            str(item.get("static_text_hash") or ""),
+            str(item.get("caption_payload_hash") or ""),
+        }
+        if selected_keys.intersection(keys):
+            continue
+        selected.append(item)
+        selected_keys.update(keys)
+        if len(selected) == count:
+            break
+    if len(selected) < count:
         raise RuntimeError(
-            f"Stacey caption bank has only {len(safe)} schedule-safe hooks; need {count}"
+            "Stacey caption bank has only "
+            f"{len(selected)} unused schedule-safe timed/static hooks; need {count}"
         )
     hooks = []
-    for item in safe[:count]:
+    for item in selected:
         selected_banks = list(item.get("selected_banks") or [])
+        render_hook = caption_hook_payload(item)
+        lineage = store.lineage_for(
+            item,
+            selected_mix="Stacey",
+            selected_banks=selected_banks,
+        )
+        lineage.update(
+            {
+                "timedPreferred": True,
+                "timedEligible": item.get("variant_type") == "timed",
+                "selectedVariantType": item.get("variant_type"),
+                "eligibilityDecision": (
+                    "approved_timed_passive_library"
+                    if item.get("variant_type") == "timed"
+                    else "static_fallback"
+                ),
+                "fallbackReason": (
+                    None
+                    if item.get("variant_type") == "timed"
+                    else "no_remaining_eligible_approved_timed_hook"
+                ),
+                "recentReuseDecision": "clear",
+                "recentReuseWindowDays": 14,
+            }
+        )
         hooks.append(
             {
+                **(render_hook if isinstance(render_hook, dict) else {}),
                 "text": item["text"],
                 "captionHash": item["caption_hash"],
+                "staticTextHash": item["static_text_hash"],
+                "captionPayloadHash": item["caption_payload_hash"],
+                "variantType": item["variant_type"],
                 "captionBank": selected_banks[0] if selected_banks else None,
                 "captionBanks": item.get("banks") or [],
                 "creatorMix": "Stacey",
                 "source": "reel_factory_caption_bank",
-                "captionLineage": store.lineage_for(
-                    item,
-                    selected_mix="Stacey",
-                    selected_banks=selected_banks,
-                ),
+                "captionLineage": lineage,
             }
         )
     return hooks
+
+
+def _recent_used_caption_keys(
+    conn: sqlite3.Connection, *, reuse_window_days: int = 14
+) -> set[str]:
+    cutoff = (datetime.now(UTC) - timedelta(days=max(0, reuse_window_days))).isoformat()
+    try:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT r.caption_hash, r.caption_generation_json, r.metadata_json
+            FROM rendered_assets r
+            WHERE r.id IN (
+              SELECT rendered_asset_id FROM asset_account_assignments
+              WHERE created_at >= ?
+              UNION
+              SELECT rendered_asset_id FROM distribution_plans
+              WHERE COALESCE(planned_window_start, created_at) >= ?
+              UNION
+              SELECT asset_id FROM asset_inventory_reservations
+              WHERE status IN ('pending', 'committed') AND reserved_at >= ?
+            )
+            """,
+            (cutoff, cutoff, cutoff),
+        ).fetchall()
+    except sqlite3.Error:
+        return set()
+    keys: set[str] = set()
+    for row in rows:
+        if row["caption_hash"]:
+            keys.add(str(row["caption_hash"]))
+        for column in ("caption_generation_json", "metadata_json"):
+            payload = json_load(row[column], {})
+            _collect_caption_hashes(payload, keys)
+    return keys
+
+
+def _collect_caption_hashes(value: Any, keys: set[str]) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if (
+                key
+                in {
+                    "captionHash",
+                    "caption_hash",
+                    "staticTextHash",
+                    "static_text_hash",
+                    "captionPayloadHash",
+                    "caption_payload_hash",
+                }
+                and child
+            ):
+                keys.add(str(child))
+            else:
+                _collect_caption_hashes(child, keys)
+    elif isinstance(value, list):
+        for child in value:
+            _collect_caption_hashes(child, keys)
 
 
 def _is_cataloged_library_path(path: Path, library_root: Path) -> bool:

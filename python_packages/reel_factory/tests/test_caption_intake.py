@@ -319,6 +319,26 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(Path(report["sidecar"]).name[:16], "approved_intake_")
         self.assertIn("comment_bait", promoted["banks"])
 
+    def test_promote_accepts_external_caption_source(self):
+        root = self._root()
+        approved = root / "external.json"
+        approved.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.external_caption_source.v1",
+                    "captions": [{"text": "would you answer honestly?"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = promote(root, approved)
+        store = CaptionBankStore.from_root(root)
+        texts = {item["text"] for item in store.all_items()}
+
+        self.assertEqual(report["promoted"], 1)
+        self.assertIn("would you answer honestly?", texts)
+
     def test_promote_accepts_reviewed_swipe_decisions(self):
         root = self._root()
         approved = root / "caption_static_swipe_decisions.reviewed.json"
@@ -331,6 +351,8 @@ class CaptionIntakeTests(unittest.TestCase):
                             "text": "approved static hook",
                             "status": "approved",
                             "approvedUse": ["normal"],
+                            "reviewer": "operator-1",
+                            "decidedAt": "2026-07-29T12:00:00Z",
                         },
                         {
                             "text": "rejected static hook",
@@ -350,6 +372,146 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(report["promoted"], 1)
         self.assertIn("approved static hook", texts)
         self.assertNotIn("rejected static hook", texts)
+
+    def test_promote_preserves_exact_timed_segments_and_approval_binding(self):
+        root = self._root()
+        approved = root / "caption_timed_swipe_decisions.reviewed.json"
+        segments = [
+            {"text": "wife material", "start": 0.0, "end": 1.5},
+            {"text": "or heartbreak material?", "start": 1.5, "end": 4.0},
+        ]
+        approved.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_swipe_decisions.v1",
+                    "items": [
+                        {
+                            "id": "candidate_timed_1",
+                            "text": "wife material\nor heartbreak material?",
+                            "status": "approved",
+                            "approvedUse": ["static", "timed"],
+                            "placementIntent": {
+                                "timedPlacementMode": "segment",
+                                "finalPlacement": "placement.py",
+                            },
+                            "hookVariants": {"timed": {"segments": segments}},
+                            "reviewer": "operator-1",
+                            "decidedAt": "2026-07-29T12:00:00Z",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = promote(root, approved)
+        store = CaptionBankStore.from_root(root)
+        variants = [
+            item
+            for item in store.all_items()
+            if item["text"] == "wife material\nor heartbreak material?"
+        ]
+
+        self.assertEqual(report["promoted"], 2)
+        self.assertEqual(
+            {item["variant_type"] for item in variants}, {"static", "timed"}
+        )
+        self.assertEqual(
+            next(item for item in variants if item["variant_type"] == "timed")[
+                "segments"
+            ],
+            segments,
+        )
+        self.assertEqual(
+            len({item["caption_payload_hash"] for item in variants}),
+            2,
+        )
+        self.assertTrue(all(item["approval_id"] for item in variants))
+        self.assertTrue(all(item["approval_file_sha"] for item in variants))
+        self.assertTrue(
+            all(item["approval_reviewer"] == "operator-1" for item in variants)
+        )
+        self.assertTrue(
+            all(
+                item["approval_decided_at"] == "2026-07-29T12:00:00Z"
+                for item in variants
+            )
+        )
+
+    def test_promote_accepts_browser_downloaded_timed_approval(self):
+        root = self._root()
+        approved = root / "caption_timed_swipe_approved.json"
+        segments = [{"text": "first beat"}, {"text": "payoff beat"}]
+        approved.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_swipe_approved.v1",
+                    "candidates": [
+                        {
+                            "id": "candidate-browser-1",
+                            "text": "first beat\npayoff beat",
+                            "status": "approved",
+                            "approvedUse": ["timed"],
+                            "placementIntent": {
+                                "timedPlacementMode": "segment",
+                                "finalPlacement": "placement.py",
+                            },
+                            "hookVariants": {"timed": {"segments": segments}},
+                            "reviewer": "operator-1",
+                            "decidedAt": "2026-07-29T12:00:00Z",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = promote(root, approved)
+        promoted = next(
+            item
+            for item in CaptionBankStore.from_root(root).all_items()
+            if item["text"] == "first beat\npayoff beat"
+        )
+
+        self.assertEqual(report["promoted"], 1)
+        self.assertEqual(promoted["variant_type"], "timed")
+        self.assertEqual(promoted["segments"], segments)
+        self.assertEqual(promoted["approval_reviewer"], "operator-1")
+
+    def test_structured_approval_without_reviewer_or_time_is_rejected(self):
+        root = self._root()
+        approved = root / "caption_timed_missing_approval_evidence.json"
+        approved.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_swipe_approved.v1",
+                    "candidates": [
+                        {
+                            "id": "candidate-unproven",
+                            "text": "first beat\npayoff beat",
+                            "status": "approved",
+                            "approvedUse": ["timed"],
+                            "hookVariants": {
+                                "timed": {
+                                    "segments": [
+                                        {"text": "first beat"},
+                                        {"text": "payoff beat"},
+                                    ]
+                                }
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = promote(root, approved)
+
+        self.assertEqual(report["promoted"], 0)
+        self.assertEqual(
+            report["rejected"][0]["reason"], "exact_approval_evidence_missing"
+        )
 
     def test_plan_placement_adds_timed_hooks_without_explicit_bands(self):
         root = self._root()
@@ -466,7 +628,7 @@ class CaptionIntakeTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        report = swipe_review(root, mode="timed")
+        report = swipe_review(root, mode="timed", reviewer="operator-1")
         decisions = json.loads(
             Path(report["decisionJsonPath"]).read_text(encoding="utf-8")
         )
@@ -478,6 +640,8 @@ class CaptionIntakeTests(unittest.TestCase):
             Path(report["boardPath"]).name, "caption_timed_swipe_review.html"
         )
         self.assertIn("Approve timed", html)
+        self.assertIn("hookVariants: item.hookVariants", html)
+        self.assertIn("decidedAt: item.decidedAt", html)
         self.assertIn("Timed beats", html)
         self.assertNotIn("short hook", html)
 

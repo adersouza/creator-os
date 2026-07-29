@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from .persistence import json_load
@@ -121,6 +123,101 @@ class EventRepository:
             (rendered_asset_id, max(1, min(limit, 1000))),
         ).fetchall()
         return [self.event_payload(dict(row)) for row in rows]
+
+    def mark_asset_operator_removed(
+        self,
+        rendered_asset_id: str,
+        *,
+        operator: str,
+        reason: str,
+        relocated_output_path: str | None = None,
+        post_ids: list[str] | None = None,
+        cancellation_evidence: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        row = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"rendered asset not found: {rendered_asset_id}")
+        asset = dict(row)
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        relocated_sha = None
+        if relocated_output_path:
+            relocated = Path(relocated_output_path)
+            if relocated.is_file():
+                relocated_sha = hashlib.sha256(relocated.read_bytes()).hexdigest()
+        receipt = {
+            "schema": "creator_os.operator_media_removal_receipt.v1",
+            "assetId": rendered_asset_id,
+            "postIds": post_ids or [],
+            "operator": operator,
+            "reason": reason,
+            "generationStatus": "completed",
+            "creativeDecision": "rejected",
+            "lifecycleStatus": "operator_removed",
+            "scheduleStatus": "cancelled",
+            "technicalFailure": False,
+            "providerFailure": False,
+            "qcFailure": False,
+            "learningEligible": False,
+            "originalOutputPath": asset.get("output_path"),
+            "relocatedOutputPath": relocated_output_path,
+            "originalContentSha": asset.get("content_hash"),
+            "relocatedContentSha": relocated_sha,
+            "cancellationEvidence": cancellation_evidence or [],
+            "recordedAt": self._utc_now(),
+        }
+        metadata.update(
+            {
+                key: receipt[key]
+                for key in (
+                    "generationStatus",
+                    "creativeDecision",
+                    "lifecycleStatus",
+                    "scheduleStatus",
+                    "technicalFailure",
+                    "providerFailure",
+                    "qcFailure",
+                    "learningEligible",
+                )
+            }
+        )
+        metadata["operatorRemoval"] = receipt
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE rendered_assets
+                SET review_state = 'rejected', metadata_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(
+                        self._sanitize_for_storage(metadata),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    receipt["recordedAt"],
+                    rendered_asset_id,
+                ),
+            )
+            event = self.record_event(
+                "operator_media_removed",
+                campaign_id=asset.get("campaign_id"),
+                source_asset_id=asset.get("source_asset_id"),
+                rendered_asset_id=rendered_asset_id,
+                status="warning",
+                message="Operator removed scheduled derivative",
+                metadata=receipt,
+                commit=False,
+            )
+        return {
+            "assetId": rendered_asset_id,
+            "reviewState": "rejected",
+            "receipt": receipt,
+            "activityEventId": event["id"],
+        }
 
     def jobs_for_campaign(
         self,

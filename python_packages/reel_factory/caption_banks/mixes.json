@@ -1,7 +1,7 @@
 {
   "schema": "reel_factory.caption_mixes.v1",
-  "version": "caption_banks_v1",
-  "source_hash": "3856f22159d7a299c09f64f27f08a7f8dd847f800cf4676a3300871af8cca8bb",
+  "version": "caption_banks_v2",
+  "source_hash": "8cdbbd9f79e54e81edc47d8f7bc9d26b59732af5b1b0e1e911132789fba94b8e",
   "mixes": {
     "Larissa": {
       "shared_girl_next_door": 30,

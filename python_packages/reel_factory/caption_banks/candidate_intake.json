@@ -1,9 +1,9 @@
 {
   "schema": "reel_factory.caption_candidate_intake.v1",
-  "updated_at": 1782799252,
-  "command": "build-inventory",
-  "candidate_count": 946,
-  "rejected_count": 43,
+  "updated_at": 1785353163,
+  "command": "import-external",
+  "candidate_count": 1007,
+  "rejected_count": 50,
   "candidates": [
     {
       "caption_hash": "6f815f2c3f4cda940cb3c577df1f778f6cab39733a3fd700e9bab2ab5b75183f",
@@ -4168,6 +4168,2650 @@
       "line_count": 2,
       "length_class": "medium",
       "format_class": "multiline"
+    },
+    {
+      "caption_hash": "c124230689fb79a2dcc00c703aba4e7c8874dc8a45eeb146cc04b5c451e97f15",
+      "text": "If you are a straight man that likes American girls, stop scrolling and leave a heart.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:10",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you are a straight man that likes American girls, stop scrolling and leave a heart.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you are a straight man that likes"
+            },
+            {
+              "text": "American girls, stop scrolling and leave a heart."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "44a1bed0433e4b405709bc5f5201b10291e86cc0621eeb799a03c1fa2cda4bc9",
+      "text": "If you are actually good at English, give me a word that ends with AGE.\n99% fail rate.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:100",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you are actually good at English, give me a word that ends with AGE.\n99% fail rate.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you are actually good at English, give me a word that ends with AGE."
+            },
+            {
+              "text": "99% fail rate."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "68d334678a04e496768b45b2278dd94f56216a932ff9188d75627d925bd009b0",
+      "text": "Sorry I came so late into your life, but the best comes last.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:103",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Sorry I came so late into your life, but the best comes last.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Sorry I came so late into your"
+            },
+            {
+              "text": "life, but the best comes last."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "5320b8ba5afc1692a3afcff9a23763b635b7d2be46f71b6cb463f94fb80149b1",
+      "text": "Say hi if you'd marry me despite the age gap.\nBonus points if you think I'm cute.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:106",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Say hi if you'd marry me despite the age gap.\nBonus points if you think I'm cute.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Say hi if you'd marry me despite the age gap."
+            },
+            {
+              "text": "Bonus points if you think I'm cute."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "b44e4d2bd6efaa6b052bdea89a0c09034ce98d4b9b2dbccadf073b19c6f49d8f",
+      "text": "Hiring a boyfriend:\n1. Older\n2. Taller\n3. Grey hair\n4. Good eater",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:109",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Hiring a boyfriend:\n1. Older\n2. Taller\n3. Grey hair\n4. Good eater",
+        "timed": {
+          "segments": [
+            {
+              "text": "Hiring a boyfriend:"
+            },
+            {
+              "text": "1. Older"
+            },
+            {
+              "text": "2. Taller"
+            },
+            {
+              "text": "3. Grey hair"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "8c30d6a4f30735fe641a852178cd5061c6da4ee833f4a54f08b6cb0710089673",
+      "text": "99% of men will keep scrolling because I'm fully clothed.\nBut that 1%...",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:11",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "99% of men will keep scrolling because I'm fully clothed.\nBut that 1%...",
+        "timed": {
+          "segments": [
+            {
+              "text": "99% of men will keep scrolling because I'm fully clothed."
+            },
+            {
+              "text": "But that 1%..."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "cf589302f310cc1c4d494a5156a2507e8dafe378178cc7d137a160bfd4db3b3b",
+      "text": "If you're a straight man who likes blondes, stop scrolling and leave a heart.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:111",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you're a straight man who likes blondes, stop scrolling and leave a heart.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you're a straight man who likes"
+            },
+            {
+              "text": "blondes, stop scrolling and leave a heart."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "de5e398352f50ccc51209ce8de09be692ee915a99df4469669bb1a78e7d9c515",
+      "text": "When he calls me beautiful, but Mohammed from the kebab shop said my eyes light up his soul.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:12",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "When he calls me beautiful, but Mohammed from the kebab shop said my eyes light up his soul.",
+        "timed": {
+          "segments": [
+            {
+              "text": "When he calls me beautiful, but Mohammed from the"
+            },
+            {
+              "text": "kebab shop said my eyes light up his soul."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "9162661a4a4ba2c04776ed0e92ce622d6805e2182b8efeeff2db269bd508a822",
+      "text": "A funny girl is better than a pretty girl, but lucky for you I'm both.",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:13",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "A funny girl is better than a pretty girl, but lucky for you I'm both.",
+        "timed": {
+          "segments": [
+            {
+              "text": "A funny girl is better than a pretty"
+            },
+            {
+              "text": "girl, but lucky for you I'm both."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "e3ad1068c6e202aa5dd3b68db43c4421e2faf1242cd03108266f6f50dddc58ea",
+      "text": "Having a female bestie is like raising a chicken.\nOne day you'll eat it.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:14",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Having a female bestie is like raising a chicken.\nOne day you'll eat it.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Having a female bestie is like raising a chicken."
+            },
+            {
+              "text": "One day you'll eat it."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "13bc84bbdea6e12b57f57f9c8b1224c0897cdea4b999ded453785fbe5f7285cb",
+      "text": "If I offered you $1.4M to eat this for breakfast, lunch, and dinner... wyd?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:18",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If I offered you $1.4M to eat this for breakfast, lunch, and dinner... wyd?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If I offered you $1.4M to eat"
+            },
+            {
+              "text": "this for breakfast, lunch, and dinner... wyd?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "fb534b607432bc59b0834942f4ab54d42df7a3a207972286696aa61a8d12e71c",
+      "text": "Would you accept a kiss from a girl my age?\nTell me the truth.",
+      "banks": [
+        "shared_girl_next_door",
+        "body_attention"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:20",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Would you accept a kiss from a girl my age?\nTell me the truth.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Would you accept a kiss from a girl my age?"
+            },
+            {
+              "text": "Tell me the truth."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "c4deced4012cc42d162ee505e6430fce51f5b32ea15e361f73d548b9a4895577",
+      "text": "If I woke up in your bed tomorrow morning, what's the first thing you would say to me?",
+      "banks": [
+        "shared_girl_next_door",
+        "body_attention",
+        "bedroom_mirror"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:21",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If I woke up in your bed tomorrow morning, what's the first thing you would say to me?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If I woke up in your bed tomorrow morning,"
+            },
+            {
+              "text": "what's the first thing you would say to me?"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "9cef717435751d3663ba79bf513c901686a12c5fb739fcea874071fcf71b216b",
+      "text": "Never tell a baddie like me \"I have a crush on you.\"",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:22",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Never tell a baddie like me \"I have a crush on you.\"",
+        "timed": {
+          "segments": [
+            {
+              "text": "Never tell a baddie like me"
+            },
+            {
+              "text": "\"I have a crush on you.\""
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "219a367bdfeb367c3f21bfac1ece9bb1fd9a9fb0361fffb82803d37cb09c3936",
+      "text": "\"Are you free tomorrow?\"\nNo sweetie, I'm expensive every day.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:23",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "\"Are you free tomorrow?\"\nNo sweetie, I'm expensive every day.",
+        "timed": {
+          "segments": [
+            {
+              "text": "\"Are you free tomorrow?\""
+            },
+            {
+              "text": "No sweetie, I'm expensive every day."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "8c767a6e44063326cb58f9ac2500b7bb3b8d35983f9310317ce86d02bd661886",
+      "text": "It's funny how you won't admit that you have a crush on me, like it's so obvious.",
+      "banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:24",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "It's funny how you won't admit that you have a crush on me, like it's so obvious.",
+        "timed": {
+          "segments": [
+            {
+              "text": "It's funny how you won't admit that you have"
+            },
+            {
+              "text": "a crush on me, like it's so obvious."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "0c89004aa8e0219bcbc4f842df06395a172e0a94e186f7d698411f8a642b176b",
+      "text": "I'm not the prettiest girl on your feed, but I might just be the realest.",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:25",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I'm not the prettiest girl on your feed, but I might just be the realest.",
+        "timed": {
+          "segments": [
+            {
+              "text": "I'm not the prettiest girl on your feed,"
+            },
+            {
+              "text": "but I might just be the realest."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "a958d58e4aebd4e5540d10160e2ff767493d3bb3716a4da3612c39620d53dbb5",
+      "text": "If you're a straight guy who likes cute blondes, leave a heart in the comments.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:27",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you're a straight guy who likes cute blondes, leave a heart in the comments.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you're a straight guy who likes cute"
+            },
+            {
+              "text": "blondes, leave a heart in the comments."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "376fb9169a3648a2d8727dbd5a2397a4d63b4371b94dc99e38c59f1ee976e7db",
+      "text": "I'm at the most f*ckable time of my life, but the only thing f*cking me is life.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:28",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I'm at the most f*ckable time of my life, but the only thing f*cking me is life.",
+        "timed": {
+          "segments": [
+            {
+              "text": "I'm at the most f*ckable time of my life,"
+            },
+            {
+              "text": "but the only thing f*cking me is life."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "4b4d6397cbf66a4e15bffe7dd13cacce6053d46f4d1f4c8b10be5eaf894d286e",
+      "text": "I know my future husband will answer this correctly...\nMy smile or my body?",
+      "banks": [
+        "body_attention"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:29",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I know my future husband will answer this correctly...\nMy smile or my body?",
+        "timed": {
+          "segments": [
+            {
+              "text": "I know my future husband will answer this correctly..."
+            },
+            {
+              "text": "My smile or my body?"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "c81fe3746adddbde8d10670c9cf97c2e4fa7bcddc69b57a5e27cfbc4e47f63b5",
+      "text": "If you got me pregnant, will we still be friends?\n1. yes\n2. married",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:3",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you got me pregnant, will we still be friends?\n1. yes\n2. married",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you got me pregnant, will we still be friends?"
+            },
+            {
+              "text": "1. yes"
+            },
+            {
+              "text": "2. married"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "9b4f291e4a9db2875d2ee33f3b475f0c01249db52086543f1322cf64d48e9f7a",
+      "text": "Men, be honest: you check on everyone else, but no one ever checks on you?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:32",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Men, be honest: you check on everyone else, but no one ever checks on you?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Men, be honest: you check on everyone else,"
+            },
+            {
+              "text": "but no one ever checks on you?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "a4125c278eb2860eb2e7c90d11f9d634f74b20607d654807ae10d5be848c6abc",
+      "text": "If I kissed you first, would you kiss me back?\nGive me a heart if yes.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "body_attention"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:33",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If I kissed you first, would you kiss me back?\nGive me a heart if yes.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If I kissed you first, would you kiss me back?"
+            },
+            {
+              "text": "Give me a heart if yes."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "96c2ed86dfb6b2396efb382452eebbe3cc29562272ac06ac24aad16af9460458",
+      "text": "Dating an old man means both lips will be regularly kissed.\nDo you agree?",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait",
+        "body_attention"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:35",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Dating an old man means both lips will be regularly kissed.\nDo you agree?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Dating an old man means both lips will be regularly kissed."
+            },
+            {
+              "text": "Do you agree?"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "db46c0bc8ced53986eb7d1f6eade11a9982625c9ae0022a08d26641b91e02424",
+      "text": "So tired of being an adult.\nCan I be your baby instead?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:37",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "So tired of being an adult.\nCan I be your baby instead?",
+        "timed": {
+          "segments": [
+            {
+              "text": "So tired of being an adult."
+            },
+            {
+              "text": "Can I be your baby instead?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "2ea00bb27f9a6fc798027dbd9770b99c77c46a695fce1a4e346a206cb6bdaaf5",
+      "text": "Be honest... what did you feel when you saw me?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:39",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Be honest... what did you feel when you saw me?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Be honest... what did you"
+            },
+            {
+              "text": "feel when you saw me?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "70884b308922c0b877837117e9aba9e92c9b6cb1d3ff7f2134a1d51df87f644a",
+      "text": "Every dirty-minded girl has a God-gifted innocent face.",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:43",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Every dirty-minded girl has a God-gifted innocent face.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Every dirty-minded girl has"
+            },
+            {
+              "text": "a God-gifted innocent face."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "26ac3bcf55898134a6c4afa3314b0a9e2d06d0664dc35af947c7ee784c6d0ba8",
+      "text": "If you have a crush on me, please go for it. You literally have no competition at all.",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:44",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you have a crush on me, please go for it. You literally have no competition at all.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you have a crush on me, please go"
+            },
+            {
+              "text": "for it. You literally have no competition at all."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "d2ba70741e0edda266d48dfecb41f77799338d1c58c1fe18574e156ea237072e",
+      "text": "If you scroll, you may never see me again...\nYou're still here?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:46",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you scroll, you may never see me again...\nYou're still here?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you scroll, you may never see me again..."
+            },
+            {
+              "text": "You're still here?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "da204bddc967b31423a7679aeaae927511238c8b48356bc4333b7891101f6a27",
+      "text": "This could be us right now, but you're too scared to text me.",
+      "banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:48",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "This could be us right now, but you're too scared to text me.",
+        "timed": {
+          "segments": [
+            {
+              "text": "This could be us right now, but"
+            },
+            {
+              "text": "you're too scared to text me."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "1399ff6b02f0d7c00574d8fb82c62ece0a8ad5b2a2c4098bd10129a108bc299b",
+      "text": "If I said yes to everything for one day, what would you ask?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:49",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If I said yes to everything for one day, what would you ask?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If I said yes to everything for"
+            },
+            {
+              "text": "one day, what would you ask?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "83a805251ad5cfcf5c29811ea524d95ecb9a8b94519425f53946a05fbef37f2a",
+      "text": "When the topic is \"older men\" and everyone is looking at me.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:5",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "When the topic is \"older men\" and everyone is looking at me.",
+        "timed": {
+          "segments": [
+            {
+              "text": "When the topic is \"older men\""
+            },
+            {
+              "text": "and everyone is looking at me."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "e0524470f6802df8836bdaae9a90a7c02d26c461071fe73587bd9cdb32f64598",
+      "text": "\"Terribly,\" but without T, E, R, B.",
+      "banks": [
+        "coded_fill_ins"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:51",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "\"Terribly,\" but without T, E, R, B.",
+        "timed": {
+          "segments": [
+            {
+              "text": "\"Terribly,\" but without T,"
+            },
+            {
+              "text": "E, R, B."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "497d0b1abab54e59599f5b851fcaf2fc6f50e1a77109bfb173cbdaf5ea97d056",
+      "text": "I need a boyfriend.\nB: bank account\nF: full of money",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:52",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I need a boyfriend.\nB: bank account\nF: full of money",
+        "timed": {
+          "segments": [
+            {
+              "text": "I need a boyfriend."
+            },
+            {
+              "text": "B: bank account"
+            },
+            {
+              "text": "F: full of money"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "f462c81051201dd9069a559723d95d9d17d028b39709f10513d34593d13d2887",
+      "text": "If you're a guy who can decipher this:\nT.W.B.O.Y.G.U.V.F.M.M.W.Y.G.\nShould I?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:54",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you're a guy who can decipher this:\nT.W.B.O.Y.G.U.V.F.M.M.W.Y.G.\nShould I?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you're a guy who can decipher this:"
+            },
+            {
+              "text": "T.W.B.O.Y.G.U.V.F.M.M.W.Y.G."
+            },
+            {
+              "text": "Should I?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "1b4a333f70e944bdba71ad97a3e321a17f72a23e0a123fd6d7d4161e228aa9fc",
+      "text": "Is it bad that I'm attracted to men who are old enough to be my father?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:55",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Is it bad that I'm attracted to men who are old enough to be my father?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Is it bad that I'm attracted to men"
+            },
+            {
+              "text": "who are old enough to be my father?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "876fb0fdc9409ec1ff530555561f101cca0ee5579d4074d949ca9a0654d586ec",
+      "text": "If we were dating, what would you call me?",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:56",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If we were dating, what would you call me?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If we were dating, what"
+            },
+            {
+              "text": "would you call me?"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "98ebe7afe9e2e8aadd054011f6f4b1a0f6b63cf8ba62d8f483a4ff7150bdf455",
+      "text": "Dear algorithm, please find me someone born between 1955–1985.\nSay hi if you found me.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:58",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Dear algorithm, please find me someone born between 1955–1985.\nSay hi if you found me.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Dear algorithm, please find me someone born between 1955–1985."
+            },
+            {
+              "text": "Say hi if you found me."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.34 PM.png"
+      }
+    },
+    {
+      "caption_hash": "f16137166fb37af499adaf3300ef7751ef4bedae336e7d5c227167faa25f91e1",
+      "text": "3 words, 8 letters.\nSay it and I'm yours.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:6",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "3 words, 8 letters.\nSay it and I'm yours.",
+        "timed": {
+          "segments": [
+            {
+              "text": "3 words, 8 letters."
+            },
+            {
+              "text": "Say it and I'm yours."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "4f37ce148375e4386e4a368cbfd23d1a3432b29c5b9d1b19fb5f06f09f6f557b",
+      "text": "My big brother kept staring at me during the family meal...\nNow switch the P with the R.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:60",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "My big brother kept staring at me during the family meal...\nNow switch the P with the R.",
+        "timed": {
+          "segments": [
+            {
+              "text": "My big brother kept staring at me during the family meal..."
+            },
+            {
+              "text": "Now switch the P with the R."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "0d47bf572e7aa60a3908161ac9f588b55292dd93803ed6bcd9ae86e3bc7076b5",
+      "text": "Drinking non-alcoholic beer is like eating out your cousin. It tastes the same, but it's just wrong.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:61",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Drinking non-alcoholic beer is like eating out your cousin. It tastes the same, but it's just wrong.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Drinking non-alcoholic beer is like eating out your cousin."
+            },
+            {
+              "text": "It tastes the same, but it's just wrong."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "962f325b24fafde43d208b2a21fe9766217a9c1e6dadb76e932918bfab22a6c8",
+      "text": "Older men, how many cold ones would it take for you to eat a taco made in 2004?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:64",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Older men, how many cold ones would it take for you to eat a taco made in 2004?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Older men, how many cold ones would it take"
+            },
+            {
+              "text": "for you to eat a taco made in 2004?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "99fa5d9bb2edefe93449b1c48e2e063bb8a8091f635938b40def1d913a818b3f",
+      "text": "New study confirms that men find women more attractive when they wear less makeup.\nTruth or bluff?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:66",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "New study confirms that men find women more attractive when they wear less makeup.\nTruth or bluff?",
+        "timed": {
+          "segments": [
+            {
+              "text": "New study confirms that men find women more attractive when they wear less makeup."
+            },
+            {
+              "text": "Truth or bluff?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "02da4911937454c46acfbb28d49261a8f7ab1402270db24c6560d54a53be6768",
+      "text": "You're not sad. You just need a 21-year-old single cute girl in your life.",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:68",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "You're not sad. You just need a 21-year-old single cute girl in your life.",
+        "timed": {
+          "segments": [
+            {
+              "text": "You're not sad. You just need a"
+            },
+            {
+              "text": "21-year-old single cute girl in your life."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "71a4cb63448bcc75804e7a88cffbf6c80454d7fdf79f6433473b32040b6c2422",
+      "text": "What is your age?\n18–21: bye\n22–30: hello\n31–40: hi\n41–55: hey\n56+: hello",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:69",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "What is your age?\n18–21: bye\n22–30: hello\n31–40: hi\n41–55: hey\n56+: hello",
+        "timed": {
+          "segments": [
+            {
+              "text": "What is your age?"
+            },
+            {
+              "text": "18–21: bye"
+            },
+            {
+              "text": "22–30: hello"
+            },
+            {
+              "text": "31–40: hi"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "3112a2527d7cb3cc6dfc8950110e03fac110ffd4e2a17db9c662f6bbe4233521",
+      "text": "What would you choose?\n1. 45 minutes slowly\n2. 10 minutes roughly",
+      "banks": [
+        "choice_poll"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:72",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "What would you choose?\n1. 45 minutes slowly\n2. 10 minutes roughly",
+        "timed": {
+          "segments": [
+            {
+              "text": "What would you choose?"
+            },
+            {
+              "text": "1. 45 minutes slowly"
+            },
+            {
+              "text": "2. 10 minutes roughly"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "fa16c3769dc182b089fd5b8c67e0cb089d77e2ddbe8323afb3a2565c6ecacab5",
+      "text": "It's very simple:\nhe's = he is\nshe's = she is\nthey're = they are\nyou're = mine",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:74",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "It's very simple:\nhe's = he is\nshe's = she is\nthey're = they are\nyou're = mine",
+        "timed": {
+          "segments": [
+            {
+              "text": "It's very simple:"
+            },
+            {
+              "text": "he's = he is"
+            },
+            {
+              "text": "she's = she is"
+            },
+            {
+              "text": "they're = they are"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "33aca71518cf33fbb5af0d4c7debcd91ed16524e0378663704decedb81148a79",
+      "text": "Pick only two:\n1. Dinner with me\n2. Date me\n3. Night with me\n4. Marry me",
+      "banks": [
+        "shared_girl_next_door",
+        "choice_poll",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:75",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Pick only two:\n1. Dinner with me\n2. Date me\n3. Night with me\n4. Marry me",
+        "timed": {
+          "segments": [
+            {
+              "text": "Pick only two:"
+            },
+            {
+              "text": "1. Dinner with me"
+            },
+            {
+              "text": "2. Date me"
+            },
+            {
+              "text": "3. Night with me"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "ee4cd5629521cb30eec2dcd31ac8c8ac7b76fc9069f6cc4946b819dc849abf7d",
+      "text": "Do you still find me attractive even if I'm not wearing revealing clothes?\nYes or no?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:76",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Do you still find me attractive even if I'm not wearing revealing clothes?\nYes or no?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Do you still find me attractive even if I'm not wearing revealing clothes?"
+            },
+            {
+              "text": "Yes or no?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "45025baa13b80c6acbb974bf8cd970d00e0ee1446f3a946aa663957450685cd3",
+      "text": "Be a good boy and read this backwards:\nSeiddab ednolb ekil uoy\nfitnemilpmoc a pord",
+      "banks": [
+        "shared_girl_next_door",
+        "read_backwards_puzzle",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:8",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Be a good boy and read this backwards:\nSeiddab ednolb ekil uoy\nfitnemilpmoc a pord",
+        "timed": {
+          "segments": [
+            {
+              "text": "Be a good boy and read this backwards:"
+            },
+            {
+              "text": "Seiddab ednolb ekil uoy"
+            },
+            {
+              "text": "fitnemilpmoc a pord"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "fa7de9c565da69ca9ad4cf94da164f8953360d8c81ed31c3f05c5c6667a3a741",
+      "text": "Be honest: if I accidentally called you babe, would you correct me or let it slide?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:82",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Be honest: if I accidentally called you babe, would you correct me or let it slide?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Be honest: if I accidentally called you babe, would you correct me"
+            },
+            {
+              "text": "or let it slide?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "a05f0eed8b2ed072bed18ff38aa3139326135aace725222c6db404633d718ff4",
+      "text": "If I'm your favorite food, what food am I?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:83",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If I'm your favorite food, what food am I?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If I'm your favorite food,"
+            },
+            {
+              "text": "what food am I?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "85583b8abbcb2eb34cdf07d624db41d17ce8601b862a6de65e8fc403414023f3",
+      "text": "21\nSingle\nNo boyfriend\nWant kids\nLeave a heart if I'm your type",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:84",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "21\nSingle\nNo boyfriend\nWant kids\nLeave a heart if I'm your type",
+        "timed": {
+          "segments": [
+            {
+              "text": "21"
+            },
+            {
+              "text": "Single"
+            },
+            {
+              "text": "No boyfriend"
+            },
+            {
+              "text": "Want kids"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "dc640b5324d164078e44e3e4db994048d32722c2edc351b2c1cde6ed4a569d75",
+      "text": "If we were kissing and you were kissing my neck, I am no longer responsible for my actions.",
+      "banks": [
+        "body_attention"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:87",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If we were kissing and you were kissing my neck, I am no longer responsible for my actions.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If we were kissing and you were kissing my"
+            },
+            {
+              "text": "neck, I am no longer responsible for my actions."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "51addad78626f18f98a31a8d81cfbb1a5e1d9859815054c67a6d8a56abca3c8f",
+      "text": "Boys will always choose easy women because the strong ones require them to be men.",
+      "banks": [
+        "choice_poll"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:89",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Boys will always choose easy women because the strong ones require them to be men.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Boys will always choose easy women because the"
+            },
+            {
+              "text": "strong ones require them to be men."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.13.51 PM.png"
+      }
+    },
+    {
+      "caption_hash": "b4824435bf70d49b9fc97b57fab8640815e64b40e979af5895f0e762d90b1553",
+      "text": "If life is eating you up, call me.\nI'll do it better.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:9",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If life is eating you up, call me.\nI'll do it better.",
+        "timed": {
+          "segments": [
+            {
+              "text": "If life is eating you up, call me."
+            },
+            {
+              "text": "I'll do it better."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "lunarose.vibes_",
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.12.18 PM.png"
+      }
+    },
+    {
+      "caption_hash": "e644e31c747683abf34babc78ddaf4a4a16f2ab3b3df903ba76b1bff038a8498",
+      "text": "Dear algorithm, please connect me to people born between 1950–1990.\nSay hi if you found me.",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:92",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Dear algorithm, please connect me to people born between 1950–1990.\nSay hi if you found me.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Dear algorithm, please connect me to people born between 1950–1990."
+            },
+            {
+              "text": "Say hi if you found me."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "6667f10e3baa75f2e725c2b34ac1567662ff9adf54f741823a1810d0192c7e33",
+      "text": "Don't make fun of kids who believe in Santa. Some adults believe boys can be girls.",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:95",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Don't make fun of kids who believe in Santa. Some adults believe boys can be girls.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Don't make fun of kids who believe in"
+            },
+            {
+              "text": "Santa. Some adults believe boys can be girls."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "745765b6ae1e425c5f7192a811dc4334f233d249922da6fe9735dc26c8003617",
+      "text": "If my answer could only be yes, what is your question?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:96",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If my answer could only be yes, what is your question?",
+        "timed": {
+          "segments": [
+            {
+              "text": "If my answer could only be"
+            },
+            {
+              "text": "yes, what is your question?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "ae296ab7257e0cbae93eb2cfc7ab26230c3e6f46a20a349f3bbe96b3d91402c1",
+      "text": "Some men are players, but I'm the coach.\nI set the game. I set the rules.",
+      "banks": [
+        "gym_body"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:98",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Some men are players, but I'm the coach.\nI set the game. I set the rules.",
+        "timed": {
+          "segments": [
+            {
+              "text": "Some men are players, but I'm the coach."
+            },
+            {
+              "text": "I set the game. I set the rules."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
+    },
+    {
+      "caption_hash": "22b3aaec8abf74dc66e155b04af5a19711a748723cba018d3d66e0767d1f71e8",
+      "text": "I don't understand why men don't look at me. Are they afraid of divorced women?\nNobody writes.",
+      "banks": [
+        "body_attention"
+      ],
+      "source": "instagram:user_screenshots_20260728:instagram_screenshot_captions_20260728.json:99",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I don't understand why men don't look at me. Are they afraid of divorced women?\nNobody writes.",
+        "timed": {
+          "segments": [
+            {
+              "text": "I don't understand why men don't look at me. Are they afraid of divorced women?"
+            },
+            {
+              "text": "Nobody writes."
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "/Users/aderdesouza/Desktop/Screenshot 2026-07-28 at 8.14.01 PM.png"
+      }
     },
     {
       "caption_hash": "24cb5223efd23b6ecc378e16e0582b8d869c9d30438438ee07f63e5d9e2c5a37",
@@ -46972,13 +49616,59 @@
     }
   ],
   "wouldWriteLiveBanks": false,
-  "sourceInventory": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/caption_source_inventory_20260629.json",
-  "sourceInventoryCsv": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/caption_source_inventory_20260629.csv",
-  "staceyAdaptations": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/stacey_caption_adaptations.json",
-  "badCaptionQuarantine": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/bad_caption_quarantine.json",
-  "report": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/caption_source_inventory_20260629_report.md",
-  "acceptedForReviewFromInventory": 943,
-  "newlyAcceptedForReviewFromInventory": 0,
-  "quarantinedFromInventory": 43,
-  "liveBanksChanged": false
+  "importedSourceFile": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_screenshot_captions_20260728.json",
+  "importedSource": "instagram:user_screenshots_20260728",
+  "importedAt": 1785353163,
+  "added_count": 61,
+  "import_rejected_count": 50,
+  "rejectedSamples": [
+    {
+      "index": 1,
+      "text": "Therapist: What is it called when you can't take it anymore but you keep taking it?\nMe: A good girl."
+    },
+    {
+      "index": 2,
+      "text": "69% will skip but...\nIf you're a straight man who likes a Christian, stop scrolling and leave a heart."
+    },
+    {
+      "index": 4,
+      "text": "If his new girl starts cracking jokes about me, I'll show her a video of me cracking the love of her life."
+    },
+    {
+      "index": 7,
+      "text": "Stop stressing, beautiful.\nYou've got a good heart, a nice soul, and the kind of energy that lights up a room.\nThe universe is on your side."
+    },
+    {
+      "index": 15,
+      "text": "I like him but I don't want to be his girlfriend. I want him to stay mine without a relationship. Stay as friends, but let our feelings grow stronger for each other."
+    },
+    {
+      "index": 16,
+      "text": "I have a question for all boys:\nIf your mother doesn't like your girlfriend, would you still marry her?"
+    },
+    {
+      "index": 17,
+      "text": "The only words I dream of hearing from a man:\n\"I'm a gay billionaire and I need a wife as a cover. Do whatever you want, date whoever you want, spend as much as you want. Just be d"
+    },
+    {
+      "index": 19,
+      "text": "Out of the 8 billion people on this planet, what chance do you think there is that I'm the one for you?"
+    },
+    {
+      "index": 26,
+      "text": "Told him to leave me alone and he actually did.\n#notmytype"
+    },
+    {
+      "index": 30,
+      "text": "If you S my T and L my A, I will S your C and L your B until you C in my M.\nLet me know if you're in."
+    },
+    {
+      "index": 31,
+      "text": "I don't care how old you are, rich or poor. I just need a male friend. I live alone.\nTell me I am beautiful today."
+    },
+    {
+      "index": 34,
+      "text": "Be honest: if I turned up at your house and needed somewhere to stay, would you let me in?"
+    }
+  ]
 }

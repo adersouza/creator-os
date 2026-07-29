@@ -18,7 +18,11 @@ from creator_os_core.task_parameters import (
 )
 
 from .audio_intent import read_audio_intent
-from .caption_bank import CaptionBankStore, load_or_build_caption_bank_store
+from .caption_bank import (
+    CaptionBankStore,
+    caption_hook_payload,
+    load_or_build_caption_bank_store,
+)
 from .higgsfield_production import (
     HiggsfieldProductionRequest,
     build_higgsfield_production_plan,
@@ -510,6 +514,7 @@ __all__ = [
     "execute_higgsfield_production",
     "gemini_motion_analysis_instruction",
     "load_or_build_caption_bank_store",
+    "caption_hook_payload",
     "quote_higgsfield_production_plan",
     "read_audio_intent",
 ]

@@ -52,6 +52,49 @@ def caption_hash(text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def caption_payload_hash(
+    hook: str | dict[str, Any],
+    *,
+    placement_intent: dict[str, Any] | None = None,
+) -> str:
+    payload = _canonical_caption_payload(hook, placement_intent=placement_intent)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def caption_hook_payload(item: dict[str, Any]) -> str | dict[str, Any]:
+    if str(item.get("variant_type") or "static") != "timed":
+        return str(item.get("text") or "").strip()
+    segments = item.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise ValueError("timed caption bank item is missing segments")
+    return {"segments": [dict(segment) for segment in segments]}
+
+
+def _canonical_caption_payload(
+    hook: str | dict[str, Any],
+    *,
+    placement_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    text = _hook_text(hook)
+    raw_segments = hook.get("segments") if isinstance(hook, dict) else None
+    segments = [
+        {str(key): value for key, value in segment.items() if value is not None}
+        for segment in (raw_segments or [])
+        if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+    ]
+    payload: dict[str, Any] = {
+        "variant_type": "timed" if segments else "static",
+        "text": text,
+    }
+    if segments:
+        payload["segments"] = segments
+    if placement_intent:
+        payload["placement_intent"] = placement_intent
+    return payload
+
+
 def default_mixes() -> dict[str, dict[str, int]]:
     return {
         "Larissa": {
@@ -333,7 +376,7 @@ class CaptionBankStore:
                 if not text:
                     continue
                 item = _caption_item(
-                    text=text,
+                    hook=hook,
                     banks=classify_caption(text),
                     source_type="sidecar",
                     source_file=str(path.relative_to(root)),
@@ -341,14 +384,14 @@ class CaptionBankStore:
                     source_index=index,
                 )
                 _merge_item(by_hash, item)
-                sidecar_hashes.add(item["caption_hash"])
+                sidecar_hashes.add(item["static_text_hash"])
 
         for text, source in _history_captions(root):
             h = caption_hash(text)
             if h in sidecar_hashes:
                 continue
             item = _caption_item(
-                text=text,
+                hook=text,
                 banks=classify_caption(text, history_only=True),
                 source_type=source,
                 source_file=source,
@@ -357,19 +400,48 @@ class CaptionBankStore:
             )
             _merge_item(by_hash, item)
 
+        existing_bank_path = root / "caption_banks" / "banks.json"
+        if existing_bank_path.exists():
+            try:
+                existing_payload = json.loads(
+                    existing_bank_path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                existing_payload = {}
+            existing_winners = (
+                (existing_payload.get("banks") or {}).get("winner_bank") or []
+                if isinstance(existing_payload, dict)
+                else []
+            )
+            for winner in existing_winners:
+                if not isinstance(winner, dict):
+                    continue
+                text = _hook_text(winner)
+                if not text:
+                    continue
+                hydrated = _hydrate_caption_item(winner)
+                h = hydrated["caption_payload_hash"]
+                current = by_hash.get(h)
+                if current is None:
+                    current = hydrated
+                    by_hash[h] = current
+                current["banks"] = sorted(
+                    set(current.get("banks") or []).union({"winner_bank"}),
+                    key=ACTIVE_BANKS.index,
+                )
+
         banks = {bank: [] for bank in ACTIVE_BANKS}
         for item in sorted(
             by_hash.values(), key=lambda row: (row["source_type"], row["text"])
         ):
             for bank in item["banks"]:
                 banks.setdefault(bank, []).append(item)
-        banks["winner_bank"] = []
 
         source_hash = _source_hash(banks, default_mixes())
         return cls(
             banks=banks,
             mixes=default_mixes(),
-            version="caption_banks_v1",
+            version="caption_banks_v2",
             source_hash=source_hash,
         )
 
@@ -427,7 +499,7 @@ class CaptionBankStore:
         items = []
         for bank in ACTIVE_BANKS:
             for item in self.banks.get(bank, []):
-                h = item["caption_hash"]
+                h = item["caption_payload_hash"]
                 if h in seen:
                     continue
                 seen.add(h)
@@ -438,21 +510,39 @@ class CaptionBankStore:
         return list(self.banks.get(bank, []))
 
     def resolve_mix(
-        self, creator: str, *, limit: int | None = None, seed: int = 42
+        self,
+        creator: str,
+        *,
+        limit: int | None = None,
+        seed: int = 42,
+        variant_types: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         mix = self.mixes.get(creator) or self.mixes.get(creator.capitalize())
         if not mix:
             raise ValueError(f"unknown caption mix: {creator}")
-        return self._weighted_select(mix, limit=limit, seed=seed)
+        return self._weighted_select(
+            mix,
+            limit=limit,
+            seed=seed,
+            variant_types=variant_types or {"static"},
+        )
 
     def resolve_banks(
-        self, banks: list[str], *, limit: int | None = None, seed: int = 42
+        self,
+        banks: list[str],
+        *,
+        limit: int | None = None,
+        seed: int = 42,
+        variant_types: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         unknown = [bank for bank in banks if bank not in ACTIVE_BANKS]
         if unknown:
             raise ValueError(f"unknown caption bank(s): {', '.join(unknown)}")
         return self._weighted_select(
-            {bank: 1 for bank in banks}, limit=limit, seed=seed
+            {bank: 1 for bank in banks},
+            limit=limit,
+            seed=seed,
+            variant_types=variant_types or {"static"},
         )
 
     def lineage_for(
@@ -466,7 +556,18 @@ class CaptionBankStore:
         return {
             "schema": "reel_factory.caption_lineage.v1",
             "captionHash": h,
+            "staticTextHash": item["static_text_hash"],
+            "captionPayloadHash": item["caption_payload_hash"],
+            "variantType": item["variant_type"],
             "rawCaptionText": item["text"],
+            "segments": item.get("segments") or [],
+            "placementIntent": item.get("placement_intent"),
+            "sourceCandidateId": item.get("source_candidate_id"),
+            "sourceCandidatePayloadHash": item.get("source_candidate_payload_hash"),
+            "approvalId": item.get("approval_id"),
+            "approvalFileSha": item.get("approval_file_sha"),
+            "approvalReviewer": item.get("approval_reviewer"),
+            "approvalDecidedAt": item.get("approval_decided_at"),
             "sourceBanks": item.get("banks") or [],
             "selectedBanks": selected_banks,
             "selectedBankWeight": (
@@ -489,12 +590,25 @@ class CaptionBankStore:
         }
 
     def _weighted_select(
-        self, weights: dict[str, int], *, limit: int | None, seed: int
+        self,
+        weights: dict[str, int],
+        *,
+        limit: int | None,
+        seed: int,
+        variant_types: set[str],
     ) -> list[dict[str, Any]]:
+        eligible_by_bank = {
+            bank: [
+                item
+                for item in self.banks.get(bank, [])
+                if str(item.get("variant_type") or "static") in variant_types
+            ]
+            for bank in weights
+        }
         usable_weights = {
             bank: int(weight)
             for bank, weight in weights.items()
-            if int(weight) > 0 and self.banks.get(bank)
+            if int(weight) > 0 and eligible_by_bank.get(bank)
         }
         if not usable_weights:
             return []
@@ -502,10 +616,10 @@ class CaptionBankStore:
             selected = []
             seen: set[str] = set()
             for bank in usable_weights:
-                for item in self.banks.get(bank, []):
-                    if item["caption_hash"] in seen:
+                for item in eligible_by_bank.get(bank, []):
+                    if item["caption_payload_hash"] in seen:
                         continue
-                    seen.add(item["caption_hash"])
+                    seen.add(item["caption_payload_hash"])
                     selected.append({**item, "selected_banks": [bank]})
             return selected
 
@@ -516,9 +630,9 @@ class CaptionBankStore:
         bank_weights = [usable_weights[bank] for bank in bank_names]
         max_unique = len(
             {
-                item["caption_hash"]
+                item["caption_payload_hash"]
                 for bank in bank_names
-                for item in self.banks.get(bank, [])
+                for item in eligible_by_bank.get(bank, [])
             }
         )
         target = min(limit, max_unique)
@@ -526,16 +640,16 @@ class CaptionBankStore:
         while len(selected) < target and attempts < target * 100:
             attempts += 1
             bank = rng.choices(bank_names, weights=bank_weights, k=1)[0]
-            item = rng.choice(self.banks[bank])
-            h = item["caption_hash"]
+            item = rng.choice(eligible_by_bank[bank])
+            h = item["caption_payload_hash"]
             if h in seen:
                 continue
             seen.add(h)
             selected.append({**item, "selected_banks": [bank]})
         if len(selected) < target:
             for bank in bank_names:
-                for item in self.banks[bank]:
-                    h = item["caption_hash"]
+                for item in eligible_by_bank[bank]:
+                    h = item["caption_payload_hash"]
                     if h in seen:
                         continue
                     seen.add(h)
@@ -557,16 +671,36 @@ def load_or_build_caption_bank_store(root: Path) -> CaptionBankStore:
 
 def _caption_item(
     *,
-    text: str,
+    hook: str | dict[str, Any],
     banks: list[str],
     source_type: str,
     source_file: str,
     source_clip: str | None,
     source_index: int | None,
 ) -> dict[str, Any]:
-    h = caption_hash(text)
-    return {
-        "caption_hash": h,
+    text = _hook_text(hook)
+    placement_intent = (
+        hook.get("placement_intent") or hook.get("placementIntent")
+        if isinstance(hook, dict)
+        else None
+    )
+    canonical = _canonical_caption_payload(
+        hook,
+        placement_intent=placement_intent
+        if isinstance(placement_intent, dict)
+        else None,
+    )
+    static_hash = caption_hash(text)
+    item = {
+        "caption_hash": static_hash,
+        "static_text_hash": static_hash,
+        "caption_payload_hash": caption_payload_hash(
+            hook,
+            placement_intent=placement_intent
+            if isinstance(placement_intent, dict)
+            else None,
+        ),
+        "variant_type": canonical["variant_type"],
         "text": text,
         "banks": banks,
         **caption_static_metadata(text),
@@ -575,6 +709,22 @@ def _caption_item(
         "source_clip": source_clip,
         "source_index": source_index,
     }
+    if canonical.get("segments"):
+        item["segments"] = canonical["segments"]
+    if isinstance(placement_intent, dict):
+        item["placement_intent"] = placement_intent
+    if isinstance(hook, dict):
+        for key in (
+            "source_candidate_id",
+            "source_candidate_payload_hash",
+            "approval_id",
+            "approval_file_sha",
+            "approval_reviewer",
+            "approval_decided_at",
+        ):
+            if hook.get(key):
+                item[key] = hook[key]
+    return item
 
 
 def _hydrate_bank_metadata(
@@ -584,19 +734,14 @@ def _hydrate_bank_metadata(
     for bank, items in banks.items():
         hydrated[bank] = []
         for item in items:
-            if "length_class" in item and "format_class" in item:
-                hydrated[bank].append(item)
-                continue
-            hydrated[bank].append(
-                {**item, **caption_static_metadata(str(item.get("text") or ""))}
-            )
+            hydrated[bank].append(_hydrate_caption_item(item))
     for bank in ACTIVE_BANKS:
         hydrated.setdefault(bank, [])
     return hydrated
 
 
 def _merge_item(by_hash: dict[str, dict[str, Any]], item: dict[str, Any]) -> None:
-    h = item["caption_hash"]
+    h = item["caption_payload_hash"]
     existing = by_hash.get(h)
     if not existing:
         by_hash[h] = item
@@ -614,6 +759,33 @@ def _merge_item(by_hash: dict[str, dict[str, Any]], item: dict[str, Any]) -> Non
             "source_index": item.get("source_index"),
         }
     )
+
+
+def _hydrate_caption_item(item: dict[str, Any]) -> dict[str, Any]:
+    hydrated = dict(item)
+    text = _hook_text(hydrated)
+    segments = hydrated.get("segments")
+    hook: str | dict[str, Any] = (
+        {
+            "segments": [
+                dict(segment) for segment in segments if isinstance(segment, dict)
+            ]
+        }
+        if isinstance(segments, list) and segments
+        else text
+    )
+    placement_intent = hydrated.get("placement_intent")
+    if not isinstance(placement_intent, dict):
+        placement_intent = None
+    hydrated["text"] = text
+    hydrated["variant_type"] = "timed" if isinstance(hook, dict) else "static"
+    hydrated["static_text_hash"] = caption_hash(text)
+    hydrated["caption_hash"] = hydrated["static_text_hash"]
+    hydrated["caption_payload_hash"] = caption_payload_hash(
+        hook, placement_intent=placement_intent
+    )
+    hydrated.update(caption_static_metadata(text))
+    return hydrated
 
 
 def _history_captions(root: Path) -> list[tuple[str, str]]:
