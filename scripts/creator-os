@@ -515,6 +515,8 @@ def _parser() -> argparse.ArgumentParser:
     reference_input.add_argument("--reference-video", type=Path)
     reference_input.add_argument("--reference-url")
     create.add_argument("--creator-image", type=Path)
+    create.add_argument("--recreation-anchor-approval", type=Path)
+    create.add_argument("--recreation-attempt-id")
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
@@ -569,6 +571,55 @@ def _parser() -> argparse.ArgumentParser:
         default="embedded_trending_required",
     )
     create.add_argument("--apply", action="store_true")
+
+    recreation = sub.add_parser(
+        "recreation",
+        help="approve, review, or explain exact recreation lineage",
+    )
+    recreation_sub = recreation.add_subparsers(dest="recreation_action", required=True)
+    recreation_explain = recreation_sub.add_parser("explain")
+    recreation_explain.add_argument("--job", required=True)
+    recreation_review = recreation_sub.add_parser("review")
+    recreation_review.add_argument("--job", required=True)
+    recreation_review.add_argument(
+        "--stage", required=True, choices=["anchor", "final_video"]
+    )
+    recreation_review.add_argument(
+        "--decision", required=True, choices=["approved", "rejected"]
+    )
+    recreation_review.add_argument("--reviewed-by", required=True)
+    recreation_review.add_argument("--notes")
+    recreation_approve = recreation_sub.add_parser("approve-anchor")
+    recreation_approve.add_argument("--creator", required=True)
+    recreation_approve.add_argument("--anchor-file", type=Path, required=True)
+    recreation_approve.add_argument("--anchor-generation-id", required=True)
+    recreation_approve.add_argument("--prompt-pack", type=Path, required=True)
+    recreation_approve.add_argument(
+        "--selected-composition-frame-sha256", required=True
+    )
+    recreation_approve.add_argument("--approved-by", required=True)
+    recreation_approve.add_argument("--output-dir", type=Path)
+    asset = sub.add_parser(
+        "asset",
+        help="explain exact asset lineage and inspect reuse inventory",
+    )
+    asset_sub = asset.add_subparsers(dest="asset_action", required=True)
+    asset_explain = asset_sub.add_parser("explain")
+    asset_explain.add_argument("--sha", required=True)
+    asset_inventory = asset_sub.add_parser("inventory")
+    asset_inventory.add_argument("--campaign")
+    asset_inventory.add_argument(
+        "--surface",
+        choices=["reel", "story", "feed_single", "feed_carousel"],
+    )
+    asset_reservations = asset_sub.add_parser("reservations")
+    reservation_sub = asset_reservations.add_subparsers(
+        dest="reservation_action", required=True
+    )
+    reservation_reconcile = reservation_sub.add_parser("reconcile")
+    reservation_reconcile.add_argument("--apply", action="store_true")
+    reservation_cancel = reservation_sub.add_parser("cancel")
+    reservation_cancel.add_argument("--reservation", required=True)
 
     quality_benchmark = sub.add_parser(
         "quality-benchmark",
@@ -1002,6 +1053,61 @@ def main(argv: list[str] | None = None) -> int:
                 "--apply" if args.apply else "--dry-run",
             )
         )
+    if args.command == "recreation":
+        if args.recreation_action == "explain":
+            return _run(_campaign_command("recreation", "explain", "--job", args.job))
+        if args.recreation_action == "review":
+            command = _campaign_command(
+                "recreation",
+                "review",
+                "--job",
+                args.job,
+                "--stage",
+                args.stage,
+                "--decision",
+                args.decision,
+                "--reviewed-by",
+                args.reviewed_by,
+            )
+            if args.notes:
+                command.extend(["--notes", args.notes])
+            return _run(command)
+        command = _campaign_command(
+            "recreation-anchor-approve",
+            "--creator",
+            args.creator,
+            "--anchor-file",
+            str(args.anchor_file.expanduser().resolve()),
+            "--anchor-generation-id",
+            args.anchor_generation_id,
+            "--prompt-pack",
+            str(args.prompt_pack.expanduser().resolve()),
+            "--selected-composition-frame-sha256",
+            args.selected_composition_frame_sha256,
+            "--approved-by",
+            args.approved_by,
+        )
+        if args.output_dir:
+            command.extend(
+                ["--output-dir", str(args.output_dir.expanduser().resolve())]
+            )
+        return _run(command)
+    if args.command == "asset":
+        command = _campaign_command("asset", args.asset_action)
+        if args.asset_action == "explain":
+            command.extend(["--sha", args.sha])
+        elif args.asset_action == "inventory":
+            if args.campaign:
+                command.extend(["--campaign", args.campaign])
+            if args.surface:
+                command.extend(["--surface", args.surface])
+        else:
+            command.append(args.reservation_action)
+            if args.reservation_action == "reconcile" and args.apply:
+                command.append("--apply")
+            elif args.reservation_action == "cancel":
+                command.extend(["--reservation", args.reservation])
+        return _run(command)
     if args.command == "create":
         if args.guided:
             args.creator = (
@@ -1073,6 +1179,15 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(
                 ["--creator-image", str(args.creator_image.expanduser().resolve())]
             )
+        if args.recreation_anchor_approval:
+            command.extend(
+                [
+                    "--recreation-anchor-approval",
+                    str(args.recreation_anchor_approval.expanduser().resolve()),
+                ]
+            )
+        if args.recreation_attempt_id:
+            command.extend(["--recreation-attempt-id", args.recreation_attempt_id])
         if args.mode == "recreate_reel":
             command.extend(["--recreate-mode", args.recreate_mode])
             if args.through:

@@ -179,7 +179,7 @@ class DailyPlanRepository:
             for draft in draft_items:
                 if str(draft.get("accountId") or "") != account_id:
                     continue
-                cooldown_reason = str(draft.get("variantCooldownCheck") or "clear")
+                cooldown_reason = str(draft.get("variantCooldownCheck") or "unproven")
                 duplicate_reason = str(draft.get("duplicateCheck") or "clear")
                 exclusion_reason = self._creator_os_draft_exclusion_reason(draft)
                 draft_payload = {

@@ -592,6 +592,7 @@ def export_threadsdash(
             ingest_url=threadsdash_ingest_url,
             ingest_secret=threadsdash_ingest_secret,
         )
+        _commit_payload_inventory_reservations(factory, payload)
         reconciled_post_ids = _reconcile_dashboard_ingest_post_ids(
             payload=payload,
             ingest_result=result["dashboardIngest"],
@@ -701,6 +702,8 @@ def export_threadsdash(
     except Exception as exc:
         if dry_run:
             raise
+        if "payload" in locals():
+            _release_payload_inventory_reservations(factory, payload)
         assert pipeline_job is not None
         failed_path = (
             exports_dir
@@ -745,6 +748,36 @@ def export_threadsdash(
         )
         factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
+
+
+def _payload_inventory_reservation_ids(payload: dict[str, Any]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            str(draft.get("inventoryReservationId"))
+            for draft in payload.get("drafts") or []
+            if isinstance(draft, dict) and draft.get("inventoryReservationId")
+        )
+    )
+
+
+def _commit_payload_inventory_reservations(
+    factory: CampaignFactory, payload: dict[str, Any]
+) -> None:
+    for reservation_id in _payload_inventory_reservation_ids(payload):
+        factory.domains.inventory_reservations.commit_inventory_reservation(
+            reservation_id
+        )
+
+
+def _release_payload_inventory_reservations(
+    factory: CampaignFactory, payload: dict[str, Any]
+) -> None:
+    for reservation_id in _payload_inventory_reservation_ids(payload):
+        factory.domains.inventory_reservations.release_inventory_reservation(
+            reservation_id,
+            status="released",
+            pending_only=True,
+        )
 
 
 def _validate_exact_creative_approvals(

@@ -14,6 +14,10 @@ from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
 from creator_os_core.provider_spend import verify_authorization
+from creator_os_core.recreation_anchor_approval import (
+    inspect_recreation_anchor_approval,
+    load_recreation_anchor_approval,
+)
 
 from . import learning_consumption
 from .audio_policy import AUDIO_POLICIES, build_embedded_trending_audio_intent
@@ -442,6 +446,8 @@ def plan_production_batch(
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
     prompt_call_authorized: bool = False,
+    recreation_anchor_approval_path: Path | None = None,
+    recreation_attempt_id: str | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
@@ -451,6 +457,10 @@ def plan_production_batch(
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     if intent in _RECREATE_INTENTS and int(count) != 1:
         raise ValueError("recreate_reel currently supports exactly one output")
+    if recreation_attempt_id is not None and (
+        not recreation_attempt_id.strip() or len(recreation_attempt_id.strip()) > 100
+    ):
+        raise ValueError("recreation attempt id must be 1 to 100 characters")
     creator_slug, _ = _require_creator_soul_id(creator)
     resolved_audio_policy = _audio_policy(audio_preference)
     _validate_intent_audio_policy(intent, resolved_audio_policy)
@@ -492,6 +502,20 @@ def plan_production_batch(
     motion_reference_sha = (
         _sha256_file(motion_reference) if motion_reference is not None else None
     )
+    planned_anchor = (
+        inspect_recreation_anchor_approval(recreation_anchor_approval_path)
+        if intent in _RECREATE_INTENTS and recreation_anchor_approval_path is not None
+        else None
+    )
+    if planned_anchor is not None:
+        assert reference_analysis is not None
+        if (
+            planned_anchor["creator"] != creator_slug
+            or planned_anchor["soulId"] != _CREATOR_SOUL_IDS[creator_slug]
+            or planned_anchor["referenceVideoSha256"]
+            != reference_analysis["originalLocalFile"]["sha256"]
+        ):
+            raise PermissionError("recreation_anchor_approval_binding_mismatch")
     rows = factory.conn.execute(
         """
         SELECT s.*, c.slug AS campaign_slug, m.slug AS creator_slug
@@ -516,6 +540,12 @@ def plan_production_batch(
             continue
         path = raw_path.resolve()
         recorded_sha = str(source["content_hash"])
+        if (
+            planned_anchor is not None
+            and recorded_sha != planned_anchor["creatorImageSha256"]
+        ):
+            incompatible_sources += 1
+            continue
         if not path.is_file() or _sha256_file(path) != recorded_sha:
             substituted_sources += 1
             continue
@@ -541,6 +571,10 @@ def plan_production_batch(
         seen_source_hashes.add(recorded_sha)
         sources.append(source)
     if not sources:
+        if planned_anchor is not None:
+            raise ValueError(
+                "approved anchor creator image is not exact approved inventory"
+            )
         if incompatible_sources:
             raise ValueError(
                 f"no portrait-reel approved image inventory for creator {creator}"
@@ -575,6 +609,7 @@ def plan_production_batch(
     for index in range(int(count)):
         source = sources[index % len(sources)]
         prompt_pack = None
+        anchor_approval = None
         source_sha = str(source["content_hash"])
         seed = _deterministic_seed(
             creator=creator_slug,
@@ -638,6 +673,30 @@ def plan_production_batch(
             prompt_card, compiled_prompt = compile_video_prompt(
                 prompt_pack, str(recipe["stages"][0]["providerModel"]), prompt_card
             )
+        if intent in _RECREATE_INTENTS and recreation_anchor_approval_path is not None:
+            if not isinstance(prompt_pack, dict):
+                raise PermissionError(
+                    "recreation_anchor_approval_requires_exact_prompt_pack"
+                )
+            assert reference_analysis is not None
+            anchor_approval = load_recreation_anchor_approval(
+                recreation_anchor_approval_path,
+                expected_creator=creator_slug,
+                expected_soul_id=_CREATOR_SOUL_IDS[creator_slug],
+                expected_creator_image_sha256=source_sha,
+                expected_reference_video_sha256=reference_analysis["originalLocalFile"][
+                    "sha256"
+                ],
+                expected_prompt_pack_fingerprint=str(
+                    prompt_pack["promptPackFingerprint"]
+                ),
+            )
+            recipe = build_production_motion_recipe(
+                creator=creator_slug,
+                intent=intent,
+                execution=execution,
+                source_sha256=str(anchor_approval["anchorFileSha256"]),
+            )
         prompt_planning = (
             {
                 **dict(prompt_pack.get("promptPlanning") or {}),
@@ -668,6 +727,21 @@ def plan_production_batch(
                     reference_analysis["originalLocalFile"]["sha256"]
                     if reference_analysis
                     else None
+                ),
+                "recreationAnchor": (
+                    anchor_approval["anchorFileSha256"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAnchorApproval": (
+                    anchor_approval["approvalFingerprint"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAttemptId": (
+                    str(recreation_attempt_id).strip()
+                    if recreation_attempt_id
+                    else "attempt_1"
                 ),
             }
         )
@@ -714,6 +788,32 @@ def plan_production_batch(
                 "compatibility": source["compatibility"],
                 "recreationCharacterCompatibility": source.get(
                     "recreationCharacterCompatibility"
+                ),
+                "recreationAnchorApproval": anchor_approval,
+                "recreationAnchorApprovalPath": (
+                    str(recreation_anchor_approval_path)
+                    if recreation_anchor_approval_path is not None
+                    else None
+                ),
+                "recreationAnchorApprovalFingerprint": (
+                    anchor_approval["approvalFingerprint"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAnchorPath": (
+                    anchor_approval["anchorFilePath"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAnchorSha256": (
+                    anchor_approval["anchorFileSha256"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAttemptId": (
+                    str(recreation_attempt_id).strip()
+                    if recreation_attempt_id
+                    else "attempt_1"
                 ),
                 "seed": seed,
                 "requestFingerprint": identity,
@@ -795,6 +895,8 @@ def run_production_batch(
     reference_talking: bool = False,
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
+    recreation_anchor_approval_path: Path | None = None,
+    recreation_attempt_id: str | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -813,6 +915,8 @@ def run_production_batch(
         selected_source_asset_ids=selected_source_asset_ids,
         prompt_pack_provider=prompt_pack_provider,
         prompt_call_authorized=apply,
+        recreation_anchor_approval_path=recreation_anchor_approval_path,
+        recreation_attempt_id=recreation_attempt_id,
     )
     results: list[dict[str, Any]] = []
     if (
@@ -1009,6 +1113,11 @@ def _run_production_job(
                 **base,
                 "status": "blocked",
                 "error": "production_hard_qc_failed",
+                "providerExecutionStatus": "completed",
+                "technicalArtifactStatus": "rejected_by_qc",
+                "creativeDecision": "not_reached",
+                "publishability": "blocked",
+                "learningEligible": False,
                 "hardQc": hard_qc,
                 "provider": provider,
                 "providers": provider_rows,
@@ -1025,6 +1134,17 @@ def _run_production_job(
         return {
             **base,
             "status": "completed",
+            "providerExecutionStatus": "completed",
+            "technicalArtifactStatus": "completed",
+            "creativeDecision": (
+                "pending" if job["intent"] in _RECREATE_INTENTS else None
+            ),
+            "publishability": (
+                "blocked_pending_explicit_final_approval"
+                if job["intent"] in _RECREATE_INTENTS
+                else "subject_to_normal_approval"
+            ),
+            "learningEligible": False,
             "hardQc": hard_qc,
             "provider": provider,
             "providers": provider_rows,
@@ -1106,11 +1226,16 @@ def _execute_higgsfield_provider_job(
             "requestFingerprint": job["requestFingerprint"],
             "providerPlanFingerprint": job["providerPlanFingerprint"],
             "referenceVideo": job.get("referenceVideo"),
+            "recreationAnchorApproval": job.get("recreationAnchorApproval"),
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
-        request = _higgsfield_request(job, max_credits=max_credits)
+        request = _higgsfield_request(
+            job,
+            max_credits=max_credits,
+            attempt_id=str(pipeline_job["id"]),
+        )
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -1198,6 +1323,8 @@ def _execute_higgsfield_provider_job(
             "creditsConsumed": receipt.get("creditsConsumed"),
             "costEventIds": cost_ids,
             "source": receipt["source"],
+            "recreationAnchorApproval": receipt.get("recreationAnchorApproval"),
+            "referenceElement": receipt.get("referenceElement"),
             "output": {"path": str(output_path), "sha256": output_sha},
             "providerReceipt": {
                 "path": str(receipt_path),
@@ -1260,6 +1387,17 @@ def _execute_higgsfield_provider_job(
             "registeredAsset": registered,
             "pipelineJobId": pipeline_job["id"],
             "humanReviewRequired": job["intent"] in _RECREATE_INTENTS,
+            "providerExecutionStatus": "completed",
+            "technicalArtifactStatus": "completed",
+            "creativeDecision": (
+                "pending" if job["intent"] in _RECREATE_INTENTS else None
+            ),
+            "publishability": (
+                "blocked_pending_explicit_final_approval"
+                if job["intent"] in _RECREATE_INTENTS
+                else "subject_to_normal_approval"
+            ),
+            "learningEligible": False,
             "schedulingAllowed": False,
             "publishingAllowed": False,
         }

@@ -1784,3 +1784,35 @@ def test_account_assignment_is_preserved_in_draft_payload_without_direct_write(
         assert metadata["assignment_notes"] == "morning test"
     finally:
         cf.close()
+
+
+def test_pending_inventory_reservation_is_carried_in_draft_handoff(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        account = cf.domains.models.upsert_account("reserved_destination")
+        reservation = cf.domains.inventory_reservations.reserve_inventory_asset(
+            "asset_1",
+            account_id=account["id"],
+            surface="reel",
+        )
+        cf.domains.campaign_overview.assign_asset_account(
+            "asset_1",
+            account_id=account["id"],
+        )
+
+        draft = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")[
+            "drafts"
+        ][0]
+
+        assert draft["inventoryReservationId"] == reservation["reservation_id"]
+        assert draft["inventoryReservationStatus"] == "pending"
+        assert draft["metadata"]["campaign_factory"][
+            "inventory_reservation_id"
+        ] == reservation["reservation_id"]
+    finally:
+        cf.close()

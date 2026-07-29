@@ -241,6 +241,33 @@ inventory creation or experiments without adding another product mode. Local
 model tooling is standalone research and is not reachable from the Creator OS
 product CLI. No create mode schedules or publishes.
 
+Reuse selection and destination reservation are one fail-closed operation only
+when `--accounts` resolves to one concrete eligible account. Campaign Factory
+atomically creates a pending reservation for each reused asset, exports its
+reservation ID with the draft, commits it only after ThreadsDashboard accepts
+the draft ingest, and releases a still-pending reservation when ingest fails.
+An unresolved or ineligible destination cannot claim destination-ready reuse;
+the batch records its blockers and generates the required fresh fallback.
+Partial qualified reuse fills only the remaining shortfall. `require_fresh`
+creates the full requested batch without consulting reusable inventory.
+
+Missing `variantCooldownCheck` evidence is `unproven`, never implicitly clear.
+Read-only operator proof is available through:
+
+```text
+creator-os asset explain --sha <FINAL_SHA>
+creator-os asset inventory [--campaign <SLUG>] [--surface <SURFACE>]
+creator-os asset reservations reconcile [--apply]
+creator-os asset reservations cancel --reservation <RESERVATION_ID>
+```
+
+The SHA explanation connects retained source, generation attempts and lineage
+edges, overlay placement, audio receipt, exact final bytes, review decisions,
+reservations, assignments, cooldown evidence, and reuse eligibility. Inventory
+reports distinguish gross, reserved, assigned/used, cooldown-blocked, and net
+inventory. Reconciliation reports expired and stranded reservations; `--apply`
+expires only the reported stale rows.
+
 ## Current Creative Product Truth
 
 The operator's real would-post review is the model-selection authority:
@@ -500,6 +527,37 @@ canonical private reference
 -> provider audio disabled/replaced under the automatic audio policy
 -> technical QC + mode-specific human review + exact-SHA final audio binding
 ```
+
+`--through anchor --apply` is an executable boundary, not a planning
+placeholder. Campaign Factory issues a one-call Soul spend authorization,
+Reel Factory performs the text-only Soul 2 request, downloads the exact image
+bytes, writes provider/lineage receipts, and registers the image as an
+`imported` recreation-anchor review candidate. The candidate does not become a
+canonical creator source. `creator-os recreation approve-anchor` verifies that
+registered generation and writes an immutable exact-SHA approval receipt;
+Seedance fails closed without that receipt and its retained managed anchor
+file.
+
+Paid retries never cross attempt boundaries automatically. An anchor rejection
+records `new_soul_anchor`; a final-video rejection records
+`retain_anchor_new_seedance`. Either branch requires a new explicit
+`--recreation-attempt-id`, producing a new spend fingerprint and one fresh
+authorization. Provider and technical completion remain truthful when the
+creative decision is rejected; publishability stays blocked and
+`learningEligible` stays false.
+
+Final recreation review must compare the output with both the approved anchor
+SHA and the canonical creator-reference source SHA. The complete retained chain
+is available read-only with:
+
+```text
+creator-os recreation explain --job <pipeline-job-id>
+```
+
+The explanation includes the reference SHA, selected frame SHA, prompt pack,
+Soul generation and spend lineage, anchor approval, Seedance authorization and
+generation, resolved reference element, final MP4 SHA, audio receipt, technical
+QC, review decisions, and final approval state.
 
 The Seedance request supplies the approved anchor as the start image, uses the
 authenticated `seedance_2_0 mode=fast` contract at 480p/high bitrate, and

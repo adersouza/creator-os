@@ -53,6 +53,8 @@ class InventoryReservationRepository:
         override_reason: str | None = None,
     ) -> dict[str, Any]:
         asset = self._ensure_rendered_asset_perceptual_metadata(asset_id)
+        if asset.get("review_state") == "rejected":
+            raise ValueError(f"operator-rejected asset cannot be reserved: {asset_id}")
         normalized_surface = self._normalize_content_surface(
             surface or asset.get("content_surface") or "reel"
         )
@@ -193,6 +195,7 @@ class InventoryReservationRepository:
         reservation_id: str,
         *,
         status: str = "released",
+        pending_only: bool = False,
     ) -> dict[str, Any]:
         if status not in {"released", "expired", "cancelled"}:
             raise ValueError("status must be released, expired, or cancelled")
@@ -202,6 +205,8 @@ class InventoryReservationRepository:
         ).fetchone()
         if not row:
             raise ValueError(f"reservation not found: {reservation_id}")
+        if pending_only and row["status"] != "pending":
+            return dict(row)
         now = self._utc_now()
         self.conn.execute(
             "UPDATE asset_inventory_reservations SET status = ?, updated_at = ? WHERE id = ?",
@@ -213,6 +218,74 @@ class InventoryReservationRepository:
                 "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)
             ).fetchone()
         )
+
+    def commit_inventory_reservation(self, reservation_id: str) -> dict[str, Any]:
+        row = self.conn.execute(
+            "SELECT * FROM asset_inventory_reservations WHERE reservation_id = ? OR id = ?",
+            (reservation_id, reservation_id),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"reservation not found: {reservation_id}")
+        if row["status"] == "committed":
+            return dict(row)
+        if row["status"] != "pending":
+            raise ValueError(
+                f"reservation is not pending: {reservation_id} ({row['status']})"
+            )
+        now = self._utc_now()
+        self.conn.execute(
+            "UPDATE asset_inventory_reservations SET status = 'committed', updated_at = ? WHERE id = ? AND status = 'pending'",
+            (now, row["id"]),
+        )
+        self.conn.commit()
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)
+            ).fetchone()
+        )
+
+    def reservation_reconciliation_report(
+        self, *, now: str | None = None, apply: bool = False
+    ) -> dict[str, Any]:
+        current = now or self._utc_now()
+        stranded = [
+            dict(row)
+            for row in self.conn.execute(
+                """
+                SELECT *
+                FROM asset_inventory_reservations
+                WHERE status IN ('pending', 'committed')
+                  AND expires_at IS NOT NULL
+                  AND expires_at != ''
+                  AND expires_at <= ?
+                ORDER BY expires_at, reservation_id
+                """,
+                (current,),
+            ).fetchall()
+        ]
+        expired_count = (
+            self.expire_inventory_reservations(now=current) if apply else 0
+        )
+        expired = [
+            dict(row)
+            for row in self.conn.execute(
+                """
+                SELECT *
+                FROM asset_inventory_reservations
+                WHERE status = 'expired'
+                ORDER BY updated_at DESC, reservation_id
+                """
+            ).fetchall()
+        ]
+        return {
+            "schema": "campaign_factory.inventory_reservation_reconciliation.v1",
+            "generatedAt": current,
+            "applied": apply,
+            "expiredNow": expired_count,
+            "strandedCount": len(stranded),
+            "strandedReservations": stranded,
+            "expiredReservations": expired,
+        }
 
     def inventory_uniqueness_conflicts(
         self,
@@ -292,8 +365,11 @@ class InventoryReservationRepository:
         readiness_rows: list[dict[str, Any]],
         *,
         content_surface: str | None = None,
+        reconcile_expired: bool = True,
+        ensure_metadata: bool = True,
     ) -> dict[str, int]:
-        self.expire_inventory_reservations()
+        if reconcile_expired:
+            self.expire_inventory_reservations()
         active_asset_ids = [
             str(row.get("assetId"))
             for row in readiness_rows
@@ -307,6 +383,7 @@ class InventoryReservationRepository:
             return {
                 "grossInventory": 0,
                 "reservedInventory": 0,
+                "assignedInventory": 0,
                 "usedInventory": 0,
                 "cooldownBlockedInventory": 0,
                 "netInventory": 0,
@@ -345,7 +422,11 @@ class InventoryReservationRepository:
             asset = assets_by_id.get(asset_id)
             if not asset:
                 continue
-            asset = self._ensure_rendered_asset_perceptual_metadata(asset_id)
+            asset = (
+                self._ensure_rendered_asset_perceptual_metadata(asset_id)
+                if ensure_metadata
+                else asset
+            )
             assets_by_id[asset_id] = asset
             values = self._asset_uniqueness_values(asset)
             for key_name in ("sourceFamilyId", "perceptualClusterId"):
@@ -356,7 +437,11 @@ class InventoryReservationRepository:
         for asset_id, asset in assets_by_id.items():
             if asset_id in reserved_or_used:
                 continue
-            asset = self._ensure_rendered_asset_perceptual_metadata(asset_id)
+            asset = (
+                self._ensure_rendered_asset_perceptual_metadata(asset_id)
+                if ensure_metadata
+                else asset
+            )
             assets_by_id[asset_id] = asset
             values = self._asset_uniqueness_values(asset)
             if any(
@@ -369,6 +454,7 @@ class InventoryReservationRepository:
         return {
             "grossInventory": len(active_asset_ids),
             "reservedInventory": len(reserved),
+            "assignedInventory": len(used),
             "usedInventory": len(used),
             "cooldownBlockedInventory": len(cooldown_blocked),
             "netInventory": max(0, len(active_asset_ids) - len(unavailable)),
