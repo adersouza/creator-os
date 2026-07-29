@@ -399,6 +399,8 @@ def test_approve_routes_exact_review_builder_to_campaign_factory(
 
     namespace["main"].__globals__["_run"] = fake_run
     root = tmp_path / "approvals"
+    review = tmp_path / "review.json"
+    review.write_text("{}", encoding="utf-8")
     assert (
         namespace["main"](
             [
@@ -411,6 +413,8 @@ def test_approve_routes_exact_review_builder_to_campaign_factory(
                 "user-1",
                 "--approved-by",
                 "operator",
+                "--review-decision",
+                str(review),
                 "--root",
                 str(root),
             ]
@@ -418,12 +422,29 @@ def test_approve_routes_exact_review_builder_to_campaign_factory(
         == 0
     )
     assert "creative-approval-build" in commands[0]
-    assert commands[0][-4:] == [
+    assert commands[0][-6:] == [
+        "--review-decision",
+        str(review.resolve()),
         "--surface",
         "regular_reel",
         "--root",
         str(root.resolve()),
     ]
+
+
+def test_qc_explain_routes_to_campaign_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    assert namespace["main"](["qc", "explain", "--asset", "asset-1"]) == 0
+    assert commands[0][-3:] == ["qc-explain", "--asset", "asset-1"]
 
 
 def test_approve_import_is_explicitly_compatibility_labeled(

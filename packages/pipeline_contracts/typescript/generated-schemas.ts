@@ -3417,7 +3417,7 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "recommendedAction": {
 	          "enum": [
-	            "approve_candidate",
+	            "review_candidate",
 	            "review",
 	            "reject"
 	          ]
@@ -3621,6 +3621,7 @@ export const generatedPipelineContractSchemas = {
 	    "output",
 	    "qcEvidence",
 	    "reviewManifest",
+	    "operatorReview",
 	    "exportProjection",
 	    "contentSemantics",
 	    "operatorAttestation",
@@ -3687,6 +3688,9 @@ export const generatedPipelineContractSchemas = {
 	      }
 	    },
 	    "reviewManifest": {
+	      "$ref": "#/$defs/file"
+	    },
+	    "operatorReview": {
 	      "$ref": "#/$defs/file"
 	    },
 	    "exportProjection": {
@@ -3878,6 +3882,7 @@ export const generatedPipelineContractSchemas = {
 	        "instagramPostCaptionHash",
 	        "burnedCaptionText",
 	        "burnedCaptionHash",
+	        "captionFallbackReason",
 	        "overlaySemanticQcFingerprint",
 	        "captionTimingQcFingerprint",
 	        "publishMode",
@@ -3985,6 +3990,12 @@ export const generatedPipelineContractSchemas = {
 	            {
 	              "type": "null"
 	            }
+	          ]
+	        },
+	        "captionFallbackReason": {
+	          "type": [
+	            "string",
+	            "null"
 	          ]
 	        },
 	        "overlaySemanticQcFingerprint": {

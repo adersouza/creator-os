@@ -932,7 +932,10 @@ class ReelExecutionRepository:
                 "selectedLane": self.caption_lane_from_render_recipe(recipe),
                 "reason": "ContentForge safe-zone review must pass before schedule-safe handoff.",
             }
-        elif not placement_decision.get("selectedLane"):
+        elif (
+            not placement_decision.get("selectedLane")
+            and placement_decision.get("renderPolicy") != "clean_without_overlay"
+        ):
             placement_decision = {
                 **placement_decision,
                 "selectedLane": self.caption_lane_from_render_recipe(recipe),
@@ -1137,8 +1140,40 @@ class ReelExecutionRepository:
             )
             if audio_intent:
                 caption_generation["audioIntent"] = audio_intent
-        burned_caption = caption_text or str(asset.get("caption") or "").strip()
-        if burned_caption:
+        caption_fallback = caption_context.get("captionFallback")
+        clean_fallback = (
+            isinstance(caption_fallback, dict)
+            and caption_fallback.get("renderPolicy") == "clean_without_overlay"
+        )
+        burned_caption = (
+            ""
+            if clean_fallback
+            else caption_text or str(asset.get("caption") or "").strip()
+        )
+        if clean_fallback:
+            post_caption = str(
+                caption_fallback.get("instagramPostCaptionSourceText")
+                or caption_text
+                or asset.get("caption")
+                or ""
+            ).strip()
+            caption_context["instagram_post_caption"] = post_caption
+            caption_context["instagram_post_caption_hash"] = self._text_hash(
+                post_caption
+            )
+            caption_context["burned_caption_text"] = None
+            caption_context["burned_caption_hash"] = None
+            caption_context["caption_fallback_reason"] = caption_fallback.get(
+                "reasonCode"
+            )
+            caption_generation["instagramPostCaption"] = {
+                "instagram_post_caption": post_caption,
+                "instagramPostCaption": post_caption,
+                "instagram_post_caption_hash": self._text_hash(post_caption),
+                "post_caption_style": "clean_overlay_fallback",
+                "hashtags": [],
+            }
+        elif burned_caption:
             post_caption = self._suggest_simple_instagram_post_caption(
                 asset_id=str(asset["id"]),
                 current_caption="",

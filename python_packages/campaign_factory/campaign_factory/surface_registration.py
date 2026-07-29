@@ -413,6 +413,7 @@ class SurfaceRegistrationRepository:
         audit_id = f"audit_surface_{scoped_key}"
         audit_payload = {
             "schema": "campaign_factory.surface_asset_audit.v1",
+            "subjectSha256": content_hash,
             "contentSurface": content_surface,
             "igMediaType": ig_media_type,
             "overallVerdict": "pass",
@@ -450,13 +451,14 @@ class SurfaceRegistrationRepository:
         self.conn.execute(
             """
             INSERT INTO audit_reports
-            (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score,
+            (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score,
              status, layers_json, verdicts_json, overall_verdict, files_analyzed,
              failed_checks_json, warnings_json, created_at)
-            VALUES (?, ?, ?, 'surface_asset_registration', ?, 90, 'pass', '{}', '{}',
+            VALUES (?, ?, ?, ?, 'surface_asset_registration', ?, 90, 'pass', '{}', '{}',
                     'pass', ?, '[]', '[]', ?)
             ON CONFLICT(id) DO UPDATE SET
               rendered_asset_id = excluded.rendered_asset_id,
+              subject_sha256 = excluded.subject_sha256,
               report_path = excluded.report_path,
               status = excluded.status,
               overall_verdict = excluded.overall_verdict,
@@ -467,6 +469,7 @@ class SurfaceRegistrationRepository:
                 audit_id,
                 campaign["id"],
                 rendered_id,
+                content_hash,
                 str(audit_path),
                 len(staged_components),
                 now,

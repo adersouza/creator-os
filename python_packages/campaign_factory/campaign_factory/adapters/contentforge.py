@@ -400,7 +400,7 @@ def _review_file_result(output_path: Path, response: dict[str, Any]) -> dict[str
             if status == "blocked"
             else "review"
             if status == "review"
-            else "approve"
+            else "review_candidate"
         ),
         "warningCodes": warning_codes,
         "blockingCodes": blocking_codes,
@@ -475,7 +475,13 @@ def _audit_asset(
     reference_pattern: dict[str, Any] | None = None,
     reference_paths: list[Path] | None = None,
 ) -> dict[str, Any]:
+    from ..asset_evidence import verify_registered_asset_bytes
+
     media_path = Path(asset["campaign_path"])
+    integrity = verify_registered_asset_bytes(asset)
+    if integrity["passed"] is not True:
+        raise ValueError("contentforge_subject_sha_mismatch")
+    subject_sha256 = str(integrity["actualSha256"])
     source_path = _source_path_for_asset(factory, asset)
     locked_static = asset.get("recipe") == "static_mp4"
     run_id = uuid.uuid4().hex[:8]
@@ -558,6 +564,8 @@ def _audit_asset(
         "allowStaticOpening": response.get("allowStaticOpening") is True
         or locked_static,
         "renderedAssetId": asset["id"],
+        "subjectSha256": subject_sha256,
+        "finalArtifactIntegrity": integrity,
         "sourceFile": str(source_path),
         "stagedSourceFile": staged_source_name,
         "file": str(media_path),
@@ -589,14 +597,15 @@ def _audit_asset(
     factory.conn.execute(
         """
         INSERT INTO audit_reports
-        (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+        (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score, status,
          layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             audit_id,
             campaign["id"],
             asset["id"],
+            subject_sha256,
             run_id,
             str(report_path),
             score,
@@ -616,6 +625,7 @@ def _audit_asset(
         local_id=audit_id,
         payload={
             "renderedAssetId": asset["id"],
+            "subjectSha256": subject_sha256,
             "contentForgeRunId": run_id,
             "overallVerdict": report.get("overallVerdict"),
             "status": status,

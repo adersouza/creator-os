@@ -586,7 +586,8 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
 
     row = conn.execute(
         """
-        SELECT content_hash, output_path, caption_generation_json, metadata_json
+        SELECT content_hash, output_path, caption_generation_json, metadata_json,
+               audit_status, review_state
         FROM rendered_assets
         WHERE id = 'asset-1'
         """
@@ -596,8 +597,11 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
     metadata = json.loads(row[3])
     assert row[0] == final_sha
     assert row[1] == str(final_path)
+    assert row[4:] == ("pending", "review_ready")
     assert caption_generation["audioIntent"]["policy"] == ("embedded_trending_required")
     assert metadata["audioBurned"] is True
+    assert metadata["evidenceInvalidations"][0]["previousSha256"] == original_sha
+    assert metadata["evidenceInvalidations"][0]["newSha256"] == final_sha
     assert metadata["publishability"]["blockingIssues"] == [
         "audio_creative_approval_required"
     ]

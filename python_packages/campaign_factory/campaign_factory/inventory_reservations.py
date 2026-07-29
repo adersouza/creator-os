@@ -263,9 +263,7 @@ class InventoryReservationRepository:
                 (current,),
             ).fetchall()
         ]
-        expired_count = (
-            self.expire_inventory_reservations(now=current) if apply else 0
-        )
+        expired_count = self.expire_inventory_reservations(now=current) if apply else 0
         expired = [
             dict(row)
             for row in self.conn.execute(

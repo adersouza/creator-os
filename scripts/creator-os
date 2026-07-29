@@ -645,6 +645,7 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--rendered-asset-id", required=True)
     approve.add_argument("--user-id", required=True)
     approve.add_argument("--approved-by", required=True)
+    approve.add_argument("--review-decision", type=Path, required=True)
     approve.add_argument("--root", type=Path)
     approve.add_argument(
         "--surface",
@@ -658,6 +659,10 @@ def _parser() -> argparse.ArgumentParser:
         ],
         default="regular_reel",
     )
+    qc = sub.add_parser("qc", help="inspect exact QC evidence for one asset")
+    qc_sub = qc.add_subparsers(dest="qc_command", required=True)
+    qc_explain = qc_sub.add_parser("explain")
+    qc_explain.add_argument("--asset", required=True)
     approve.add_argument("--publish-mode", choices=["auto", "notify"])
 
     draft = sub.add_parser(
@@ -1252,6 +1257,8 @@ def main(argv: list[str] | None = None) -> int:
             args.user_id,
             "--approved-by",
             args.approved_by,
+            "--review-decision",
+            str(args.review_decision.expanduser().resolve()),
             "--surface",
             args.surface,
         )
@@ -1260,6 +1267,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.root is not None:
             command.extend(["--root", str(args.root.expanduser().resolve())])
         return _run(command)
+    if args.command == "qc":
+        return _run(_campaign_command("qc-explain", "--asset", args.asset))
     if args.command in {"draft-export", "export"}:
         if args.command == "draft-export":
             print(

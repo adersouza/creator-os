@@ -10,6 +10,7 @@ from typing import Any
 
 from pipeline_contracts import validate_audio_intent
 
+from ..asset_evidence import invalidate_asset_evidence_after_byte_change
 
 class AudioBindingError(RuntimeError):
     """An embedding receipt cannot safely replace the current asset bytes."""
@@ -137,14 +138,12 @@ def bind_embedding_receipt(
             conn.execute(
                 """
                 UPDATE rendered_assets
-                SET content_hash = ?, output_path = ?, campaign_path = ?,
+                SET output_path = ?, campaign_path = ?,
                     filename = ?, caption_generation_json = ?, metadata_json = ?,
-                    audit_status = 'pending', review_state = 'review_ready',
                     updated_at = ?
                 WHERE id = ?
                 """,
                 (
-                    final_sha,
                     str(final_path),
                     str(final_path),
                     final_path.name,
@@ -157,6 +156,18 @@ def bind_embedding_receipt(
                     bound_at,
                     rendered_asset_id,
                 ),
+            )
+            invalidate_asset_evidence_after_byte_change(
+                conn,
+                rendered_asset_id=rendered_asset_id,
+                previous_sha=original_sha,
+                new_sha=final_sha,
+                mutation_type="audio_embedding",
+                mutation_receipt={
+                    "schema": embedding_receipt["schema"],
+                    "sha256": _canonical_sha256(embedding_receipt),
+                },
+                changed_at=bound_at,
             )
             _record_audio_selection(
                 conn,

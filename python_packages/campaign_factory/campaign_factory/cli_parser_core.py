@@ -237,6 +237,7 @@ def register_core_commands(sub) -> None:
     creative_approval.add_argument("--rendered-asset-id", required=True)
     creative_approval.add_argument("--user-id", required=True)
     creative_approval.add_argument("--approved-by", required=True)
+    creative_approval.add_argument("--review-decision", type=Path, required=True)
     creative_approval.add_argument("--root", type=Path)
     creative_approval.add_argument(
         "--surface",
@@ -259,6 +260,8 @@ def register_core_commands(sub) -> None:
     audit.add_argument("--contentforge-base-url", default="cli://local")
     audit.add_argument("--layer", action="append", default=[])
     audit.add_argument("--rendered-asset-id", action="append", default=[])
+    qc_explain = sub.add_parser("qc-explain")
+    qc_explain.add_argument("--asset", required=True)
     approve = sub.add_parser("approve")
     approve.add_argument("--rendered-asset-id", required=True)
     approve.add_argument("--notes")

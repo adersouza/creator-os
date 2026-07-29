@@ -1127,6 +1127,9 @@ tree; Git history remains their archive.
 
 ## What “Creator OS Is Working” Means
 
+The detailed QC, exact-SHA, warning, rejection, and operator-authority contract
+is canonical in `docs/architecture/qc_and_review_gates.md`.
+
 For source:
 
 - contracts, architecture, types, lint, artifacts, and tests pass;

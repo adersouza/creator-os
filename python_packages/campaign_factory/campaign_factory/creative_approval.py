@@ -38,6 +38,8 @@ SCHEMA_V2: Final = "campaign_factory.creative_approval.v2"
 EXPORT_PROJECTION_SCHEMA: Final = "campaign_factory.creative_export_projection.v1"
 APPROVAL_ATTESTATION_ISSUER: Final = "campaign_factory.creative_approval"
 REVIEW_MANIFEST_SCHEMA: Final = "campaign_factory.creative_review_manifest.v1"
+OPERATOR_MEDIA_REVIEW_SCHEMA: Final = "creator_os.operator_media_review.v1"
+FINAL_ARTIFACT_AUDIT_POLICY_ID: Final = "contentforge.final_artifact_audit"
 LEGACY_INVENTORY_SCHEMA: Final = (
     "campaign_factory.creative_approval_legacy_inventory.v1"
 )
@@ -97,13 +99,21 @@ def _asset_metadata(asset: dict[str, Any]) -> dict[str, Any]:
     return decoded if isinstance(decoded, dict) else {}
 
 
+def _is_motion_generation_asset(asset: dict[str, Any]) -> bool:
+    metadata = _asset_metadata(asset)
+    return bool(
+        metadata.get("schema") == "campaign_factory.motion_generation_asset.v1"
+        or str(asset.get("frame_type") or "") == "generated_motion"
+    )
+
+
 def asset_requires_creative_approval(asset: dict[str, Any]) -> bool:
-    """Derive approval policy from immutable generation lineage, never a draft marker."""
+    """Derive approval policy from asset lineage, never generic review state."""
 
     metadata = _asset_metadata(asset)
     production_recipe = metadata.get("productionMotionRecipe")
     if (
-        metadata.get("schema") == "campaign_factory.motion_generation_asset.v1"
+        _is_motion_generation_asset(asset)
         and isinstance(production_recipe, dict)
         and production_recipe.get("status") == "active"
         and metadata.get("creativeApprovalRequired") is False
@@ -111,8 +121,9 @@ def asset_requires_creative_approval(asset: dict[str, Any]) -> bool:
     ):
         return False
     return bool(
-        metadata.get("schema") == "campaign_factory.motion_generation_asset.v1"
-        or str(asset.get("frame_type") or "") == "generated_motion"
+        _is_motion_generation_asset(asset)
+        or str(asset.get("recipe") or "") == "static_mp4"
+        or metadata.get("humanReviewRequired") is True
     )
 
 
@@ -286,13 +297,26 @@ def _validate_v2_qc(
             raise CreativeApprovalError(
                 f"creative_approval_qc_receipt_subject_mismatch:{check_id}"
             )
-        if decoded.get("passed") is not True and decoded.get("status") != "passed":
-            raise CreativeApprovalError(
-                f"creative_approval_qc_receipt_not_passed:{check_id}"
-            )
         if decoded.get("checkId") not in {None, check_id}:
             raise CreativeApprovalError(
                 f"creative_approval_qc_receipt_identity_mismatch:{check_id}"
+            )
+        if check_id == FINAL_ARTIFACT_AUDIT_POLICY_ID:
+            readiness = decoded.get("readinessSummary")
+            if (
+                decoded.get("overallVerdict") != "pass"
+                or not isinstance(readiness, dict)
+                or readiness.get("uploadReady") is not True
+                or readiness.get("blockingReasons")
+                or readiness.get("blockingCodes")
+            ):
+                raise CreativeApprovalError(
+                    f"creative_approval_qc_receipt_not_passed:{check_id}"
+                )
+            continue
+        if decoded.get("passed") is not True and decoded.get("status") != "passed":
+            raise CreativeApprovalError(
+                f"creative_approval_qc_receipt_not_passed:{check_id}"
             )
         policy = decoded.get("policy")
         if check_id != MOTION_QC_POLICY_ID:
@@ -579,7 +603,7 @@ def validate_creative_approval_v2(payload: dict[str, Any]) -> dict[str, Any]:
         output_binding=output,
         approved_at=approved_at,
     )
-    review_manifest, _ = _load_bound_json(
+    review_manifest, review_manifest_binding = _load_bound_json(
         payload.get("reviewManifest"), "review_manifest"
     )
     if review_manifest.get("schema") != REVIEW_MANIFEST_SCHEMA:
@@ -603,6 +627,16 @@ def validate_creative_approval_v2(payload: dict[str, Any]) -> dict[str, Any]:
         input_binding=input_binding,
         prompt_source=prompt_source,
         output_binding=output,
+        approved_at=approved_at,
+    )
+    rendered_asset_binding = bindings["renderedAsset"]
+    assert isinstance(rendered_asset_binding, dict)
+    _validate_operator_media_review(
+        payload.get("operatorReview"),
+        rendered_asset_id=rendered_asset_binding["id"],
+        final_sha256=output["sha256"],
+        review_manifest_sha256=review_manifest_binding["sha256"],
+        approved_by=_required_text(payload.get("approvedBy"), "approved_by"),
         approved_at=approved_at,
     )
     projection = payload.get("exportProjection")
@@ -685,6 +719,8 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
 
     if not asset_requires_creative_approval(asset):
         raise CreativeApprovalError("creative_approval_not_required_for_asset")
+    if not _is_motion_generation_asset(asset):
+        return _canonical_ordinary_asset_approval_bindings(asset)
     metadata = _asset_metadata(asset)
     model_id = _required_text(metadata.get("modelId"), "asset_model_id")
     paid = metadata.get("paidGeneration") is True
@@ -834,6 +870,99 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
     return bindings
 
 
+def _canonical_ordinary_asset_approval_bindings(
+    asset: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = _asset_metadata(asset)
+    lineage = metadata.get("generatedAssetLineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
+    render = metadata.get("staticMp4Render")
+    render = render if isinstance(render, dict) else {}
+    source = lineage.get("source")
+    source = source if isinstance(source, dict) else {}
+    input_binding = _verify_bound_file(
+        {
+            "path": render.get("stillPath") or source.get("parentStillPath"),
+            "sha256": source.get("parentStillHash"),
+        },
+        "canonical_input",
+    )
+    output_binding = _verify_bound_file(
+        {
+            "path": asset.get("output_path")
+            or asset.get("campaign_path")
+            or asset.get("filePath"),
+            "sha256": asset.get("content_hash") or asset.get("contentHash"),
+        },
+        "canonical_output",
+    )
+    identity = {
+        "creatorModel": str(
+            asset.get("creator_model")
+            or asset.get("model_slug")
+            or asset.get("source_asset_id")
+            or "unknown_creator"
+        ),
+        "sourceAssetId": asset.get("source_asset_id") or asset.get("sourceAssetId"),
+    }
+    intent = {
+        "contentIntent": metadata.get("contentIntent"),
+        "contentSurface": asset.get("content_surface") or asset.get("contentSurface"),
+    }
+    recipe = {
+        "recipe": str(asset.get("recipe") or "deterministic_render"),
+        "lineage": lineage,
+    }
+    generation = lineage.get("generation")
+    tool = generation.get("tool") if isinstance(generation, dict) else recipe["recipe"]
+    model = {"tool": tool, "render": render}
+    admission_fingerprint = _fingerprint(
+        lineage
+        or {
+            "input": input_binding,
+            "output": output_binding,
+            "recipe": recipe["recipe"],
+        }
+    )
+    return {
+        "renderedAsset": {
+            "id": _required_text(
+                asset.get("id") or asset.get("renderedAssetId"),
+                "rendered_asset_id",
+            ),
+            "fingerprint": rendered_asset_approval_fingerprint(asset),
+        },
+        "creatorIdentity": {
+            "id": _required_text(identity["creatorModel"], "creator_identity_id"),
+            "fingerprint": _fingerprint(identity),
+        },
+        "contentIntent": {
+            "id": _required_text(
+                metadata.get("contentIntent") or recipe["recipe"],
+                "content_intent_id",
+            ),
+            "fingerprint": _fingerprint(intent),
+        },
+        "generationRecipe": {
+            "id": _required_text(recipe["recipe"], "generation_recipe_id"),
+            "fingerprint": _fingerprint(recipe),
+        },
+        "model": {
+            "id": "local_" + str(tool or recipe["recipe"]).replace(".", "_"),
+            "fingerprint": _fingerprint(model),
+        },
+        "executionEvidence": {
+            "class": "local_model",
+            "admission": {
+                "id": "asset-lineage-" + admission_fingerprint[:24],
+                "fingerprint": admission_fingerprint,
+            },
+        },
+        "input": input_binding,
+        "output": output_binding,
+    }
+
+
 def creative_export_projection(
     draft: dict[str, Any],
     *,
@@ -887,6 +1016,18 @@ def creative_export_projection(
         "instagramPostCaptionHash": draft.get("instagramPostCaptionHash"),
         "burnedCaptionText": draft.get("burnedCaptionText"),
         "burnedCaptionHash": draft.get("burnedCaptionHash"),
+        "captionFallbackReason": (
+            (draft.get("captionOutcomeContext") or {})
+            .get("captionFallback", {})
+            .get("reasonCode")
+            if isinstance(
+                (draft.get("captionOutcomeContext") or {}).get("captionFallback"),
+                dict,
+            )
+            else (draft.get("captionOutcomeContext") or {}).get(
+                "caption_fallback_reason"
+            )
+        ),
         "overlaySemanticQcFingerprint": bound(draft.get("overlaySemanticQc")),
         "captionTimingQcFingerprint": bound(draft.get("captionTimingQc")),
         "publishMode": draft.get("publishMode"),
@@ -963,6 +1104,100 @@ def _write_content_addressed_json(
     return {"path": str(path), "sha256": digest}
 
 
+def _operator_media_review_receipt(
+    decision: dict[str, Any],
+    *,
+    rendered_asset_id: str,
+    final_sha256: str,
+    review_manifest_sha256: str,
+    reviewed_by: str,
+    reviewed_at: str,
+) -> dict[str, Any]:
+    fields = (
+        "identityAcceptable",
+        "faceStable",
+        "bodyConsistent",
+        "anatomyAcceptable",
+        "motionAcceptable",
+        "captionAcceptable",
+        "audioAcceptable",
+        "intentSatisfied",
+        "wouldPost",
+    )
+    verdicts: dict[str, bool] = {}
+    for field in fields:
+        if not isinstance(decision.get(field), bool):
+            raise CreativeApprovalError(f"operator_media_review_{field}_missing")
+        verdicts[field] = decision[field]
+    if not all(verdicts.values()):
+        failed = ",".join(field for field, passed in verdicts.items() if not passed)
+        raise CreativeApprovalError(f"operator_media_review_rejected:{failed}")
+    core = {
+        "schema": OPERATOR_MEDIA_REVIEW_SCHEMA,
+        "reviewId": "media-review-"
+        + _fingerprint(
+            {
+                "renderedAssetId": rendered_asset_id,
+                "finalSha256": final_sha256,
+                "reviewManifestSha256": review_manifest_sha256,
+                "reviewedBy": reviewed_by,
+                "reviewedAt": reviewed_at,
+                **verdicts,
+                "notes": decision.get("notes"),
+            }
+        )[:24],
+        "renderedAssetId": rendered_asset_id,
+        "finalSha256": final_sha256,
+        "reviewManifestSha256": review_manifest_sha256,
+        "reviewedBy": reviewed_by,
+        "reviewedAt": reviewed_at,
+        **verdicts,
+        "notes": decision.get("notes"),
+    }
+    return {**core, "reviewFingerprint": _fingerprint(core)}
+
+
+def _validate_operator_media_review(
+    binding: Any,
+    *,
+    rendered_asset_id: str,
+    final_sha256: str,
+    review_manifest_sha256: str,
+    approved_by: str,
+    approved_at: datetime,
+) -> dict[str, Any]:
+    receipt, _ = _load_bound_json(binding, "operator_review")
+    if receipt.get("schema") != OPERATOR_MEDIA_REVIEW_SCHEMA:
+        raise CreativeApprovalError("operator_media_review_schema_invalid")
+    core = dict(receipt)
+    claimed = _sha(core.pop("reviewFingerprint", None), "operator_review_fingerprint")
+    if _fingerprint(core) != claimed:
+        raise CreativeApprovalError("operator_media_review_fingerprint_mismatch")
+    if (
+        receipt.get("renderedAssetId") != rendered_asset_id
+        or receipt.get("finalSha256") != final_sha256
+        or receipt.get("reviewManifestSha256") != review_manifest_sha256
+        or receipt.get("reviewedBy") != approved_by
+        or _timestamp(receipt.get("reviewedAt"), "operator_review_reviewed_at")
+        > approved_at
+    ):
+        raise CreativeApprovalError("operator_media_review_binding_mismatch")
+    required = (
+        "identityAcceptable",
+        "faceStable",
+        "bodyConsistent",
+        "anatomyAcceptable",
+        "motionAcceptable",
+        "captionAcceptable",
+        "audioAcceptable",
+        "intentSatisfied",
+        "wouldPost",
+    )
+    if any(receipt.get(field) is not True for field in required):
+        raise CreativeApprovalError("operator_media_review_not_approved")
+    return receipt
+
+
 def build_and_record_creative_approval_v2(
     factory: Any,
     *,
@@ -970,6 +1205,7 @@ def build_and_record_creative_approval_v2(
     rendered_asset_id: str,
     user_id: str,
     approved_by: str,
+    review_decision: dict[str, Any],
     root: Path,
     surface: str = "regular_reel",
     publish_mode: str | None = None,
@@ -985,27 +1221,60 @@ def build_and_record_creative_approval_v2(
     asset = factory.domains.publishability.rendered_asset(rendered_asset_id)
     if str(asset.get("campaign_id") or "") != str(campaign["id"]):
         raise CreativeApprovalError("creative_approval_asset_campaign_mismatch")
-    canonical = canonical_asset_approval_bindings(asset)
-    gate = factory.domains.publishability.motion_qc_gate(asset)
-    if gate.get("failures"):
-        raise CreativeApprovalError(
-            "creative_approval_motion_qc_blocked:"
-            + ",".join(str(value) for value in gate["failures"])
-        )
-    row = factory.domains.publishability.latest_motion_qc_receipt(rendered_asset_id)
-    if row is None:
-        raise CreativeApprovalError("creative_approval_motion_qc_missing")
-    try:
-        receipt = json.loads(row["receipt_json"])
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise CreativeApprovalError("creative_approval_motion_qc_invalid") from exc
-    if not isinstance(receipt, dict):
-        raise CreativeApprovalError("creative_approval_motion_qc_invalid")
-    qc_binding = _write_content_addressed_json(
-        root, label="registered_motion_qc", payload=receipt
+    current_audit = factory.domains.publishability.latest_audit_for_asset(
+        rendered_asset_id
     )
-    if qc_binding["sha256"] != row.get("receipt_sha256"):
-        raise CreativeApprovalError("creative_approval_motion_qc_registry_mismatch")
+    if not isinstance(current_audit, dict) or current_audit.get(
+        "subjectSha256"
+    ) != asset.get("content_hash"):
+        raise CreativeApprovalError("creative_approval_current_sha_audit_missing")
+    canonical = canonical_asset_approval_bindings(asset)
+    if _is_motion_generation_asset(asset):
+        gate = factory.domains.publishability.motion_qc_gate(asset)
+        if gate.get("failures"):
+            raise CreativeApprovalError(
+                "creative_approval_motion_qc_blocked:"
+                + ",".join(str(value) for value in gate["failures"])
+            )
+        row = factory.domains.publishability.latest_motion_qc_receipt(rendered_asset_id)
+        if row is None:
+            raise CreativeApprovalError("creative_approval_motion_qc_missing")
+        try:
+            receipt = json.loads(row["receipt_json"])
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise CreativeApprovalError("creative_approval_motion_qc_invalid") from exc
+        if not isinstance(receipt, dict):
+            raise CreativeApprovalError("creative_approval_motion_qc_invalid")
+        qc_binding = _write_content_addressed_json(
+            root, label="registered_motion_qc", payload=receipt
+        )
+        if qc_binding["sha256"] != row.get("receipt_sha256"):
+            raise CreativeApprovalError("creative_approval_motion_qc_registry_mismatch")
+        qc_check_id = MOTION_QC_POLICY_ID
+    else:
+        report_path = Path(
+            str(
+                current_audit.get("reportPath")
+                or current_audit.get("report_path")
+                or ""
+            )
+        ).expanduser()
+        try:
+            receipt = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CreativeApprovalError(
+                "creative_approval_final_artifact_audit_invalid"
+            ) from exc
+        if not isinstance(receipt, dict) or receipt.get("subjectSha256") != asset.get(
+            "content_hash"
+        ):
+            raise CreativeApprovalError(
+                "creative_approval_final_artifact_audit_invalid"
+            )
+        qc_binding = _write_content_addressed_json(
+            root, label="registered_final_artifact_audit", payload=receipt
+        )
+        qc_check_id = FINAL_ARTIFACT_AUDIT_POLICY_ID
 
     from .adapters.threadsdash_draft_delivery import export_threadsdash
 
@@ -1052,6 +1321,17 @@ def build_and_record_creative_approval_v2(
     manifest_binding = _write_content_addressed_json(
         root, label="review_manifests", payload=manifest
     )
+    review_receipt = _operator_media_review_receipt(
+        review_decision,
+        rendered_asset_id=rendered_asset_id,
+        final_sha256=canonical["output"]["sha256"],
+        review_manifest_sha256=manifest_binding["sha256"],
+        reviewed_by=operator,
+        reviewed_at=approved_at,
+    )
+    review_binding = _write_content_addressed_json(
+        root, label="operator_media_reviews", payload=review_receipt
+    )
     projection = creative_export_projection(
         draft,
         campaign_slug=campaign_slug,
@@ -1071,6 +1351,7 @@ def build_and_record_creative_approval_v2(
                 {
                     "renderedAsset": canonical["renderedAsset"],
                     "reviewManifest": manifest_binding,
+                    "operatorReview": review_binding,
                     "approvedBy": operator,
                     "approvedAt": approved_at,
                 }
@@ -1082,7 +1363,7 @@ def build_and_record_creative_approval_v2(
         **canonical,
         "qcEvidence": [
             {
-                "checkId": MOTION_QC_POLICY_ID,
+                "checkId": qc_check_id,
                 "receiptPath": qc_binding["path"],
                 "receiptSha256": qc_binding["sha256"],
                 "subjectSha256": canonical["output"]["sha256"],
@@ -1090,6 +1371,7 @@ def build_and_record_creative_approval_v2(
             }
         ],
         "reviewManifest": manifest_binding,
+        "operatorReview": review_binding,
         "exportProjection": projection,
         "contentSemantics": {
             "burnedOverlayText": draft.get("burnedCaptionText"),
@@ -1128,6 +1410,7 @@ def build_and_record_creative_approval_v2(
         "approvalFingerprint": approval["approvalFingerprint"],
         "approvalPath": str(approval_path),
         "reviewManifest": manifest_binding,
+        "operatorReview": review_binding,
         "renderedAssetId": rendered_asset_id,
         "executionClass": approval["executionEvidence"]["class"],
         "providerCalls": 0,

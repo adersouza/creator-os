@@ -46,6 +46,7 @@ def score_lanes(
     sample_count = max(
         len(stddev_samples),
         len(face_samples or []),
+        len(head_samples or []),
         len(focal_samples or []),
         len(motion_samples or []),
         len(pose_samples or []),
@@ -115,8 +116,6 @@ def score_lanes(
     rejected_lanes: list[str] = []
     if normalized_policy == "focal-safe":
         for candidate in LANES:
-            if candidate == lane:
-                continue
             c = components[candidate]
             if (
                 c["face"] >= 70.0
@@ -125,11 +124,37 @@ def score_lanes(
                 or c["pose"] >= 65.0
             ):
                 rejected_lanes.append(candidate)
+    decision_status = "passed"
+    decision_class = "legacy_selected" if normalized_policy == "legacy" else "passed"
+    reason_code = "safe_caption_lane"
+    render_policy = "burn_overlay"
+    selected_lane: str | None = lane
+    if normalized_policy == "legacy":
+        reason_code = "legacy_placement_requested"
+    elif not stddev_samples or not (
+        face_samples or head_samples or focal_samples or pose_samples
+    ):
+        decision_status = "failed"
+        decision_class = "insufficient_evidence"
+        reason_code = "insufficient_caption_placement_evidence"
+        render_policy = "clean_without_overlay"
+        selected_lane = None
+    elif set(rejected_lanes) == set(LANES):
+        decision_status = "failed"
+        decision_class = "failed_no_safe_lane"
+        reason_code = "no_safe_caption_lane"
+        render_policy = "clean_without_overlay"
+        selected_lane = None
+
     reason = (
         f"{lane} lane lowest "
         f"(top={scores['top']:.1f}, center={scores['center']:.1f}, bottom={scores['bottom']:.1f})"
     )
-    if normalized_policy == "focal-safe" and rejected_lanes:
+    if decision_class == "insufficient_evidence":
+        reason = "Required placement samples are unavailable; render clean media."
+    elif decision_class == "failed_no_safe_lane":
+        reason = "All caption lanes violate hard subject-safety thresholds."
+    elif normalized_policy == "focal-safe" and rejected_lanes:
         reason = (
             f"{lane} selected; rejected {', '.join(rejected_lanes)} for focal overlap"
         )
@@ -138,8 +163,11 @@ def score_lanes(
         if normalized_policy == "focal-safe"
         else "legacy",
         "captionPlacementDecision": {
-            "status": "passed",
-            "selectedLane": lane,
+            "status": decision_status,
+            "decisionClass": decision_class,
+            "reasonCode": reason_code,
+            "renderPolicy": render_policy,
+            "selectedLane": selected_lane,
             "rejectedLanes": rejected_lanes,
             "reason": reason,
             "scores": {key: round(value, 3) for key, value in scores.items()},

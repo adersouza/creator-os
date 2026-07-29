@@ -36,6 +36,7 @@ from .learning_cohort import (
     record_learning_cohort_publish,
     run_learning_cohort_day,
 )
+from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
 from .recreation_anchor_approval import approve_recreation_anchor
 from .recreation_lifecycle import explain_recreation_job, record_recreation_review
@@ -185,11 +186,15 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 rendered_asset_id=args.rendered_asset_id,
                 user_id=args.user_id,
                 approved_by=args.approved_by,
+                review_decision=load_json_object(args.review_decision),
                 root=args.root or settings.creative_approvals_dir,
                 surface=args.surface,
                 publish_mode=args.publish_mode,
             )
         )
+        return 0
+    if args.cmd == "qc-explain":
+        print_json(explain_asset_qc(cf, args.asset))
         return 0
     if args.cmd == "learning-cohort":
         if args.learning_cohort_cmd == "prepare":

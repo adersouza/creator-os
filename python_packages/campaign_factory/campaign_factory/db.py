@@ -49,6 +49,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn,
         "audit_reports",
         {
+            "subject_sha256": "TEXT",
             "layers_json": "TEXT NOT NULL DEFAULT '{}'",
             "verdicts_json": "TEXT NOT NULL DEFAULT '{}'",
             "overall_verdict": "TEXT",
@@ -66,6 +67,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             "source_sha256": "TEXT",
         },
     )
+    _ensure_columns(conn, "approval_decisions", {"subject_sha256": "TEXT"})
     _ensure_columns(
         conn,
         "rendered_assets",
