@@ -22,6 +22,7 @@ from .content_director import (
 from .content_director import (
     _fingerprint as plan_fingerprint,
 )
+from .observed_experiment_reporting import OBSERVED_MEASUREMENT_PLAN
 from .production_lane import plan_production_batch, run_production_batch
 
 OBSERVATION_BUCKETS = {
@@ -47,7 +48,14 @@ EXPERIMENT_VARIABLES = frozenset(
         "prompt_pattern",
         "audio_profile",
         "posting_window",
+        "observed_profile",
     }
+)
+OBSERVED_PROFILE_SEQUENCE = (
+    "mirror_crop_tone@1",
+    "tilt_crop_dark@1",
+    "light_editorial@1",
+    "opening_trim@1",
 )
 
 
@@ -139,6 +147,7 @@ def design_experiment(
     variants: tuple[str, ...],
     hypothesis: str,
     apply: bool,
+    assignment_method: str = "deterministic_alternation",
 ) -> dict[str, Any]:
     if changed_variable not in EXPERIMENT_VARIABLES:
         raise ValueError(f"unsupported experiment variable: {changed_variable}")
@@ -148,7 +157,37 @@ def design_experiment(
     items = plan["items"][:2]
     if len(items) < 2:
         raise ValueError("experiment requires at least two plan items")
-    if len({item["target_account"] for item in items}) != 1:
+    observed = assignment_method == "cross_account_blocked_rotation.v1"
+    if observed:
+        if changed_variable != "observed_profile":
+            raise ValueError("cross-account rotation requires observed_profile")
+        if len({item["target_account"] for item in items}) != 2:
+            raise ValueError("observed-profile experiment requires two accounts")
+        if variants[0] != "control" or not variants[1].endswith("@1"):
+            raise ValueError(
+                "observed-profile variants must be control and one @1 profile"
+            )
+        if variants[1] not in OBSERVED_PROFILE_SEQUENCE:
+            raise ValueError(f"unsupported observed profile: {variants[1]}")
+        sequence_index = OBSERVED_PROFILE_SEQUENCE.index(variants[1])
+        if apply and sequence_index:
+            previous = OBSERVED_PROFILE_SEQUENCE[sequence_index - 1]
+            decided = conn.execute(
+                """
+                SELECT 1 FROM creative_plan_experiments
+                WHERE changed_variable = 'observed_profile'
+                  AND json_extract(variants_json, '$[1]') = ?
+                  AND creator = ?
+                  AND status = 'DECIDED'
+                LIMIT 1
+                """,
+                (previous, plan["creator"]),
+            ).fetchone()
+            if not decided:
+                raise ValueError(
+                    f"previous observed-profile experiment is not decided: {previous}"
+                )
+    elif len({item["target_account"] for item in items}) != 1:
         raise ValueError("experiment variants must use the same account")
     if len({item["content_intent"] for item in items}) != 1:
         raise ValueError("experiment variants must use the same content intent")
@@ -164,29 +203,45 @@ def design_experiment(
         }
         - {changed_variable}
     )
-    assignments = [
-        {
-            "planItemId": item["id"],
-            "variant": variants[index],
-            "experimentClass": "CONTROL" if index == 0 else "CONTROLLED_VARIATION",
-        }
-        for index, item in enumerate(items)
-    ]
+    assignments = (
+        [
+            {
+                "planItemId": item["id"],
+                "variant": None,
+                "experimentClass": "PENDING_BLOCKED_ROTATION",
+            }
+            for item in items
+        ]
+        if observed
+        else [
+            {
+                "planItemId": item["id"],
+                "variant": variants[index],
+                "experimentClass": "CONTROL" if index == 0 else "CONTROLLED_VARIATION",
+            }
+            for index, item in enumerate(items)
+        ]
+    )
     receipt = {
         "schema": "creator_os.plan_experiment.v1",
         "experimentId": experiment_id,
         "planId": plan["planId"],
         "creator": plan["creator"],
-        "accountScope": [items[0]["target_account"]],
+        "accountScope": sorted({item["target_account"] for item in items}),
         "contentIntent": items[0]["content_intent"],
         "hypothesis": hypothesis,
         "controlledVariables": controlled,
         "changedVariable": changed_variable,
         "variants": list(variants),
-        "assignmentMethod": "deterministic_alternation",
+        "assignmentMethod": assignment_method,
         "deterministicSeed": seed,
-        "requiredObservationCohort": "24h",
-        "minimumSampleWarning": "two items show an observed difference only; not causal proof",
+        "requiredObservationCohort": "72h" if observed else "24h",
+        "minimumSampleWarning": (
+            "fewer than three matched pairs are insufficient"
+            if observed
+            else "two items show an observed difference only; not causal proof"
+        ),
+        "measurementPlan": OBSERVED_MEASUREMENT_PLAN if observed else None,
         "assignments": assignments,
         "status": "PROPOSED",
     }
@@ -201,8 +256,8 @@ def design_experiment(
               publication_windows_json, required_observation_cohort,
               minimum_sample_warning, status, outcome_links_json,
               interpretation_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '24h', ?, 'PROPOSED',
-                      '[]', '{}', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'PROPOSED',
+                      '[]', ?, ?, ?)
             """,
             (
                 experiment_id,
@@ -216,12 +271,18 @@ def design_experiment(
                 _json(variants),
                 receipt["assignmentMethod"],
                 seed,
+                receipt["requiredObservationCohort"],
                 receipt["minimumSampleWarning"],
+                _json({"measurementPlan": OBSERVED_MEASUREMENT_PLAN})
+                if observed
+                else "{}",
                 now,
                 now,
             ),
         )
         for assignment in assignments:
+            if observed:
+                continue
             conn.execute(
                 """
                 UPDATE creative_plan_items

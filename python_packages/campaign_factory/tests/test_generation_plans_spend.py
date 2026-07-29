@@ -33,7 +33,6 @@ from campaign_factory.variation_stage import (
     run_variation_stage,
 )
 from campaign_generation_test_support import (
-    FakeVariationPipeline,
     fake_front_generation_result,
     fake_static_mp4_render,
     write_fake_static_mp4_outputs,
@@ -1448,7 +1447,7 @@ def test_variation_stage_dry_run_creates_valid_assignment_manifest(tmp_path: Pat
         cf.close()
 
 
-def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(
+def test_variation_stage_apply_routes_to_reel_factory_and_stops_at_review_ready(
     tmp_path: Path, monkeypatch
 ):
     cf = make_factory(tmp_path)
@@ -1462,56 +1461,40 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(
         cf.domains.distribution.create_distribution_plan(
             "asset_1", instagram_account_id="ig_2"
         )
-        monkeypatch.setattr(
-            "campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline
-        )
 
-        def fake_audit(
-            *,
-            contentforge_root,
-            source_path,
-            variant_paths,
-            contentforge_base_url,
-            report_path,
-        ):
-            assert len(variant_paths) == 2
-            assert contentforge_base_url == "http://contentforge.test"
-            report_path.write_text("{}", encoding="utf-8")
+        def fake_generate_variants(**kwargs):
+            assert kwargs["count"] == 2
+            assert kwargs["profile"] == "light_editorial@1"
             return {
-                "contractVersion": "campaign_factory_audit.v1.7",
-                "overallVerdict": "pass",
-                "verdicts": {"pdq": "pass", "sscd": "pass"},
-                "readinessSummary": {"uploadReady": True, "blockingCodes": []},
-                "reportPath": str(report_path),
+                "status": "completed",
+                "registeredVariants": [
+                    {"variantAssetId": "variant_1"},
+                    {"variantAssetId": "variant_2"},
+                ],
             }
 
         monkeypatch.setattr(
-            "campaign_factory.variation_stage.audit_variation_batch", fake_audit
+            cf.domains.variant_lineage,
+            "generate_variants",
+            fake_generate_variants,
         )
 
         result = run_variation_stage(
             cf,
             campaign_slug="may",
+            preset_name="light_editorial@1",
             dry_run=False,
             contentforge_base_url="http://contentforge.test",
         )
 
-        assignment_path = Path(result["assignments"][0]["assignmentPath"])
-        payload = json.loads(assignment_path.read_text(encoding="utf-8"))
-        assert assignment_path.exists()
-        assert (
-            payload["assignments"][0]["lineage"]["perceptual_audit"]["contract_version"]
-            == "campaign_factory_audit.v1.7"
-        )
-        assert payload["assignments"][0]["lineage"]["perceptual_audit"]["verdicts"] == {
-            "pdq": "pass",
-            "sscd": "pass",
-        }
+        assert result["assignments"][0]["assignmentPath"] is None
+        assert result["assignments"][0]["registeredVariantCount"] == 2
+        assert result["assignments"][0]["reviewState"] == "review_ready"
     finally:
         cf.close()
 
 
-def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(
+def test_variation_stage_apply_propagates_bounded_renderer_exhaustion(
     tmp_path: Path, monkeypatch
 ):
     cf = make_factory(tmp_path)
@@ -1524,25 +1507,18 @@ def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(
         )
         cf.domains.distribution.create_distribution_plan(
             "asset_1", instagram_account_id="ig_2"
-        )
-        monkeypatch.setattr(
-            "campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline
         )
         assignment_dir = (
             cf.domains.campaign_dirs("model", "may")["exports"]
             / "variation_assignments"
         )
         monkeypatch.setattr(
-            "campaign_factory.variation_stage.audit_variation_batch",
+            cf.domains.variant_lineage,
+            "generate_variants",
             lambda **kwargs: {
-                "contractVersion": "campaign_factory_audit.v1.7",
-                "overallVerdict": "fail",
-                "verdicts": {"pdq": "fail", "sscd": "fail"},
-                "readinessSummary": {
-                    "uploadReady": False,
-                    "blockingCodes": ["pdq_sibling_collision", "sscd_unavailable"],
-                },
-                "reportPath": str(kwargs["report_path"]),
+                "status": "exhausted",
+                "blockingReason": "pdq_sibling_collision",
+                "registeredVariants": [],
             },
         )
 
@@ -1550,11 +1526,11 @@ def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(
             run_variation_stage(
                 cf,
                 campaign_slug="may",
+                preset_name="light_editorial@1",
                 dry_run=False,
                 contentforge_base_url="http://contentforge.test",
             )
 
-        assert not list(assignment_dir.glob("*_variant.mp4"))
         assert not list(assignment_dir.glob("*.variant_assignment.v1.json"))
     finally:
         cf.close()

@@ -1,0 +1,17 @@
+{
+  "schema": "creator_os.renderer_equivalence_receipt.v1",
+  "mediaClass": "video:h264:1080x1920:30",
+  "toolchainFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "identityOutputSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "checks": {
+    "dimensionsEqual": true,
+    "frameRateEqual": true,
+    "durationWithinOneFrame": true,
+    "audioPolicyEqual": true
+  },
+  "ssim": 0.999,
+  "qcRegression": false,
+  "status": "qualified",
+  "qualifiedAt": "2026-07-29T12:00:00Z"
+}

@@ -1,7 +1,7 @@
 {
   "schema": "creator_os.pipeline_contracts_manifest.v1",
   "package": "@creator-os/pipeline-contracts",
-  "version": "3.0.1",
+  "version": "4.0.0",
   "files": {
     "pipeline_contracts/schemas/account_eligibility_decision.v1.example.json": "ceb3d1543f201951de0d6d3ea0cc6ba11355edbe5604b05e92398a040556c250",
     "pipeline_contracts/schemas/account_eligibility_decision.v1.schema.json": "4ca3aaaae4aeba5828931ef31eb9703c4cd076ee488ed1ea2757593d992f7654",
@@ -31,6 +31,8 @@
     "pipeline_contracts/schemas/creator_identity_profile.v1.schema.json": "9a01b9e61b698f0a848400bb33a77bb57e0926dd899e799cb5315b5bc1818a86",
     "pipeline_contracts/schemas/evidence_attestation.v1.schema.json": "053f49ce2ae757f5839121b4b8980cbfce8dc4f8e8bde8863dddecde8848f888",
     "pipeline_contracts/schemas/evidence_provenance.v1.schema.json": "f865aa6996ba3a691553cf7fd77f63d42b61be287c24ca0ad3e389ba215be119",
+    "pipeline_contracts/schemas/experiment_assignment_receipt.v1.example.json": "8c12bbda9fa11634c5db1d4187bac6e88a9ddb8821c575f2388d9c109233dabd",
+    "pipeline_contracts/schemas/experiment_assignment_receipt.v1.schema.json": "11b0a053ff7d03da54ed21d827061e784700ba78d8794b47bc9176ff5fd75b70",
     "pipeline_contracts/schemas/front_generation_plan.v1.example.json": "58dde3d4c8c4c879a5e6c5aaa90c072532cc3ed6d49559c89c2ccf1bb850f4a8",
     "pipeline_contracts/schemas/front_generation_plan.v1.schema.json": "dd865145c64490d9c736b95bd7421d06c8cfe4e46cd23294620bc73ede02da31",
     "pipeline_contracts/schemas/generated_asset_lineage.v1.example.json": "dab3311bcf5121935220e9340e8ef3dbbcc436c22acaa3a11403caef26e42bcc",
@@ -79,6 +81,8 @@
     "pipeline_contracts/schemas/reference_video_motion_analysis.v1.schema.json": "11769378d7d17790717f2c7e82fd38ca54559fda71eadd96620b17e927bcbc50",
     "pipeline_contracts/schemas/reference_video_remix_plan.v1.example.json": "61ce352932e4ad2f93929d839cc5f80ec1db975eb93367012c161604f8dcd98f",
     "pipeline_contracts/schemas/reference_video_remix_plan.v1.schema.json": "ff70e684d4ce2c29be8e3f0187b7144953b7a1baa7feeedf1a5ef047feaf24fc",
+    "pipeline_contracts/schemas/renderer_equivalence_receipt.v1.example.json": "b7862f0418aa983dbbf80e7e30f3ccc37fe19ecf0449433133270d9ce42ead03",
+    "pipeline_contracts/schemas/renderer_equivalence_receipt.v1.schema.json": "58b1dcb5e41b5792ed96baf198784df8eebb81f3d0c23c80ceb67b18578dbfcc",
     "pipeline_contracts/schemas/repurposing_plan.v1.example.json": "84fa37038776cc0cdb58109e42fefd0f51a0f15867f89ae7c62ceb9696a08578",
     "pipeline_contracts/schemas/repurposing_plan.v1.schema.json": "d9b478c2aa3f6f5b343f33a1cd1a1468a26af7757cc71b7eb96e23773fbd4ca5",
     "pipeline_contracts/schemas/runtime_promotion_approval.v1.schema.json": "585468e209f8ee6ac81af836b7eac6ed386f950aabff251504fb4803f7e4e0e5",
@@ -92,7 +96,9 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "adb3e3de8541816e63652baa848efb7026cc4283d4cc4b5dccd2aeb000ead5dc",
+    "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
+    "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
+    "typescript/generated-schemas.ts": "cfb05abec757e93db3d2b1b4fe4708d61f96452bd584ec57b4e9304708bf14be",
     "typescript/index.ts": "e467ba50decdd642830fb53639f15d97219f1e1d9bcd79d9ab9f726f5dfbcfac"
   }
 }

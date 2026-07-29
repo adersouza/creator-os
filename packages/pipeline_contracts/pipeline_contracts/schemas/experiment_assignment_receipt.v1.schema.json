@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.experiment_assignment_receipt.v1",
+  "title": "Creator OS Experiment Assignment Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "experimentId",
+    "pairId",
+    "armId",
+    "role",
+    "accountId",
+    "eligibleSlot",
+    "parentFamilyId",
+    "observationCohorts",
+    "assignmentAlgorithmVersion",
+    "assignmentFingerprint",
+    "reservationId",
+    "assignedAssetId",
+    "assignedAssetSha256",
+    "retention",
+    "cooldownException",
+    "assignedAt"
+  ],
+  "properties": {
+    "schema": {
+      "const": "creator_os.experiment_assignment_receipt.v1"
+    },
+    "experimentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pairId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "armId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role": {
+      "enum": [
+        "control",
+        "treatment"
+      ]
+    },
+    "accountId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eligibleSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slotId",
+        "windowStart",
+        "windowEnd"
+      ],
+      "properties": {
+        "slotId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "windowStart": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "windowEnd": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "parentFamilyId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observationCohorts": {
+      "const": [
+        "1h",
+        "24h",
+        "72h"
+      ]
+    },
+    "assignmentAlgorithmVersion": {
+      "const": "cross_account_blocked_rotation.v1"
+    },
+    "assignmentFingerprint": {
+      "$ref": "#/$defs/sha256"
+    },
+    "reservationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assignedAssetId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assignedAssetSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "protectedThroughDecision",
+        "evidenceSha256"
+      ],
+      "properties": {
+        "class": {
+          "const": "experiment_evidence"
+        },
+        "protectedThroughDecision": {
+          "const": true
+        },
+        "evidenceSha256": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "cooldownException": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "scope",
+        "relationships",
+        "thirdReuseAllowed"
+      ],
+      "properties": {
+        "reason": {
+          "const": "controlled_experiment_pair"
+        },
+        "scope": {
+          "const": "pair_only"
+        },
+        "relationships": {
+          "const": [
+            "source_family",
+            "perceptual_sibling",
+            "audio"
+          ]
+        },
+        "thirdReuseAllowed": {
+          "const": false
+        }
+      }
+    },
+    "assignedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

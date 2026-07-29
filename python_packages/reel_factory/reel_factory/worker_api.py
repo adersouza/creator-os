@@ -41,6 +41,13 @@ from .local_wan_prompt_expansion import (
     expand_wan_i2v_prompt,
     validate_wan_prompt_expansion,
 )
+from .observed_profiles import normalize_profile_id as normalize_profile_id
+from .observed_profiles import probe_media_identity as probe_media_identity
+from .observed_profiles import (
+    qualify_renderer_equivalence as qualify_renderer_equivalence,
+)
+from .observed_profiles import render_observed_profile as render_observed_profile
+from .observed_profiles import toolchain_receipt as toolchain_receipt
 from .reel_url_import import (
     canonicalize_reel_url as canonicalize_reel_url,
 )

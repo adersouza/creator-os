@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.renderer_equivalence_receipt.v1",
+  "title": "Creator OS Renderer Equivalence Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mediaClass",
+    "toolchainFingerprint",
+    "sourceSha256",
+    "identityOutputSha256",
+    "checks",
+    "ssim",
+    "qcRegression",
+    "status",
+    "qualifiedAt"
+  ],
+  "properties": {
+    "schema": {
+      "const": "creator_os.renderer_equivalence_receipt.v1"
+    },
+    "mediaClass": {
+      "type": "string",
+      "minLength": 1
+    },
+    "toolchainFingerprint": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sourceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "identityOutputSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimensionsEqual",
+        "frameRateEqual",
+        "durationWithinOneFrame",
+        "audioPolicyEqual"
+      ],
+      "properties": {
+        "dimensionsEqual": {
+          "type": "boolean"
+        },
+        "frameRateEqual": {
+          "type": "boolean"
+        },
+        "durationWithinOneFrame": {
+          "type": "boolean"
+        },
+        "audioPolicyEqual": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ssim": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "qcRegression": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "qualified",
+        "failed"
+      ]
+    },
+    "qualifiedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -272,6 +272,7 @@ def test_contract_schema_examples_validate():
         "caption_outcome_context.v1.example.json",
         "contentforge_campaign_audit_response.v1.example.json",
         "creative_plan.v1.example.json",
+        "experiment_assignment_receipt.v1.example.json",
         "front_generation_plan.v1.example.json",
         "generated_asset_lineage.v1.example.json",
         "generated_asset_lineage.v2.example.json",
@@ -291,10 +292,12 @@ def test_contract_schema_examples_validate():
         "reference_video_motion_analysis.v1.example.json",
         "reference_video_remix_plan.v1.example.json",
         "reference_factory_knowledge_pack.v1.example.json",
+        "renderer_equivalence_receipt.v1.example.json",
         "threadsdash_handshake.v1.example.json",
         "threadsdash_handshake.v2.example.json",
         "variant_assignment.v1.example.json",
         "video_analysis.v1.example.json",
+        "visual_derivative_receipt.v1.example.json",
     }
     assert {check["status"] for check in checks} == {"ok"}
 

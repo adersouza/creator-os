@@ -1,0 +1,42 @@
+{
+  "schema": "creator_os.experiment_assignment_receipt.v1",
+  "experimentId": "experiment_1",
+  "pairId": "pair_1",
+  "armId": "mirror_crop_tone@1",
+  "role": "treatment",
+  "accountId": "account_b",
+  "eligibleSlot": {
+    "slotId": "slot_b",
+    "windowStart": "2026-07-30T18:00:00Z",
+    "windowEnd": "2026-07-30T19:00:00Z"
+  },
+  "parentFamilyId": "family_1",
+  "observationCohorts": [
+    "1h",
+    "24h",
+    "72h"
+  ],
+  "assignmentAlgorithmVersion": "cross_account_blocked_rotation.v1",
+  "assignmentFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reservationId": "reservation_b",
+  "assignedAssetId": "asset_treatment",
+  "assignedAssetSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "retention": {
+    "class": "experiment_evidence",
+    "protectedThroughDecision": true,
+    "evidenceSha256": [
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+  },
+  "cooldownException": {
+    "reason": "controlled_experiment_pair",
+    "scope": "pair_only",
+    "relationships": [
+      "source_family",
+      "perceptual_sibling",
+      "audio"
+    ],
+    "thirdReuseAllowed": false
+  },
+  "assignedAt": "2026-07-29T12:00:00Z"
+}
