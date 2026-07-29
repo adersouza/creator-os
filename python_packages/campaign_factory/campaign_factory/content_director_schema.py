@@ -100,6 +100,34 @@ CREATE INDEX IF NOT EXISTS idx_creative_plan_items_scope
 CREATE INDEX IF NOT EXISTS idx_creative_plan_items_source
   ON creative_plan_items(source_asset_id, execution_state);
 
+CREATE TRIGGER IF NOT EXISTS creative_plan_assignment_events_immutable_update
+BEFORE UPDATE ON creative_plan_item_events
+WHEN OLD.event_type = 'experiment_assignment'
+BEGIN
+  SELECT RAISE(ABORT, 'experiment assignment events are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS creative_plan_assignment_events_immutable_delete
+BEFORE DELETE ON creative_plan_item_events
+WHEN OLD.event_type = 'experiment_assignment'
+BEGIN
+  SELECT RAISE(ABORT, 'experiment assignment events are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS creative_plan_assignment_arm_immutable
+BEFORE UPDATE OF experiment_id, experiment_variant ON creative_plan_items
+WHEN EXISTS (
+  SELECT 1 FROM creative_plan_item_events
+  WHERE plan_item_id = OLD.id AND event_type = 'experiment_assignment'
+)
+AND (
+  NEW.experiment_id IS NOT OLD.experiment_id
+  OR NEW.experiment_variant IS NOT OLD.experiment_variant
+)
+BEGIN
+  SELECT RAISE(ABORT, 'experiment assignment arm is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS creative_plan_experiments (
   id TEXT PRIMARY KEY,
   plan_version_id TEXT NOT NULL,

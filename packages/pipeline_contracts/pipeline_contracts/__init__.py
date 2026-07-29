@@ -37,6 +37,7 @@ from .validator import (
     validate_creative_plan,
     validate_creator_identity_profile,
     validate_evidence_attestation,
+    validate_experiment_assignment_receipt,
     validate_front_generation_plan,
     validate_generated_asset_lineage,
     validate_generated_asset_lineage_v2,
@@ -65,6 +66,7 @@ from .validator import (
     validate_reference_factory_knowledge_pack,
     validate_reference_video_motion_analysis,
     validate_reference_video_remix_plan,
+    validate_renderer_equivalence_receipt,
     validate_repurposing_plan,
     validate_runtime_promotion_approval,
     validate_runtime_promotion_receipt,
@@ -75,6 +77,7 @@ from .validator import (
     validate_trusted_media_analysis,
     validate_variant_assignment,
     validate_video_analysis,
+    validate_visual_derivative_receipt,
 )
 
 __all__ = [
@@ -109,6 +112,7 @@ __all__ = [
     "validate_creative_plan",
     "validate_creator_identity_profile",
     "validate_evidence_attestation",
+    "validate_experiment_assignment_receipt",
     "validate_generated_asset_lineage",
     "validate_generated_asset_lineage_v2",
     "validate_generation_execution_plan",
@@ -140,6 +144,7 @@ __all__ = [
     "validate_reference_factory_knowledge_pack",
     "validate_reference_video_motion_analysis",
     "validate_reference_video_remix_plan",
+    "validate_renderer_equivalence_receipt",
     "validate_repurposing_plan",
     "validate_schema_examples",
     "validate_threadsdash_draft_payload",
@@ -148,6 +153,7 @@ __all__ = [
     "validate_trusted_media_analysis",
     "validate_variant_assignment",
     "validate_video_analysis",
+    "validate_visual_derivative_receipt",
     "evaluate_overlay_semantic_completeness",
     "evaluate_overlay_timing",
 ]

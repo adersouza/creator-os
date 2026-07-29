@@ -1,0 +1,88 @@
+{
+  "schema": "creator_os.visual_derivative_receipt.v1",
+  "parentAssetId": "asset_parent_1",
+  "source": {
+    "path": "/private/source.mp4",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mediaType": "video",
+    "byteSize": 1024,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationSeconds": 5,
+    "audioPresent": false
+  },
+  "profile": {
+    "id": "light_editorial",
+    "version": 1,
+    "observedSource": "creator_os",
+    "definitionSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "eligibility": {
+    "eligible": true,
+    "mediaType": "video",
+    "captionState": "uncaptioned_verified",
+    "audioState": "none",
+    "passiveContent": true,
+    "synchronizedContent": false,
+    "visibleText": false,
+    "blockers": []
+  },
+  "targetAcceptedCount": 1,
+  "actualAcceptedCount": 1,
+  "attemptLimit": 4,
+  "attempts": [
+    {
+      "candidateIndex": 1,
+      "attempt": 1,
+      "seed": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sampledParameters": {
+        "zoom": 1.01
+      },
+      "status": "accepted",
+      "reasons": []
+    }
+  ],
+  "accepted": [
+    {
+      "candidateIndex": 1,
+      "acceptedIndex": 1,
+      "attempt": 1,
+      "sampledParameters": {
+        "zoom": 1.01
+      },
+      "ffmpegArgs": [
+        "ffmpeg",
+        "-i",
+        "/private/source.mp4"
+      ],
+      "output": {
+        "path": "/private/output.mp4",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "mediaType": "video",
+        "byteSize": 2048,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "durationSeconds": 5,
+        "audioPresent": false
+      },
+      "qc": {
+        "status": "passed",
+        "blockingCodes": []
+      }
+    }
+  ],
+  "exhaustionReasons": [],
+  "toolchain": {
+    "repositorySha": "613c341",
+    "rendererImplementationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "ffmpegVersion": "ffmpeg version 7.1",
+    "ffmpegBuildSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "encoderSettingsSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "audioEmbedderSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "qcPolicySha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "fingerprint": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "createdAt": "2026-07-29T12:00:00Z"
+}

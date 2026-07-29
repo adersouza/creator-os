@@ -11,15 +11,23 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from reel_factory.worker_api import (
+    normalize_profile_id,
+    qualify_renderer_equivalence,
+)
 
 from campaign_factory.learning_score import (
     learning_eligible_sql,
     learning_loop_cutover_iso,
 )
+from pipeline_contracts import (
+    validate_renderer_equivalence_receipt,
+)
 
 from .caption_outcome import load_context_json
 from .config import Settings
 from .contentforge_cli import run_contentforge
+from .observed_variant_lineage import ObservedVariantLineageMixin
 from .persistence import json_load
 
 CONTENTFORGE_VARIANT_PRESETS = {
@@ -36,7 +44,7 @@ CONTENTFORGE_VARIANT_PACK_SCHEMAS = {
 DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS = 14
 
 
-class VariantLineageRepository:
+class VariantLineageRepository(ObservedVariantLineageMixin):
     def __init__(
         self,
         conn: sqlite3.Connection,
@@ -226,11 +234,13 @@ class VariantLineageRepository:
         parent_asset_id: str,
         caption_version_id: str | None = None,
         count: int = 10,
+        profile: str | None = None,
         contentforge_preset: str = "caption_safe",
         cooldown_days: int = DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS,
     ) -> dict[str, Any]:
         if count <= 0:
             raise ValueError("count must be positive")
+        observed_profile = normalize_profile_id(profile) if profile else None
         preset = (
             contentforge_preset
             if contentforge_preset in self._contentforge_variant_presets
@@ -247,6 +257,8 @@ class VariantLineageRepository:
             caption_version is not None
             and caption_version.get("parentAssetId") == parent_asset_id
         )
+        if observed_profile:
+            caption_lineage_ok = caption_version_id is None
         can_generate = (
             concept is not None
             and self.explain_publishability(parent_asset_id).get("publishableCandidate")
@@ -258,7 +270,7 @@ class VariantLineageRepository:
                 asset["campaign_id"],
                 parent_asset_id,
                 caption_version_id,
-                preset,
+                f"{observed_profile}@1" if observed_profile else preset,
                 count,
             )
         )
@@ -268,9 +280,18 @@ class VariantLineageRepository:
         planned = [
             {
                 "variantIndex": idx,
-                "operationSet": preset,
+                "operationSet": (
+                    f"{observed_profile}@1" if observed_profile else preset
+                ),
                 "operations": [
-                    {"type": "contentforge_variant_pack", "preset": preset},
+                    (
+                        {
+                            "type": "reel_factory_observed_profile",
+                            "profile": f"{observed_profile}@1",
+                        }
+                        if observed_profile
+                        else {"type": "contentforge_variant_pack", "preset": preset}
+                    ),
                     {
                         "type": "preserve_parent_lineage",
                         "parentAssetId": parent_asset_id,
@@ -280,7 +301,11 @@ class VariantLineageRepository:
                         "captionVersionId": caption_version_id,
                     },
                 ],
-                "qualityGate": "contentforge_upload_ready_and_recommended",
+                "qualityGate": (
+                    "contentforge_source_sibling_and_media_integrity"
+                    if observed_profile
+                    else "contentforge_upload_ready_and_recommended"
+                ),
             }
             for idx in range(1, count + 1)
         ]
@@ -295,6 +320,7 @@ class VariantLineageRepository:
             "captionVersionId": caption_version_id,
             "variantFamilyId": variant_family_id,
             "requestedVariants": count,
+            "profile": f"{observed_profile}@1" if observed_profile else None,
             "contentforgePreset": preset,
             "cooldownDays": cooldown_days,
             "canGenerate": bool(can_generate),
@@ -310,6 +336,213 @@ class VariantLineageRepository:
         }
 
     def generate_variants(
+        self,
+        *,
+        parent_asset_id: str,
+        caption_version_id: str | None = None,
+        count: int = 10,
+        profile: str | None = None,
+        attempt_limit: int | None = None,
+        contentforge_preset: str = "caption_safe",
+        contentforge_base_url: str | None = None,
+        source_media_path: str | None = None,
+        contentforge_timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        if profile:
+            return self._generate_observed_variants(
+                parent_asset_id=parent_asset_id,
+                caption_version_id=caption_version_id,
+                count=count,
+                profile=profile,
+                attempt_limit=attempt_limit,
+                contentforge_base_url=contentforge_base_url,
+                source_media_path=source_media_path,
+            )
+        return self._generate_legacy_contentforge_variants(
+            parent_asset_id=parent_asset_id,
+            caption_version_id=caption_version_id,
+            count=count,
+            contentforge_preset=contentforge_preset,
+            contentforge_base_url=contentforge_base_url,
+            source_media_path=source_media_path,
+            contentforge_timeout_seconds=contentforge_timeout_seconds,
+        )
+
+    def qualify_observed_renderer_control(
+        self, *, rendered_asset_id: str
+    ) -> dict[str, Any]:
+        from .adapters.contentforge import audit_variation_batch
+
+        asset = self.rendered_asset(rendered_asset_id)
+        source = Path(
+            str(asset.get("campaign_path") or asset.get("output_path") or "")
+        ).expanduser()
+        if (
+            not source.is_file()
+            or source.is_symlink()
+            or self._sha256_file(source) != asset.get("content_hash")
+        ):
+            raise ValueError("control source is missing or fails exact SHA validation")
+        campaign = self.conn.execute(
+            "SELECT slug FROM campaigns WHERE id = ?", (asset["campaign_id"],)
+        ).fetchone()
+        if not campaign:
+            raise ValueError("control campaign not found")
+        model_slug = self._model_slug_for_campaign(asset["campaign_id"])
+        dirs = self.campaign_dirs(model_slug, campaign["slug"])
+        output_dir = dirs["audits"] / "renderer_equivalence"
+        extension = (
+            ".mp4"
+            if source.suffix.lower() in {".mp4", ".mov", ".webm"}
+            else source.suffix.lower()
+        )
+        identity_output = output_dir / f"{rendered_asset_id}.identity{extension}"
+        receipt_path = output_dir / (f"{rendered_asset_id}.renderer_equivalence.json")
+        audio_embedder_path = Path(__file__).with_name("audio_radar") / "embedding.py"
+        qc_evidence: dict[str, Any] = {}
+
+        def qc_regressed(original: Path, identity: Path) -> bool:
+            baseline_path = output_dir / f"{rendered_asset_id}.baseline_qc.json"
+            identity_path = output_dir / f"{rendered_asset_id}.identity_qc.json"
+            baseline = audit_variation_batch(
+                contentforge_root=self.settings.contentforge_root,
+                source_path=original,
+                variant_paths=[original],
+                contentforge_base_url=self.settings.contentforge_base_url,
+                report_path=baseline_path,
+            )
+            candidate = audit_variation_batch(
+                contentforge_root=self.settings.contentforge_root,
+                source_path=original,
+                variant_paths=[identity],
+                contentforge_base_url=self.settings.contentforge_base_url,
+                report_path=identity_path,
+            )
+
+            def non_similarity_blockers(report: dict[str, Any]) -> set[str]:
+                readiness = report.get("readinessSummary") or {}
+                return {
+                    str(code)
+                    for code in (
+                        readiness.get("blockingCodes")
+                        or readiness.get("blockingReasons")
+                        or []
+                    )
+                    if not str(code).startswith(("pdq_", "sscd_"))
+                }
+
+            baseline_codes = non_similarity_blockers(baseline)
+            identity_codes = non_similarity_blockers(candidate)
+            qc_evidence.update(
+                {
+                    "baselineReportPath": str(baseline_path),
+                    "baselineReportSha256": self._sha256_file(baseline_path),
+                    "identityReportPath": str(identity_path),
+                    "identityReportSha256": self._sha256_file(identity_path),
+                    "newBlockingCodes": sorted(identity_codes - baseline_codes),
+                }
+            )
+            valid_contracts = {
+                "campaign_factory_audit.v1.7",
+                "campaign_factory_audit.v1.8",
+                "campaign_factory_audit.v1.9",
+                "campaign_factory_audit.v1.10",
+            }
+            return bool(
+                identity_codes - baseline_codes
+                or baseline.get("contractVersion") not in valid_contracts
+                or candidate.get("contractVersion") not in valid_contracts
+            )
+
+        receipt = qualify_renderer_equivalence(
+            source_path=source,
+            output_path=identity_output,
+            receipt_path=receipt_path,
+            audio_embedder_sha256=(
+                self._sha256_file(audio_embedder_path)
+                if audio_embedder_path.is_file()
+                else None
+            ),
+            qc_regression_callback=qc_regressed,
+        )
+        validate_renderer_equivalence_receipt(receipt)
+        if receipt["status"] != "qualified":
+            identity_output.unlink(missing_ok=True)
+            raise ValueError("renderer equivalence qualification failed")
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["rendererEquivalenceReceipt"] = {
+            "path": str(receipt_path),
+            "sha256": self._sha256_file(receipt_path),
+            "identityOutputPath": str(identity_output),
+            "identityOutputSha256": receipt["identityOutputSha256"],
+            "sourceSha256": receipt["sourceSha256"],
+            "toolchainFingerprint": receipt["toolchainFingerprint"],
+            "mediaClass": receipt["mediaClass"],
+            "status": receipt["status"],
+            "qcEvidence": qc_evidence,
+        }
+        self.conn.execute(
+            "UPDATE rendered_assets SET metadata_json = ?, updated_at = ? WHERE id = ?",
+            (
+                json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                self._utc_now(),
+                rendered_asset_id,
+            ),
+        )
+        self.conn.commit()
+        return {
+            **receipt,
+            "receiptPath": str(receipt_path),
+            "receiptSha256": metadata["rendererEquivalenceReceipt"]["sha256"],
+        }
+
+    def _observed_source(
+        self, parent: dict[str, Any], *, source_media_path: str | None
+    ) -> tuple[Path, str, str]:
+        metadata = json_load(parent.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        receipt = metadata.get("audioEmbeddingReceipt")
+        original = receipt.get("originalVideo") if isinstance(receipt, dict) else None
+        candidates: list[tuple[Path, str, str]] = []
+        if (
+            isinstance(original, dict)
+            and original.get("path")
+            and original.get("sha256")
+        ):
+            candidates.append(
+                (
+                    Path(str(original["path"])).expanduser(),
+                    str(original["sha256"]).lower(),
+                    "audio_receipt_original_visual",
+                )
+            )
+        parent_path = Path(
+            str(parent.get("campaign_path") or parent.get("output_path") or "")
+        ).expanduser()
+        parent_sha = str(parent.get("content_hash") or "").lower()
+        if parent_sha:
+            candidates.append((parent_path, parent_sha, "parent_final"))
+        if source_media_path:
+            selected = Path(source_media_path).expanduser().resolve()
+            actual = self._sha256_file(selected)
+            for _, expected, provenance in candidates:
+                if actual == expected:
+                    return selected, actual, provenance
+            raise ValueError("source_media_path SHA is absent from parent lineage")
+        for path, expected, provenance in candidates:
+            resolved = path.resolve()
+            if (
+                resolved.is_file()
+                and not resolved.is_symlink()
+                and self._sha256_file(resolved) == expected
+            ):
+                return resolved, expected, provenance
+        raise ValueError("verified pre-audio source media is missing")
+
+    def _generate_legacy_contentforge_variants(
         self,
         *,
         parent_asset_id: str,

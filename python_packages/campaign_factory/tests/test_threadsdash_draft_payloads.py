@@ -26,8 +26,6 @@ from campaign_factory.adapters.threadsdash_draft_payload import build_draft_payl
 from campaign_factory.adapters.threadsdash_draft_readiness import (
     evaluate_export_readiness,
 )
-from campaign_factory.variation_stage import run_variation_stage
-from campaign_generation_test_support import FakeVariationPipeline
 from campaign_learning_test_support import (
     _approve_asset_for_lifecycle,
     _lifecycle_state,
@@ -531,66 +529,6 @@ def test_threadsdash_selected_batch_prunes_manifest_and_fails_on_missing_ids(
                 user_id="user_1",
                 rendered_asset_ids=["missing_asset"],
             )
-    finally:
-        cf.close()
-
-
-def test_threadsdash_export_enabled_variation_maps_account_media(
-    tmp_path: Path, monkeypatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        _, rendered_path = add_rendered_asset(cf, tmp_path)
-        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
-        isolate_account_groups(cf, ["ig_1", "ig_2"])
-        cf.domains.distribution.create_distribution_plan(
-            "asset_1", instagram_account_id="ig_1"
-        )
-        cf.domains.distribution.create_distribution_plan(
-            "asset_1", instagram_account_id="ig_2"
-        )
-        monkeypatch.setattr(
-            "campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline
-        )
-        monkeypatch.setattr(
-            "campaign_factory.variation_stage.audit_variation_batch",
-            lambda **kwargs: {
-                "contractVersion": "campaign_factory_audit.v1.7",
-                "overallVerdict": "pass",
-                "verdicts": {"pdq": "pass", "sscd": "pass"},
-                "readinessSummary": {"uploadReady": True, "blockingCodes": []},
-                "reportPath": str(kwargs["report_path"]),
-            },
-        )
-        run_variation_stage(
-            cf,
-            campaign_slug="may",
-            dry_run=False,
-            contentforge_base_url="http://contentforge.test",
-        )
-
-        payload = build_draft_payloads(
-            cf, campaign_slug="may", user_id="user_1", enable_variation=True
-        )
-
-        drafts_by_ig = {
-            draft["instagramAccountId"]: draft for draft in payload["drafts"]
-        }
-        assert set(drafts_by_ig) == {"ig_1", "ig_2"}
-        assert drafts_by_ig["ig_1"]["_localFilePath"] != str(rendered_path)
-        assert (
-            drafts_by_ig["ig_1"]["_localFilePath"]
-            != drafts_by_ig["ig_2"]["_localFilePath"]
-        )
-        meta = drafts_by_ig["ig_1"]["metadata"]["campaign_factory"]
-        assert meta["parent_master_asset_id"] == "asset_1"
-        assert meta["variant_asset_id"].startswith("asset_1_")
-        assert meta["variant_assignment"]["lineage"]["paid_generation"] is False
-        assert meta["generated_asset_lineage"]["variationApplied"] is True
-        assert (
-            meta["generated_asset_lineage"]["variantId"]
-            == meta["variant_assignment"]["variant_asset_id"]
-        )
     finally:
         cf.close()
 

@@ -706,11 +706,46 @@ def register_core_commands(sub) -> None:
     generate_variants = sub.add_parser("generate-variants")
     generate_variants.add_argument("--parent-asset-id", required=True)
     generate_variants.add_argument("--caption-version-id")
-    generate_variants.add_argument("--count", type=int, default=10)
-    generate_variants.add_argument("--contentforge-preset", default="caption_safe")
+    generate_variants.add_argument("--count", type=int, required=True)
+    generate_variants.add_argument(
+        "--profile",
+        required=True,
+        choices=[
+            "mirror_crop_tone@1",
+            "tilt_crop_dark@1",
+            "light_editorial@1",
+            "opening_trim@1",
+        ],
+    )
+    generate_variants.add_argument("--attempt-limit", type=int)
     generate_variants.add_argument("--contentforge-base-url", default="cli://local")
     generate_variants.add_argument("--source-media-path")
     generate_variants.add_argument("--dry-run", action="store_true")
+    qualify_control = sub.add_parser("qualify-observed-renderer-control")
+    qualify_control.add_argument("--rendered-asset-id", required=True)
+    assign_pair = sub.add_parser("assign-experiment-pair")
+    assign_pair.add_argument(
+        "--input-json",
+        type=Path,
+        required=True,
+        help="pair assignment request JSON; creates no schedule or publication",
+    )
+    experiment_report = sub.add_parser("observed-experiment-report")
+    experiment_report.add_argument("--experiment-id", required=True)
+    experiment_report.add_argument(
+        "--record-interpretation",
+        action="store_true",
+        help="persist the report only; never changes production usage",
+    )
+    experiment_decision = sub.add_parser("observed-experiment-decision")
+    experiment_decision.add_argument("--experiment-id", required=True)
+    experiment_decision.add_argument("--operator", required=True)
+    experiment_decision.add_argument(
+        "--decision",
+        required=True,
+        choices=["continue_sequence", "stop", "adopt", "reject"],
+    )
+    experiment_decision.add_argument("--reason", required=True)
     winner_plan = sub.add_parser("winner-expansion-plan")
     winner_plan.add_argument(
         "--input-json",

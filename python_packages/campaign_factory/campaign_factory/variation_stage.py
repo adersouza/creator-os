@@ -6,18 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
-from repurposer.pipeline import VariantPipeline
 
 from pipeline_contracts import validate_variant_assignment
-
-from .adapters.contentforge import audit_variation_batch
-
-CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {
-    "campaign_factory_audit.v1.7",
-    "campaign_factory_audit.v1.8",
-    "campaign_factory_audit.v1.9",
-    "campaign_factory_audit.v1.10",
-}
 
 
 def run_variation_stage(
@@ -30,6 +20,15 @@ def run_variation_stage(
     contentforge_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Create per-account zero-cost variant assignments for approved campaign assets."""
+    if not dry_run and preset_name not in {
+        "mirror_crop_tone@1",
+        "tilt_crop_dark@1",
+        "light_editorial@1",
+        "opening_trim@1",
+    }:
+        raise ValueError(
+            "an observed profile must be explicitly selected for variation rendering"
+        )
     manifest = factory.domains.export_summary.export_manifest(
         campaign_slug=campaign_slug
     )
@@ -65,72 +64,34 @@ def run_variation_stage(
                 path, json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
             )
         else:
-            pipeline = VariantPipeline(
-                Path(asset["filePath"]),
-                accounts=accounts,
-                platform=manifest.get("platform") or "reels",
-                output_dir=output_dir,
+            generated = factory.domains.variant_lineage.generate_variants(
+                parent_asset_id=asset["renderedAssetId"],
+                count=len(accounts),
+                profile=preset_name,
+                contentforge_base_url=contentforge_base_url,
             )
-            path = pipeline.manifest_path(asset["renderedAssetId"])
-            path.unlink(missing_ok=True)
-            assignment = pipeline.generate_assignment_manifest(
-                preset_name=preset_name,
-                campaign_slug=campaign_slug,
-                master_asset_id=asset["renderedAssetId"],
-                write_manifest=False,
-            )
-            variant_paths = [
-                Path(item["variant_path"]) for item in assignment["assignments"]
-            ]
-            report_path = (
-                output_dir
-                / f"{_safe_slug(asset['renderedAssetId'])}.perceptual_audit.v1.json"
-            )
-            try:
-                audit = audit_variation_batch(
-                    contentforge_root=factory.settings.contentforge_root,
-                    source_path=Path(asset["filePath"]),
-                    variant_paths=variant_paths,
-                    contentforge_base_url=contentforge_base_url
-                    or factory.settings.contentforge_base_url,
-                    report_path=report_path,
-                )
-                readiness = audit.get("readinessSummary") or {}
-                verdicts = audit.get("verdicts") or {}
-                blocking_codes = [
-                    str(code) for code in readiness.get("blockingCodes") or []
-                ]
-                if (
-                    audit.get("contractVersion") not in CAMPAIGN_FACTORY_AUDIT_CONTRACTS
-                    or readiness.get("uploadReady") is not True
-                    or verdicts.get("pdq") != "pass"
-                    or verdicts.get("sscd") != "pass"
-                ):
-                    detail = (
-                        ", ".join(blocking_codes) or "perceptual_detector_gate_failed"
+            if generated.get("status") != "completed":
+                raise RuntimeError(
+                    "observed profile generation did not fill requested count: "
+                    + str(
+                        generated.get("blockingReason")
+                        or generated.get("status")
+                        or "unknown"
                     )
-                    raise RuntimeError(f"variation perceptual gate blocked: {detail}")
-                audit_lineage = {
-                    "contract_version": audit["contractVersion"],
-                    "report_path": str(report_path),
-                    "verdicts": {
-                        "pdq": verdicts["pdq"],
-                        "sscd": verdicts["sscd"],
-                    },
-                }
-                for item in assignment["assignments"]:
-                    item.setdefault("lineage", {})["perceptual_audit"] = audit_lineage
-                validate_variant_assignment(assignment)
-                atomic_write_text(
-                    path,
-                    json.dumps(assignment, indent=2, sort_keys=True),
-                    encoding="utf-8",
                 )
-            except Exception:
-                for variant_path in variant_paths:
-                    variant_path.unlink(missing_ok=True)
-                path.unlink(missing_ok=True)
-                raise
+            results.append(
+                {
+                    "renderedAssetId": asset["renderedAssetId"],
+                    "assignmentPath": None,
+                    "assignmentCount": 0,
+                    "registeredVariantCount": len(
+                        generated.get("registeredVariants") or []
+                    ),
+                    "reviewState": "review_ready",
+                    "dryRun": False,
+                }
+            )
+            continue
         validate_variant_assignment(assignment)
         results.append(
             {

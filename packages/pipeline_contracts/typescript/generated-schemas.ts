@@ -4405,6 +4405,173 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	experimentAssignmentReceipt: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.experiment_assignment_receipt.v1",
+	  "title": "Creator OS Experiment Assignment Receipt v1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "experimentId",
+	    "pairId",
+	    "armId",
+	    "role",
+	    "accountId",
+	    "eligibleSlot",
+	    "parentFamilyId",
+	    "observationCohorts",
+	    "assignmentAlgorithmVersion",
+	    "assignmentFingerprint",
+	    "reservationId",
+	    "assignedAssetId",
+	    "assignedAssetSha256",
+	    "retention",
+	    "cooldownException",
+	    "assignedAt"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.experiment_assignment_receipt.v1"
+	    },
+	    "experimentId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "pairId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "armId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "role": {
+	      "enum": [
+	        "control",
+	        "treatment"
+	      ]
+	    },
+	    "accountId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "eligibleSlot": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "slotId",
+	        "windowStart",
+	        "windowEnd"
+	      ],
+	      "properties": {
+	        "slotId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "windowStart": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "windowEnd": {
+	          "type": "string",
+	          "format": "date-time"
+	        }
+	      }
+	    },
+	    "parentFamilyId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "observationCohorts": {
+	      "const": [
+	        "1h",
+	        "24h",
+	        "72h"
+	      ]
+	    },
+	    "assignmentAlgorithmVersion": {
+	      "const": "cross_account_blocked_rotation.v1"
+	    },
+	    "assignmentFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "reservationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "assignedAssetId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "assignedAssetSha256": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "retention": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "class",
+	        "protectedThroughDecision",
+	        "evidenceSha256"
+	      ],
+	      "properties": {
+	        "class": {
+	          "const": "experiment_evidence"
+	        },
+	        "protectedThroughDecision": {
+	          "const": true
+	        },
+	        "evidenceSha256": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "$ref": "#/$defs/sha256"
+	          },
+	          "uniqueItems": true
+	        }
+	      }
+	    },
+	    "cooldownException": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "reason",
+	        "scope",
+	        "relationships",
+	        "thirdReuseAllowed"
+	      ],
+	      "properties": {
+	        "reason": {
+	          "const": "controlled_experiment_pair"
+	        },
+	        "scope": {
+	          "const": "pair_only"
+	        },
+	        "relationships": {
+	          "const": [
+	            "source_family",
+	            "perceptual_sibling",
+	            "audio"
+	          ]
+	        },
+	        "thirdReuseAllowed": {
+	          "const": false
+	        }
+	      }
+	    },
+	    "assignedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
 	frontGenerationPlan: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.front_generation_plan.v1",
@@ -12871,6 +13038,91 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	rendererEquivalenceReceipt: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.renderer_equivalence_receipt.v1",
+	  "title": "Creator OS Renderer Equivalence Receipt v1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "mediaClass",
+	    "toolchainFingerprint",
+	    "sourceSha256",
+	    "identityOutputSha256",
+	    "checks",
+	    "ssim",
+	    "qcRegression",
+	    "status",
+	    "qualifiedAt"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.renderer_equivalence_receipt.v1"
+	    },
+	    "mediaClass": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "toolchainFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "sourceSha256": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "identityOutputSha256": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "checks": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "dimensionsEqual",
+	        "frameRateEqual",
+	        "durationWithinOneFrame",
+	        "audioPolicyEqual"
+	      ],
+	      "properties": {
+	        "dimensionsEqual": {
+	          "type": "boolean"
+	        },
+	        "frameRateEqual": {
+	          "type": "boolean"
+	        },
+	        "durationWithinOneFrame": {
+	          "type": "boolean"
+	        },
+	        "audioPolicyEqual": {
+	          "type": "boolean"
+	        }
+	      }
+	    },
+	    "ssim": {
+	      "type": "number",
+	      "minimum": 0,
+	      "maximum": 1
+	    },
+	    "qcRegression": {
+	      "type": "boolean"
+	    },
+	    "status": {
+	      "enum": [
+	        "qualified",
+	        "failed"
+	      ]
+	    },
+	    "qualifiedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
 	repurposingPlan: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.repurposing_plan.v1",
@@ -14679,6 +14931,376 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	visualDerivativeReceipt: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.visual_derivative_receipt.v1",
+	  "title": "Creator OS Visual Derivative Receipt v1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "parentAssetId",
+	    "source",
+	    "profile",
+	    "eligibility",
+	    "targetAcceptedCount",
+	    "actualAcceptedCount",
+	    "attemptLimit",
+	    "attempts",
+	    "accepted",
+	    "exhaustionReasons",
+	    "toolchain",
+	    "createdAt"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.visual_derivative_receipt.v1"
+	    },
+	    "parentAssetId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "source": {
+	      "$ref": "#/$defs/mediaIdentity"
+	    },
+	    "profile": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "version",
+	        "observedSource",
+	        "definitionSha256"
+	      ],
+	      "properties": {
+	        "id": {
+	          "enum": [
+	            "mirror_crop_tone",
+	            "tilt_crop_dark",
+	            "light_editorial",
+	            "opening_trim"
+	          ]
+	        },
+	        "version": {
+	          "const": 1
+	        },
+	        "observedSource": {
+	          "enum": [
+	            "ofm",
+	            "spoofzy",
+	            "creator_os"
+	          ]
+	        },
+	        "definitionSha256": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "eligibility": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "eligible",
+	        "mediaType",
+	        "captionState",
+	        "audioState",
+	        "passiveContent",
+	        "synchronizedContent",
+	        "visibleText",
+	        "blockers"
+	      ],
+	      "properties": {
+	        "eligible": {
+	          "type": "boolean"
+	        },
+	        "mediaType": {
+	          "enum": [
+	            "image",
+	            "video"
+	          ]
+	        },
+	        "captionState": {
+	          "enum": [
+	            "uncaptioned_verified",
+	            "captioned",
+	            "unknown"
+	          ]
+	        },
+	        "audioState": {
+	          "enum": [
+	            "none",
+	            "pre_final",
+	            "final_bound",
+	            "unknown"
+	          ]
+	        },
+	        "passiveContent": {
+	          "type": "boolean"
+	        },
+	        "synchronizedContent": {
+	          "type": "boolean"
+	        },
+	        "visibleText": {
+	          "type": "boolean"
+	        },
+	        "blockers": {
+	          "type": "array",
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          },
+	          "uniqueItems": true
+	        }
+	      }
+	    },
+	    "targetAcceptedCount": {
+	      "type": "integer",
+	      "minimum": 1
+	    },
+	    "actualAcceptedCount": {
+	      "type": "integer",
+	      "minimum": 0,
+	      "maximum": 40
+	    },
+	    "attemptLimit": {
+	      "type": "integer",
+	      "minimum": 1,
+	      "maximum": 40
+	    },
+	    "attempts": {
+	      "type": "array",
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "required": [
+	          "candidateIndex",
+	          "attempt",
+	          "seed",
+	          "sampledParameters",
+	          "status",
+	          "reasons"
+	        ],
+	        "properties": {
+	          "candidateIndex": {
+	            "type": "integer",
+	            "minimum": 1
+	          },
+	          "attempt": {
+	            "type": "integer",
+	            "minimum": 1
+	          },
+	          "seed": {
+	            "type": "string",
+	            "pattern": "^[0-9a-f]{64}$"
+	          },
+	          "sampledParameters": {
+	            "type": "object"
+	          },
+	          "status": {
+	            "enum": [
+	              "accepted",
+	              "rejected",
+	              "render_failed"
+	            ]
+	          },
+	          "reasons": {
+	            "type": "array",
+	            "items": {
+	              "type": "string",
+	              "minLength": 1
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "accepted": {
+	      "type": "array",
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "required": [
+	          "candidateIndex",
+	          "acceptedIndex",
+	          "attempt",
+	          "sampledParameters",
+	          "ffmpegArgs",
+	          "output",
+	          "qc"
+	        ],
+	        "properties": {
+	          "candidateIndex": {
+	            "type": "integer",
+	            "minimum": 1
+	          },
+	          "acceptedIndex": {
+	            "type": "integer",
+	            "minimum": 1
+	          },
+	          "attempt": {
+	            "type": "integer",
+	            "minimum": 1
+	          },
+	          "sampledParameters": {
+	            "type": "object"
+	          },
+	          "ffmpegArgs": {
+	            "type": "array",
+	            "items": {
+	              "type": "string"
+	            }
+	          },
+	          "metadataPolicy": {
+	            "const": "strip_inherited"
+	          },
+	          "output": {
+	            "$ref": "#/$defs/mediaIdentity"
+	          },
+	          "qc": {
+	            "type": "object",
+	            "additionalProperties": true,
+	            "required": [
+	              "status",
+	              "blockingCodes"
+	            ],
+	            "properties": {
+	              "status": {
+	                "enum": [
+	                  "passed",
+	                  "failed"
+	                ]
+	              },
+	              "blockingCodes": {
+	                "type": "array",
+	                "items": {
+	                  "type": "string"
+	                }
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "exhaustionReasons": {
+	      "type": "array",
+	      "items": {
+	        "type": "string",
+	        "minLength": 1
+	      },
+	      "uniqueItems": true
+	    },
+	    "toolchain": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "repositorySha",
+	        "rendererImplementationSha256",
+	        "ffmpegVersion",
+	        "ffmpegBuildSha256",
+	        "encoderSettingsSha256",
+	        "audioEmbedderSha256",
+	        "qcPolicySha256",
+	        "fingerprint"
+	      ],
+	      "properties": {
+	        "repositorySha": {
+	          "type": "string",
+	          "minLength": 7
+	        },
+	        "rendererImplementationSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffmpegVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffmpegBuildSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "encoderSettingsSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "audioEmbedderSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "qcPolicySha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "fingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "createdAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    },
+	    "mediaIdentity": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "path",
+	        "sha256",
+	        "mediaType",
+	        "byteSize",
+	        "width",
+	        "height"
+	      ],
+	      "properties": {
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "mediaType": {
+	          "enum": [
+	            "image",
+	            "video"
+	          ]
+	        },
+	        "byteSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "width": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "height": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "fps": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "exclusiveMinimum": 0
+	        },
+	        "durationSeconds": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "exclusiveMinimum": 0
+	        },
+	        "audioPresent": {
+	          "type": [
+	            "boolean",
+	            "null"
+	          ]
+	        }
+	      }
+	    }
+	  }
+	} as const,
 } as const;
 
 export const generatedPipelineContractSchemaManifest = [
@@ -14700,6 +15322,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "creatorIdentityProfile", filename: "creator_identity_profile.v1.schema.json", id: "creator_os.creator_identity_profile.v1" },
 	{ key: "evidenceAttestation", filename: "evidence_attestation.v1.schema.json", id: "https://creator-os.local/schemas/evidence_attestation.v1.schema.json" },
 	{ key: "evidenceProvenance", filename: "evidence_provenance.v1.schema.json", id: "https://creator-os.local/schemas/evidence_provenance.v1.schema.json" },
+	{ key: "experimentAssignmentReceipt", filename: "experiment_assignment_receipt.v1.schema.json", id: "creator_os.experiment_assignment_receipt.v1" },
 	{ key: "frontGenerationPlan", filename: "front_generation_plan.v1.schema.json", id: "campaign_factory.front_generation_plan.v1" },
 	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "reel_factory.generated_asset_lineage.v1" },
 	{ key: "generatedAssetLineageV2", filename: "generated_asset_lineage.v2.schema.json", id: "reel_factory.generated_asset_lineage.v2" },
@@ -14730,6 +15353,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "referenceFactoryKnowledgePack", filename: "reference_factory_knowledge_pack.v1.schema.json", id: "reference_factory.knowledge_pack.v1" },
 	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
+	{ key: "rendererEquivalenceReceipt", filename: "renderer_equivalence_receipt.v1.schema.json", id: "creator_os.renderer_equivalence_receipt.v1" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
 	{ key: "runtimePromotionApproval", filename: "runtime_promotion_approval.v1.schema.json", id: "creator_os.runtime_promotion_approval.v1" },
 	{ key: "runtimePromotionReceipt", filename: "runtime_promotion_receipt.v1.schema.json", id: "creator_os.runtime_promotion_receipt.v1" },
@@ -14738,4 +15362,5 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "trustedMediaAnalysis", filename: "trusted_media_analysis.v1.schema.json", id: "https://creator-os.local/schemas/trusted_media_analysis.v1.schema.json" },
 	{ key: "variantAssignment", filename: "variant_assignment.v1.schema.json", id: "campaign_factory.variant_assignment.v1" },
 	{ key: "videoAnalysis", filename: "video_analysis.v1.schema.json", id: "reference_factory.video_analysis.v1" },
+	{ key: "visualDerivativeReceipt", filename: "visual_derivative_receipt.v1.schema.json", id: "creator_os.visual_derivative_receipt.v1" },
 ] as const;

@@ -83,6 +83,9 @@ CREATIVE_APPROVAL_V2_SCHEMA = "creative_approval.v2.schema.json"
 PAID_MOTION_EXECUTION_RECEIPT_SCHEMA = "paid_motion_execution_receipt.v1.schema.json"
 RUNTIME_PROMOTION_APPROVAL_SCHEMA = "runtime_promotion_approval.v1.schema.json"
 RUNTIME_PROMOTION_RECEIPT_SCHEMA = "runtime_promotion_receipt.v1.schema.json"
+VISUAL_DERIVATIVE_RECEIPT_SCHEMA = "visual_derivative_receipt.v1.schema.json"
+RENDERER_EQUIVALENCE_RECEIPT_SCHEMA = "renderer_equivalence_receipt.v1.schema.json"
+EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA = "experiment_assignment_receipt.v1.schema.json"
 
 SCHEMA_NAMES = {
     "analyzer_registry": ANALYZER_REGISTRY_SCHEMA,
@@ -157,6 +160,9 @@ SCHEMA_NAMES = {
     "paid_motion_execution_receipt": PAID_MOTION_EXECUTION_RECEIPT_SCHEMA,
     "runtime_promotion_approval": RUNTIME_PROMOTION_APPROVAL_SCHEMA,
     "runtime_promotion_receipt": RUNTIME_PROMOTION_RECEIPT_SCHEMA,
+    "visual_derivative_receipt": VISUAL_DERIVATIVE_RECEIPT_SCHEMA,
+    "renderer_equivalence_receipt": RENDERER_EQUIVALENCE_RECEIPT_SCHEMA,
+    "experiment_assignment_receipt": EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA,
 }
 
 
@@ -298,6 +304,18 @@ def validate_runtime_promotion_approval(value: Any) -> None:
 
 def validate_runtime_promotion_receipt(value: Any) -> None:
     validate_contract(value, RUNTIME_PROMOTION_RECEIPT_SCHEMA)
+
+
+def validate_visual_derivative_receipt(value: Any) -> None:
+    validate_contract(value, VISUAL_DERIVATIVE_RECEIPT_SCHEMA)
+
+
+def validate_renderer_equivalence_receipt(value: Any) -> None:
+    validate_contract(value, RENDERER_EQUIVALENCE_RECEIPT_SCHEMA)
+
+
+def validate_experiment_assignment_receipt(value: Any) -> None:
+    validate_contract(value, EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA)
 
 
 def schema_path(name: str) -> Path:
@@ -615,6 +633,9 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "contentforge_campaign_audit_response.v1.example.json": validate_contentforge_campaign_audit_response,
         "threadsdash_handshake.v1.example.json": validate_threadsdash_handshake,
         "threadsdash_handshake.v2.example.json": validate_threadsdash_handshake,
+        "visual_derivative_receipt.v1.example.json": validate_visual_derivative_receipt,
+        "renderer_equivalence_receipt.v1.example.json": validate_renderer_equivalence_receipt,
+        "experiment_assignment_receipt.v1.example.json": validate_experiment_assignment_receipt,
     }
     checks = []
     for filename, validator in validators.items():

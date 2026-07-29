@@ -901,6 +901,11 @@ def _parser() -> argparse.ArgumentParser:
     experiment.add_argument("--variable", required=True)
     experiment.add_argument("--variant", action="append", required=True)
     experiment.add_argument("--hypothesis", required=True)
+    experiment.add_argument(
+        "--assignment-method",
+        choices=["deterministic_alternation", "cross_account_blocked_rotation.v1"],
+        default="deterministic_alternation",
+    )
     experiment_mode = experiment.add_mutually_exclusive_group(required=True)
     experiment_mode.add_argument("--dry-run", action="store_true")
     experiment_mode.add_argument("--apply", action="store_true")
@@ -1013,6 +1018,7 @@ def main(argv: list[str] | None = None) -> int:
                     variants=tuple(args.variant),
                     hypothesis=args.hypothesis,
                     apply=args.apply,
+                    assignment_method=args.assignment_method,
                 )
             elif args.action == "execute":
                 from .core import CampaignFactory

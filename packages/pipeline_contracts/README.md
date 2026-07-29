@@ -64,6 +64,14 @@ pnpm pack:contracts
 - Consumers pin the release URL plus package-lock integrity instead of trusting
   an unversioned sibling checkout or copying source files.
 
+### 4.0.0 observed-profile experiment receipts
+
+Package 4.0.0 adds `creator_os.visual_derivative_receipt.v1`,
+`creator_os.renderer_equivalence_receipt.v1`, and
+`creator_os.experiment_assignment_receipt.v1`. Existing schemas are unchanged;
+consumers adopt the new receipt validators only when they participate in
+observed-profile experiments.
+
 ### 3.0.0 audio-policy migration
 
 Package 3.0.0 makes `policy` required on `pipeline.audio_intent.v1` and defines

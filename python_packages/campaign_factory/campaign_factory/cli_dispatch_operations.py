@@ -100,18 +100,15 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         )
         return 0
     if args.cmd == "generate-variants":
-        if args.dry_run or not args.contentforge_base_url:
+        if args.dry_run:
             plan = cf.domains.variant_lineage.variant_plan(
                 parent_asset_id=args.parent_asset_id,
                 caption_version_id=args.caption_version_id,
                 count=args.count,
-                contentforge_preset=args.contentforge_preset,
+                profile=args.profile,
             )
             plan["schema"] = "campaign_factory.generate_variants.preview.v1"
-            plan["status"] = "dry_run" if args.dry_run else "blocked"
-            plan["blockingReason"] = (
-                None if args.dry_run else "contentforge_cli_required"
-            )
+            plan["status"] = "dry_run"
             print_json(plan)
         else:
             print_json(
@@ -119,11 +116,62 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                     parent_asset_id=args.parent_asset_id,
                     caption_version_id=args.caption_version_id,
                     count=args.count,
-                    contentforge_preset=args.contentforge_preset,
+                    profile=args.profile,
+                    attempt_limit=args.attempt_limit,
                     contentforge_base_url=args.contentforge_base_url,
                     source_media_path=args.source_media_path,
                 )
             )
+        return 0
+    if args.cmd == "qualify-observed-renderer-control":
+        print_json(
+            cf.domains.variant_lineage.qualify_observed_renderer_control(
+                rendered_asset_id=args.rendered_asset_id
+            )
+        )
+        return 0
+    if args.cmd == "assign-experiment-pair":
+        payload = json.loads(args.input_json.read_text(encoding="utf-8"))
+        print_json(
+            cf.domains.inventory_reservations.reserve_experiment_pair(
+                experiment_id=payload["experimentId"],
+                parent_family_id=payload["parentFamilyId"],
+                pair_index=int(payload["pairIndex"]),
+                control_asset_id=payload["controlAssetId"],
+                treatment_asset_id=payload["treatmentAssetId"],
+                account_ids=tuple(payload["accountIds"]),
+                eligible_slots=tuple(payload["eligibleSlots"]),
+                plan_item_ids=tuple(payload["planItemIds"]),
+                treatment_profile=payload["treatmentProfile"],
+                reserved_by=payload.get("operator") or "authenticated_local_operator",
+            )
+        )
+        return 0
+    if args.cmd == "observed-experiment-report":
+        from .observed_experiment_reporting import observed_experiment_report
+
+        print_json(
+            observed_experiment_report(
+                cf.conn,
+                experiment_id=args.experiment_id,
+                record_interpretation=args.record_interpretation,
+            )
+        )
+        return 0
+    if args.cmd == "observed-experiment-decision":
+        from .observed_experiment_reporting import (
+            record_observed_experiment_decision,
+        )
+
+        print_json(
+            record_observed_experiment_decision(
+                cf.conn,
+                experiment_id=args.experiment_id,
+                operator=args.operator,
+                decision=args.decision,
+                reason=args.reason,
+            )
+        )
         return 0
     if args.cmd == "winner-expansion-plan":
         payload = {}
