@@ -6,11 +6,6 @@ import hashlib
 import json
 from typing import Any, Final
 
-from reel_factory.worker_api import (
-    PASSIVE_SAFETY_CONSTRAINTS,
-    passive_safety_prompt,
-)
-
 PROMPT_CARD_SCHEMA: Final = "campaign_factory.creative_direction_prompt_card.v1"
 COMPILED_PROMPT_SCHEMA: Final = "campaign_factory.compiled_passive_prompt.v1"
 UNKNOWN: Final = "unknown"
@@ -19,55 +14,35 @@ INTENT_PROMPTS: Final[dict[str, str]] = {
     "passive_selfie": (
         "Natural eye and gaze movement, subtle head movement, one purposeful hair "
         "or clothing adjustment, restrained secondary movement, and natural "
-        "handheld social camera behavior. No speaking, exaggerated movement, or "
-        "identity-changing action."
+        "handheld social camera behavior. The performance stays silent, restrained, "
+        "and identity-stable."
     ),
     "flirty_portrait": (
         "A warm restrained gaze shift, a small confident head turn, one gentle hair "
-        "adjustment, subtle breathing, and a natural handheld creator camera. No "
-        "speaking, exaggerated movement, or identity-changing action."
+        "adjustment, subtle breathing, and a natural handheld creator camera. The "
+        "performance stays silent, restrained, and identity-stable."
     ),
     "outfit": (
         "A small posture shift to present the outfit, natural eye movement, one "
         "purposeful clothing adjustment, restrained fabric movement, and subtle "
-        "handheld camera behavior. No speaking or exaggerated movement."
+        "handheld camera behavior. The performance stays silent and restrained."
     ),
     "lifestyle": (
         "Natural eye movement and a subtle head turn, one purposeful interaction "
         "with clothing or hair, restrained body movement, and casual handheld "
-        "creator camera behavior. No speaking or identity-changing action."
+        "creator camera behavior. The performance stays silent and identity-stable."
     ),
     "animate_existing": (
         "Natural eye and gaze movement, subtle head movement, one purposeful hair "
         "or clothing adjustment, restrained secondary movement, and natural "
-        "handheld camera behavior. No speaking, exaggerated movement, or "
-        "identity-changing action."
+        "handheld camera behavior. The performance stays silent, restrained, and "
+        "identity-stable."
     ),
     "recreate_reel": (
         "Recreate the supplied reference Reel's broad structure, performance, "
         "camera progression, pacing, framing, and social energy with the approved "
-        "creator reference. Preserve identity and natural anatomy. Do not reproduce "
-        "source text overlays or generate audio."
-    ),
-    "motion_copy": (
-        "Transfer the driving video's body motion and timing faithfully while "
-        "preserving the creator's face, body proportions, clothing, and portrait "
-        "identity. Keep the source portrait framing and avoid camera cuts."
-    ),
-    "dance": (
-        "Transfer the driving dance motion and timing faithfully while preserving "
-        "the creator's face, body proportions, clothing, and portrait identity. "
-        "Keep the source portrait framing and avoid camera cuts."
-    ),
-    "talking_selfie": (
-        "A natural direct-to-camera creator delivery with accurate lip movement, "
-        "subtle facial expression, restrained head motion, steady portrait framing, "
-        "and consistent identity throughout."
-    ),
-    "talking_motion_copy": (
-        "Transfer the driving video's body motion and timing while preserving the "
-        "creator's identity and portrait framing, then synchronize the supplied "
-        "creator voice without changing the face or body."
+        "creator reference. Preserve identity and natural anatomy. Use original "
+        "visual wording while provider audio remains disabled."
     ),
 }
 
@@ -166,7 +141,17 @@ def build_creative_direction_prompt_card(
         "whyConceptShouldWork": (
             "operator-approved passive intent applied to an approved exact source"
         ),
-        "negativeConstraints": list(PASSIVE_SAFETY_CONSTRAINTS),
+        "continuityRequirements": [
+            "same creator identity",
+            "same outfit",
+            "same setting",
+            "same pose family",
+            "restrained casual movement",
+            "full face and head visibility",
+            "clean one-person frame",
+            "continuous shot",
+            "silent provider output",
+        ],
         "evidenceProvenance": {
             "sourceMetadata": metadata.get("analysisReceiptId") or UNKNOWN,
             "referencePattern": pattern,
@@ -201,8 +186,10 @@ def compile_passive_prompt_card(
     text = " ".join(
         (
             base_prompt.strip(),
-            passive_safety_prompt(),
-            "Provider-generated music and ambient audio must remain disabled.",
+            "Preserve the same person, outfit, setting, pose family, camera angle, "
+            "and lighting. Keep the full head and face visible in a clean one-person "
+            "continuous shot with restrained movement.",
+            "Provider output stays silent for downstream Audio Radar finishing.",
         )
     )
     core = {

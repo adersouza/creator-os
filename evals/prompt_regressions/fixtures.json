@@ -18,7 +18,7 @@
       "surface": "soul_reference_still",
       "creative_direction": "Preserve pose and lighting; keep the composition natural and restrained.",
       "captured_fixture": "packages/pipeline_contracts/pipeline_contracts/schemas/higgsfield_soul_image_prompt.v1.example.json",
-      "expected_prompt_sha256": "34207c23d1dc06f109de7d6bceb5f4352ce02f272b0344721f36e003e5b1820b",
+      "expected_prompt_sha256": "c822699f223fa4ec8297f5149ab49c386457a2b06839ab709f508bff9cd8e743",
       "human_rubric": [
         "The reference fidelity instructions preserve pose, crop, lighting, and setting.",
         "The instruction requests one standalone image and leaves identity to Soul ID."

@@ -21,6 +21,7 @@ from reel_factory.worker_api import (
 from pipeline_contracts import validate_reference_video_motion_analysis
 
 from .recreation_modes import plan_recreation
+from .recreation_prompting import build_openai_prompt_pack
 from .reference_audio_intake import (
     inspect_reference_audio,
     load_reference_audio_occurrence,
@@ -43,6 +44,7 @@ def run_reference_analysis(
     through: str | None = "analyze",
     audio_policy: str = "auto",
     max_credits: float | None = None,
+    creator_image_path: Path | None = None,
     apply: bool,
 ) -> dict[str, Any]:
     if apply and not reference_authorized:
@@ -190,6 +192,31 @@ def run_reference_analysis(
             ],
         }
         if through != "analyze":
+            if creator_image_path is None:
+                raise ValueError(
+                    "--creator-image is required for prompt-driven recreation"
+                )
+            prompt_pack = build_openai_prompt_pack(
+                creator=creator,
+                creator_image=creator_image_path,
+                intent="recreate_reel",
+                reference_video=source,
+                external_call_authorized=apply,
+            )
+            prompt_cache = prompt_pack.get("cache") or {}
+            prompt_call_made = prompt_cache.get("providerCallMade") is True
+            prompt_planning = prompt_pack.get("promptPlanning") or {}
+            prompt_cost = prompt_planning.get("cost") or {
+                "status": "not_exposed",
+                "usd": None,
+            }
+            if not prompt_call_made:
+                prompt_cost = {"status": "cache_hit", "usd": 0.0}
+            result["promptProviderCalls"] = int(prompt_call_made)
+            result["providerCalls"] += int(prompt_call_made)
+            result["promptPack"] = prompt_pack
+            result["promptPlanning"] = prompt_planning
+            result["promptSpend"] = prompt_cost
             result["recreation"] = plan_recreation(
                 creator=creator,
                 source_video=source,
@@ -198,13 +225,31 @@ def run_reference_analysis(
                 audio_policy=audio_policy,
                 through=through,
                 max_credits=max_credits,
+                prompt_pack=prompt_pack,
             )
             result["providerQuoteCalls"] = int(
                 _quote_provider_calls(result["recreation"])
             )
-            result["providerCalls"] = int(structural_analysis.get("providerCalls") or 0)
-            result["paidSpend"] = 0
+            result["providerCalls"] = int(
+                structural_analysis.get("providerCalls") or 0
+            ) + int(prompt_call_made)
+            result["paidSpend"] = prompt_cost.get("usd")
+            result["paidSpendStatus"] = prompt_cost.get("status")
             if apply:
+                prompt_path = (
+                    factory.settings.reference_reels_root
+                    / "prompt_packs"
+                    / f"{reference_id}.json"
+                )
+                prompt_path.parent.mkdir(parents=True, exist_ok=True)
+                os.chmod(prompt_path.parent, 0o700)
+                atomic_write_text(
+                    prompt_path,
+                    json.dumps(prompt_pack, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                os.chmod(prompt_path, 0o600)
+                result["promptPackPath"] = str(prompt_path)
                 result["applyStatus"] = "ANALYSIS_PERSISTED_ANCHOR_REVIEW_REQUIRED"
                 result["paidExecutionBlocked"] = True
         return result

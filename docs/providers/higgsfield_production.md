@@ -9,8 +9,8 @@ what Creator OS can offer.
 | Intent | Pinned implementation | Product status |
 | --- | --- | --- |
 | `soul_static` | Soul 2.0 still plus deterministic local static MP4 | SUPPORTED |
-| `passive_selfie` | Kling 3 (`kling3_0`) or Seedance 2 (`seedance_2_0`) | SUPPORTED |
-| `recreate_reel` | Seedance 2 Fast (`seedance_2_0`, `mode=fast`) with a first-frame-matched creator anchor, bound creator Element, and one private motion reference | EXPERIMENTAL |
+| `passive_selfie` | Kling 3 Turbo (`kling3_0_turbo`) or Seedance 2 (`seedance_2_0`) with an OpenAI-authored model-specific prompt | SUPPORTED |
+| `recreate_reel` | Seedance 2 Fast (`seedance_2_0`, `mode=fast`) with one approved creator anchor and an OpenAI-authored action/timing prompt | EXPERIMENTAL |
 | `talking_selfie` | No exact supplied-audio contract exposed | UNRESOLVED |
 | `motion_copy` / `dance` | No operator-approved distinct transfer recipe | UNRESOLVED |
 | `talking_motion` | Requires both approved motion and supplied-audio lip-sync | UNRESOLVED |
@@ -20,19 +20,20 @@ creator intent, not provider/model identifiers. A failed or ambiguous
 Higgsfield call is retained for reconciliation and is never silently retried
 or routed to WaveSpeed.
 
-`recreate_reel` is a bounded structural recreation, not precision motion copy.
-It retains the private reference path and SHA, extracts the clean opening frame,
+`recreate_reel` is a bounded prompt-driven recreation, not precision motion copy.
+It retains the private reference path and SHA, extracts clean frames for analysis,
 records source writing separately with timestamped OCR evidence, and obtains a
-contract-shaped motion-only timeline. The selected creator anchor is generated
-from the clean opening frame rather than a generic portrait. Seedance receives
-the approved anchor through `image_references`, the inspiration Reel only
-through `video_references`, and the matching creator Element first in the prompt.
-It never receives the driving video as `start_image`.
+contract-shaped motion-only timeline. OpenAI observes the approved creator
+image and chronological Reel frames, then writes the Soul anchor prompt and
+separate Seedance/Kling prompts. Seedance or Kling receives only the approved
+anchor plus its prompt. Soul generation is text-only so its prompt is not
+discarded by reference-image force enhancement. The inspiration Reel is retained as exact lineage and
+audio evidence but is not sent to the video provider.
 
 The authenticated CLI contract exposes `seedance_2_0` with `mode=fast`; Fast is
 a mode of that model, not a separate model ID. Recreation is fixed to 9:16,
-480p, high bitrate, 4–15 seconds, and `generate_audio=false`. The prompt starts
-with the matching creator Element instruction, then adds only the
+480p, high bitrate, 4–15 seconds, and `generate_audio=false`. The prompt
+explicitly binds the approved anchor as the exact person and includes the
 timestamped motion/camera breakdown. OCR-recognized source writing remains
 evidence and is stripped from the generation prompt so the clean video can use
 different Reel Factory overlays later. Seedance Mini remains blocked for
@@ -43,7 +44,7 @@ completed character Elements for Stacey, Larissa, and Lola. Creator OS resolves
 those private bindings by creator name and fails closed if either identity
 binding is absent or mismatched.
 
-Kling 3 runs with `sound=off`; Seedance 2 runs with
+Kling 3 Turbo output is treated as silent; Seedance 2 runs with
 `generate_audio=false`. Creator OS then selects a duration-compatible Audio
 Radar segment, embeds and verifies AAC, and binds the audio receipt to the exact
 final MP4 SHA.
@@ -86,11 +87,12 @@ Normal production remains intent-first:
 ```bash
 scripts/creator-os create \
   --creator stacey \
-  --intent passive_selfie \
+  --mode calm_animation \
+  --style passive_selfie \
   --count 3 \
   --execution cloud \
   --accounts bennett_s33 \
-  --audio embedded_trending \
+  --audio embedded_trending_required \
   --max-credits 100 \
   --apply
 ```
@@ -99,6 +101,13 @@ Every job binds its creator, Soul ID, source asset/SHA, expanded prompt, pinned
 model/tool, seed, quote, authorization, generation ID, provider receipt, output
 SHA, technical QC, and final audio-bound media SHA. The command cannot schedule
 or publish.
+
+OpenAI prompt planning is cached before Higgsfield quoting by exact input hashes,
+model, intent, builder version, instruction, and response schema. Its receipt
+retains token usage and dollar-cost status separately from Higgsfield credits;
+an unexposed dollar cost remains unknown. Cache misses require the current
+create operation's explicit `--apply` authorization, are limited to one prompt
+call, and record that authorization plus the current-run call count.
 
 Historical WaveSpeed models, receipts, rows, hashes, and media remain readable
 for audit and migration. They are absent from normal create, active paid
@@ -110,8 +119,9 @@ before any paid visual-generation request:
 ```bash
 scripts/creator-os create \
   --creator stacey \
-  --intent recreate_reel \
+  --mode recreate_reel \
   --reference-url 'https://www.instagram.com/reel/...' \
+  --creator-image /private/path/approved-creator.png \
   --recreate-mode auto \
   --through analyze \
   --audio auto
@@ -138,25 +148,22 @@ The local-file recreation path is identical:
 ```bash
 scripts/creator-os create \
   --creator stacey \
-  --intent recreate_reel \
+  --mode recreate_reel \
   --reference-video /private/path/reference.mp4 \
+  --creator-image /private/path/approved-creator.png \
   --reference-platform instagram \
   --reference-authorized \
   --recreate-mode auto \
   --audio auto
 ```
 
-The mode contracts are:
+The recreation contracts are:
 
-- `passive`: accepted Kling 3 passive motion after anchor approval, sound off;
-- `motion`: current authenticated `kling3_0_motion_control` contract with one
-  image reference, one video reference, `background_source=input_image`, and
-  Pro mode; experimental and never an AUTO submission;
-- `structural`: first-frame-matched creator anchor plus matching creator Element and
-  motion-only video reference, Seedance 2 Fast at 480p/high bitrate, generated
-  audio off; identity remains a mandatory operator verdict;
-- `first_last`: two reviewed Soul anchors into Kling 3 start/end, sound off;
-- `talking`: `talking_route_not_entitled`, with no Veo/Seedance fallback.
+- `calm`: Kling 3 Turbo at 720p from the approved anchor and OpenAI prompt;
+- `structural`: Seedance 2 Fast at 480p/high bitrate from the approved anchor and
+  OpenAI prompt, with generated audio off;
+- `auto`: select between those two from the reference analysis. Motion Control
+  and old compatibility aliases are not exposed.
 
 Dry-run may call authenticated cost/catalog surfaces but creates no spend
 authorization and submits no generation. Paid steps require the existing

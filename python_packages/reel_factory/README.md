@@ -32,55 +32,36 @@ and downstream asset IDs remain in lineage. Motion is never the only output;
 the static fallback survives a local or remote generation failure.
 
 The count-one `recreate_reel` planner may provide a reviewed Soul anchor plus a
-private reference excerpt to a truthfully matched Higgsfield recipe. Passive
-Kling is accepted; structural Seedance, Motion Control, and first/last are
-experimental and never silently submitted by AUTO. Talking remains blocked
-without exact supplied-voice entitlement.
+private reference excerpt to a truthfully matched Higgsfield recipe. Calm
+recreation uses Kling 3 Turbo; structural recreation uses Seedance Fast.
+Motion Control is not part of the product path.
 
 ## Operator Commands
 
-Use the intent-first monorepo command for normal work:
+Creator OS automatically reuses an exact approved, audited, audio-complete Reel
+without changing its bytes before it calls OpenAI, Soul, Kling, or Seedance.
+Use `--reuse-policy require_fresh` to bypass reuse. Otherwise choose one of the
+three product modes:
 
 ```bash
 scripts/creator-os create \
-  --creator stacey --intent passive_selfie --count 3 \
+  --creator stacey --mode static_reel --style passive_selfie --count 3 \
   --execution cloud --accounts bennett_s33 \
   --audio embedded_trending
+
+scripts/creator-os create \
+  --creator stacey --mode calm_animation --style passive_selfie \
+  --count 1 --audio embedded_trending
+
+scripts/creator-os create \
+  --creator stacey --mode recreate_reel \
+  --reference-video /path/to/reference.mp4 \
+  --creator-image /path/to/approved-creator.png \
+  --recreate-mode auto --reference-authorized --audio auto
 ```
 
-The explicit-mode commands below are advanced/manual compatibility and local
-research surfaces, not the normal production path:
-
-```bash
-scripts/creator-os generate --mode soul_static --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/accepted.png
-
-scripts/creator-os generate --mode soul_static --apply --confirm-paid \
-  --target Stacey --workspace "$PWD" --campaign campaign_slug \
-  --reference-image /path/to/reference.png --max-credits 2 --wait --download
-
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/accepted.png \
-  --motion-model local_wan22_ti2v_5b_mlx \
-  --motion-prompt "She shifts her posture, turns toward the camera, and adjusts her hair" \
-  --enable-prompt-expansion
-
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/accepted.png \
-  --motion-model local_ltx23_distilled_mlx \
-  --motion-task image_to_video --generate-audio \
-  --motion-prompt "Natural movement with synchronized room sound"
-
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/portrait.png \
-  --motion-model local_longcat_avatar15_q4_mlx \
-  --motion-task audio_image_to_video --audio /path/to/dialogue.wav \
-  --motion-prompt "Natural direct-to-camera delivery with stable identity"
-
-```
-
-The second command requires confirmation, target identity, exact checkout, and
-a finite native-credit cap. It still stops at local review-ready assets.
+Generation still stops at local review-ready assets. It does not schedule or
+publish.
 
 Package modules remain available for development and focused inspection:
 

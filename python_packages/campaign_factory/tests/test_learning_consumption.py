@@ -587,4 +587,6 @@ def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) ->
     assert batch["jobs"][0]["prompt"] == "Approved measured casual motion prompt."
     assert batch["learningDecision"]["learningInfluenced"] is True
     assert batch["provider"] == "higgsfield"
-    assert batch["jobs"][0]["productionRecipe"]["modelId"] == "higgsfield_kling3_i2v"
+    assert (
+        batch["jobs"][0]["productionRecipe"]["modelId"] == "higgsfield_kling3_turbo_i2v"
+    )

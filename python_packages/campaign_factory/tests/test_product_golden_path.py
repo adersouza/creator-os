@@ -29,7 +29,6 @@ from campaign_factory.production_lane import (
     _expand_production_job_prompt,
     _run_production_job,
     discover_production_audio_candidates,
-    fulfill_production_audio,
     plan_production_batch,
     run_production_batch,
 )
@@ -432,7 +431,7 @@ def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) ->
         audio_preference="embedded_trending",
     )
     assert {job["productionRecipe"]["modelId"] for job in batch["jobs"]} == {
-        "higgsfield_kling3_i2v"
+        "higgsfield_kling3_turbo_i2v"
     }
     assert batch["provider"] == "higgsfield"
     assert batch["providerQuoteStatus"] == "required_before_apply"
@@ -447,6 +446,49 @@ def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) ->
     assert all(job["compatibility"]["providerCalls"] == 0 for job in batch["jobs"])
     assert all(
         job["compiledPrompt"]["compiledPromptFingerprint"] for job in batch["jobs"]
+    )
+
+
+def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    def prompts(**kwargs):
+        calls.append(kwargs)
+        return {
+            "promptPackFingerprint": "f" * 64,
+            "anchorPrompt": "Calm vertical portrait.",
+            "seedancePrompt": "Seedance calm motion.",
+            "klingPrompt": "Kling calm motion.",
+            "promptPlanning": {
+                "builderVersion": "creator_os_openai_prompt_builder.v2",
+                "requestFingerprint": str(kwargs["creator_image"]),
+                "cost": {"status": "not_exposed", "usd": None},
+            },
+            "cache": {"status": "miss", "providerCallMade": True},
+        }
+
+    batch = plan_production_batch(
+        _production_factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=3,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+        prompt_pack_provider=prompts,
+    )
+
+    assert len(calls) == 2
+    assert all(call["external_call_authorized"] is False for call in calls)
+    assert {job["prompt"] for job in batch["jobs"]} == {"Kling calm motion."}
+    assert all(
+        job["promptCard"]["openaiPromptPackFingerprint"] == "f" * 64
+        for job in batch["jobs"]
+    )
+    assert len(batch["promptPlanning"]) == 2
+    assert all(
+        item["currentRunCost"] == {"status": "not_exposed", "usd": None}
+        for item in batch["promptPlanning"]
     )
 
 
@@ -500,72 +542,6 @@ def test_non_talking_production_requires_embedded_trending(tmp_path: Path) -> No
             _production_factory(tmp_path),
             creator="stacey",
             intent="passive_selfie",
-            count=1,
-            execution="cloud",
-            accounts="stacey-main",
-            audio_preference="creator_voice",
-        )
-
-
-def test_talking_job_cannot_enter_trending_embedding_path() -> None:
-    with pytest.raises(
-        ValueError,
-        match="talking intents require creator_voice",
-    ):
-        fulfill_production_audio(
-            SimpleNamespace(conn=None),
-            job={
-                "intent": "talking_selfie",
-                "audioPolicy": "embedded_trending_required",
-            },
-            generation_result={},
-        )
-
-
-@pytest.mark.parametrize(
-    ("intent", "error"),
-    [
-        ("motion_copy", "motion_copy_unresolved"),
-        ("dance", "motion_copy_unresolved"),
-        ("talking_selfie", "talking_selfie_unresolved"),
-        ("talking_motion_copy", "talking_motion_unresolved"),
-    ],
-)
-def test_unresolved_intents_fail_before_provider_planning(
-    tmp_path: Path,
-    intent: str,
-    error: str,
-) -> None:
-    speech = tmp_path / "speech.wav"
-    driving = tmp_path / "driving.mp4"
-    speech.write_bytes(b"speech")
-    driving.write_bytes(b"driving")
-    with pytest.raises(ValueError, match=error):
-        plan_production_batch(
-            _production_factory(tmp_path),
-            creator="stacey",
-            intent=intent,
-            count=1,
-            execution="cloud",
-            accounts="stacey-main",
-            audio_preference=(
-                "creator_voice" if intent.startswith("talking") else "none"
-            ),
-            speech_audio_path=speech if intent.startswith("talking") else None,
-            motion_reference_path=(
-                driving
-                if intent in {"motion_copy", "dance", "talking_motion_copy"}
-                else None
-            ),
-        )
-
-
-def test_talking_inputs_fail_before_any_paid_submission(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="talking_selfie_unresolved"):
-        plan_production_batch(
-            _production_factory(tmp_path),
-            creator="stacey",
-            intent="talking_selfie",
             count=1,
             execution="cloud",
             accounts="stacey-main",
@@ -971,20 +947,22 @@ def test_cloud_batch_spend_cap_blocks_before_provider_submission(
     assert provider_called is False
 
 
-def test_invalid_passive_recipe_configuration_fails_closed(
+def test_passive_recipe_cannot_be_overridden_by_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("CREATOR_OS_PASSIVE_VIDEO_RECIPE", "wavespeed_anything")
-    with pytest.raises(ValueError, match="must pin one operator-approved"):
-        plan_production_batch(
-            _production_factory(tmp_path),
-            creator="stacey",
-            intent="passive_selfie",
-            count=1,
-            execution="cloud",
-            accounts="stacey-main",
-            audio_preference="embedded_trending",
-        )
+    batch = plan_production_batch(
+        _production_factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+    )
+    assert (
+        batch["jobs"][0]["productionRecipe"]["modelId"] == "higgsfield_kling3_turbo_i2v"
+    )
 
 
 def test_higgsfield_create_does_not_require_wavespeed_credentials(

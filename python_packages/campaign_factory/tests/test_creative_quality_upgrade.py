@@ -66,7 +66,9 @@ def test_compiled_prompt_preserves_identity_and_safety_constraints() -> None:
     compiled = compile_passive_prompt_card(card, base_prompt="Subtle gaze movement.")
     assert "Preserve the same person, outfit, setting, pose family" in compiled["text"]
     assert "Keep the full head and face visible" in compiled["text"]
-    assert "generated music and ambient audio must remain disabled" in compiled["text"]
+    assert "Provider output stays silent" in compiled["text"]
+    assert "negativeConstraints" not in card
+    assert "continuityRequirements" in card
 
 
 def test_compatibility_is_advisory_without_model_switch_or_provider_calls() -> None:
@@ -157,7 +159,7 @@ def test_prompt_card_rejects_non_passive_compilation() -> None:
     source = _source()
     card = build_creative_direction_prompt_card(
         creator="stacey",
-        intent="motion_copy",
+        intent="recreate_reel",
         source=source,
         observed_facts={},
     )

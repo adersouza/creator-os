@@ -29,7 +29,7 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
     assert "component" not in result.stdout
     assert "campaign-prepare" not in result.stdout
     assert "create" in result.stdout
-    assert "generate" in result.stdout
+    assert "generate" not in result.stdout
     assert "export (draft-export)" in result.stdout
     for ordinary in ("create", "review", "approve", "export", "promote", "advanced"):
         assert ordinary in result.stdout
@@ -43,51 +43,6 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
         assert compatibility_diagnostic not in result.stdout
     assert "paid-generation" not in result.stdout
     assert "static-reel" not in result.stdout
-
-
-@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "0", "-1"])
-def test_wavespeed_generation_requires_a_positive_finite_usd_cap(
-    value: str, tmp_path: Path
-) -> None:
-    result = _run(
-        "generate",
-        "--mode",
-        "best_motion",
-        "--apply",
-        "--confirm-paid",
-        "--workspace",
-        str(ROOT),
-        "--campaign",
-        "campaign",
-        "--accepted-still",
-        str(tmp_path / "accepted.png"),
-        "--motion-prompt",
-        "Natural breathing and a gentle camera push toward the subject",
-        f"--max-usd={value}",
-    )
-
-    assert result.returncode == 2
-    assert "finite and greater than zero" in result.stderr
-
-
-@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "0", "-1"])
-def test_static_reel_requires_a_positive_finite_duration(
-    value: str, tmp_path: Path
-) -> None:
-    result = _run(
-        "generate",
-        "--mode",
-        "soul_static",
-        "--dry-run",
-        "--campaign",
-        "campaign",
-        "--accepted-still",
-        str(tmp_path / "accepted.png"),
-        f"--duration={value}",
-    )
-
-    assert result.returncode == 2
-    assert "finite and greater than zero" in result.stderr
 
 
 def test_draft_export_forces_draft_mode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,33 +75,6 @@ def test_draft_export_forces_draft_mode(monkeypatch: pytest.MonkeyPatch) -> None
     assert command[command.index("--schedule-mode") + 1] == "draft"
     assert "live" not in command
     assert "publish" not in " ".join(command)
-
-
-def test_generate_list_modes_uses_read_only_campaign_catalog(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    monkeypatch.setitem(namespace, "_run", fake_run)
-    namespace["main"].__globals__["_run"] = fake_run
-
-    assert namespace["main"](["generate", "--list-modes"]) == 0
-    assert commands == [
-        [
-            "uv",
-            "run",
-            "--package",
-            "campaign-factory",
-            "campaign-factory",
-            "generation",
-            "modes",
-        ]
-    ]
 
 
 def test_status_and_doctor_use_the_exact_project_venv(
@@ -228,7 +156,7 @@ def test_audio_refresh_routes_to_bounded_audio_radar_command(
     ]
 
 
-def test_create_routes_intent_to_production_batch_without_internal_paths(
+def test_create_routes_mode_to_production_batch_without_internal_paths(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -246,7 +174,9 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
                 "create",
                 "--creator",
                 "stacey",
-                "--intent",
+                "--mode",
+                "calm_animation",
+                "--style",
                 "passive_selfie",
                 "--count",
                 "4",
@@ -259,11 +189,13 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
         == 0
     )
     command = commands[0]
-    assert command[-13:] == [
+    assert command[-17:] == [
         "create",
         "--creator",
         "stacey",
-        "--intent",
+        "--mode",
+        "calm_animation",
+        "--style",
         "passive_selfie",
         "--count",
         "4",
@@ -271,6 +203,8 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
         "cloud",
         "--audio",
         "embedded_trending_required",
+        "--reuse-policy",
+        "prefer_exact",
         "--accounts",
         "stacey-main",
     ]
@@ -296,12 +230,12 @@ def test_create_routes_reference_url_analysis_without_provider_inputs(
                 "create",
                 "--creator",
                 "stacey",
-                "--intent",
+                "--mode",
                 "recreate_reel",
                 "--reference-url",
                 "https://www.instagram.com/reel/DbQdqWFIvKQ/",
                 "--recreate-mode",
-                "auto",
+                "structural",
                 "--through",
                 "analyze",
                 "--reference-non-talking",
@@ -315,7 +249,7 @@ def test_create_routes_reference_url_analysis_without_provider_inputs(
     )
     command = commands[0]
     assert "--reference-url" in command
-    assert command[command.index("--recreate-mode") + 1] == "auto"
+    assert command[command.index("--recreate-mode") + 1] == "structural"
     assert command[command.index("--through") + 1] == "analyze"
     assert "--reference-non-talking" in command
     assert (
@@ -323,22 +257,6 @@ def test_create_routes_reference_url_analysis_without_provider_inputs(
     )
     assert "--apply" not in command
     assert "--soul-id" not in command
-
-
-def test_generate_alias_is_explicitly_deprecated(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    namespace["main"].__globals__["_run"] = fake_run
-    assert namespace["main"](["generate", "--list-modes"]) == 0
-    assert commands[0][-2:] == ["generation", "modes"]
-    assert "deprecated advanced compatibility command" in capsys.readouterr().err
 
 
 def test_export_is_canonical_and_draft_export_remains_deprecated(
@@ -366,32 +284,6 @@ def test_export_is_canonical_and_draft_export_remains_deprecated(
     assert namespace["main"](["draft-export", *common]) == 0
     assert "deprecated: use `creator-os export`" in capsys.readouterr().err
     assert len(commands) == 2
-
-
-def test_advanced_queue_keeps_diagnostics_without_a_second_control_plane(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    namespace["main"].__globals__["_run"] = fake_run
-    assert namespace["main"](["advanced", "queue", "status"]) == 0
-    assert commands == [
-        [
-            "uv",
-            "run",
-            "--package",
-            "reel-factory",
-            "python",
-            "-m",
-            "reel_factory.local_generation_queue",
-            "status",
-        ]
-    ]
 
 
 def test_advanced_analyzers_without_args_emits_the_registry(
@@ -581,75 +473,8 @@ def test_promote_requires_an_explicit_runtime_checkout() -> None:
 
 
 @pytest.mark.parametrize(
-    ("operator_command", "module", "forwarded", "uv_scope"),
-    [
-        (
-            "local-queue",
-            "reel_factory.local_generation_queue",
-            ["status"],
-            ["--package", "reel-factory"],
-        ),
-        (
-            "local-benchmarks",
-            "reel_factory.local_model_benchmark",
-            ["status"],
-            ["--all-packages"],
-        ),
-    ],
-)
-def test_local_operator_surfaces_route_only_to_reel_factory_modules(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    operator_command: str,
-    module: str,
-    forwarded: list[str],
-    uv_scope: list[str],
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    monkeypatch.setitem(namespace, "_run", fake_run)
-    namespace["main"].__globals__["_run"] = fake_run
-
-    assert namespace["main"]([operator_command, *forwarded]) == 0
-    assert commands == [
-        [
-            "uv",
-            "run",
-            *uv_scope,
-            "python",
-            "-m",
-            module,
-            *forwarded,
-        ]
-    ]
-    assert "deprecated: use `creator-os advanced" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize(
     ("surface", "module", "uv_options"),
     [
-        (
-            "benchmarks",
-            "reel_factory.local_model_benchmark",
-            ["--all-packages"],
-        ),
-        (
-            "arena",
-            "reel_factory.local_model_arena",
-            [
-                "--isolated",
-                "--offline",
-                "--locked",
-                "--all-packages",
-                "--extra",
-                "identity",
-            ],
-        ),
         (
             "identity",
             "reel_factory.identity_verification",
@@ -661,11 +486,6 @@ def test_local_operator_surfaces_route_only_to_reel_factory_modules(
                 "--extra",
                 "identity",
             ],
-        ),
-        (
-            "router",
-            "reel_factory.local_model_router",
-            ["--all-packages"],
         ),
     ],
 )
@@ -748,147 +568,3 @@ def test_motion_qc_register_routes_exact_asset_and_receipt_to_campaign_factory(
     assert "deprecated: use `creator-os advanced motion-qc-register`" in (
         capsys.readouterr().err
     )
-
-
-def test_generate_requires_explicit_mode() -> None:
-    result = _run("generate", "--dry-run", "--campaign", "campaign")
-
-    assert result.returncode == 2
-    assert "--mode MODE | --list-modes" in result.stderr
-
-
-def test_generate_routes_explicit_mode_to_campaign_factory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    monkeypatch.setitem(namespace, "_run", fake_run)
-    namespace["main"].__globals__["_run"] = fake_run
-
-    assert (
-        namespace["main"](
-            [
-                "generate",
-                "--mode",
-                "reference_video_remix",
-                "--dry-run",
-                "--campaign",
-                "campaign",
-                "--reference-video",
-                str(tmp_path / "reference.mp4"),
-                "--target",
-                "Stacey",
-                "--soul-id",
-                "soul_1",
-                "--workspace",
-                str(ROOT),
-            ]
-        )
-        == 0
-    )
-    command = commands[0]
-    assert command[:6] == [
-        "uv",
-        "run",
-        "--package",
-        "campaign-factory",
-        "campaign-factory",
-        "generation",
-    ]
-    assert command[6:10] == ["run", "--mode", "reference_video_remix", "--campaign"]
-
-
-def test_generate_forwards_exact_wavespeed_model_and_spend_inputs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    monkeypatch.setitem(namespace, "_run", fake_run)
-    namespace["main"].__globals__["_run"] = fake_run
-    assert (
-        namespace["main"](
-            [
-                "generate",
-                "--mode",
-                "best_motion",
-                "--dry-run",
-                "--campaign",
-                "campaign",
-                "--accepted-still",
-                str(tmp_path / "accepted.jpg"),
-                "--motion-model",
-                "wavespeed_wan27_i2v_pro",
-                "--motion-prompt",
-                "Natural breathing and a gentle camera push toward the subject",
-                "--resolution",
-                "1080p",
-                "--duration",
-                "5",
-                "--seed",
-                "71",
-                "--max-usd",
-                "0.60",
-            ]
-        )
-        == 0
-    )
-    command = commands[0]
-    assert command[command.index("--motion-model") + 1] == ("wavespeed_wan27_i2v_pro")
-    assert command[command.index("--max-usd") + 1] == "0.6"
-    assert command[command.index("--seed") + 1] == "71"
-    assert "--dry-run" in command
-    assert "publish" not in " ".join(command)
-
-
-def test_generate_forwards_exact_local_retake_inputs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    namespace = runpy.run_path(str(CLI))
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
-        commands.append(command)
-        return 0
-
-    monkeypatch.setitem(namespace, "_run", fake_run)
-    namespace["main"].__globals__["_run"] = fake_run
-    source = tmp_path / "source.mp4"
-    assert (
-        namespace["main"](
-            [
-                "generate",
-                "--mode",
-                "local_wan",
-                "--dry-run",
-                "--campaign",
-                "campaign",
-                "--source-video",
-                str(source),
-                "--motion-task",
-                "video_retake",
-                "--retake-start-frame",
-                "10",
-                "--retake-end-frame",
-                "30",
-                "--preserve-audio",
-            ]
-        )
-        == 0
-    )
-    command = commands[0]
-    assert command[command.index("--source-video") + 1] == str(source.resolve())
-    assert command[command.index("--motion-task") + 1] == "video_retake"
-    assert command[command.index("--retake-start-frame") + 1] == "10"
-    assert command[command.index("--retake-end-frame") + 1] == "30"
-    assert "--preserve-audio" in command
-    assert "--accepted-still" not in command

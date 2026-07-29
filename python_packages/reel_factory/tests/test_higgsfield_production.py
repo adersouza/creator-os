@@ -42,6 +42,10 @@ def _capabilities() -> dict[str, Any]:
             for creator in ("stacey", "larissa", "lola")
         ],
         "models": [
+            {
+                "job_type": "kling3_0_turbo",
+                "display_name": "Kling v3.0 Turbo",
+            },
             {"job_type": "kling3_0", "display_name": "Kling v3.0"},
             {
                 "job_type": "seedance_2_0_mini",
@@ -100,6 +104,7 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
                 "items": [
                     {"job_type": value, "display_name": value}
                     for value in (
+                        "kling3_0_turbo",
                         "kling3_0",
                         "seedance_2_0_mini",
                         "seedance_2_0",
@@ -109,6 +114,7 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
                 ]
             },
             {"items": [{"job_type": "voice_change"}]},
+            {"job_type": "kling3_0_turbo", "params": [{"name": "resolution"}]},
             {"job_type": "kling3_0", "params": [{"name": "sound"}]},
             {
                 "job_type": "seedance_2_0_mini",
@@ -147,6 +153,7 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
     )
     assert result["candidates"]["higgsfield_talking_veo"]["status"] == "experimental"
     assert set(result["contracts"]) == {
+        "kling3_0_turbo",
         "kling3_0",
         "seedance_2_0_mini",
         "seedance_2_0",
@@ -179,6 +186,18 @@ def test_passive_plan_uses_silent_kling_contract(tmp_path: Path) -> None:
     ]
     assert plan["schedulingAllowed"] is False
     assert plan["publishingAllowed"] is False
+
+
+def test_passive_plan_uses_kling_turbo_at_720p(tmp_path: Path) -> None:
+    plan = subject.build_higgsfield_production_plan(
+        _request(tmp_path, model="kling3_0_turbo"),
+        capabilities=_capabilities(),
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+    )
+
+    assert plan["command"][3] == "kling3_0_turbo"
+    assert plan["command"][plan["command"].index("--resolution") + 1] == "720p"
+    assert "--sound" not in plan["command"]
 
 
 def test_motion_control_qualification_plan_uses_exact_contract(

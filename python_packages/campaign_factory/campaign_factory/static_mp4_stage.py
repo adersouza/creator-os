@@ -107,6 +107,20 @@ def run_static_mp4_stage(
                 source_asset=source_asset,
                 render=render,
             )
+        generation_attempt_id = (
+            _ensure_static_generation_lineage(
+                factory,
+                campaign_id=campaign["id"],
+                pipeline_job_id=pipeline_job["id"],
+                source_asset_id=source_asset["id"],
+                source_sha256=still_fingerprint,
+                registered_asset=registered_asset,
+                render=render,
+                reused=reused,
+            )
+            if registered_asset is not None
+            else None
+        )
         result = {
             "schema": "campaign_factory.static_mp4_stage_run.v1",
             "campaign": campaign_slug,
@@ -117,6 +131,7 @@ def run_static_mp4_stage(
             "reused": reused,
             "render": render,
             "registeredAsset": registered_asset,
+            "generationAttemptId": generation_attempt_id,
             "pipelineJobId": pipeline_job["id"],
         }
         factory.domains.events.finish_pipeline_job(
@@ -126,6 +141,120 @@ def run_static_mp4_stage(
     except Exception as exc:
         factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
+
+
+def _ensure_static_generation_lineage(
+    factory: Any,
+    *,
+    campaign_id: str,
+    pipeline_job_id: str,
+    source_asset_id: str,
+    source_sha256: str,
+    registered_asset: dict[str, Any],
+    render: dict[str, Any],
+    reused: bool,
+) -> str:
+    rendered_asset_id = str(registered_asset["id"])
+    existing = factory.conn.execute(
+        """
+        SELECT id
+        FROM generation_attempts
+        WHERE rendered_asset_id = ?
+        ORDER BY created_at, id
+        LIMIT 1
+        """,
+        (rendered_asset_id,),
+    ).fetchone()
+    if existing is not None:
+        return str(existing["id"])
+
+    output_path = Path(str(registered_asset["output_path"])).expanduser().resolve()
+    if not output_path.is_file() or output_path.is_symlink():
+        raise FileNotFoundError(f"registered static MP4 is unsafe: {output_path}")
+    output_sha256 = sha256_file(output_path)
+    if output_sha256 != str(registered_asset["content_hash"]):
+        raise RuntimeError("registered static MP4 content hash mismatch")
+    now = utc_now()
+    blob = factory.conn.execute(
+        "SELECT id FROM generation_output_blobs WHERE content_sha256 = ?",
+        (output_sha256,),
+    ).fetchone()
+    blob_id = str(blob["id"]) if blob is not None else f"blob_{output_sha256}"
+    attempt_id = new_id("generation_attempt")
+    request = {
+        "sourceAssetId": source_asset_id,
+        "sourceSha256": source_sha256,
+        "outputSha256": output_sha256,
+        "durationSeconds": render["durationSeconds"],
+    }
+    request_fingerprint = hashlib.sha256(
+        json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    lineage = {
+        "schema": "campaign_factory.generation_lineage_edge.v1",
+        "modelId": "reel_factory.static_mp4",
+        "motionTask": "static_image_mp4",
+        "requestFingerprint": request_fingerprint,
+        "source": {
+            "assetId": source_asset_id,
+            "sha256": source_sha256,
+            "role": "generation_input",
+        },
+        "output": {"blobId": blob_id, "sha256": output_sha256},
+    }
+    with factory.conn:
+        factory.conn.execute(
+            """
+            INSERT OR IGNORE INTO generation_output_blobs
+            (id, content_sha256, byte_size, media_type, created_at)
+            VALUES (?, ?, ?, 'video', ?)
+            """,
+            (blob_id, output_sha256, output_path.stat().st_size, now),
+        )
+        factory.conn.execute(
+            """
+            INSERT INTO generation_attempts
+            (id, campaign_id, pipeline_job_id, source_asset_id, rendered_asset_id,
+             output_blob_id, request_fingerprint, model_id, motion_task, prompt_sha256,
+             source_sha256, admission_fingerprint, input_json, worker_result_json,
+             attempted_output_path, duplicate_disposition, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'reel_factory.static_mp4',
+                    'static_image_mp4', NULL, ?, NULL, ?, ?, ?, ?, ?)
+            """,
+            (
+                attempt_id,
+                campaign_id,
+                pipeline_job_id,
+                source_asset_id,
+                rendered_asset_id,
+                blob_id,
+                request_fingerprint,
+                source_sha256,
+                json.dumps(request, sort_keys=True),
+                json.dumps(sanitize_for_storage(render), sort_keys=True),
+                str(output_path),
+                "reused_canonical_path" if reused else "canonical_output",
+                now,
+            ),
+        )
+        factory.conn.execute(
+            """
+            INSERT INTO generation_lineage_edges
+            (id, generation_attempt_id, source_asset_id, rendered_asset_id,
+             output_blob_id, relation, lineage_json, created_at)
+            VALUES (?, ?, ?, ?, ?, 'generated_output', ?, ?)
+            """,
+            (
+                new_id("generation_edge"),
+                attempt_id,
+                source_asset_id,
+                rendered_asset_id,
+                blob_id,
+                json.dumps(sanitize_for_storage(lineage), sort_keys=True),
+                now,
+            ),
+        )
+    return attempt_id
 
 
 def _invoke_reel_factory_static_mp4(

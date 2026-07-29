@@ -8,13 +8,9 @@ from .contracts import validate_generation_execution_plan
 SCHEMA = "campaign_factory.generation_execution_plan.v1"
 
 CreativeMode = Literal[
-    "library_reuse",
     "soul_static",
     "local_wan",
     "best_motion",
-    "motion_edit",
-    "best_only_kling",
-    "reference_video_remix",
 ]
 
 
@@ -86,22 +82,6 @@ class GenerationExecutionPlan:
 
 
 _PLANS: dict[str, GenerationExecutionPlan] = {
-    "library_reuse": GenerationExecutionPlan(
-        creative_mode="library_reuse",
-        still_strategy="owned_library_asset",
-        motion_strategy="library_existing_media",
-        cost_classification="free",
-        providers=(),
-        models=(),
-        required_approvals=("human_asset_approval",),
-        provider_authorization="forbidden",
-        required_lineage=("campaign_factory.owned_library_lineage.v1",),
-        qc_requirements=("contentforge_quality", "human_asset_review"),
-        static_fallback_behavior="not_required",
-        allowed_output_surface="campaign_review",
-        paid_image_generation=False,
-        paid_video_generation=False,
-    ),
     "soul_static": GenerationExecutionPlan(
         creative_mode="soul_static",
         still_strategy="soul_reference_pair",
@@ -184,89 +164,6 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
         paid_image_generation=False,
         paid_video_generation=True,
     ),
-    "motion_edit": GenerationExecutionPlan(
-        creative_mode="motion_edit",
-        still_strategy="accepted_still",
-        motion_strategy="local_motion_edit",
-        cost_classification="free",
-        providers=("local",),
-        models=("ffmpeg", "static_mp4"),
-        required_approvals=("human_still_approval",),
-        provider_authorization="forbidden",
-        required_lineage=(
-            "reel_factory.motion_edit_render.v1",
-            "reel_factory.generated_asset_lineage.v2",
-        ),
-        qc_requirements=(
-            "caption_placement",
-            "contentforge_quality",
-            "human_final_review",
-        ),
-        static_fallback_behavior="required_before_motion",
-        allowed_output_surface="campaign_review",
-        paid_image_generation=False,
-        paid_video_generation=False,
-    ),
-    "best_only_kling": GenerationExecutionPlan(
-        creative_mode="best_only_kling",
-        still_strategy="accepted_rank_one_still",
-        motion_strategy="kling_best_only",
-        cost_classification="paid_video",
-        providers=("higgsfield", "kling"),
-        models=("kling3_0", "static_mp4"),
-        required_approvals=(
-            "human_still_approval",
-            "contentforge_approval",
-            "rank_one_selection_receipt",
-            "paid_generation",
-        ),
-        provider_authorization="required_per_paid_call",
-        required_lineage=(
-            "reel_factory.generation_worker_lineage.v1",
-            "reel_factory.generated_asset_lineage.v2",
-        ),
-        qc_requirements=(
-            "contentforge_quality",
-            "rank_one_selection",
-            "human_final_review",
-        ),
-        static_fallback_behavior="required_before_paid_motion",
-        allowed_output_surface="campaign_review",
-        paid_image_generation=False,
-        paid_video_generation=True,
-    ),
-    "reference_video_remix": GenerationExecutionPlan(
-        creative_mode="reference_video_remix",
-        still_strategy="soul_endpoint_pair",
-        motion_strategy="seedance_or_kling_remix",
-        cost_classification="paid_still_and_video",
-        providers=("higgsfield", "seedance", "kling"),
-        models=("soul_2", "seedance_2_0", "kling3_0", "static_mp4"),
-        required_approvals=(
-            "reference_rights",
-            "both_endpoint_frames",
-            "paid_generation",
-            "contentforge_approval",
-            "final_human_review",
-        ),
-        provider_authorization="required_per_paid_call",
-        required_lineage=(
-            "reel_factory.reference_video_motion_analysis.v1",
-            "reel_factory.reference_video_remix_plan.v1",
-            "reel_factory.generation_worker_lineage.v1",
-            "reel_factory.generated_asset_lineage.v2",
-        ),
-        qc_requirements=(
-            "single_shot_scene_detection",
-            "endpoint_frame_review",
-            "contentforge_quality",
-            "human_final_review",
-        ),
-        static_fallback_behavior="required_for_endpoint_candidates",
-        allowed_output_surface="campaign_review",
-        paid_image_generation=True,
-        paid_video_generation=True,
-    ),
 }
 
 
@@ -342,10 +239,4 @@ def authorize_paid_generation(
 
 
 def generation_execution_mode_ids() -> tuple[str, ...]:
-    return (
-        "library_reuse",
-        "soul_static",
-        "local_wan",
-        "best_motion",
-        "reference_video_remix",
-    )
+    return ("soul_static", "local_wan", "best_motion")

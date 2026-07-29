@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
+from scenedetect import ContentDetector, detect
 
 from .audio_policy import build_motion_audio_intent
 from .audio_radar import (
@@ -22,12 +23,13 @@ from .audio_radar import (
     embed_selected_audio,
     select_segment,
 )
-from .reference_video_remix_stage import detect_reference_video_scenes
 
 ANALYSIS_SCHEMA: Final = "campaign_factory.recreate_reel_analysis.v1"
 PROMPT_SCHEMA: Final = "campaign_factory.recreate_reel_prompt.v1"
 REVIEW_SCHEMA: Final = "campaign_factory.recreate_reel_review.v1"
 SUPPORTED_SUFFIXES: Final = frozenset({".mp4", ".mov", ".m4v", ".webm"})
+_SCENE_DETECT_THRESHOLD: Final = 27.0
+_SCENE_DETECT_MIN_LENGTH_FRAMES: Final = 15
 RECREATE_REEL_STAGE: Final[dict[str, Any]] = {
     "modelId": "higgsfield_seedance2_fast_recreate_reel",
     "providerModel": "seedance_2_0",
@@ -55,6 +57,40 @@ RECREATION_REVIEW_FIELDS: Final = (
     "obviousAiArtifacts",
     "audioSynchronization",
 )
+
+
+def detect_reference_video_scenes(path: Path) -> dict[str, Any]:
+    """Fail closed when the bounded reference contains a cut."""
+
+    try:
+        scenes = detect(
+            str(path),
+            ContentDetector(
+                threshold=_SCENE_DETECT_THRESHOLD,
+                min_scene_len=_SCENE_DETECT_MIN_LENGTH_FRAMES,
+            ),
+            show_progress=False,
+            start_in_scene=True,
+        )
+    except Exception as exc:
+        raise RuntimeError("reference video scene detection failed closed") from exc
+    if not scenes:
+        raise RuntimeError("reference video scene detection returned no scenes")
+    boundaries = [
+        {
+            "startSeconds": round(float(start.seconds), 6),
+            "endSeconds": round(float(end.seconds), 6),
+        }
+        for start, end in scenes
+    ]
+    return {
+        "detector": "pyscenedetect_content_detector",
+        "threshold": _SCENE_DETECT_THRESHOLD,
+        "minSceneLengthFrames": _SCENE_DETECT_MIN_LENGTH_FRAMES,
+        "shotCount": len(boundaries),
+        "hasCuts": len(boundaries) > 1,
+        "scenes": boundaries,
+    }
 
 
 def fulfill_reference_audio(

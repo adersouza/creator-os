@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -18,9 +17,10 @@ from pathlib import Path
 from typing import Any, Final
 
 from .production_prompts import CREATOR_SOUL_IDS
+from .recreation_prompting import validate_prompt_pack
 
 SCHEMA: Final = "campaign_factory.recreation_plan.v1"
-MODES: Final = ("auto", "passive", "motion", "structural", "first_last", "talking")
+MODES: Final = ("auto", "calm", "structural")
 CLASSIFICATIONS: Final = frozenset(
     {
         "passive_single_shot",
@@ -44,7 +44,6 @@ OPERATOR_WARNINGS: Final = frozenset(
         "identity_reset_required",
     }
 )
-_MOTION_CREDIT_RATE: Final = 3.2
 
 QuoteProvider = Callable[[str, dict[str, Any]], dict[str, Any]]
 
@@ -58,6 +57,7 @@ def plan_recreation(
     audio_policy: str,
     through: str | None,
     max_credits: float | None,
+    prompt_pack: dict[str, Any] | None = None,
     quote_provider: QuoteProvider | None = None,
 ) -> dict[str, Any]:
     """Build one stable public plan without exposing private Soul identifiers."""
@@ -98,7 +98,12 @@ def plan_recreation(
         mode=routed_mode,
         audio=audio,
     )
-    scene_prompt = _scene_prompt(reference, classification)
+    prompts = validate_prompt_pack(prompt_pack) if prompt_pack else None
+    scene_prompt = (
+        str(prompts["anchorPrompt"])
+        if prompts is not None
+        else _scene_prompt(reference, classification)
+    )
     identity_fingerprint = hashlib.sha256(
         CREATOR_SOUL_IDS[creator_key].encode()
     ).hexdigest()
@@ -113,14 +118,8 @@ def plan_recreation(
             }
         )[:20]
     )
-    anchor_count = 2 if routed_mode == "first_last" else 1
-    anchor_roles = (
-        ("opening", "ending")
-        if anchor_count == 2
-        else ("opening",)
-        if routed_mode in {"motion", "structural"}
-        else ("scene",)
-    )
+    anchor_count = 1
+    anchor_roles = ("opening",) if routed_mode == "structural" else ("scene",)
     anchor_requests = [
         _public_anchor_request(
             role=role,
@@ -133,11 +132,10 @@ def plan_recreation(
     ]
     video_request = _video_request(
         mode=routed_mode,
-        prompt=scene_prompt,
         reference=reference,
         excerpt=excerpt,
-        measurements=measurements,
         classification=classification,
+        prompt_pack=prompts,
     )
     quote = quote_provider or _live_quote
     quote_items: list[dict[str, Any]] = []
@@ -155,7 +153,7 @@ def plan_recreation(
                 "quality": "2k",
             },
         )
-    if video_request is not None and routed_mode != "talking":
+    if video_request is not None:
         compatibility = _mapping(video_request.get("compatibility"))
         if compatibility.get("classification") == "UNSUPPORTED":
             quote_skipped.append(
@@ -179,19 +177,10 @@ def plan_recreation(
     )
     cap = _optional_positive(max_credits)
     within_cap = total_quote is not None and cap is not None and total_quote <= cap
-    experimental = routed_mode in {"motion", "structural", "first_last"}
-    talking_blocked = routed_mode == "talking"
-    motion_unsupported = (
-        routed_mode == "motion"
-        and isinstance(video_request, dict)
-        and _mapping(video_request.get("compatibility")).get("classification")
-        == "UNSUPPORTED"
-    )
+    experimental = routed_mode == "structural"
     readiness = (
-        "BLOCKED_TALKING_ROUTE_NOT_ENTITLED"
-        if talking_blocked
-        else "BLOCKED_INCOMPATIBLE_MOTION_SOURCE"
-        if motion_unsupported
+        "BLOCKED_OPENAI_PROMPT_PACK_REQUIRED"
+        if prompts is None
         else "MANUAL_REVIEW_REQUIRED"
         if route_status == "manual_review"
         else "EXPERIMENTAL_AUTHORIZATION_REQUIRED"
@@ -216,6 +205,7 @@ def plan_recreation(
         },
         "selectedMode": routed_mode,
         "alternatives": alternatives,
+        "promptPack": prompts,
         "productionReadiness": readiness,
         "through": through or "plan",
         "excerpt": excerpt,
@@ -288,8 +278,6 @@ def _route(
     operator_warnings: list[str],
 ) -> tuple[str, list[str], str]:
     if requested_mode != "auto":
-        if requested_mode == "talking":
-            return "talking", [], "blocked"
         return (
             requested_mode,
             [],
@@ -298,26 +286,26 @@ def _route(
             else "explicit_operator_mode",
         )
     routes = {
-        "passive_single_shot": ("passive", ["structural"], "ready"),
+        "passive_single_shot": ("calm", ["structural"], "ready"),
         "simple_pose_motion": (
-            "motion",
-            ["structural", "passive"],
+            "structural",
+            ["calm"],
             "experimental",
         ),
-        "walking": ("motion", ["structural"], "experimental"),
-        "dance": ("motion", ["structural"], "experimental"),
+        "walking": ("structural", [], "experimental"),
+        "dance": ("structural", [], "experimental"),
         "first_last_transition": (
-            "first_last",
-            ["structural"],
+            "structural",
+            [],
             "experimental",
         ),
         "structural_reference": (
             "structural",
-            ["motion", "first_last"],
+            [],
             "experimental",
         ),
-        "talking": ("talking", [], "blocked"),
-        "lip_sync": ("talking", [], "blocked"),
+        "talking": ("structural", [], "experimental"),
+        "lip_sync": ("structural", [], "experimental"),
         "multi_shot": ("structural", [], "manual_review"),
         "multi_person": ("structural", [], "manual_review"),
         "heavy_occlusion": ("structural", [], "manual_review"),
@@ -371,159 +359,64 @@ def _classification_measurements(
 def _video_request(
     *,
     mode: str,
-    prompt: str,
     reference: dict[str, Any],
     excerpt: dict[str, Any],
-    measurements: dict[str, Any],
     classification: str,
+    prompt_pack: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
+    if prompt_pack is None:
+        return None
     source = {
         "referenceId": reference.get("referenceId"),
         "sha256": _mapping(reference.get("source")).get("sha256"),
         "excerpt": excerpt,
+        "sentToProvider": False,
     }
-    if mode == "talking":
-        return {
-            "status": "talking_route_not_entitled",
-            "missingEvidence": [
-                "authenticated Speak entitlement",
-                "supplied-WAV voice-fidelity qualification",
-                "9:16 output qualification",
-            ],
-            "silentFallbackAllowed": False,
-        }
-    if mode == "motion":
-        return {
-            "model": "kling3_0_motion_control",
-            "status": "experimental_qualification_required",
-            "compatibility": _motion_compatibility(
-                measurements=measurements,
-                classification=classification,
-                excerpt=excerpt,
-            ),
-            "request": {
-                "image_references": ["<approved_soul_anchor>"],
-                "video_references": [source],
-                "background_source": "input_image",
-                "mode": "pro",
-            },
-            "quoteParameters": {
-                "duration": excerpt["durationSeconds"],
-                "mode": "pro",
-            },
-            "providerAudio": "replace_in_creator_os",
-            "unsupportedFieldsAdded": [],
-        }
-    if mode == "structural":
-        structural_prompt = _structural_prompt(reference)
-        return {
-            "model": "seedance_2_0",
-            "status": "experimental_structural_recreation",
-            "identityReplacementClaimed": False,
-            "request": {
-                "prompt": structural_prompt,
-                "aspect_ratio": "9:16",
-                "duration": int(round(float(excerpt["durationSeconds"]))),
-                "resolution": "480p",
-                "mode": "fast",
-                "bitrate_mode": "high",
-                "multi_shot_mode": "custom",
-                "generate_audio": False,
-                "image_references": ["<approved_soul_anchor>"],
-                "video_references": [source],
-                "reference_elements": ["<approved_creator_reference_element>"],
-            },
-            "quoteParameters": {
-                "prompt": structural_prompt,
-                "aspect_ratio": "9:16",
-                "duration": int(round(float(excerpt["durationSeconds"]))),
-                "resolution": "480p",
-                "mode": "fast",
-                "bitrate_mode": "high",
-                "multi_shot_mode": "custom",
-                "generate_audio": False,
-            },
-        }
-    if mode == "first_last":
-        return {
-            "model": "kling3_0",
-            "status": "experimental_transition_recreation",
-            "exactMotionCopyClaimed": False,
-            "request": {
-                "prompt": prompt,
-                "aspect_ratio": "9:16",
-                "duration": int(round(float(excerpt["durationSeconds"]))),
-                "mode": "pro",
-                "sound": "off",
-                "start_image": "<approved_opening_soul_anchor>",
-                "end_image": "<approved_ending_soul_anchor>",
-                "source": source,
-            },
-            "quoteParameters": {
-                "prompt": prompt,
-                "aspect_ratio": "9:16",
-                "duration": int(round(float(excerpt["durationSeconds"]))),
-                "mode": "pro",
-                "sound": "off",
-            },
-        }
-    return {
-        "model": "kling3_0",
-        "status": "production_supported_after_anchor_review",
-        "request": {
-            "prompt": "Subtle natural casual motion. Preserve identity and framing.",
+    duration = min(15, max(4, int(round(float(excerpt["durationSeconds"])))))
+    if mode == "calm":
+        parameters = {
+            "prompt": str(prompt_pack["klingPrompt"]),
             "aspect_ratio": "9:16",
-            "duration": 5,
-            "mode": "pro",
-            "sound": "off",
+            "duration": duration,
+            "resolution": "720p",
             "start_image": "<approved_soul_anchor>",
-        },
-        "quoteParameters": {
-            "prompt": "Subtle natural casual motion. Preserve identity and framing.",
-            "aspect_ratio": "9:16",
-            "duration": 5,
-            "mode": "pro",
-            "sound": "off",
-        },
+        }
+        return {
+            "model": "kling3_0_turbo",
+            "status": "production_supported_after_anchor_review",
+            "request": parameters,
+            "quoteParameters": {
+                key: value for key, value in parameters.items() if key != "start_image"
+            },
+            "referenceEvidence": source,
+            "providerAudio": "disabled",
+        }
+    parameters = {
+        "prompt": str(prompt_pack["seedancePrompt"]),
+        "aspect_ratio": "9:16",
+        "duration": duration,
+        "resolution": "480p",
+        "mode": "fast",
+        "bitrate_mode": "high",
+        "generate_audio": False,
+        "start_image": "<approved_soul_anchor>",
     }
-
-
-def _motion_compatibility(
-    *,
-    measurements: dict[str, Any],
-    classification: str,
-    excerpt: dict[str, Any],
-) -> dict[str, Any]:
-    reasons: list[str] = []
-    blockers: list[str] = []
-    if int(measurements.get("shotCount") or 0) != 1:
-        blockers.append("source_is_not_one_material_shot")
-    people = measurements.get("maxPrincipalPersonCount")
-    if people not in {None, 1}:
-        blockers.append("source_does_not_have_one_principal_person")
-    if classification == "heavy_occlusion":
-        blockers.append("source_has_severe_occlusion")
-    if measurements.get("framingCompatibility") != "compatible":
-        reasons.append("framing_compatibility_not_proven")
-    if float(measurements.get("faceVisibility") or 0) < 0.5:
-        reasons.append("face_visibility_is_weak")
-    if float(measurements.get("bodyVisibility") or 0) < 0.2:
-        reasons.append("body_extent_is_weak")
-    if measurements.get("speechEvidence") == "UNKNOWN":
-        reasons.append("talking_or_lipsync_requirement_unresolved")
-    if "secondary_person_interaction" in list(
-        measurements.get("operatorWarnings") or []
-    ):
-        reasons.append("secondary_person_interaction_requires_manual_approval")
-    if not excerpt.get("wholeSource"):
-        reasons.append("bounded_excerpt_must_be_materialized_and_confirmed")
-    state = "UNSUPPORTED" if blockers else "POSSIBLE_FIT" if reasons else "STRONG_FIT"
     return {
-        "classification": state,
-        "blockers": blockers,
-        "warnings": reasons,
-        "checkedBeforeQuoteOrSubmission": True,
-        "exactChoreographyClaimed": False,
+        "model": "seedance_2_0",
+        "status": "experimental_prompt_driven_recreation",
+        "exactMotionCopyClaimed": False,
+        "identityReplacementClaimed": False,
+        "request": parameters,
+        "quoteParameters": {
+            key: value for key, value in parameters.items() if key != "start_image"
+        },
+        "referenceEvidence": source,
+        "providerAudio": "disabled",
+        "operatorReviewRequired": (
+            ["identity", "motion", "lip_sync"]
+            if classification in {"talking", "lip_sync"}
+            else ["identity", "motion"]
+        ),
     }
 
 
@@ -557,8 +450,8 @@ def _public_anchor_request(
             "prompt": prompt,
             "aspect_ratio": "9:16",
             "quality": "2k",
-            "image_references": ["<selected_reference_frame>"],
             "count": 1,
+            "conditioning": "text_only_soul_identity",
         },
         "soulIdExposed": False,
         "approvalState": "OPERATOR_REVIEW_REQUIRED",
@@ -574,7 +467,7 @@ def _audio_decision(
         selected = "creator_or_reference_audio_required"
     elif classification == "dance":
         selected = "reference_audio_required"
-    elif mode == "passive":
+    elif mode == "calm":
         selected = "embedded_trending_required"
     elif audio.get("classification") in {
         "REFERENCE_AUDIO_PREFERRED",
@@ -595,7 +488,7 @@ def _audio_decision(
 def _select_excerpt(
     *, duration: float, anchor_time: float, mode: str
 ) -> dict[str, Any]:
-    limit = 5.0 if mode == "passive" else 8.0
+    limit = 5.0 if mode == "calm" else 8.0
     length = min(duration, limit)
     start = min(max(0.0, anchor_time - length / 2), max(0.0, duration - length))
     end = start + length
@@ -613,15 +506,6 @@ def _select_excerpt(
 
 
 def _live_quote(model: str, params: dict[str, Any]) -> dict[str, Any]:
-    if model == "kling3_0_motion_control":
-        seconds = _positive(params.get("duration"), "motion duration")
-        return {
-            "model": model,
-            "credits": round(seconds * _MOTION_CREDIT_RATE, 4),
-            "unit": "higgsfield_credits",
-            "source": "authenticated_transaction_duration_rate",
-            "basis": {"seconds": seconds, "creditsPerSecond": _MOTION_CREDIT_RATE},
-        }
     cli = shutil.which("higgsfield")
     if not cli:
         raise RuntimeError("higgsfield_cli_unavailable")
@@ -862,46 +746,6 @@ def _optional_positive(value: Any) -> float | None:
     if value is None:
         return None
     return _positive(value, "max credits")
-
-
-def _structural_prompt(reference: dict[str, Any]) -> str:
-    identity = (
-        "<<<approved_creator_reference_element>>> place her in this video. "
-        "same motion but my model instead"
-    )
-    wrapper = _mapping(reference.get("structuralMotionAnalysis"))
-    analysis = _mapping(wrapper.get("analysis"))
-    if wrapper.get("status") != "ready" or not analysis:
-        return identity
-    structure = _mapping(analysis.get("structure"))
-    timeline = [
-        (
-            f"[{float(row['startSeconds']):g}-{float(row['endSeconds']):g}s] "
-            f"{row['action']} Camera: {row['camera']}"
-        )
-        for row in list(structure.get("timeline") or [])
-        if isinstance(row, dict)
-        and all(
-            key in row for key in ("startSeconds", "endSeconds", "action", "camera")
-        )
-    ]
-    detail = " ".join(
-        [
-            "Use the reference video for motion, timing, framing, and camera "
-            "movement only; do not copy the other person's face, hair, or body.",
-            "Motion-only timeline:",
-            *timeline,
-            "Return clean footage with no writing or graphic borders.",
-        ]
-    )
-    for observation in list(
-        _mapping(reference.get("overlayTextInventory")).get("observations") or []
-    ):
-        if isinstance(observation, dict):
-            text = " ".join(str(observation.get("text") or "").split())
-            if text:
-                detail = re.sub(re.escape(text), "", detail, flags=re.IGNORECASE)
-    return " ".join(f"{identity}. Structural breakdown: {detail}".split())
 
 
 def _fingerprint(value: dict[str, Any]) -> str:

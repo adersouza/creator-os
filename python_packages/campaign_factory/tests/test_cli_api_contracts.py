@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -35,7 +34,7 @@ from campaign_learning_test_support import (
     add_account_requirement_fixture,
     threadsdash_campaign_factory_metadata,
 )
-from campaign_test_support import add_rendered_asset, add_source_asset, make_factory
+from campaign_test_support import add_rendered_asset, make_factory
 from fastapi.testclient import TestClient
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -246,7 +245,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "reference_bank" for check in result["checks"])
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
-    assert "generate --mode library_reuse" in result["commands"]["makeBatch"]
+    assert "create --creator" in result["commands"]["makeBatch"]
     assert result["commands"]["checkContentForge"].endswith(" build")
     assert result["commands"]["startCampaignFactory"].startswith(
         "uv run --package campaign-factory campaign-factory serve"
@@ -255,7 +254,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
         "uv run --package reference-factory python -m reference_factory.cli"
     )
     assert result["commands"]["makeBatch"].startswith(
-        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} generate --mode library_reuse --apply"
+        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} create --creator"
     )
     assert "cd " not in "\n".join(result["commands"].values())
 
@@ -401,91 +400,6 @@ def test_make_batch_returns_compact_operator_summary(tmp_path: Path, monkeypatch
         assert run_kwargs["max_outputs_per_clip"] == 1
     finally:
         cf.close()
-
-
-def test_generation_modes_cli_lists_all_operator_paths(tmp_path: Path):
-    result = subprocess.run(
-        [sys.executable, "-m", "campaign_factory.cli", "generation", "modes"],
-        cwd=PACKAGE_ROOT,
-        text=True,
-        capture_output=True,
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
-            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
-            "REEL_FACTORY_ROOT": str(tmp_path / "reel_factory"),
-            "CONTENTFORGE_ROOT": str(tmp_path / "contentforge"),
-            "THREADSDASH_ROOT": str(tmp_path / "ThreadsDashboard"),
-        },
-        timeout=30,
-    )
-
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert [mode["id"] for mode in payload["modes"]] == [
-        "library_reuse",
-        "soul_static",
-        "local_wan",
-        "best_motion",
-        "reference_video_remix",
-    ]
-
-
-def test_local_wan_cli_dry_run_requires_arena_evidence_without_db_mutation(
-    tmp_path: Path,
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-    finally:
-        cf.close()
-    from PIL import Image
-
-    still_path = tmp_path / "still.png"
-    Image.new("RGB", (1080, 1920), color=(20, 40, 80)).save(still_path)
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "campaign_factory.cli",
-            "generation",
-            "run",
-            "--mode",
-            "local_wan",
-            "--campaign",
-            "may",
-            "--accepted-still",
-            str(still_path),
-            "--motion-prompt",
-            "Natural breathing and a slow camera push toward the subject",
-            "--duration",
-            "6",
-            "--dry-run",
-        ],
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
-            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
-            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
-            "REEL_FACTORY_ROOT": str(
-                MONOREPO_ROOT / "python_packages" / "reel_factory"
-            ),
-        },
-    )
-
-    assert result.returncode != 0
-    assert "local_wan requires --local-arena-summary" in result.stderr
-    conn = sqlite3.connect(tmp_path / "campaign_factory.sqlite")
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
-    finally:
-        conn.close()
 
 
 def test_variation_cli_dry_run_creates_assignment_manifest(tmp_path: Path):

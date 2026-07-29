@@ -130,10 +130,8 @@ def operator_control_check(
                 "export-patterns --limit 300 --for-campaign-factory"
             ),
             "makeBatch": (
-                f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} generate "
-                "--mode library_reuse --apply "
-                "--folder <source_folder> --campaign <campaign_slug> --model <model_slug> "
-                "--format auto --variant-count 20"
+                f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} create "
+                "--creator <creator> --mode calm_animation --apply"
             ),
         },
     }

@@ -119,6 +119,7 @@ class HiggsfieldProductionRequest:
 
 _EXACT_JOB_TYPES = (
     "kling3_0",
+    "kling3_0_turbo",
     "seedance_2_0",
     "seedance_2_0_mini",
     "kling3_0_motion_control",
@@ -651,7 +652,9 @@ def _candidate_capabilities(
     identifiers: set[str],
 ) -> dict[str, HiggsfieldCandidate]:
     passive_models = [
-        value for value in ("kling3_0", "seedance_2_0") if value in identifiers
+        value
+        for value in ("kling3_0_turbo", "kling3_0", "seedance_2_0")
+        if value in identifiers
     ]
     motion_tool = (
         "kling3_0_motion_control" if "kling3_0_motion_control" in identifiers else None
@@ -777,10 +780,18 @@ def _candidate_command(
     if request.recipe_id == "higgsfield_passive_selfie":
         model = str(request.model or "").strip()
         available = set(str(candidate.exposed_job_type or "").split(","))
-        if model not in {"kling3_0", "seedance_2_0"} or model not in available:
+        if (
+            model
+            not in {
+                "kling3_0_turbo",
+                "kling3_0",
+                "seedance_2_0",
+            }
+            or model not in available
+        ):
             raise ValueError(
                 "passive Higgsfield bakeoff requires an exposed --model "
-                "kling3_0 or seedance_2_0"
+                "kling3_0_turbo, kling3_0, or seedance_2_0"
             )
         if not 4 <= int(request.duration_seconds) <= 15:
             raise ValueError("passive Higgsfield duration must be 4 to 15 seconds")
@@ -800,6 +811,10 @@ def _candidate_command(
         ]
         if model == "kling3_0":
             command += ["--mode", "pro", "--sound", "off"]
+        elif model == "kling3_0_turbo":
+            if len(prompt) > 2500:
+                raise ValueError("Kling 3 Turbo prompt must not exceed 2500 characters")
+            command += ["--resolution", "720p"]
         else:
             command += [
                 "--resolution",

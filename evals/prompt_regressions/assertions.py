@@ -63,6 +63,8 @@ def _assert_prompt_snapshot(prompt: str, variables: dict[str, Any]) -> None:
             "Return only this JSON" in prompt
             and "exactly one standalone image" in prompt
             and str(variables.get("creative_direction")) in prompt
+            and "Do not" not in prompt
+            and "negative prompt" not in prompt.lower()
         ),
         "caption_hook": lambda: bool(prompt.strip()),
     }

@@ -7,7 +7,6 @@
   "modelProfile": "soul_id_primary",
   "firstFrameInstruction": "Use the generated Soul ID image as the first/reference frame.",
   "mainPrompt": "Create a 5 second vertical video with subtle pose movement and phone-native camera feel.",
-  "negativePrompt": "copied identity, watermark, username, bad hands, low quality",
   "closenessControls": {
     "format_closeness": "high",
     "identity_copy_risk": "blocked",

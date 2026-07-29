@@ -3,6 +3,7 @@
   "$id": "reference_factory.kling_3_video_prompt.v1",
   "title": "Kling 3 Video Prompt",
   "type": "object",
+  "not": { "required": ["negativePrompt"] },
   "required": [
     "schema",
     "tool",
@@ -12,7 +13,6 @@
     "modelProfile",
     "firstFrameInstruction",
     "mainPrompt",
-    "negativePrompt",
     "closenessControls"
   ],
   "properties": {
@@ -24,7 +24,6 @@
     "modelProfile": { "type": ["string", "null"] },
     "firstFrameInstruction": { "type": "string" },
     "mainPrompt": { "type": "string" },
-    "negativePrompt": { "type": "string" },
     "closenessControls": { "type": "object" },
     "scenes": { "type": "array" },
     "aspectRatio": { "type": "string" },

@@ -713,7 +713,7 @@ def _higgsfield_prompt(
         f"Create a high-quality first-frame image for an Instagram Reel in the {card.get('visualFormat', analysis.get('contentFormat', 'selfie_video'))} format. "
         f"The Soul ID model {subject.get('action') or card.get('poseAction') or 'poses naturally'} in {setting.get('location') or card.get('setting') or 'a clean lifestyle setting'}, "
         f"wearing {subject.get('wardrobe') or card.get('styling') or 'model-appropriate styling'}, with {setting.get('lighting') or card.get('lighting') or 'soft flattering lighting'}. "
-        f"Keep the winning format close, but make the scene original: new wardrobe, new room/details, new pose micro-variation, and no copied identity."
+        f"Keep the winning format close through an original scene, fresh wardrobe, new room details, pose micro-variation, and the selected Soul identity."
     )
     return {
         "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
@@ -728,7 +728,7 @@ def _higgsfield_prompt(
         "intakeProfile": DEFAULT_INTAKE_PROFILE,
         "closenessControls": dict(IG_OFM_CLOSENESS_CONTROLS),
         "formatCard": card,
-        "soulIdInstruction": "Replace the source identity. Do not copy face, username, watermark, or distinctive personal likeness.",
+        "soulIdInstruction": "Use the selected Soul identity as the sole person and render an original likeness.",
         "mainPrompt": _compose_higgsfield_main_prompt(
             analysis_prompt=_analysis_value(analysis, "higgsfield_soul_image_prompt"),
             analysis=analysis,
@@ -742,9 +742,7 @@ def _higgsfield_prompt(
         "motionPrompt": f"{subject.get('pose', 'confident casual pose')}; expression: {subject.get('expression', 'soft confident')}; pacing: {pacing.get('cutRhythm', 'short-form native rhythm')}.",
         "lightingPrompt": f"{setting.get('lighting', 'soft flattering light')}; background: {setting.get('background', 'clean lifestyle background')}.",
         "captionDirection": f"{analysis.get('captionStyle', 'short high-contrast overlay')}; placement: {text_overlay.get('placement', 'safe top or lower third')}.",
-        "audioDirection": "Recommend native platform audio separately; do not burn trending/licensed audio into the generated file.",
-        "negativePrompt": _analysis_value(analysis, "higgsfield_negative_prompt")
-        or "copied face, copied identity, watermark, username, platform UI, unreadable text, broken anatomy, underage appearance, explicit nudity, low resolution",
+        "audioDirection": "Handle native platform audio as a separate downstream step.",
         "recreationBlueprint": _recreation_blueprint(analysis),
         "aspectRatio": "9:16",
         "durationSeconds": 6,
@@ -787,7 +785,7 @@ def _kling_prompt(
         f"Original vertical Instagram Reels style video, {card.get('visualFormat', analysis.get('contentFormat', 'creator reference'))} format, "
         f"fictional creator/model, {subject.get('wardrobe', 'stylish casual wardrobe')}, "
         f"{subject.get('action', 'natural pose and subtle movement')} in {setting.get('location', 'a lifestyle setting')}. "
-        f"Mood: {analysis.get('summary', 'viral short-form visual pattern')}. Copy the format closely, but avoid copying the source identity, exact scene, text, or watermark."
+        f"Mood: {analysis.get('summary', 'viral short-form visual pattern')}. Follow the format closely with the selected creator identity, an original scene, and original visual wording."
     )
     return {
         "schema": "reference_factory.kling_3_video_prompt.v1",
@@ -802,7 +800,7 @@ def _kling_prompt(
         "intakeProfile": DEFAULT_INTAKE_PROFILE,
         "closenessControls": dict(IG_OFM_CLOSENESS_CONTROLS),
         "formatCard": card,
-        "firstFrameInstruction": "Use the generated Higgsfield image as the first/reference frame. Preserve that image, not the reference creator.",
+        "firstFrameInstruction": "Use the generated Higgsfield image as the sole identity and first/reference frame.",
         "mainPrompt": _compose_kling_main_prompt(
             analysis_prompt=_analysis_value(analysis, "kling_3_video_prompt"),
             analysis=analysis,
@@ -825,8 +823,6 @@ def _kling_prompt(
             or fallback_prompt,
         ),
         "lighting": setting.get("lighting", "soft flattering lighting"),
-        "negativePrompt": _analysis_value(analysis, "kling_negative_prompt")
-        or "watermark, username, exact likeness, copied person, distorted hands, distorted face, bad text, extra limbs, low quality, platform UI",
         "aspectRatio": "9:16",
         "durationSeconds": 5,
         "scenes": _kling_scenes(analysis, card),

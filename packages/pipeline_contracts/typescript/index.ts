@@ -1246,11 +1246,12 @@ export function validateReferenceVideoMotionAnalysis(value: unknown): string[] {
 	);
 }
 
+/** Read historical remix evidence without restoring an executable route. */
 export function validateReferenceVideoRemixPlan(value: unknown): string[] {
 	return schemaErrors(
 		generatedPipelineContractSchemas.referenceVideoRemixPlan,
 		value,
-		"reference video remix plan",
+		"historical reference video remix plan",
 	);
 }
 

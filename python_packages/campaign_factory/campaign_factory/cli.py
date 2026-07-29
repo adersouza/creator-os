@@ -27,7 +27,7 @@ def main() -> int:
 
     if (
         getattr(args, "cmd", None) == "create"
-        and args.intent == "recreate_reel"
+        and args.mode == "recreate_reel"
         and not args.apply
         and (
             getattr(args, "reference_url", None)

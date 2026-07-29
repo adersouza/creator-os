@@ -246,7 +246,6 @@ def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign
         "sourcePatternId": "pattern_mirror_selfie",
         "modelProfile": "stacey_soul_v2",
         "mainPrompt": "Use the reference-image pose and room setting with Stacey Soul ID. Keep head and face fully visible.",
-        "negativePrompt": "no text, no logos, no cropped head, no outfit change",
         "closenessControls": {"pose": "high", "wardrobe": "high", "setting": "high"},
         "formatCard": {"aspectRatio": "9:16", "surface": "reel"},
         "aspectRatio": "9:16",
@@ -260,8 +259,7 @@ def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign
         "sourcePatternId": still_prompt["sourcePatternId"],
         "modelProfile": still_prompt["modelProfile"],
         "firstFrameInstruction": "Use accepted still fixture://render/stacey_mirror_still.png as the first frame.",
-        "mainPrompt": "Five second 9:16 mirror selfie motion: tiny phone sway, breathing, slight posture shift. No new text or pose change.",
-        "negativePrompt": "no text, no logos, no face crop, no outfit change, no location change",
+        "mainPrompt": "Five second 9:16 mirror selfie motion: tiny phone sway, breathing, a slight posture shift, stable framing, and stable composition.",
         "closenessControls": {
             "pose": "locked",
             "wardrobe": "locked",

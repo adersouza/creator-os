@@ -109,28 +109,20 @@ graphify query "How does Campaign Factory hand off to ThreadsDashboard?"
 Run `pnpm graphify:update` after code changes. `graphify-out/` is local
 architecture output and must not be committed unless explicitly approved.
 
-## Advanced Generation Mode Selection
+## Creator OS Product Modes
 
-Normal production uses intent-first `creator-os create` and does not ask for or
-accept an internal mode or provider/model identifier. Only an explicitly
-requested advanced/manual `creator-os generate` run begins by asking:
+`creator-os create` exposes exactly three product modes:
 
-> Which Creator OS mode do you want for this run?
+1. `static_reel` — deterministic static MP4 from an approved creator still;
+2. `calm_animation` — OpenAI-authored calm motion prompt with pinned Kling or
+   Seedance production behavior;
+3. `recreate_reel` — analyze one authorized Reel and build the creator-specific
+   Soul anchor and model-specific recreation prompt.
 
-Show the current five-mode menu from Campaign Factory's canonical
-`creative_modes.py` catalog:
-
-1. Library reuse — free
-2. Soul still + static MP4 — paid still generation, free MP4
-3. Local Wan / LTX motion — free
-4. Best paid motion — paid video
-5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video
-
-Never remember or infer an advanced mode from an earlier run. If the operator
-already named one in the current instruction, confirm it before execution. The
-advanced non-interactive `generate` command must receive `--mode`; a missing
-mode is an error, never a default. Do not ask this question for normal
-intent-first `create`, audits, tests, status checks, or other read-only work.
+Library reuse is automatic and fail-closed before new generation: only exact
+approved, audited, creator/intent-matched MP4s with verified bytes and required
+audio are eligible. Local models and retired advanced generation modes are not
+Creator OS product surfaces. Provider/model identifiers remain internal.
 
 ## Reel Factory Active Path
 
