@@ -11,6 +11,7 @@ from typing import Any
 from pipeline_contracts import validate_audio_intent
 
 from ..asset_evidence import invalidate_asset_evidence_after_byte_change
+from ..audio_policy import embedding_receipt_sha256
 
 class AudioBindingError(RuntimeError):
     """An embedding receipt cannot safely replace the current asset bytes."""
@@ -47,8 +48,14 @@ def bind_embedding_receipt(
     original_sha = _sha_value(original_video.get("sha256"), "original video")
     final_sha = _sha_value(final_video.get("sha256"), "final video")
     fulfillment = _record(audio_intent.get("fulfillment"), "audio fulfillment")
+    intent_lineage = _record(audio_intent.get("lineage"), "audio lineage")
     if _sha_value(fulfillment.get("output_sha256"), "fulfilled media") != final_sha:
         raise AudioBindingError("audio intent is not bound to the final video")
+    if _sha_value(
+        intent_lineage.get("embeddingReceiptSha256"),
+        "embedding receipt",
+    ) != embedding_receipt_sha256(embedding_receipt):
+        raise AudioBindingError("audio intent is not bound to this embedding receipt")
     final_path = _safe_file(final_video.get("path"))
     if _sha256_file(final_path) != final_sha:
         raise AudioBindingError("final video bytes do not match the receipt")

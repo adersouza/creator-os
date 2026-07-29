@@ -56,11 +56,11 @@ def test_reclaim_requeue_respects_max_attempts(tmp_path: Path):
     try:
         campaign = cf.domains.models.upsert_campaign("may", "model")
 
-        retryable = cf.domains.events.create_pipeline_job("render", campaign["id"])
+        retryable = cf.domains.events.create_pipeline_job("static_mp4", campaign["id"])
         cf.domains.events.start_pipeline_job(retryable["id"])  # attempt_count = 1
         _backdate_job(cf, retryable["id"], 5)
 
-        exhausted = cf.domains.events.create_pipeline_job("render", campaign["id"])
+        exhausted = cf.domains.events.create_pipeline_job("static_mp4", campaign["id"])
         cf.domains.events.start_pipeline_job(exhausted["id"])
         cf.conn.execute(
             "UPDATE pipeline_jobs SET attempt_count = 3 WHERE id = ?",
@@ -86,6 +86,35 @@ def test_reclaim_requeue_respects_max_attempts(tmp_path: Path):
         failed = cf.domains.events.pipeline_job(exhausted["id"])
         assert failed["status"] == "failed"
         assert "reclaimed as stale" in failed["error"]
+    finally:
+        cf.close()
+
+
+def test_reclaim_requeue_holds_unknown_running_effects(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.domains.models.upsert_campaign("may", "model")
+        ambiguous = cf.domains.events.create_pipeline_job(
+            "higgsfield_motion_generation",
+            campaign["id"],
+            {"authorizationId": "auth-1", "generationId": "gen-1"},
+        )
+        cf.domains.events.start_pipeline_job(ambiguous["id"])
+        _backdate_job(cf, ambiguous["id"], 5)
+
+        summary = cf.domains.events.reclaim_stale_pipeline_jobs(2.0, action="requeue")
+
+        entry = summary["reclaimed"][0]
+        assert entry["outcome"] == "manual_hold"
+        assert entry["effectState"] == "AMBIGUOUS"
+        assert entry["safeReplayClass"] == "NEVER_AUTOMATIC"
+        assert entry["reconciliationRequired"] is True
+        assert entry["authorizationId"] == "auth-1"
+        assert entry["externalOperationId"] == "gen-1"
+        assert entry["attemptId"] == f"{ambiguous['id']}:1"
+        held = cf.domains.events.pipeline_job(ambiguous["id"])
+        assert held["status"] == "failed"
+        assert "manual_hold_unknown_external_effect" in held["error"]
     finally:
         cf.close()
 

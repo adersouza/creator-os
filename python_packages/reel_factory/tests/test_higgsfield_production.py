@@ -512,6 +512,14 @@ def test_success_hashes_registers_and_preserves_review_fields(
     output = Path(receipt["finalOutput"]["path"])
     assert receipt["status"] == "completed"
     assert receipt["generationId"] == "generation-1"
+    assert receipt["externalOperationId"] == "generation-1"
+    assert receipt["operationReceipt"] == {
+        "schema": "pipeline.operation_receipt.v1",
+        "workItemId": receipt["workItemId"],
+        "authorizationId": receipt["authorizationId"],
+        "attemptId": receipt["attemptId"],
+        "externalOperationId": "generation-1",
+    }
     assert receipt["model"] == "kling3_0"
     assert receipt["creditsConsumed"] == 8.75
     assert receipt["creditsConsumedSource"] == "account_balance_delta"
@@ -577,7 +585,7 @@ def test_ambiguous_submission_is_never_retried(
     assert receipt["model"]
     assert receipt["source"]["sha256"]
 
-    second = FakeAdapter([{"credits": 8.75}, {"credits": 100.0}])
+    second = FakeAdapter([{"credits": 8.75}, {"credits": 100.0}, {"items": []}])
     with pytest.raises(subject.HiggsfieldSubmissionNeedsReconciliation):
         subject.execute_higgsfield_production(
             _request(tmp_path),
@@ -586,3 +594,60 @@ def test_ambiguous_submission_is_never_retried(
             confirm_paid=True,
         )
     assert all(command[2] != "create" for command in second.commands)
+
+
+def test_ambiguous_submission_reconciles_one_exact_history_match(
+    tmp_path: Path,
+) -> None:
+    request = _request(
+        tmp_path,
+        work_item_id="work-1",
+        authorization_id="auth-1",
+        attempt_id="attempt-1",
+        client_request_correlation_id="creator-os:work-1:attempt-1",
+    )
+    plan = subject.build_higgsfield_production_plan(
+        request,
+        capabilities=_capabilities(),
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+    )
+    adapter = FakeAdapter(
+        [
+            {
+                "items": [
+                    {
+                        "id": "generation-reconciled",
+                        "created_at": "2026-07-29T12:00:10Z",
+                        "job_type": "kling3_0",
+                        "status": "completed",
+                        "params": {
+                            "prompt": plan["prompt"],
+                            "duration": 5,
+                            "aspect_ratio": "9:16",
+                        },
+                    }
+                ]
+            }
+        ]
+    )
+
+    match = subject._reconcile_submission_history(
+        request,
+        plan=plan,
+        receipt={"submittedAt": "2026-07-29T12:00:00Z"},
+        adapter=adapter,  # type: ignore[arg-type]
+    )
+
+    assert match is not None
+    assert match["id"] == "generation-reconciled"
+    assert adapter.commands == [
+        [
+            "higgsfield",
+            "generate",
+            "list",
+            "--video",
+            "--size",
+            "100",
+            "--json",
+        ]
+    ]

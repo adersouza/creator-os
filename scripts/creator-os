@@ -124,6 +124,19 @@ def _learning_command(*args: str) -> list[str]:
     ]
 
 
+def _learning_recovery_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.learning_recovery",
+        *args,
+    ]
+
+
 def _identity_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -210,6 +223,8 @@ def _parser() -> argparse.ArgumentParser:
     status_scope.add_argument("--generation")
     status_scope.add_argument("--publication")
     status_scope.add_argument("--learning", action="store_true")
+    status_scope.add_argument("--drafts", action="store_true")
+    status.add_argument("--max-draft-age-hours", type=float, default=24)
     status.add_argument(
         "--live-read-only",
         action="store_true",
@@ -444,6 +459,21 @@ def _parser() -> argparse.ArgumentParser:
     learning_review.add_argument("--operator")
     learning_review.add_argument("--reason")
 
+    learning_reset = sub.add_parser(
+        "learning-reset",
+        help="audit and reset one exact failed_capped fanout ledger row",
+    )
+    learning_reset.add_argument("--post-id", required=True)
+    learning_reset.add_argument("--snapshot-at", required=True)
+    learning_reset.add_argument(
+        "--destination", choices=["campaign", "reference"], required=True
+    )
+    learning_reset.add_argument("--operator", required=True)
+    learning_reset.add_argument("--reason", required=True)
+    learning_reset_mode = learning_reset.add_mutually_exclusive_group(required=True)
+    learning_reset_mode.add_argument("--dry-run", action="store_true")
+    learning_reset_mode.add_argument("--apply", action="store_true")
+
     reference_refresh = sub.add_parser(
         "reference-refresh",
         help="preview or apply the local reference/audio refresh workflow",
@@ -479,6 +509,11 @@ def _parser() -> argparse.ArgumentParser:
         "status", help="summarize the canonical active audio library read-only"
     )
     audio_status_parser.add_argument("--json", action="store_true")
+    audio_explain = audio_commands.add_parser(
+        "explain", help="trace one final MP4 SHA through Audio Radar lineage"
+    )
+    audio_explain.add_argument("--final-sha", required=True)
+    audio_explain.add_argument("--database", type=Path)
 
     create = sub.add_parser(
         "create",
@@ -757,9 +792,19 @@ def main(argv: list[str] | None = None) -> int:
         selected = next(
             ((flag, value) for flag, value in status_filters if value), None
         )
-        if selected or args.learning:
+        if selected or args.learning or args.drafts:
             command = _operator_status_command(
-                *(selected if selected else ("--learning",))
+                *(
+                    selected
+                    if selected
+                    else ("--learning",)
+                    if args.learning
+                    else (
+                        "--drafts",
+                        "--max-draft-age-hours",
+                        str(args.max_draft_age_hours),
+                    )
+                )
             )
             if args.json:
                 command.append("--json")
@@ -1019,6 +1064,22 @@ def main(argv: list[str] | None = None) -> int:
             if value:
                 command.extend([flag, value])
         return _run(command)
+    if args.command == "learning-reset":
+        return _run(
+            _learning_recovery_command(
+                "--post-id",
+                args.post_id,
+                "--snapshot-at",
+                args.snapshot_at,
+                "--destination",
+                args.destination,
+                "--operator",
+                args.operator,
+                "--reason",
+                args.reason,
+                "--apply" if args.apply else "--dry-run",
+            )
+        )
     if args.command == "reference-refresh":
         source = args.source.expanduser().resolve()
         audio_export = args.audio_export.expanduser().resolve()
@@ -1043,6 +1104,11 @@ def main(argv: list[str] | None = None) -> int:
             command = _operator_status_command("--audio")
             if args.json:
                 command.append("--json")
+            return _run(command)
+        if args.audio_command == "explain":
+            command = _audio_command("explain", "--final-sha", args.final_sha)
+            if args.database:
+                command.extend(["--database", str(args.database)])
             return _run(command)
         if args.audio_command != "refresh":
             raise AssertionError(f"unhandled audio command: {args.audio_command}")

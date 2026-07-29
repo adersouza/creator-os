@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -406,6 +406,14 @@ def execute_higgsfield_production(
         "workItemId": request.work_item_id,
         "authorizationId": request.authorization_id,
         "attemptId": request.attempt_id,
+        "externalOperationId": None,
+        "operationReceipt": {
+            "schema": "pipeline.operation_receipt.v1",
+            "workItemId": request.work_item_id,
+            "authorizationId": request.authorization_id,
+            "attemptId": request.attempt_id,
+            "externalOperationId": None,
+        },
         "clientRequestCorrelationId": request.client_request_correlation_id,
         "status": "ready_to_submit",
         "recipe": plan["recipe"],
@@ -461,7 +469,7 @@ def execute_higgsfield_production(
         raise HiggsfieldSubmissionNeedsReconciliation(
             "Higgsfield submission returned no generation id; do not retry blindly"
         )
-    receipt["generationId"] = generation_id
+    _bind_external_operation(receipt, generation_id)
     receipt["status"] = str(extract_status(created) or "created")
     receipt["submissionResponse"] = _scrub_provider_payload(created)
     _write_receipt(receipt_path, receipt)
@@ -493,13 +501,41 @@ def _recover_higgsfield_generation(
         if _sha256_file(output) != final.get("sha256"):
             raise PermissionError("higgsfield_completed_output_sha256_mismatch")
         _probe_video(output)
+        generation_id = receipt.get("generationId")
+        if isinstance(generation_id, str) and generation_id:
+            _bind_external_operation(receipt, generation_id)
+            _write_receipt(receipt_path, receipt)
         return receipt
     if receipt.get("status") == "submission_ambiguous" and not receipt.get(
         "generationId"
     ):
-        raise HiggsfieldSubmissionNeedsReconciliation(
-            "Higgsfield submission is ambiguous and has no id; do not resubmit"
+        generation = _reconcile_submission_history(
+            request,
+            plan=plan,
+            receipt=receipt,
+            adapter=adapter,
         )
+        if generation is None:
+            raise HiggsfieldSubmissionNeedsReconciliation(
+                "Higgsfield submission history did not yield one exact match; "
+                "do not resubmit"
+            )
+        _bind_external_operation(receipt, str(generation["id"]))
+        receipt["status"] = str(generation.get("status") or "reconciled")
+        receipt["submissionHistoryReconciliation"] = {
+            "status": "matched",
+            "matchedAt": _utc_now(),
+            "providerCreatedAt": generation.get("created_at"),
+            "historyItemFingerprint": hashlib.sha256(
+                json.dumps(
+                    _scrub_provider_payload(generation),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest(),
+        }
+        _write_receipt(receipt_path, receipt)
     if not receipt.get("generationId"):
         raise PermissionError("higgsfield_submission_not_recoverable")
     return _complete_higgsfield_generation(
@@ -510,6 +546,113 @@ def _recover_higgsfield_generation(
         adapter=adapter,
         started=time.monotonic(),
     )
+
+
+def _bind_external_operation(receipt: dict[str, Any], operation_id: str) -> None:
+    receipt["generationId"] = operation_id
+    receipt["externalOperationId"] = operation_id
+    operation = receipt.get("operationReceipt")
+    if not isinstance(operation, dict):
+        operation = {
+            "schema": "pipeline.operation_receipt.v1",
+            "workItemId": receipt.get("workItemId"),
+            "authorizationId": receipt.get("authorizationId"),
+            "attemptId": receipt.get("attemptId"),
+        }
+        receipt["operationReceipt"] = operation
+    operation["externalOperationId"] = operation_id
+
+
+def _reconcile_submission_history(
+    request: HiggsfieldProductionRequest,
+    *,
+    plan: dict[str, Any],
+    receipt: dict[str, Any],
+    adapter: HiggsfieldCliAdapter,
+) -> dict[str, Any] | None:
+    """Bind one ambiguous submission to one exact recent provider job."""
+
+    submitted_at = _provider_timestamp(receipt.get("submittedAt"))
+    if submitted_at is None:
+        return None
+    try:
+        history = adapter.run_json(
+            [
+                "higgsfield",
+                "generate",
+                "list",
+                "--video",
+                "--size",
+                "100",
+                "--json",
+            ]
+        )
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+        return None
+    matches = [
+        item
+        for item in _items(history)
+        if _history_item_matches(
+            item,
+            request=request,
+            plan=plan,
+            submitted_at=submitted_at,
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _history_item_matches(
+    item: dict[str, Any],
+    *,
+    request: HiggsfieldProductionRequest,
+    plan: dict[str, Any],
+    submitted_at: datetime,
+) -> bool:
+    generation_id = str(item.get("id") or "").strip()
+    created_at = _provider_timestamp(item.get("created_at"))
+    if not generation_id or created_at is None:
+        return False
+    if (
+        not submitted_at - timedelta(seconds=30)
+        <= created_at
+        <= submitted_at + timedelta(minutes=15)
+    ):
+        return False
+    if str(item.get("job_type") or item.get("model") or "") != str(
+        plan.get("selectedModel") or ""
+    ):
+        return False
+    params = item.get("params")
+    if not isinstance(params, dict):
+        return False
+    if str(params.get("prompt") or "") != str(plan.get("prompt") or ""):
+        return False
+    try:
+        duration = int(params.get("duration"))
+    except (TypeError, ValueError):
+        return False
+    if duration != int(request.duration_seconds):
+        return False
+    if params.get("aspect_ratio") not in {None, "9:16"}:
+        return False
+    if request.seed is not None and params.get("seed") is not None:
+        try:
+            if int(params["seed"]) != request.seed:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _provider_timestamp(value: object) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _complete_higgsfield_generation(

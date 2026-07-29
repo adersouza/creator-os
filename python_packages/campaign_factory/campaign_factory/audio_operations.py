@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .adapters.threadsdash_audio_policy import audio_intent_allows_live
 from .audio_learning_linkage import exact_embedded_audio_selection
 from .persistence import json_load
 
@@ -1098,68 +1099,7 @@ class AudioOperationsRepository:
             dict(raw_existing) if isinstance(raw_existing, dict) else {}
         )
         status = str(intent.get("status") or "needs_operator_selection").strip().lower()
-        policy = str(intent.get("policy") or "").strip().lower()
-        raw_selection = intent.get("operator_selection")
-        selection: dict[str, Any] = (
-            dict(raw_selection) if isinstance(raw_selection, dict) else {}
-        )
-        safe = bool(
-            policy == "silent_allowed"
-            and status in {"skipped", "not_required"}
-            and (selection.get("selected_reason") or selection.get("skip_reason"))
-            and (selection.get("selected_at") or selection.get("skipped_at"))
-        )
-        if policy in {
-            "embedded_trending_required",
-            "original_embedded",
-            "creator_voice",
-            "royalty_free",
-        } and status in {"attached", "verified"}:
-            raw_fulfillment = intent.get("fulfillment")
-            fulfillment: dict[str, Any] = (
-                dict(raw_fulfillment) if isinstance(raw_fulfillment, dict) else {}
-            )
-            safe = bool(
-                fulfillment.get("audio_present") is True
-                and str(fulfillment.get("output_sha256") or "").strip()
-                and str(fulfillment.get("proof_type") or "").strip()
-            )
-            if safe and policy == "embedded_trending_required":
-                raw_verification = fulfillment.get("verification_receipt")
-                verification: dict[str, Any] = (
-                    dict(raw_verification) if isinstance(raw_verification, dict) else {}
-                )
-                safe = bool(
-                    str(fulfillment.get("acquired_audio_sha256") or "").strip()
-                    and str(fulfillment.get("embedded_audio_fingerprint") or "").strip()
-                    and verification.get("status") == "verified"
-                    and verification.get("audioPresent") is True
-                    and str(verification.get("audioCodec") or "").lower() == "aac"
-                )
-        elif policy == "native_trending_required" and status in {
-            "attached",
-            "verified",
-        }:
-            final_key = "verified_at" if status == "verified" else "attached_at"
-            selected_at = selection.get("selected_at")
-            final_at = selection.get(final_key)
-            safe = bool(
-                any(
-                    isinstance(value, str) and value.strip()
-                    for key in (
-                        "platform_audio_id",
-                        "platform_url",
-                        "native_audio_id",
-                        "native_audio_url",
-                        "audio_id",
-                    )
-                    if (value := selection.get(key)) is not None
-                )
-                and isinstance(selected_at, str)
-                and selected_at.strip()
-                and isinstance(final_at, str)
-                and final_at.strip()
-            )
+        safe = audio_intent_allows_live(intent)
         task_status = {
             "not_required": "not_required",
             "recommended": "open",

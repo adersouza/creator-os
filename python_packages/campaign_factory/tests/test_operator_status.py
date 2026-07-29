@@ -6,6 +6,7 @@ from campaign_factory.operator_status import (
     audio_status,
     campaign_status,
     creator_status,
+    draft_freshness_status,
     generation_status,
     learning_status,
     publication_status,
@@ -21,7 +22,10 @@ def _conn() -> sqlite3.Connection:
         CREATE TABLE campaigns (id TEXT, slug TEXT, name TEXT, platform TEXT, updated_at TEXT);
         CREATE TABLE source_assets (id TEXT, campaign_id TEXT, model_id TEXT, media_type TEXT, status TEXT);
         CREATE TABLE rendered_assets (id TEXT, campaign_id TEXT, review_state TEXT);
-        CREATE TABLE threadsdash_exports (campaign_id TEXT, status TEXT);
+        CREATE TABLE threadsdash_exports (
+          id TEXT, campaign_id TEXT, manifest_path TEXT, user_id TEXT,
+          dry_run INTEGER, status TEXT, created_at TEXT
+        );
         CREATE TABLE performance_snapshots (
           id TEXT, campaign_id TEXT, rendered_asset_id TEXT, content_hash TEXT,
           post_id TEXT, status TEXT, account_id TEXT, instagram_account_id TEXT,
@@ -59,6 +63,10 @@ def _conn() -> sqlite3.Connection:
           'kling3_0', 'image_to_video', 'unique', '/private/output.mp4', 'now'
         );
         INSERT INTO generation_lineage_edges VALUES ('gen_1');
+        INSERT INTO threadsdash_exports VALUES (
+          'export_1', 'camp_1', '/private/draft.json', 'user_1', 0,
+          'delivered', '2020-01-01T00:00:00Z'
+        );
         INSERT INTO performance_snapshots VALUES (
           'perf_1', 'camp_1', 'asset_1', 'hash', 'post_1', 'published',
           'account_1', 'ig_account_1', 'https://instagram/p/1', 'then', 'now',
@@ -83,4 +91,7 @@ def test_scoped_statuses_are_bounded_and_read_only() -> None:
     assert publication_status(conn, "media_1")["snapshots"][0]["post_id"] == "post_1"
     assert learning_status(conn)["knowledgePacks"] == 0
     assert audio_status(conn)["catalog"]["active"] == 1
+    draft_status = draft_freshness_status(conn, max_age_hours=24)
+    assert draft_status["staleCount"] == 1
+    assert draft_status["exports"][0]["requiredAction"] == "reexport_and_reapprove"
     assert conn.total_changes == changes_before

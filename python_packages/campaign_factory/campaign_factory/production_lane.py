@@ -1220,6 +1220,9 @@ def _execute_higgsfield_provider_job(
         campaign["id"],
         {
             "jobId": job["jobId"],
+            "authorizationId": (
+                authorization.get("authorizationId") if authorization else None
+            ),
             "sourceAssetId": job["sourceAssetId"],
             "sourceSha256": job["sourceSha256"],
             "modelId": job["productionRecipe"]["modelId"],
@@ -1234,7 +1237,7 @@ def _execute_higgsfield_provider_job(
         request = _higgsfield_request(
             job,
             max_credits=max_credits,
-            attempt_id=str(pipeline_job["id"]),
+            attempt_id=f"{pipeline_job['id']}:1",
         )
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
