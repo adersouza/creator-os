@@ -482,6 +482,14 @@ def test_success_hashes_registers_and_preserves_review_fields(
     output = Path(receipt["finalOutput"]["path"])
     assert receipt["status"] == "completed"
     assert receipt["generationId"] == "generation-1"
+    assert receipt["externalOperationId"] == "generation-1"
+    assert receipt["operationReceipt"] == {
+        "schema": "pipeline.operation_receipt.v1",
+        "workItemId": receipt["workItemId"],
+        "authorizationId": receipt["authorizationId"],
+        "attemptId": receipt["attemptId"],
+        "externalOperationId": "generation-1",
+    }
     assert receipt["model"] == "kling3_0"
     assert receipt["creditsConsumed"] == 8.75
     assert receipt["creditsConsumedSource"] == "account_balance_delta"

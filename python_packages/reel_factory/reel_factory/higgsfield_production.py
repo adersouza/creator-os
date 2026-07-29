@@ -379,6 +379,14 @@ def execute_higgsfield_production(
         "workItemId": request.work_item_id,
         "authorizationId": request.authorization_id,
         "attemptId": request.attempt_id,
+        "externalOperationId": None,
+        "operationReceipt": {
+            "schema": "pipeline.operation_receipt.v1",
+            "workItemId": request.work_item_id,
+            "authorizationId": request.authorization_id,
+            "attemptId": request.attempt_id,
+            "externalOperationId": None,
+        },
         "clientRequestCorrelationId": request.client_request_correlation_id,
         "status": "ready_to_submit",
         "recipe": plan["recipe"],
@@ -432,7 +440,7 @@ def execute_higgsfield_production(
         raise HiggsfieldSubmissionNeedsReconciliation(
             "Higgsfield submission returned no generation id; do not retry blindly"
         )
-    receipt["generationId"] = generation_id
+    _bind_external_operation(receipt, generation_id)
     receipt["status"] = str(extract_status(created) or "created")
     receipt["submissionResponse"] = _scrub_provider_payload(created)
     _write_receipt(receipt_path, receipt)
@@ -464,6 +472,10 @@ def _recover_higgsfield_generation(
         if _sha256_file(output) != final.get("sha256"):
             raise PermissionError("higgsfield_completed_output_sha256_mismatch")
         _probe_video(output)
+        generation_id = receipt.get("generationId")
+        if isinstance(generation_id, str) and generation_id:
+            _bind_external_operation(receipt, generation_id)
+            _write_receipt(receipt_path, receipt)
         return receipt
     if receipt.get("status") == "submission_ambiguous" and not receipt.get(
         "generationId"
@@ -479,7 +491,7 @@ def _recover_higgsfield_generation(
                 "Higgsfield submission history did not yield one exact match; "
                 "do not resubmit"
             )
-        receipt["generationId"] = generation["id"]
+        _bind_external_operation(receipt, str(generation["id"]))
         receipt["status"] = str(generation.get("status") or "reconciled")
         receipt["submissionHistoryReconciliation"] = {
             "status": "matched",
@@ -505,6 +517,21 @@ def _recover_higgsfield_generation(
         adapter=adapter,
         started=time.monotonic(),
     )
+
+
+def _bind_external_operation(receipt: dict[str, Any], operation_id: str) -> None:
+    receipt["generationId"] = operation_id
+    receipt["externalOperationId"] = operation_id
+    operation = receipt.get("operationReceipt")
+    if not isinstance(operation, dict):
+        operation = {
+            "schema": "pipeline.operation_receipt.v1",
+            "workItemId": receipt.get("workItemId"),
+            "authorizationId": receipt.get("authorizationId"),
+            "attemptId": receipt.get("attemptId"),
+        }
+        receipt["operationReceipt"] = operation
+    operation["externalOperationId"] = operation_id
 
 
 def _reconcile_submission_history(
