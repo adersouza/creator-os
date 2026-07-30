@@ -129,6 +129,12 @@ jobs:
             files.pythonhosted.org:443
             raw.githubusercontent.com:443
             release-assets.githubusercontent.com:443
+            azure.archive.ubuntu.com:80
+            security.ubuntu.com:80
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -140,6 +146,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - name: Install media tooling
+        run: sudo apt-get install -y --no-install-recommends ffmpeg tesseract-ocr
       - run: pnpm install --frozen-lockfile
       - name: Generate SBOMs
         run: bash scripts/security/generate-sbom.sh
