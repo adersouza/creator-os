@@ -82,4 +82,8 @@ Install one of:
 
 CI still runs secret scanning through GitHub Actions.
 EOF
+if [[ "${REQUIRE_SECRET_SCANNER:-0}" == "1" ]]; then
+  echo "A secret scanner is required for this verification environment." >&2
+  exit 1
+fi
 exit 0

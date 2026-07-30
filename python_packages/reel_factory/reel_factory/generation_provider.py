@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import time
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from creator_os_core.provider_models import model_identifiers
+from creator_os_core.trust_boundaries import download_public_file
 
 from .asset_prompt_contract import AssetPromptSet
 from .generation_asset_models import (
     CAPABILITY_SCHEMA,
-    DOWNLOAD_CHUNK_BYTES,
     DOWNLOAD_TIMEOUT_SECONDS,
     IMAGE_MODEL,
     IMAGE_MODEL_CANDIDATES,
@@ -619,35 +619,40 @@ def _download_min_bytes(out_path: Path, content_type: str | None) -> int:
     return MIN_IMAGE_RESULT_BYTES
 
 
-def download_result(url: str, out_path: Path) -> Path:
+def download_result(
+    url: str,
+    out_path: Path,
+    *,
+    opener: Callable[..., Any] | None = None,
+) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path: Path | None = None
-    try:
-        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
-            content_type = response.headers.get_content_type()
-            if content_type not in {None, "", "application/octet-stream"} and not (
-                content_type.startswith("image/") or content_type.startswith("video/")
-            ):
-                raise RuntimeError(f"unexpected result content type: {content_type}")
-            with tempfile.NamedTemporaryFile(
-                "wb",
-                dir=out_path.parent,
-                prefix=f".{out_path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
-                    tmp.write(chunk)
-        min_bytes = _download_min_bytes(out_path, content_type)
-        size = tmp_path.stat().st_size if tmp_path else 0
+    if out_path.is_symlink() or (out_path.exists() and not out_path.is_file()):
+        raise ValueError("unsafe generation result destination")
+    with tempfile.TemporaryDirectory(
+        prefix=f".{out_path.name}.", dir=out_path.parent
+    ) as temporary:
+        candidate = Path(temporary) / "provider-result"
+        receipt = download_public_file(
+            url,
+            candidate,
+            expected_sha256=None,
+            max_bytes=1024 * 1024 * 1024,
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+            user_agent="CreatorOS-HiggsfieldResult/1.0",
+            opener=opener,
+        )
+        content_type = receipt.get("contentType")
+        if content_type not in {None, "", "application/octet-stream"} and not (
+            str(content_type).startswith("image/")
+            or str(content_type).startswith("video/")
+        ):
+            raise RuntimeError(f"unexpected result content type: {content_type}")
+        min_bytes = _download_min_bytes(out_path, str(content_type or ""))
+        size = candidate.stat().st_size
         if size < min_bytes:
             raise RuntimeError(
                 f"downloaded result too small: {size} bytes < {min_bytes} bytes"
             )
-        tmp_path.replace(out_path)
-    except Exception:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
-        raise
+        os.replace(candidate, out_path)
+        out_path.chmod(0o600)
     return out_path

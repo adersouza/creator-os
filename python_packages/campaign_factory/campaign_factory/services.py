@@ -42,6 +42,7 @@ from .export_summary import ExportSummaryRepository
 from .finished_video import FinishedVideoRepository
 from .fresh_reel_production import FreshReelProductionRepository
 from .graph import GraphRepository
+from .incident_privacy import CreatorPrivacyRepository, IncidentRepository
 from .inventory_perceptual import InventoryPerceptualRepository
 from .inventory_planning import InventoryPlanningRepository
 from .inventory_recovery import InventoryRecoveryRepository
@@ -53,6 +54,7 @@ from .live_scale import LiveScaleRepository
 from .make_batch import MakeBatchRepository
 from .models import ModelRepository
 from .multi_blocker_unlock import MultiBlockerUnlockRepository
+from .operational_observability import OperationalObservabilityRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
 from .parent_factory_planning import ParentFactoryPlanningRepository
@@ -668,6 +670,20 @@ class CampaignDomainServices:
             slugify=slugify,
             utc_now=utc_now,
             managed_root=settings.root,
+        )
+        self.incidents = IncidentRepository(
+            conn,
+            new_id=new_id,
+            utc_now=utc_now,
+        )
+        self.creator_privacy = CreatorPrivacyRepository(
+            conn,
+            new_id=new_id,
+            utc_now=utc_now,
+        )
+        self.operational_observability = OperationalObservabilityRepository(
+            conn,
+            utc_now=utc_now,
         )
         self.exceptions = ExceptionRepository(
             conn,

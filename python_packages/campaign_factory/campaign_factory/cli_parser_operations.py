@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 
 from .creator_governance import CAMPAIGN_TRANSITIONS, CREATOR_TRANSITIONS
+from .incident_privacy import (
+    INCIDENT_CATEGORIES,
+    INCIDENT_SEVERITIES,
+    INCIDENT_TRANSITIONS,
+    PRIVACY_REQUEST_TYPES,
+    PRIVACY_TRANSITIONS,
+)
 
 
 def register_operations_commands(sub) -> None:
@@ -742,3 +749,83 @@ def register_operations_commands(sub) -> None:
     campaign_transition.add_argument("--evidence-json")
     campaign_transition.add_argument("--related-id", action="append", default=[])
     campaign_transition.add_argument("--apply", action="store_true")
+
+    incident_report = sub.add_parser("incident-report")
+    incident_report.add_argument("--incident-id")
+    incident_create = sub.add_parser("incident-create")
+    incident_create.add_argument(
+        "--category", choices=sorted(INCIDENT_CATEGORIES), required=True
+    )
+    incident_create.add_argument(
+        "--severity", choices=sorted(INCIDENT_SEVERITIES), required=True
+    )
+    incident_create.add_argument("--domain-owner", required=True)
+    incident_create.add_argument("--owner", required=True)
+    incident_create.add_argument("--next-action", required=True)
+    incident_create.add_argument("--operator", required=True)
+    incident_create.add_argument("--creator-id")
+    incident_create.add_argument("--campaign-id")
+    incident_create.add_argument("--affected-asset-id", action="append", default=[])
+    incident_create.add_argument(
+        "--external-effect-state",
+        choices=[
+            "none",
+            "pre_effect",
+            "ambiguous",
+            "external_id_known",
+            "finalized",
+            "reconciled",
+            "unknown",
+        ],
+        default="unknown",
+    )
+    incident_create.add_argument("--financial-exposure-json")
+    incident_create.add_argument("--privacy-exposure-json")
+    incident_create.add_argument("--apply", action="store_true")
+    incident_transition = sub.add_parser("incident-transition")
+    incident_transition.add_argument("--incident-id", required=True)
+    incident_transition.add_argument(
+        "--state",
+        choices=sorted(INCIDENT_TRANSITIONS),
+        required=True,
+    )
+    incident_transition.add_argument("--actor", required=True)
+    incident_transition.add_argument("--action", required=True)
+    incident_transition.add_argument("--evidence-json", required=True)
+    incident_transition.add_argument("--owner")
+    incident_transition.add_argument("--next-action")
+    incident_transition.add_argument("--repair-actions-json")
+    incident_transition.add_argument("--verification-evidence-json")
+    incident_transition.add_argument("--closure-receipt-json")
+    incident_transition.add_argument("--apply", action="store_true")
+    observability = sub.add_parser("operational-observability")
+    observability.add_argument("--stale-after-minutes", type=int, default=60)
+
+    privacy_report = sub.add_parser("creator-privacy-report")
+    privacy_report.add_argument("--creator", required=True)
+    privacy_request = sub.add_parser("creator-privacy-request")
+    privacy_request.add_argument("--creator", required=True)
+    privacy_request.add_argument(
+        "--request-type", choices=sorted(PRIVACY_REQUEST_TYPES), required=True
+    )
+    privacy_request.add_argument("--operator", required=True)
+    privacy_request.add_argument("--legal-basis", required=True)
+    privacy_request.add_argument("--deletion-scope-json")
+    privacy_request.add_argument("--retention-policy-json")
+    privacy_request.add_argument("--effective-at")
+    privacy_request.add_argument("--apply", action="store_true")
+    privacy_transition = sub.add_parser("creator-privacy-transition")
+    privacy_transition.add_argument("--request-id", required=True)
+    privacy_transition.add_argument(
+        "--state", choices=sorted(PRIVACY_TRANSITIONS), required=True
+    )
+    privacy_transition.add_argument("--actor", required=True)
+    privacy_transition.add_argument("--action", required=True)
+    privacy_transition.add_argument("--evidence-json", required=True)
+    privacy_transition.add_argument("--verification-receipt-json")
+    privacy_transition.add_argument("--closure-receipt-json")
+    privacy_transition.add_argument("--apply", action="store_true")
+    privacy_verify = sub.add_parser("creator-privacy-verify")
+    privacy_verify.add_argument("--request-id", required=True)
+    privacy_verify.add_argument("--operator", required=True)
+    privacy_verify.add_argument("--apply", action="store_true")

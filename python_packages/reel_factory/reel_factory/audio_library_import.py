@@ -14,7 +14,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+
+from creator_os_core.trust_boundaries import (
+    download_public_file,
+    sanitized_url,
+)
 
 try:
     from .fileops import atomic_write_json
@@ -51,21 +55,18 @@ def _read_local(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _download(url: str) -> bytes:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("--url must be an absolute HTTP(S) direct-download URL")
-    request = Request(url, headers={"User-Agent": "CreatorOS-AudioImporter/1.0"})
-    with urlopen(request, timeout=60) as response:  # noqa: S310 - operator-supplied URL
-        content_length = response.headers.get("Content-Length")
-        if content_length and int(content_length) > MAX_DOWNLOAD_BYTES:
-            raise ValueError(f"audio download exceeds {MAX_DOWNLOAD_BYTES} bytes")
-        payload = response.read(MAX_DOWNLOAD_BYTES + 1)
-    if not payload:
-        raise ValueError("audio download returned an empty response")
-    if len(payload) > MAX_DOWNLOAD_BYTES:
-        raise ValueError(f"audio download exceeds {MAX_DOWNLOAD_BYTES} bytes")
-    return payload
+def _download(url: str) -> tuple[bytes, dict[str, Any]]:
+    with tempfile.TemporaryDirectory(prefix="creator-os-audio-import-") as temporary:
+        staged = Path(temporary) / "audio-download"
+        receipt = download_public_file(
+            url,
+            staged,
+            expected_sha256=None,
+            max_bytes=MAX_DOWNLOAD_BYTES,
+            timeout=60,
+            user_agent="CreatorOS-AudioImporter/1.0",
+        )
+        return staged.read_bytes(), receipt
 
 
 def _validate_audio(path: Path) -> None:
@@ -140,7 +141,11 @@ def import_audio_track(
         raise ValueError("provide exactly one of file or url")
 
     extension = _extension(file=file, url=url)
-    payload = _read_local(file) if file is not None else _download(url or "")
+    download_receipt: dict[str, Any] | None = None
+    if file is not None:
+        payload = _read_local(file)
+    else:
+        payload, download_receipt = _download(url or "")
     digest = hashlib.sha256(payload).hexdigest()
     source_slug = _slug(source, fallback="audio")
     artist_slug = _slug(artist, fallback="artist")
@@ -168,7 +173,8 @@ def import_audio_track(
         "selection_source": "embedded_licensed_audio",
     }
     if url:
-        metadata["download_url"] = url
+        metadata["download_url"] = sanitized_url(url)
+        metadata["download_receipt"] = download_receipt
     if file:
         metadata["imported_filename"] = file.name
     if attribution:

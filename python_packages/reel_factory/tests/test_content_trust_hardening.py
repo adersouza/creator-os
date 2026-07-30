@@ -186,7 +186,7 @@ def test_download_result_rejects_truncated_response_without_partial_file(
 
     out = tmp_path / "asset.png"
     try:
-        download_result("https://example.test/asset.png", out)
+        download_result("https://93.184.216.34/asset.png", out)
     except RuntimeError as exc:
         assert "downloaded result too small" in str(exc)
     else:
@@ -208,7 +208,7 @@ def test_download_result_timeout_leaves_no_asset_file(
 
     out = tmp_path / "asset.mp4"
     try:
-        download_result("https://example.test/asset.mp4", out)
+        download_result("https://93.184.216.34/asset.mp4", out)
     except TimeoutError:
         pass
     else:

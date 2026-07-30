@@ -74,7 +74,6 @@ from .generation_provider import (
     build_video_cmd,
     build_wait_cmd,
     capabilities_path,
-    download_result,
     extract_higgsfield_generated_prompt,
     extract_id,
     extract_status,
@@ -84,6 +83,9 @@ from .generation_provider import (
     resolve_generation_models,
     select_supported_model,
     validate_required_capabilities,
+)
+from .generation_provider import (
+    download_result as _download_result,
 )
 from .generation_provider import (
     ensure_required_capabilities as _ensure_required_capabilities,
@@ -143,6 +145,12 @@ _COMPAT_REEXPORTED_HELPERS = (
     select_supported_model,
     _sample_video_frames,
 )
+
+
+def download_result(url: str, out_path: Path) -> Path:
+    """Compatibility wrapper retaining the testable transport patch point."""
+
+    return _download_result(url, out_path, opener=urllib.request.urlopen)
 
 
 def probe_higgsfield_capabilities(root: Path, *, force: bool = False) -> dict[str, Any]:

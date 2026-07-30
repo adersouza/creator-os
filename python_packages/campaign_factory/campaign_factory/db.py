@@ -20,6 +20,15 @@ from .campaign_schema_v5 import (
 from .campaign_schema_v5 import (
     postcondition as _campaign_schema_v5_postcondition,
 )
+from .campaign_schema_v6 import (
+    apply as _apply_campaign_schema_v6,
+)
+from .campaign_schema_v6 import (
+    checksum as _campaign_schema_v6_checksum,
+)
+from .campaign_schema_v6 import (
+    postcondition as _campaign_schema_v6_postcondition,
+)
 from .creator_governance_schema import CREATOR_GOVERNANCE_SCHEMA
 from .db_migrations import (
     _apply_creator_governance_backfill,
@@ -34,13 +43,14 @@ from .db_schema import SCHEMA
 from .orchestration_schema import DAILY_ORCHESTRATION_SCHEMA
 from .source_lifecycle_schema import SOURCE_LIFECYCLE_SCHEMA
 
-_CAMPAIGN_SCHEMA_VERSION = 5
+_CAMPAIGN_SCHEMA_VERSION = 6
 _CAMPAIGN_SCHEMA_MIGRATIONS = (
     (1, "20260730_campaign_schema_baseline_v1"),
     (2, "20260730_campaign_state_evidence_guards_v1"),
     (3, "20260730_source_lifecycle_reconciliation_v1"),
     (4, "20260730_daily_orchestration_authority_v1"),
     (5, "20260730_orchestration_cost_guards_v2"),
+    (6, "20260730_incident_privacy_observability_v1"),
 )
 
 
@@ -1120,18 +1130,22 @@ def _campaign_schema_postcondition(conn: sqlite3.Connection, *, version: int) ->
         3: _campaign_schema_v3_postcondition,
         4: _campaign_schema_v4_postcondition,
         5: _campaign_schema_v5_postcondition,
+        6: _campaign_schema_v6_postcondition,
     }[version](conn)
 
 
 def _campaign_schema_checksum(version: int, migration_id: str) -> str:
     if version == 5:
         return _campaign_schema_v5_checksum(migration_id)
+    if version == 6:
+        return _campaign_schema_v6_checksum(migration_id)
     implementation = {
         1: _apply_campaign_schema_v1,
         2: _apply_campaign_schema_v2,
         3: _apply_campaign_schema_v3,
         4: _apply_campaign_schema_v4,
         5: _apply_campaign_schema_v5,
+        6: _apply_campaign_schema_v6,
     }[version]
     postcondition = {
         1: _campaign_schema_v1_postcondition,
@@ -1139,6 +1153,7 @@ def _campaign_schema_checksum(version: int, migration_id: str) -> str:
         3: _campaign_schema_v3_postcondition,
         4: _campaign_schema_v4_postcondition,
         5: _campaign_schema_v5_postcondition,
+        6: _campaign_schema_v6_postcondition,
     }[version]
     payload = inspect.getsource(implementation)
     if version == 1:
@@ -1264,6 +1279,7 @@ def _run_campaign_schema_migration(
             3: _apply_campaign_schema_v3,
             4: _apply_campaign_schema_v4,
             5: _apply_campaign_schema_v5,
+            6: _apply_campaign_schema_v6,
         }[version]
         implementation(conn)
         _campaign_schema_postcondition(conn, version=version)

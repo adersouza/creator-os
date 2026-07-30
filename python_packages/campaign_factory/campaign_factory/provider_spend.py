@@ -598,12 +598,21 @@ def record_provider_execution(
     caller_owned_transaction = conn.in_transaction
     ensure_cost_table(conn)
     authorization_row = conn.execute(
-        f"SELECT campaign_id FROM {AUTHORIZATION_TABLE} WHERE authorization_id = ?",
+        f"""
+        SELECT campaign_id, creator_id
+        FROM {AUTHORIZATION_TABLE}
+        WHERE authorization_id = ?
+        """,
         (authorization["authorizationId"],),
     ).fetchone()
     campaign_id = (
         str(authorization_row[0])
         if authorization_row and authorization_row[0]
+        else None
+    )
+    creator_id = (
+        str(authorization_row[1])
+        if authorization_row and authorization_row[1]
         else None
     )
     event_ids = []
@@ -650,6 +659,16 @@ def record_provider_execution(
                 commit=False,
             )
         )
+    if overspend_actual is not None:
+        _record_overspend_incident(
+            conn,
+            authorization=authorization,
+            campaign_id=campaign_id,
+            creator_id=creator_id,
+            actual=overspend_actual,
+            authorized_maximum=authorized_maximum,
+            cost_event_ids=event_ids,
+        )
     if not caller_owned_transaction:
         conn.commit()
     if overspend_actual is not None:
@@ -659,6 +678,76 @@ def record_provider_execution(
             cost_event_ids=event_ids,
         )
     return event_ids
+
+
+def _record_overspend_incident(
+    conn: sqlite3.Connection,
+    *,
+    authorization: dict[str, Any],
+    campaign_id: str | None,
+    creator_id: str | None,
+    actual: float,
+    authorized_maximum: float,
+    cost_event_ids: list[str],
+) -> None:
+    has_incident_registry = conn.execute(
+        """
+        SELECT 1 FROM sqlite_master
+        WHERE type = 'table' AND name = 'incident_records'
+        """
+    ).fetchone()
+    if has_incident_registry is None:
+        return
+    from .incident_privacy import IncidentRepository
+
+    now = (
+        datetime.datetime.now(datetime.UTC)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    repository = IncidentRepository(
+        conn,
+        new_id=lambda prefix: f"{prefix}_{uuid.uuid4().hex}",
+        utc_now=lambda: now,
+    )
+    incident = repository.create(
+        category="overspend",
+        severity="critical",
+        domain_owner="campaign_factory",
+        owner="release_owner",
+        next_action="place provider spend on manual hold and reconcile actual cost",
+        operator="provider_spend_guard",
+        model_id=creator_id,
+        campaign_id=campaign_id,
+        external_effect_state="finalized",
+        financial_exposure={
+            "authorizationId": authorization["authorizationId"],
+            "actualCredits": actual,
+            "authorizedMaximumCredits": authorized_maximum,
+            "costEventIds": cost_event_ids,
+        },
+        evidence=[
+            {"evidenceType": "ai_cost_event", "evidenceId": event_id}
+            for event_id in cost_event_ids
+        ],
+        fingerprint_scope={
+            "category": "overspend",
+            "authorizationId": authorization["authorizationId"],
+            "actualCredits": actual,
+            "authorizedMaximumCredits": authorized_maximum,
+        },
+    )
+    if incident["state"] == "detected":
+        repository.transition(
+            str(incident["id"]),
+            state="manual_hold",
+            actor="provider_spend_guard",
+            action="automatic_overspend_hold",
+            evidence={
+                "authorizationId": authorization["authorizationId"],
+                "costEventIds": cost_event_ids,
+            },
+        )
 
 
 def _reserved_total(conn: sqlite3.Connection, clause: str, value: str) -> float:

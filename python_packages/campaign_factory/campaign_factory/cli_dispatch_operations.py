@@ -13,6 +13,7 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     write_assignment_eligibility_artifact,
 )
+from .cli_dispatch_incident_privacy import dispatch_incident_privacy_commands
 from .cli_support import (
     load_hooks,
     load_json_object,
@@ -27,6 +28,10 @@ from .quality_calibration import track_q_calibration_status
 
 
 def dispatch_operations_commands(args, cf, settings) -> int | None:
+    if (
+        incident_privacy_result := dispatch_incident_privacy_commands(args, cf)
+    ) is not None:
+        return incident_privacy_result
     if args.cmd == "caption-outcome-report":
         print_json(
             cf.domains.performance_summary_repo.caption_outcome_report(args.campaign)

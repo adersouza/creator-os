@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
+
+import pytest
+from creator_os_core.configuration_registry import configuration_manifest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "backup_runtime_state.py"
 SPEC = importlib.util.spec_from_file_location("backup_runtime_state", SCRIPT)
@@ -11,6 +17,7 @@ backup_module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(backup_module)
 backup_runtime_state = backup_module.backup_runtime_state
 verify_backup = backup_module.verify_backup
+restore_runtime_state = backup_module.restore_runtime_state
 
 
 def _sqlite_db(path: Path) -> None:
@@ -137,3 +144,288 @@ def test_verify_backup_rejects_public_database_permissions(tmp_path: Path):
         assert "reel_manifest" in str(exc)
     else:
         raise AssertionError("public backup permissions must fail verification")
+
+
+def _complete_backup(
+    tmp_path: Path,
+    *,
+    created_at: datetime | None = None,
+    include_models: bool = True,
+) -> dict[str, Any]:
+    runtime = tmp_path / "lost-machine"
+    campaign_db = runtime / "state/campaign.sqlite"
+    reference_db = runtime / "state/reference.sqlite"
+    _sqlite_db(campaign_db)
+    _sqlite_db(reference_db)
+    artifacts = runtime / "artifacts"
+    artifacts.mkdir(parents=True)
+    (artifacts / "receipt.json").write_text(
+        '{"schema":"receipt.v1","createdAt":"2026-07-29T00:00:00Z"}',
+        encoding="utf-8",
+    )
+    models = runtime / "models"
+    if include_models:
+        models.mkdir()
+        (models / "detector.bin").write_bytes(b"qualified-model")
+    return backup_runtime_state(
+        runtime,
+        tmp_path / "backups",
+        timestamp=f"backup-{len(list((tmp_path / 'backups').glob('*'))) if (tmp_path / 'backups').exists() else 0}",
+        created_at=created_at,
+        database_sources=(
+            ("campaign_factory", campaign_db, Path("campaign.sqlite")),
+            ("reference_factory", reference_db, Path("reference.sqlite")),
+        ),
+        directory_sources=(
+            ("artifacts", artifacts, Path("artifacts")),
+            ("models", models, Path("models")),
+        ),
+        required_databases=("campaign_factory", "reference_factory"),
+        required_directories=("artifacts", "models"),
+        config_evidence=configuration_manifest(
+            values={
+                "OPENAI_API_KEY": "never-copy-provider-secret",
+                "CREATOR_OS_STATE_ROOT": str(runtime / "state"),
+            }
+        ),
+        rpo_seconds=3600,
+        rto_seconds=60,
+    )
+
+
+def test_complete_machine_loss_restore_uses_new_root_and_path_rebinding(
+    tmp_path: Path,
+) -> None:
+    result = _complete_backup(tmp_path)
+    backup_root = Path(result["backupDir"])
+    new_mac_root = tmp_path / "new-mac" / "creator-os-restored"
+
+    receipt = restore_runtime_state(
+        backup_root,
+        new_mac_root,
+        operator="restore-operator",
+        authorized=True,
+        path_rebindings={
+            "campaign_factory": "databases/campaign.sqlite",
+            "reference_factory": "databases/reference.sqlite",
+            "artifacts": "retained/artifacts",
+            "models": "retained/models",
+        },
+    )
+
+    assert receipt["isolatedRestore"] is True
+    assert receipt["canonicalStateOverwritten"] is False
+    assert receipt["rpoMet"] is True
+    assert receipt["rtoMet"] is True
+    assert receipt["postRestoreReconciliation"]["required"] is True
+    assert (new_mac_root / "retained/models/detector.bin").read_bytes() == (
+        b"qualified-model"
+    )
+    with sqlite3.connect(new_mac_root / "databases/campaign.sqlite") as conn:
+        assert conn.execute("SELECT name FROM items").fetchone()[0] == "ok"
+    restore_receipt = json.loads(
+        (new_mac_root / "restore-receipt.json").read_text(encoding="utf-8")
+    )
+    assert restore_receipt["backupManifestFingerprint"] == result["manifestFingerprint"]
+    assert "never-copy-provider-secret" not in json.dumps(result)
+    assert "never-copy-provider-secret" not in json.dumps(restore_receipt)
+
+
+def test_schema_upgrade_runs_only_on_isolated_restored_database(
+    tmp_path: Path,
+) -> None:
+    result = _complete_backup(tmp_path)
+    backup_db = Path(result["backupDir"]) / "databases/campaign.sqlite"
+    before_sha = backup_module.sha256_file(backup_db)
+
+    def upgrade(path: Path) -> None:
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "CREATE TABLE schema_receipts (version INTEGER NOT NULL PRIMARY KEY)"
+            )
+            conn.execute("INSERT INTO schema_receipts VALUES (2)")
+
+    destination = tmp_path / "schema-upgraded"
+    receipt = restore_runtime_state(
+        Path(result["backupDir"]),
+        destination,
+        operator="migration-operator",
+        authorized=True,
+        database_upgraders={"campaign_factory": upgrade},
+    )
+
+    assert receipt["schemaUpgradeApplied"] is True
+    campaign = next(
+        row for row in receipt["databases"] if row["name"] == "campaign_factory"
+    )
+    assert campaign["schemaUpgraded"] is True
+    with sqlite3.connect(
+        destination / "state/campaign_factory/campaign_factory.sqlite"
+    ) as conn:
+        assert conn.execute("SELECT version FROM schema_receipts").fetchone()[0] == 2
+    assert backup_module.sha256_file(backup_db) == before_sha
+
+
+def test_partial_backup_and_missing_model_bytes_fail_before_restore(
+    tmp_path: Path,
+) -> None:
+    result = _complete_backup(tmp_path, include_models=False)
+    backup_root = Path(result["backupDir"])
+    assert result["status"] == "partial"
+    verification = verify_backup(backup_root)
+    assert verification["status"] == "partial"
+    assert verification["missingRequired"] == ["directories:models"]
+    assert any(
+        warning["code"] == "backup_partial" for warning in verification["warnings"]
+    )
+
+    destination = tmp_path / "must-not-exist"
+    with pytest.raises(RuntimeError, match="required components missing"):
+        restore_runtime_state(
+            backup_root,
+            destination,
+            operator="restore-operator",
+            authorized=True,
+        )
+    assert not destination.exists()
+
+
+def test_stale_backup_requires_override_and_reports_rpo_truthfully(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 30, 12, tzinfo=UTC)
+    result = _complete_backup(tmp_path, created_at=now - timedelta(hours=2))
+    backup_root = Path(result["backupDir"])
+    destination = tmp_path / "stale-restore"
+
+    with pytest.raises(RuntimeError, match="stale_backup"):
+        restore_runtime_state(
+            backup_root,
+            destination,
+            operator="restore-operator",
+            authorized=True,
+            now=now,
+        )
+    assert not destination.exists()
+
+    receipt = restore_runtime_state(
+        backup_root,
+        destination,
+        operator="restore-operator",
+        authorized=True,
+        now=now,
+        allow_stale=True,
+    )
+    assert receipt["staleBackupAccepted"] is True
+    assert receipt["rpoMet"] is False
+
+
+def test_missing_configuration_and_secret_material_block_selected_operation(
+    tmp_path: Path,
+) -> None:
+    result = _complete_backup(tmp_path)
+    destination = tmp_path / "config-blocked"
+    with pytest.raises(PermissionError) as error:
+        restore_runtime_state(
+            Path(result["backupDir"]),
+            destination,
+            operator="restore-operator",
+            authorized=True,
+            required_operation="paid_openai",
+            target_configuration={
+                "CREATOR_OS_ENVIRONMENT": "production",
+                "CREATOR_OS_KILL_SWITCH": "0",
+            },
+        )
+    message = str(error.value)
+    assert "CREATOR_OS_SPEND_AUTH_SECRET" in message
+    assert "OPENAI_API_KEY" in message
+    assert "secret" not in message.lower().replace("creator_os_spend_auth_secret", "")
+    assert not destination.exists()
+
+
+def test_newer_receipts_block_stale_state_replacement(tmp_path: Path) -> None:
+    created = datetime(2026, 7, 30, 12, tzinfo=UTC)
+    result = _complete_backup(tmp_path, created_at=created)
+    newer = tmp_path / "canonical-newer-receipt.json"
+    newer.write_text(
+        json.dumps({"createdAt": (created + timedelta(minutes=5)).isoformat()}),
+        encoding="utf-8",
+    )
+    destination = tmp_path / "blocked-by-newer-receipt"
+
+    with pytest.raises(RuntimeError, match="newer_canonical_receipts"):
+        restore_runtime_state(
+            Path(result["backupDir"]),
+            destination,
+            operator="restore-operator",
+            authorized=True,
+            now=created + timedelta(minutes=10),
+            canonical_receipts=(newer,),
+        )
+    assert not destination.exists()
+
+    reconciled_destination = tmp_path / "isolated-newer-receipt-reconciliation"
+    receipt = restore_runtime_state(
+        Path(result["backupDir"]),
+        reconciled_destination,
+        operator="restore-operator",
+        authorized=True,
+        now=created + timedelta(minutes=10),
+        canonical_receipts=(newer,),
+        allow_newer_receipts=True,
+    )
+    assert receipt["canonicalStateOverwritten"] is False
+    assert receipt["newerReceiptsRequireReconciliation"] is True
+    assert receipt["newerCanonicalReceipts"] == [
+        {
+            "path": str(newer.resolve()),
+            "createdAt": (created + timedelta(minutes=5)).isoformat(),
+        }
+    ]
+
+
+def test_restore_never_blindly_overwrites_even_an_empty_destination(
+    tmp_path: Path,
+) -> None:
+    result = _complete_backup(tmp_path)
+    destination = tmp_path / "existing-canonical-state"
+    destination.mkdir()
+    marker = destination / "newer.txt"
+    marker.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        restore_runtime_state(
+            Path(result["backupDir"]),
+            destination,
+            operator="restore-operator",
+            authorized=True,
+        )
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_verify_backup_rejects_tampered_runtime_directory(tmp_path: Path) -> None:
+    result = _complete_backup(tmp_path)
+    backup_root = Path(result["backupDir"])
+    (backup_root / "models/detector.bin").write_bytes(b"tampered-model")
+    with pytest.raises(RuntimeError, match="models"):
+        verify_backup(backup_root)
+
+
+def test_failed_backup_is_not_published_as_a_restorable_snapshot(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime"
+    corrupt = runtime / "broken.sqlite"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(sqlite3.DatabaseError):
+        backup_runtime_state(
+            runtime,
+            tmp_path / "backups",
+            timestamp="failed",
+            database_sources=(("broken", corrupt, Path("broken.sqlite")),),
+            required_databases=("broken",),
+        )
+    assert not (tmp_path / "backups/failed").exists()
+    assert not list((tmp_path / "backups").glob(".failed.*.tmp"))

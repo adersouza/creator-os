@@ -1,6 +1,6 @@
 {
   "schema": "creator_os.state_ownership_registry.v1",
-  "version": 2,
+  "version": 3,
   "contractPackage": {
     "name": "@creator-os/pipeline-contracts",
     "version": "4.2.0"
@@ -53,6 +53,16 @@
         "approval_decisions",
         "distribution_plans",
         "asset_inventory_reservations",
+        "incident_records",
+        "incident_events",
+        "incident_evidence_links",
+        "creator_privacy_requests",
+        "creator_privacy_request_events",
+        "creator_future_use_blocks",
+        "creator_account_disassociations",
+        "creator_legal_holds",
+        "creator_data_inventory",
+        "creator_data_inventory_events",
         "threadsdash_exports"
       ],
       "allowedWriters": [
@@ -332,7 +342,7 @@
     "schema": "creator_os.persistence_ownership_registry.v1",
     "inventoryCommand": "uv run python scripts/inventory-persistence.py",
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
-    "directSqlWriterInventorySha256": "0f410c7f79700fdd7a1e325d79b11ea72f1af80b4c95ecf79cb9eee9b0c5f890",
+    "directSqlWriterInventorySha256": "8642ccc3791e60cfd45d0269b187640ec124f488dd8f4c3de11f03d3649cdcbf",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
     "persistentJsonWriterInventorySha256": "476349cbb246b98ebec2dad64d4c519207a04a3762f86b9d52bcc4026fd2be1c",
     "policyInheritance": [
@@ -432,9 +442,15 @@
           "campaign_lifecycle_events",
           "creative_plan_events",
           "creative_plan_item_events",
+          "creator_account_disassociations",
           "creator_authorization_events",
+          "creator_data_inventory_events",
+          "creator_future_use_blocks",
           "creator_lifecycle_events",
+          "creator_privacy_request_events",
           "generation_lineage_edges",
+          "incident_events",
+          "incident_evidence_links",
           "performance_snapshot_observations",
           "promotion_events",
           "reference_anchor_receipts",
@@ -449,7 +465,11 @@
       {
         "records": [
           "campaign_governance",
+          "creator_data_inventory",
+          "creator_legal_holds",
           "creator_lifecycle_state",
+          "creator_privacy_requests",
+          "incident_records",
           "pipeline_jobs",
           "queue_jobs",
           "render_attempts",

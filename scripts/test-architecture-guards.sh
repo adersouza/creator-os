@@ -6,12 +6,14 @@ TS_FIXTURE="$ROOT/packages/pipeline_contracts/__arch_guard_violation__.ts"
 PY_FIXTURE="$ROOT/packages/pipeline_contracts/pipeline_contracts/__arch_guard_violation__.py"
 CORE_PY_FIXTURE="$ROOT/packages/creator_os_core/creator_os_core/__arch_guard_violation__.py"
 REEL_FACTORY_PY_FIXTURE="$ROOT/python_packages/reel_factory/__arch_guard_violation__.py"
+TRUST_BOUNDARY_FIXTURE="$ROOT/packages/creator_os_core/creator_os_core/__trust_boundary_violation__.py"
 
 cleanup() {
   rm -f "$TS_FIXTURE"
   rm -f "$PY_FIXTURE"
   rm -f "$CORE_PY_FIXTURE"
   rm -f "$REEL_FACTORY_PY_FIXTURE"
+  rm -f "$TRUST_BOUNDARY_FIXTURE"
 }
 trap cleanup EXIT
 
@@ -111,5 +113,26 @@ if ! grep -q "reel_factory must not import campaign_factory" /tmp/creator-os-arc
   echo "ERROR: boundary checker failed, but not with the expected reel_factory violation message" >&2
   exit 1
 fi
+
+# Negative fixture 5: direct shell command construction must be rejected.
+cat > "$TRUST_BOUNDARY_FIXTURE" <<'FIXTURE'
+import os
+
+os.system("echo unsafe")
+FIXTURE
+
+if (cd "$ROOT" && python3 scripts/check-local-trust-boundaries.py >/tmp/creator-os-trust-boundary-guard.log 2>&1); then
+  cat /tmp/creator-os-trust-boundary-guard.log
+  echo "ERROR: trust-boundary checker did not reject direct shell execution" >&2
+  exit 1
+fi
+
+if ! grep -q "shell command strings are forbidden" /tmp/creator-os-trust-boundary-guard.log; then
+  cat /tmp/creator-os-trust-boundary-guard.log
+  echo "ERROR: trust-boundary checker failed without the expected shell violation" >&2
+  exit 1
+fi
+
+cleanup
 
 echo "Architecture guards: clean-tree positive controls passed and all negative fixtures were rejected for the expected reasons."
