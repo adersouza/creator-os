@@ -70,6 +70,35 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_columns(conn, "approval_decisions", {"subject_sha256": "TEXT"})
     _ensure_columns(
         conn,
+        "threadsdash_exports",
+        {
+            "idempotency_key": "TEXT",
+            "request_fingerprint": "TEXT",
+            "contract_schema": "TEXT",
+            "contract_version": "TEXT",
+            "contract_fingerprint": "TEXT",
+            "rendered_asset_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+            "source_asset_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+            "final_sha256s_json": "TEXT NOT NULL DEFAULT '[]'",
+            "destination_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+            "reservation_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+            "submitted_at": "TEXT",
+            "acknowledged_at": "TEXT",
+            "rejected_at": "TEXT",
+            "superseded_at": "TEXT",
+            "acknowledgment_json": "TEXT",
+            "last_error": "TEXT",
+            "source_system": "TEXT NOT NULL DEFAULT 'creator_os'",
+            "owning_system": "TEXT NOT NULL DEFAULT 'threadsdashboard'",
+            "updated_at": "TEXT",
+        },
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_threadsdash_exports_idempotency "
+        "ON threadsdash_exports(idempotency_key) WHERE idempotency_key IS NOT NULL"
+    )
+    _ensure_columns(
+        conn,
         "rendered_assets",
         {
             "media_type": "TEXT NOT NULL DEFAULT 'video'",
@@ -147,6 +176,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             "content_surface": "TEXT NOT NULL DEFAULT 'reel'",
             "history_source": "TEXT",
             "lineage_v2_valid": "INTEGER NOT NULL DEFAULT 0",
+            "source_metric_history_id": "TEXT",
+            "source_platform_post_id": "TEXT",
+            "source_observation_fingerprint": "TEXT",
+            "metric_window": "TEXT",
+            "imported_at": "TEXT",
         },
     )
     _ensure_columns(

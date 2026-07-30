@@ -8,6 +8,23 @@ from .closed_loop_proof import DEFAULT_STACEY_PROMPT_PATH
 
 def register_core_commands(sub) -> None:
     sub.add_parser("init")
+    state = sub.add_parser("state")
+    state_sub = state.add_subparsers(dest="state_cmd", required=True)
+    state_explain = state_sub.add_parser("explain")
+    state_explain.add_argument("record_or_id")
+    bridge = sub.add_parser("bridge")
+    bridge_sub = bridge.add_subparsers(dest="bridge_cmd", required=True)
+    bridge_reconcile = bridge_sub.add_parser("reconcile")
+    bridge_reconcile.add_argument("--export-id")
+    bridge_reconcile.add_argument(
+        "--threadsdash-ingest-url",
+        default=os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
+    )
+    bridge_reconcile.add_argument(
+        "--threadsdash-ingest-secret",
+        default=os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
+    )
     create = sub.add_parser(
         "create",
         help="create an independent production batch from operator intent",
@@ -458,10 +475,14 @@ def register_core_commands(sub) -> None:
     export.add_argument("--campaign", required=True)
     export.add_argument("--user-id", required=True)
     export.add_argument("--dry-run", action="store_true")
-    export.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
     export.add_argument(
-        "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+        "--threadsdash-ingest-url",
+        default=os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
+    )
+    export.add_argument(
+        "--threadsdash-ingest-secret",
+        default=os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
     )
     export.add_argument(
         "--supabase-storage-bucket",

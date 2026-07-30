@@ -215,6 +215,7 @@ def evaluate_export_readiness(
     review_only: bool = False,
     record_evidence: bool = True,
     draft_payload: dict[str, Any] | None = None,
+    owner_api_authoritative: bool = False,
 ) -> dict[str, Any]:
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
@@ -290,7 +291,7 @@ def evaluate_export_readiness(
             except Exception:
                 logger.exception("ThreadsDashboard usage check failed")
                 usage_error = "usage_check_unavailable"
-        else:
+        elif not owner_api_authoritative:
             usage_error = "supabase_url and supabase_service_role_key are required for live usage checks"
 
         usage_by_asset = {

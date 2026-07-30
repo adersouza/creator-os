@@ -12,6 +12,10 @@ snapshot, use [`PIPELINE_STATE.md`](./PIPELINE_STATE.md) and fresh
 For a new ChatGPT session, provide this map, `PIPELINE_STATE.md`, and
 `docs/operations/creator_os_master_operating_spec.md`. Together they describe
 durable architecture, current operational truth, and active product policy.
+The canonical table/write-owner split and handoff-saga rules are in
+[`docs/architecture/state_and_ownership.md`](./docs/architecture/state_and_ownership.md);
+the corresponding machine-readable registry is
+`packages/pipeline_contracts/pipeline_contracts/ownership_registry.v1.json`.
 
 ## Repository Closure Snapshot — 2026-07-29
 

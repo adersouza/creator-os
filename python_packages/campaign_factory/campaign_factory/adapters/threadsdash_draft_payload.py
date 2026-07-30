@@ -32,6 +32,7 @@ from .threadsdash_draft_integrity import (
     verify_rendered_media_asset,
     with_content_fingerprint,
 )
+from .threadsdash_handoff_evidence import attach_handoff_evidence
 from .threadsdash_inventory_reservations import (
     active_inventory_reservation as _active_inventory_reservation,
 )
@@ -449,10 +450,17 @@ def build_draft_payloads(
                 draft,
                 account_eligibility=destination.get("accountEligibility"),
             )
+            attach_handoff_evidence(
+                draft,
+                schema=normalized_draft_payload_schema,
+                campaign_id=manifest["campaignId"],
+                source_asset_id=asset["sourceAssetId"],
+            )
             drafts.append(draft)
     return {
         "schema": normalized_draft_payload_schema,
         "campaign": campaign_slug,
+        "exportId": export_id,
         "handoffMode": "review_only" if review_only else "publishable_draft",
         "manifest": manifest,
         "drafts": drafts,

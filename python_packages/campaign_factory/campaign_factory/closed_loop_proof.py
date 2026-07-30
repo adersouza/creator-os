@@ -1059,8 +1059,6 @@ def run_stacey_closed_loop_proof(
             campaign_slug=campaign_slug,
             user_id=user_id,
             dry_run=False,
-            supabase_url=supabase_url,
-            supabase_service_role_key=supabase_service_role_key,
             supabase_storage_bucket=supabase_storage_bucket,
             allow_warnings=allow_warnings,
             warning_override_reason=approval_reason,

@@ -1,0 +1,321 @@
+{
+  "schema": "creator_os.state_ownership_registry.v1",
+  "version": 1,
+  "contractPackage": {
+    "name": "@creator-os/pipeline-contracts",
+    "version": "4.0.0"
+  },
+  "systems": {
+    "creator_os": {
+      "repository": "creator-os",
+      "canonicalStores": [
+        "campaign_factory_sqlite",
+        "reference_factory_sqlite",
+        "reel_factory_local_evidence"
+      ]
+    },
+    "threadsdashboard": {
+      "repository": "ThreadsDashboard",
+      "canonicalStores": [
+        "threadsdashboard_supabase"
+      ]
+    },
+    "pipeline_contracts": {
+      "repository": "creator-os",
+      "canonicalStores": [
+        "canonical_json_schemas"
+      ]
+    },
+    "meta": {
+      "repository": null,
+      "canonicalStores": [
+        "instagram_and_threads_platform"
+      ]
+    }
+  },
+  "domains": [
+    {
+      "domain": "campaign_and_creative_production",
+      "repository": "creator-os",
+      "canonicalStore": "campaign_factory_sqlite",
+      "canonicalTables": [
+        "campaigns",
+        "models",
+        "creative_plans",
+        "source_assets",
+        "rendered_assets",
+        "generation_output_blobs",
+        "generation_attempts",
+        "generation_lineage_edges",
+        "audit_reports",
+        "approval_decisions",
+        "distribution_plans",
+        "asset_inventory_reservations",
+        "threadsdash_exports"
+      ],
+      "allowedWriters": [
+        "campaign_factory"
+      ],
+      "allowedReaders": [
+        "campaign_factory",
+        "reel_factory",
+        "contentforge",
+        "reference_factory"
+      ],
+      "importDirection": [
+        "threadsdashboard_to_creator_os_observations",
+        "reference_factory_to_campaign_factory_promotions",
+        "reel_factory_to_campaign_factory_registration"
+      ],
+      "exportDirection": [
+        "creator_os_to_threadsdashboard_signed_ingest_api"
+      ],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "reference_teaching_evidence",
+      "repository": "creator-os",
+      "canonicalStore": "reference_factory_sqlite",
+      "canonicalTables": [
+        "source_files",
+        "reference_patterns",
+        "audio_patterns",
+        "audio_catalog",
+        "learning_runs",
+        "reference_video_analyses"
+      ],
+      "allowedWriters": [
+        "reference_factory"
+      ],
+      "allowedReaders": [
+        "reference_factory",
+        "campaign_factory_promotion_import"
+      ],
+      "importDirection": [],
+      "exportDirection": [
+        "reference_factory_to_campaign_factory_immutable_promotion_receipt"
+      ],
+      "externalSourceOfTruth": "authorized_reference_media"
+    },
+    {
+      "domain": "render_evidence_and_cache",
+      "repository": "creator-os",
+      "canonicalStore": "reel_factory_local_evidence",
+      "canonicalTables": [
+        "prompt_runs",
+        "asset_generations",
+        "campaign_outputs",
+        "videos",
+        "variations",
+        "render_attempts",
+        "analysis_cache"
+      ],
+      "allowedWriters": [
+        "reel_factory"
+      ],
+      "allowedReaders": [
+        "reel_factory",
+        "campaign_factory_registration"
+      ],
+      "importDirection": [],
+      "exportDirection": [
+        "reel_factory_to_campaign_factory_immutable_render_receipt"
+      ],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "dashboard_draft_and_delivery_media",
+      "repository": "ThreadsDashboard",
+      "canonicalStore": "threadsdashboard_supabase",
+      "canonicalTables": [
+        "posts",
+        "media",
+        "campaign_factory_post_links",
+        "campaign_factory_media_upload_tickets",
+        "campaign_factory_ingest_nonces"
+      ],
+      "allowedWriters": [
+        "threadsdashboard_draft_ingest_api",
+        "threadsdashboard_media_upload_ticket_api"
+      ],
+      "allowedReaders": [
+        "threadsdashboard",
+        "creator_os_signed_reconciliation_client"
+      ],
+      "importDirection": [
+        "creator_os_to_threadsdashboard_signed_ingest_api"
+      ],
+      "exportDirection": [
+        "threadsdashboard_to_creator_os_acknowledgment_receipt"
+      ],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "schedule_and_publication",
+      "repository": "ThreadsDashboard",
+      "canonicalStore": "threadsdashboard_supabase",
+      "canonicalTables": [
+        "posts",
+        "campaign_schedule_batches",
+        "campaign_schedule_batch_items",
+        "account_schedule",
+        "publish_attempts",
+        "ig_pending_containers"
+      ],
+      "allowedWriters": [
+        "threadsdashboard_scheduler",
+        "threadsdashboard_publisher",
+        "threadsdashboard_reconciliation"
+      ],
+      "allowedReaders": [
+        "threadsdashboard",
+        "creator_os_observation_import"
+      ],
+      "importDirection": [
+        "meta_to_threadsdashboard_reconciliation"
+      ],
+      "exportDirection": [
+        "threadsdashboard_to_creator_os_publication_observation"
+      ],
+      "externalSourceOfTruth": "instagram_and_threads_platform"
+    },
+    {
+      "domain": "timed_metric_observations",
+      "repository": "ThreadsDashboard",
+      "canonicalStore": "threadsdashboard_supabase",
+      "canonicalTables": [
+        "post_metric_history",
+        "post_metric_observation_events"
+      ],
+      "allowedWriters": [
+        "threadsdashboard_metric_sync",
+        "threadsdashboard_metric_reconciliation"
+      ],
+      "allowedReaders": [
+        "threadsdashboard",
+        "creator_os_metric_import"
+      ],
+      "importDirection": [
+        "meta_to_threadsdashboard_metric_reconciliation"
+      ],
+      "exportDirection": [
+        "threadsdashboard_to_creator_os_immutable_metric_observation"
+      ],
+      "externalSourceOfTruth": "instagram_and_threads_platform"
+    },
+    {
+      "domain": "campaign_factory_learning",
+      "repository": "creator-os",
+      "canonicalStore": "campaign_factory_sqlite",
+      "canonicalTables": [
+        "performance_snapshots",
+        "performance_snapshot_observations",
+        "learning_fanout_ledger",
+        "recommendation_runs",
+        "recommendation_items",
+        "account_memory",
+        "account_pattern_stats",
+        "account_posting_windows"
+      ],
+      "allowedWriters": [
+        "campaign_factory_learning"
+      ],
+      "allowedReaders": [
+        "campaign_factory"
+      ],
+      "importDirection": [
+        "threadsdashboard_to_creator_os_immutable_metric_observation"
+      ],
+      "exportDirection": [],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "threadsdashboard_autoposter_learning",
+      "repository": "ThreadsDashboard",
+      "canonicalStore": "threadsdashboard_supabase",
+      "canonicalTables": [
+        "autoposter_post_performance_facts",
+        "autoposter_winner_patterns",
+        "autoposter_strategy_recommendations",
+        "autoposter_strategy_recommendation_audit",
+        "account_autoposter_state"
+      ],
+      "allowedWriters": [
+        "threadsdashboard_autoposter_learning"
+      ],
+      "allowedReaders": [
+        "threadsdashboard"
+      ],
+      "importDirection": [
+        "threadsdashboard_metric_facts"
+      ],
+      "exportDirection": [],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "cross_repository_contracts",
+      "repository": "creator-os",
+      "canonicalStore": "canonical_json_schemas",
+      "canonicalTables": [
+        "packages/pipeline_contracts/pipeline_contracts/schemas"
+      ],
+      "allowedWriters": [
+        "pipeline_contracts_reviewed_release"
+      ],
+      "allowedReaders": [
+        "creator_os",
+        "threadsdashboard"
+      ],
+      "importDirection": [],
+      "exportDirection": [
+        "reviewed_versioned_package_release"
+      ],
+      "externalSourceOfTruth": null
+    }
+  ],
+  "accountFieldOwnership": {
+    "creator_os": [
+      "creativeAccountTargetId",
+      "creatorModelAssociation",
+      "campaignAccountGroup",
+      "creativePreferences",
+      "contentEligibilityInputs",
+      "importedLearningProfile"
+    ],
+    "threadsdashboard": [
+      "dashboardAccountId",
+      "platformAccountId",
+      "oauthCredentials",
+      "tokenHealth",
+      "connectionStatus",
+      "publishingCapabilities",
+      "scheduleState",
+      "platformRestrictions",
+      "operationalHealth"
+    ],
+    "meta": [
+      "externalAccountExistence",
+      "actualPlatformCapabilities",
+      "publicationResults",
+      "platformMetricFacts"
+    ],
+    "bridgeIdentity": [
+      "creatorOsAccountId",
+      "threadsdashboardAccountId",
+      "platformAccountId",
+      "mappingStatus",
+      "verifiedAt"
+    ]
+  },
+  "invariants": [
+    "one_canonical_owner_per_runtime_fact",
+    "cross_system_ids_are_join_keys_not_shared_write_authority",
+    "creator_os_never_writes_dashboard_schedule_or_publication_tables",
+    "threadsdashboard_never_writes_creator_os_generation_or_approval_state",
+    "cross_system_mutations_use_the_owning_api",
+    "delivery_media_is_bound_to_the_approved_final_sha",
+    "imported_observations_preserve_upstream_identity_and_fingerprint",
+    "derived_learning_outputs_are_not_cross_written",
+    "schema_test_deployment_runtime_and_external_evidence_remain_distinct"
+  ]
+}

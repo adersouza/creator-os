@@ -478,7 +478,12 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
     def ingest(payload, **_kwargs):
         boundary_order.append("ingest")
         observed["ingest"] = keys(payload)
-        return {"success": True, "postIds": ["post_1"], "writtenDrafts": 1}
+        return {
+            "success": True,
+            "postIds": ["post_1"],
+            "writtenDrafts": 1,
+            "acknowledgment": {"status": "accepted", "postIds": ["post_1"]},
+        }
 
     def negotiate(**kwargs):
         boundary_order.append("negotiation")
@@ -528,8 +533,6 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
             allow_warnings=True,
             warning_override_reason="Reviewed bounded export warnings.",
             warning_override_by="operator-1",
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
             threadsdash_ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
             threadsdash_ingest_secret="secret",
         )
@@ -637,7 +640,15 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
 
         def read(self):
             return json.dumps(
-                {"success": True, "postIds": ["post_ingest_1"], "writtenDrafts": 1}
+                {
+                    "success": True,
+                    "postIds": ["post_ingest_1"],
+                    "writtenDrafts": 1,
+                    "acknowledgment": {
+                        "status": "accepted",
+                        "postIds": ["post_ingest_1"],
+                    },
+                }
             ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
@@ -681,6 +692,11 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
             "status": "PASS",
             "selectedDraftPayload": kwargs["payload_schema"],
         },
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_upload_media_for_dashboard_ingest",
+        lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     original_build_draft_payloads = threadsdash_payload_adapter.build_draft_payloads
@@ -736,8 +752,6 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
             dry_run=False,
             threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
             threadsdash_ingest_secret="ingest-secret",
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
         )
 
         assert result["dashboardIngest"]["attempted"] is True
@@ -757,9 +771,8 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
                 nonce=nonce,
             )
         )
-        assert (
-            captured["headers"]["x-idempotency-key"]
-            == captured["body"]["drafts"][0]["metadata"]["campaign_factory"]["post_key"]
+        assert captured["headers"]["x-idempotency-key"] == (
+            f"campaign-factory-export:{captured['body']['exportId']}"
         )
         assert captured["body"]["dryRun"] is False
         assert captured["body"]["drafts"][0]["instagramPostCaption"]
@@ -787,7 +800,12 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
 
         def read(self):
             return json.dumps(
-                {"success": True, "postIds": [], "writtenDrafts": 0}
+                {
+                    "success": True,
+                    "postIds": [],
+                    "writtenDrafts": 0,
+                    "acknowledgment": {"status": "accepted", "postIds": []},
+                }
             ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
@@ -821,6 +839,11 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
             "status": "PASS",
             "selectedDraftPayload": kwargs["payload_schema"],
         },
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_upload_media_for_dashboard_ingest",
+        lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda _seconds: None)
@@ -871,9 +894,7 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
         cf.conn.commit()
         ensure_exportable_distribution_plan(cf)
 
-        with pytest.raises(
-            ValueError, match="Dashboard draft ingest reconciliation failed"
-        ):
+        with pytest.raises(TimeoutError, match="found no accepted draft"):
             export_threadsdash(
                 cf,
                 campaign_slug="may",
@@ -881,11 +902,9 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
                 dry_run=False,
                 threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
                 threadsdash_ingest_secret="ingest-secret",
-                supabase_url="https://example.supabase.co",
-                supabase_service_role_key="service-role",
             )
 
-        assert len(calls) == threadsdash_client_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
+        assert len(calls) == 2  # one submit plus one owner-API reconciliation
         assert len(
             {call["headers"]["x-campaign-factory-nonce"] for call in calls}
         ) == len(calls)
@@ -895,7 +914,7 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
         export_row = cf.conn.execute(
             "SELECT status FROM threadsdash_exports"
         ).fetchone()
-        assert export_row["status"] == "failed"
+        assert export_row["status"] == "acceptance_unknown"
         failed_events = [
             event
             for event in cf.domains.events.events_for_campaign("may")
@@ -921,7 +940,7 @@ def test_threadsdash_dashboard_ingest_rejects_unallowed_url_before_request(monke
 
     with pytest.raises(ValueError, match="private or reserved IP"):
         threadsdash_delivery_adapter._post_threadsdash_draft_ingest(
-            {"drafts": []},
+            {"exportId": "tdexp_fixture", "drafts": []},
             ingest_url="https://169.254.169.254/api/campaign-factory/drafts/ingest",
             ingest_secret="ingest-secret",
         )
@@ -934,7 +953,7 @@ def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch)
 
     with pytest.raises(ValueError, match="/api/campaign-factory/drafts/ingest"):
         threadsdash_delivery_adapter._post_threadsdash_draft_ingest(
-            {"drafts": []},
+            {"exportId": "tdexp_fixture", "drafts": []},
             ingest_url="https://dashboard.example.com/api/internal/proxy",
             ingest_secret="ingest-secret",
         )
@@ -1034,6 +1053,13 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
             "selectedDraftPayload": kwargs["payload_schema"],
         },
     )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_upload_media_for_dashboard_ingest",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("delivery media upload ticket unavailable")
+        ),
+    )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -1063,10 +1089,7 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
         cf.conn.commit()
         ensure_exportable_distribution_plan(cf)
 
-        with pytest.raises(
-            ValueError,
-            match="export blocked by handoff manifest: asset_1:media_item_0_remote_url_missing",
-        ):
+        with pytest.raises(ValueError, match="upload ticket unavailable"):
             export_threadsdash(
                 cf,
                 campaign_slug="may",
@@ -1074,8 +1097,6 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
                 dry_run=False,
                 threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
                 threadsdash_ingest_secret="ingest-secret",
-                supabase_url="https://example.supabase.co",
-                supabase_service_role_key="service-role",
             )
 
         assert not any(
@@ -1084,7 +1105,7 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
         export_row = cf.conn.execute(
             "SELECT status FROM threadsdash_exports"
         ).fetchone()
-        assert export_row["status"] == "failed"
+        assert export_row["status"] == "rejected"
     finally:
         cf.close()
 
@@ -2160,8 +2181,6 @@ def test_live_export_blocks_without_passing_readiness(tmp_path: Path, monkeypatc
                 campaign_slug="may",
                 user_id="user_1",
                 dry_run=False,
-                supabase_url="https://example.supabase.co",
-                supabase_service_role_key="service-role",
                 schedule_mode="live",
             )
     finally:
@@ -2824,7 +2843,6 @@ def test_creator_os_daily_plan_blocks_draft_missing_instagram_post_caption(
                 ],
             },
         )
-
         account = plan["accounts"][0]
         assert account["eligibleDrafts"] == []
         assert (
@@ -3193,278 +3211,3 @@ def test_threadsdash_export_preview_failure_writes_no_evidence(
         )
     finally:
         cf.close()
-
-
-def test_upload_media_inserts_media_row_without_invalid_upsert(tmp_path: Path) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"video")
-    inserted: list[tuple[str, dict[str, object]]] = []
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            return []
-
-        def upload_storage_object(
-            self, bucket, storage_path, file_path, content_type, *, upsert=False
-        ):
-            assert upsert is False
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, row))
-            assert fallback_remove == ["url"]
-            return {"id": "media_1", **row}
-
-    result = threadsdash_delivery_adapter._upload_media(
-        FakeClient(),
-        bucket="media",
-        user_id="user_1",
-        local_path=media,
-        tags=["campaign_factory"],
-        expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-    )
-
-    assert result["id"] == "media_1"
-    assert [table for table, _row in inserted] == ["media"]
-
-
-def test_upload_media_reuses_existing_row_after_verifying_exact_remote_bytes(
-    tmp_path: Path,
-) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"video")
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            return [
-                {
-                    "id": "media_existing",
-                    "file_name": "already-there.mp4",
-                    "storage_url": "https://cdn.example/existing.mp4",
-                }
-            ]
-
-        def download_storage_object(self, bucket, storage_path):
-            assert bucket == "media"
-            assert storage_path.startswith("campaign_factory/user_1/")
-            return b"video"
-
-        def upload_storage_object(self, *_args, **_kwargs):
-            raise AssertionError("verified existing media must not be overwritten")
-
-        def insert_with_fallback(self, *_args, **_kwargs):
-            raise AssertionError("existing media must not be inserted again")
-
-    result = threadsdash_delivery_adapter._upload_media(
-        FakeClient(),
-        bucket="media",
-        user_id="user_1",
-        local_path=media,
-        tags=["campaign_factory"],
-        expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-    )
-
-    assert result["id"] == "media_existing"
-    assert result["publicUrl"].endswith(result["storagePath"])
-    assert result["storagePath"].startswith("campaign_factory/user_1/")
-    assert result["fileName"] == "clip.mp4"
-    assert result["reused"] is True
-
-
-def test_upload_media_rejects_mismatched_existing_remote_without_writes(
-    tmp_path: Path,
-) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"approved-video")
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            return [{"id": "media_existing", "storage_path": "stale"}]
-
-        def download_storage_object(self, bucket, storage_path):
-            return b"substituted-video"
-
-        def upload_storage_object(self, *_args, **_kwargs):
-            raise AssertionError("fingerprint mismatch must not overwrite storage")
-
-        def insert_with_fallback(self, *_args, **_kwargs):
-            raise AssertionError("fingerprint mismatch must not write a media row")
-
-    with pytest.raises(ValueError, match="existing remote media fingerprint mismatch"):
-        threadsdash_delivery_adapter._upload_media(
-            FakeClient(),
-            bucket="media",
-            user_id="user_1",
-            local_path=media,
-            tags=["campaign_factory"],
-            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-        )
-
-
-def test_upload_media_rejects_remote_row_deleted_during_verified_reuse(
-    tmp_path: Path,
-) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"approved-video")
-    reads = 0
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            nonlocal reads
-            reads += 1
-            return [{"id": "media_existing"}] if reads == 1 else []
-
-        def download_storage_object(self, bucket, storage_path):
-            return b"approved-video"
-
-        def upload_storage_object(self, *_args, **_kwargs):
-            raise AssertionError("verified reuse must not upload")
-
-        def insert_with_fallback(self, *_args, **_kwargs):
-            raise AssertionError(
-                "disappearing reuse row must not be recreated implicitly"
-            )
-
-    with pytest.raises(RuntimeError, match="row disappeared before reuse"):
-        threadsdash_delivery_adapter._upload_media(
-            FakeClient(),
-            bucket="media",
-            user_id="user_1",
-            local_path=media,
-            tags=["campaign_factory"],
-            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-        )
-
-
-def test_upload_media_fails_closed_when_initial_read_fails(tmp_path: Path) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"video")
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            raise RuntimeError("database unavailable")
-
-        def upload_storage_object(self, *_args, **_kwargs):
-            raise AssertionError("failed read must stop before upload")
-
-        def insert_with_fallback(self, *_args, **_kwargs):
-            raise AssertionError("failed read must stop before insert")
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        threadsdash_delivery_adapter._upload_media(
-            FakeClient(),
-            bucket="media",
-            user_id="user_1",
-            local_path=media,
-            tags=["campaign_factory"],
-            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-        )
-
-
-def test_upload_media_rejects_bytes_changed_after_approval(tmp_path: Path) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"changed")
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, *_args, **_kwargs):
-            raise AssertionError("hash mismatch must stop before remote reads")
-
-    with pytest.raises(ValueError, match="media changed after draft approval"):
-        threadsdash_delivery_adapter._upload_media(
-            FakeClient(),
-            bucket="media",
-            user_id="user_1",
-            local_path=media,
-            tags=["campaign_factory"],
-            expected_sha256="0" * 64,
-        )
-
-
-def test_upload_media_recovers_ambiguous_insert_with_exact_read(
-    tmp_path: Path,
-) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"video")
-    reads = 0
-    inserts = 0
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            nonlocal reads
-            reads += 1
-            if reads == 1:
-                return []
-            return [{"id": "media_committed", "file_name": "clip.mp4"}]
-
-        def upload_storage_object(self, *_args, **_kwargs):
-            return None
-
-        def insert_with_fallback(self, *_args, **_kwargs):
-            nonlocal inserts
-            inserts += 1
-            raise RuntimeError("connection closed after commit")
-
-    result = threadsdash_delivery_adapter._upload_media(
-        FakeClient(),
-        bucket="media",
-        user_id="user_1",
-        local_path=media,
-        tags=["campaign_factory"],
-        expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-    )
-
-    assert result["id"] == "media_committed"
-    assert result["reused"] is True
-    assert reads == 2
-    assert inserts == 1
-
-
-def test_upload_media_does_not_retry_uncommitted_insert_failure(
-    tmp_path: Path,
-) -> None:
-    media = tmp_path / "clip.mp4"
-    media.write_bytes(b"video")
-    reads = 0
-    inserts = 0
-
-    class FakeClient:
-        url = "https://example.supabase.co"
-
-        def select(self, table, params):
-            nonlocal reads
-            reads += 1
-            return []
-
-        def upload_storage_object(self, *_args, **_kwargs):
-            return None
-
-        def insert_with_fallback(self, *_args, **_kwargs):
-            nonlocal inserts
-            inserts += 1
-            raise RuntimeError("insert rejected")
-
-    with pytest.raises(RuntimeError, match="insert rejected"):
-        threadsdash_delivery_adapter._upload_media(
-            FakeClient(),
-            bucket="media",
-            user_id="user_1",
-            local_path=media,
-            tags=["campaign_factory"],
-            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
-        )
-
-    assert reads == 2
-    assert inserts == 1

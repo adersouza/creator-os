@@ -774,6 +774,10 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
                 "success": True,
                 "postIds": ["post-approved-1"],
                 "writtenDrafts": 1,
+                "acknowledgment": {
+                    "status": "accepted",
+                    "postIds": ["post-approved-1"],
+                },
             }
 
         monkeypatch.setattr(
@@ -805,8 +809,6 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
             allow_warnings=True,
             warning_override_reason="Reviewed exact approved notify draft.",
             warning_override_by="operator-user",
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
             threadsdash_ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
             threadsdash_ingest_secret="test-secret",
         )

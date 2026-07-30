@@ -2,18 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import mimetypes
 import os
-import re
-import shutil
-import tempfile
-import time
-import uuid
-from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 from creator_os_core.runtime_guards import require_global_write_allowed
 
@@ -43,36 +34,37 @@ UNRESOLVED_NATIVE_AUDIO_STATUSES = {
 }
 DEFERRED_NOTIFY_AUDIO_FAILURES = {"missing_audio", "embedded_audio_missing"}
 METRIC_CONTRACT_VERSION = "instagram_metrics_contract_v1"
-DASHBOARD_INGEST_MAX_ATTEMPTS = 3
-DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
-_STDLIB_URLOPEN = urlopen
 
-from . import threadsdash_client as _threadsdash_client
 from . import threadsdash_draft_payload as _draft_payload
-from .threadsdash_client import (
-    _threadsdash_ingest_signature,
-    _validate_threadsdash_ingest_url,
-)
 from .threadsdash_draft_payload import (
     DEFAULT_DRAFT_PAYLOAD_SCHEMA,
     _draft_media_types,
     _draft_metadata,
     _normalize_publish_mode,
-    _stable_export_key,
 )
 from .threadsdash_draft_readiness import (
     _batch_guardrail_findings,
     _draft_notify_audio_deferred,
     evaluate_export_readiness,
 )
+from .threadsdash_export_saga import prepare_export, set_export_state
+from .threadsdash_handoff_evidence import (
+    attach_handoff_evidence,
+    handoff_idempotency_key,
+)
 from .threadsdash_handshake import (
     HANDSHAKE_SCHEMA_V1,
     HANDSHAKE_SCHEMA_V2,
     configured_handshake_url,
     run_threadsdash_handshake,
+)
+from .threadsdash_owner_api import (
+    reconcile_draft_handoff,
+    submit_draft_handoff,
+    upload_delivery_media,
 )
 
 
@@ -322,8 +314,6 @@ def export_threadsdash(
     campaign_slug: str,
     user_id: str,
     dry_run: bool = True,
-    supabase_url: str | None = None,
-    supabase_service_role_key: str | None = None,
     supabase_storage_bucket: str = "media",
     allow_warnings: bool = False,
     warning_override_reason: str | None = None,
@@ -373,8 +363,6 @@ def export_threadsdash(
                 "campaign": campaign_slug,
                 "userId": user_id,
                 "dryRun": False,
-                "hasSupabaseUrl": bool(supabase_url),
-                "hasSupabaseServiceRoleKey": bool(supabase_service_role_key),
                 "supabaseStorageBucket": supabase_storage_bucket,
                 "allowWarnings": allow_warnings,
                 "warningOverrideReason": warning_override_reason,
@@ -411,6 +399,8 @@ def export_threadsdash(
         exports_dir = factory.domains.campaign_dirs(model_slug, campaign["slug"])[
             "exports"
         ]
+    submission_started = False
+    acceptance_recorded = False
     try:
         export_id = new_id("tdexp")
         variation_result = None
@@ -441,12 +431,11 @@ def export_threadsdash(
             draft_payload_schema=normalized_draft_payload_schema,
         )
         payload = _freeze_exact_draft_batch(payload, max_drafts=max_drafts)
+        uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
         readiness = evaluate_export_readiness(
             factory,
             campaign_slug=campaign_slug,
             user_id=user_id,
-            supabase_url=supabase_url,
-            supabase_service_role_key=supabase_service_role_key,
             content_pillar=content_pillar,
             cta_type=cta_type,
             language=language,
@@ -457,6 +446,7 @@ def export_threadsdash(
             review_only=review_only,
             record_evidence=not dry_run,
             draft_payload=payload,
+            owner_api_authoritative=uses_dashboard_ingest,
         )
         if not dry_run and readiness.get("liveExportAllowed") is not True:
             readiness_blockers = [
@@ -497,7 +487,6 @@ def export_threadsdash(
                 for item in operator_overridable_warnings
             ]
         warning_override: dict[str, Any] | None = None
-        uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
         # Validate the exact local payload before any handshake, storage upload,
         # nonce claim, or ingest write. The second validation below proves that
         # remote-media hydration did not invalidate the contract.
@@ -512,6 +501,29 @@ def export_threadsdash(
                 ingest_url=threadsdash_ingest_url,
                 ingest_secret=threadsdash_ingest_secret,
             )
+        out_path = exports_dir / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
+        if uses_dashboard_ingest:
+            out_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "campaign_factory.supabase_export.v1",
+                        "status": "prepared",
+                        "exportId": export_id,
+                        "payload": payload,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            prepare_export(
+                factory.conn,
+                export_id=export_id,
+                campaign_id=campaign["id"],
+                user_id=user_id,
+                manifest_path=str(out_path),
+                payload=payload,
+            )
         dashboard_ingest_media: list[dict[str, Any]] = []
         if uses_dashboard_ingest:
             _validate_exact_creative_approvals(
@@ -520,9 +532,8 @@ def export_threadsdash(
             dashboard_ingest_media = _upload_media_for_dashboard_ingest(
                 factory,
                 payload,
-                user_id=user_id,
-                supabase_url=supabase_url,
-                service_role_key=supabase_service_role_key,
+                ingest_url=threadsdash_ingest_url,
+                ingest_secret=threadsdash_ingest_secret,
                 bucket=supabase_storage_bucket,
             )
         manifest_blockers = _campaign_factory_manifest_blockers(
@@ -554,7 +565,6 @@ def export_threadsdash(
                 ).hexdigest(),
                 "recordedAt": utc_now(),
             }
-        out_path = exports_dir / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
         result: dict[str, Any] = {
             "schema": "campaign_factory.supabase_export.v1",
             "campaign": campaign["slug"],
@@ -588,19 +598,30 @@ def export_threadsdash(
         _validate_exact_creative_approvals(
             factory, payload, campaign_slug=campaign_slug
         )
+        set_export_state(factory.conn, export_id, "submitted")
+        submission_started = True
         result["dashboardIngest"] = _post_threadsdash_draft_ingest(
             payload,
             ingest_url=threadsdash_ingest_url,
             ingest_secret=threadsdash_ingest_secret,
         )
-        _commit_payload_inventory_reservations(factory, payload)
         reconciled_post_ids = _reconcile_dashboard_ingest_post_ids(
             payload=payload,
             ingest_result=result["dashboardIngest"],
             user_id=user_id,
-            supabase_url=supabase_url,
-            supabase_service_role_key=supabase_service_role_key,
+            ingest_url=threadsdash_ingest_url,
+            ingest_secret=threadsdash_ingest_secret,
         )
+        if not reconciled_post_ids:
+            raise ValueError("ThreadsDashboard acknowledgment contains no post IDs")
+        set_export_state(
+            factory.conn,
+            export_id,
+            "accepted",
+            acknowledgment=result["dashboardIngest"]["acknowledgment"],
+        )
+        acceptance_recorded = True
+        _commit_payload_inventory_reservations(factory, payload)
         result["dashboardIngest"] = {
             **result["dashboardIngest"],
             "postIds": reconciled_post_ids,
@@ -617,18 +638,6 @@ def export_threadsdash(
         }
         out_path.write_text(
             json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        factory.conn.execute(
-            "INSERT INTO threadsdash_exports (id, campaign_id, manifest_path, user_id, dry_run, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                export_id,
-                campaign["id"],
-                str(out_path),
-                user_id,
-                1 if dry_run else 0,
-                "dry_run" if dry_run else "exported",
-                utc_now(),
-            ),
         )
         export_label = (
             "Dry-run"
@@ -703,7 +712,12 @@ def export_threadsdash(
     except Exception as exc:
         if dry_run:
             raise
-        if "payload" in locals():
+        acceptance_unknown = (
+            submission_started
+            and not acceptance_recorded
+            and isinstance(exc, TimeoutError)
+        )
+        if "payload" in locals() and not acceptance_unknown and not acceptance_recorded:
             _release_payload_inventory_reservations(factory, payload)
         assert pipeline_job is not None
         failed_path = (
@@ -720,6 +734,11 @@ def export_threadsdash(
             "pipelineJobId": pipeline_job["id"],
             "draftPayloadSchema": normalized_draft_payload_schema,
             "error": str(exc),
+            "status": (
+                "accepted"
+                if acceptance_recorded
+                else ("acceptance_unknown" if acceptance_unknown else "rejected")
+            ),
             "warningOverride": locals().get("warning_override"),
         }
         failed_path.parent.mkdir(parents=True, exist_ok=True)
@@ -727,25 +746,42 @@ def export_threadsdash(
             json.dumps(failed_payload, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-        factory.conn.execute(
-            "INSERT OR REPLACE INTO threadsdash_exports (id, campaign_id, manifest_path, user_id, dry_run, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                str(locals().get("export_id", pipeline_job["id"])),
-                campaign["id"],
-                str(failed_path),
-                user_id,
-                1 if dry_run else 0,
-                "failed",
-                utc_now(),
-            ),
-        )
+        failed_export_id = str(locals().get("export_id", pipeline_job["id"]))
+        export_row = factory.conn.execute(
+            "SELECT id FROM threadsdash_exports WHERE id = ?", (failed_export_id,)
+        ).fetchone()
+        if export_row is not None:
+            if acceptance_recorded:
+                set_export_state(
+                    factory.conn,
+                    failed_export_id,
+                    "accepted",
+                    acknowledgment=result["dashboardIngest"]["acknowledgment"],
+                    error=str(exc),
+                )
+            else:
+                set_export_state(
+                    factory.conn,
+                    failed_export_id,
+                    "acceptance_unknown" if acceptance_unknown else "rejected",
+                    error=str(exc),
+                )
         factory.domains.events.record_event(
             "threadsdash_export_created",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
             status="failure",
             message=f"ThreadsDash export failed: {exc}",
-            metadata={"error": str(exc), "dryRun": dry_run},
+            metadata={
+                "error": str(exc),
+                "dryRun": dry_run,
+                "exportStatus": failed_payload["status"],
+                "reservationAction": (
+                    "held_for_reconciliation"
+                    if acceptance_unknown or acceptance_recorded
+                    else "released"
+                ),
+            },
         )
         factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
@@ -871,60 +907,36 @@ def _upload_media_for_dashboard_ingest(
     factory: CampaignFactory,
     payload: dict[str, Any],
     *,
-    user_id: str,
-    supabase_url: str | None,
-    service_role_key: str | None,
+    ingest_url: str | None,
+    ingest_secret: str | None,
     bucket: str,
 ) -> list[dict[str, Any]]:
-    if not supabase_url or not service_role_key:
-        raise ValueError(
-            "supabase_url and supabase_service_role_key are required for dashboard ingest media upload"
-        )
-    client = _threadsdash_client.SupabaseRestClient(
-        supabase_url.rstrip("/"), service_role_key
+    del factory
+    media_results = upload_delivery_media(
+        payload,
+        ingest_url=ingest_url,
+        ingest_secret=ingest_secret,
+        bucket=bucket,
     )
-    uploaded_by_path: dict[str, dict[str, Any]] = {}
-    media_results: list[dict[str, Any]] = []
+    by_key = {
+        str(item.get("sha256")): item
+        for item in media_results
+        if isinstance(item, dict)
+    }
     for draft in payload.get("drafts") or []:
         if not isinstance(draft, dict):
             continue
-        rendered_asset_id = str(draft.get("renderedAssetId") or "draft")
-        if not _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id):
+        media_ref = by_key.get(str(draft.get("contentHash") or ""))
+        if media_ref is None:
             continue
-        local_value = draft.get("_localFilePath")
-        if not isinstance(local_value, str) or not local_value.strip():
-            continue
-        local_path = Path(local_value)
-        media_cache_key = str(draft.get("campaignFactoryMediaKey") or local_path)
-        if media_cache_key not in uploaded_by_path:
-            try:
-                media_ref = _upload_media(
-                    client,
-                    bucket=bucket,
-                    user_id=user_id,
-                    local_path=local_path,
-                    tags=list(draft.get("_tags") or []),
-                    media_key=draft.get("campaignFactoryMediaKey"),
-                    expected_sha256=str(draft.get("contentHash") or ""),
-                )
-            except Exception as exc:
-                blockers = _remote_media_url_blockers(
-                    draft, rendered_asset_id=rendered_asset_id
-                )
-                raise ValueError(
-                    f"export blocked by handoff manifest: {', '.join(blockers)}; media upload failed: {exc}"
-                ) from exc
-            uploaded_by_path[media_cache_key] = media_ref
-            media_results.append(media_ref)
-        media_ref = uploaded_by_path[media_cache_key]
-        media_items = draft.get("media")
-        if isinstance(media_items, list) and media_items:
-            first = media_items[0]
-            if isinstance(first, dict):
-                first["id"] = media_ref["id"]
-                first["url"] = media_ref["publicUrl"]
         _hydrate_surface_media_items_for_uploaded_media(draft, media_ref)
         draft["metadata"] = _draft_metadata(draft)
+        attach_handoff_evidence(
+            draft,
+            schema=str(payload.get("schema") or ""),
+            campaign_id=str(draft.get("campaignId") or ""),
+            source_asset_id=str(draft.get("sourceAssetId") or ""),
+        )
     return media_results
 
 
@@ -956,6 +968,9 @@ def _threadsdash_draft_post_key(draft: dict[str, Any]) -> str | None:
 
 
 def _threadsdash_ingest_idempotency_key(payload: dict[str, Any]) -> str:
+    export_id = str(payload.get("exportId") or "").strip()
+    if export_id:
+        return handoff_idempotency_key(export_id)
     drafts = payload.get("drafts") if isinstance(payload.get("drafts"), list) else []
     post_keys = [
         key
@@ -989,133 +1004,15 @@ def _threadsdash_ingest_post_keys(payload: dict[str, Any]) -> list[str]:
     return keys
 
 
-def _dashboard_ingest_backoff_seconds(attempt: int) -> float:
-    index = max(0, min(attempt - 1, len(DASHBOARD_INGEST_BACKOFF_SECONDS) - 1))
-    return DASHBOARD_INGEST_BACKOFF_SECONDS[index]
-
-
-def _is_retryable_dashboard_ingest_http_status(status: int) -> bool:
-    return status in {408, 409, 425, 429} or status >= 500
-
-
 def _post_threadsdash_draft_ingest(
     payload: dict[str, Any],
     *,
     ingest_url: str | None,
     ingest_secret: str | None,
 ) -> dict[str, Any]:
-    url = (
-        ingest_url
-        or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
-        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")
+    return submit_draft_handoff(
+        payload, ingest_url=ingest_url, ingest_secret=ingest_secret
     )
-    secret = ingest_secret or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET")
-    if not url:
-        raise ValueError(
-            "threadsdash_ingest_url or THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL is required when dry_run is false"
-        )
-    if not secret:
-        raise ValueError(
-            "threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is required when dry_run is false"
-        )
-    safe_url = _validate_threadsdash_ingest_url(url)
-    body = dict(payload)
-    body["dryRun"] = False
-    idempotency_key = _threadsdash_ingest_idempotency_key(body)
-    body_bytes = json.dumps(
-        body,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    last_error: str | None = None
-    last_empty_response: dict[str, Any] | None = None
-    for attempt in range(1, DASHBOARD_INGEST_MAX_ATTEMPTS + 1):
-        signature_timestamp = str(int(time.time()))
-        signature_nonce = uuid.uuid4().hex
-        signature = _threadsdash_ingest_signature(
-            body_bytes,
-            secret=secret,
-            timestamp=signature_timestamp,
-            nonce=signature_nonce,
-        )
-        request = Request(
-            safe_url,
-            data=body_bytes,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "X-Campaign-Factory-Signature": signature,
-                "X-Campaign-Factory-Timestamp": signature_timestamp,
-                "X-Campaign-Factory-Nonce": signature_nonce,
-                "X-Idempotency-Key": idempotency_key,
-            },
-        )
-        try:
-            with _threadsdash_client._open_threadsdash_ingest_request(
-                request, timeout=30
-            ) as response:
-                response_body = response.read().decode("utf-8")
-                parsed = json.loads(response_body) if response_body else {}
-                result = {
-                    "attempted": True,
-                    "dryRun": False,
-                    "statusCode": getattr(response, "status", 200),
-                    "postIds": parsed.get("postIds") or [],
-                    "response": parsed,
-                    "attempts": attempt,
-                }
-                if result["postIds"]:
-                    return result
-                last_empty_response = {
-                    **result,
-                    "emptyPostIds": True,
-                    "retryableFailure": "dashboard_ingest_empty_post_ids",
-                }
-                last_error = "Dashboard draft ingest returned empty postIds"
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            if not _is_retryable_dashboard_ingest_http_status(exc.code):
-                raise ValueError(
-                    f"Dashboard draft ingest rejected export ({exc.code}): {detail}"
-                ) from exc
-            last_error = f"Dashboard draft ingest retryable HTTP {exc.code}: {detail}"
-        except (TimeoutError, URLError) as exc:
-            last_error = f"Dashboard draft ingest transport error: {exc}"
-        if attempt < DASHBOARD_INGEST_MAX_ATTEMPTS:
-            time.sleep(_dashboard_ingest_backoff_seconds(attempt))
-    if last_empty_response is not None:
-        return last_empty_response
-    raise ValueError(
-        f"Dashboard draft ingest failed after {DASHBOARD_INGEST_MAX_ATTEMPTS} attempts: {last_error}"
-    )
-
-
-def _select_threadsdash_posts_by_post_keys(
-    client: _threadsdash_client.SupabaseRestClient,
-    *,
-    user_id: str,
-    post_keys: list[str],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    for post_key in post_keys:
-        selected = client.select(
-            "posts",
-            {
-                "select": "id,user_id,status,campaign_factory_post_key,metadata",
-                "user_id": f"eq.{user_id}",
-                "campaign_factory_post_key": f"eq.{post_key}",
-                "limit": "1",
-            },
-        )
-        for row in selected:
-            row_id = str(row.get("id") or "")
-            if row_id and row_id not in seen_ids:
-                seen_ids.add(row_id)
-                rows.append(row)
-    return rows
 
 
 def _reconcile_dashboard_ingest_post_ids(
@@ -1123,42 +1020,27 @@ def _reconcile_dashboard_ingest_post_ids(
     payload: dict[str, Any],
     ingest_result: dict[str, Any],
     user_id: str,
-    supabase_url: str | None,
-    supabase_service_role_key: str | None,
+    ingest_url: str | None,
+    ingest_secret: str | None,
 ) -> list[str]:
     post_ids = [
         str(post_id) for post_id in ingest_result.get("postIds") or [] if str(post_id)
     ]
-    post_keys = _threadsdash_ingest_post_keys(payload)
-    if not post_keys:
-        if post_ids:
-            return post_ids
-        raise ValueError(
-            "Dashboard draft ingest did not return postIds and no Campaign Factory post keys were available"
-        )
-    if not supabase_url or not supabase_service_role_key:
-        raise ValueError(
-            "supabase_url and supabase_service_role_key are required to reconcile Dashboard draft ingest"
-        )
-    client = _threadsdash_client.SupabaseRestClient(
-        supabase_url.rstrip("/"), supabase_service_role_key
+    if post_ids:
+        return post_ids
+    export_id = str(payload.get("exportId") or "")
+    reconciliation = reconcile_draft_handoff(
+        export_id=export_id,
+        user_id=user_id,
+        ingest_url=ingest_url,
+        ingest_secret=ingest_secret,
     )
-    rows = _select_threadsdash_posts_by_post_keys(
-        client, user_id=user_id, post_keys=post_keys
-    )
-    found_by_key = {str(row.get("campaign_factory_post_key")): row for row in rows}
-    missing = [post_key for post_key in post_keys if post_key not in found_by_key]
-    if missing:
-        raise ValueError(
-            f"Dashboard draft ingest reconciliation failed; missing post keys: {', '.join(missing)}"
-        )
-    reconciled = [
-        str(found_by_key[post_key].get("id"))
-        for post_key in post_keys
-        if found_by_key[post_key].get("id")
-    ]
+    acknowledgment = reconciliation.get("acknowledgment")
+    if not isinstance(acknowledgment, dict):
+        raise TimeoutError("Dashboard draft ingest remains ambiguous")
+    reconciled = [str(value) for value in acknowledgment.get("postIds") or []]
     if not reconciled:
-        raise ValueError("Dashboard draft ingest reconciliation found no post ids")
+        raise TimeoutError("Dashboard reconciliation found no accepted draft")
     return reconciled
 
 
@@ -1205,137 +1087,6 @@ def _hydrate_surface_media_items_for_uploaded_media(
     if isinstance(draft.get("publishability"), dict):
         draft["publishability"]["handoff_manifest"] = manifest
     draft["metadata"] = _draft_metadata(draft)
-
-
-def _upload_media(
-    client: _threadsdash_client.SupabaseRestClient,
-    *,
-    bucket: str,
-    user_id: str,
-    local_path: Path,
-    tags: list[str],
-    media_key: str | None = None,
-    expected_sha256: str,
-) -> dict[str, Any]:
-    if not local_path.exists():
-        raise FileNotFoundError(local_path)
-    expected_sha256 = expected_sha256.strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
-        raise ValueError("media upload requires a canonical SHA-256 fingerprint")
-    actual_sha256 = _sha256_file(local_path)
-    if actual_sha256 != expected_sha256:
-        raise ValueError(
-            "media changed after draft approval: "
-            f"expected {expected_sha256}, got {actual_sha256}"
-        )
-    content_type = mimetypes.guess_type(local_path.name)[0] or "video/mp4"
-    file_type = "image" if content_type.startswith("image/") else "video"
-    safe_name = "".join(
-        ch if ch.isalnum() or ch in "._-" else "-" for ch in local_path.name
-    )[:120]
-    stable_key = media_key or _stable_export_key(
-        "media", user_id, local_path.name, local_path.stat().st_size
-    )
-    storage_path = f"campaign_factory/{user_id}/{stable_key}-{safe_name}"
-
-    def select_existing() -> list[dict[str, Any]]:
-        return client.select(
-            "media",
-            {
-                "select": "id,file_name,file_url,storage_url,storage_path,url,tags",
-                "storage_path": f"eq.{storage_path}",
-                "limit": "1",
-            },
-        )
-
-    # A failed read is not evidence that the row is absent. Fail before the
-    # storage upload so a degraded database cannot turn a read outage into
-    # additional object and row writes.
-    existing_rows = select_existing()
-    if existing_rows:
-        remote_bytes = client.download_storage_object(bucket, storage_path)
-        remote_sha256 = hashlib.sha256(remote_bytes).hexdigest()
-        if remote_sha256 != expected_sha256:
-            raise ValueError(
-                "existing remote media fingerprint mismatch: "
-                f"expected {expected_sha256}, got {remote_sha256}"
-            )
-        confirmed_rows = select_existing()
-        if not confirmed_rows:
-            raise RuntimeError(
-                "verified remote media row disappeared before reuse; refusing stale media id"
-            )
-        existing_rows = confirmed_rows
-    else:
-        with tempfile.TemporaryDirectory(
-            prefix="creator-os-approved-media-"
-        ) as temp_dir:
-            approved_copy = Path(temp_dir) / local_path.name
-            shutil.copyfile(local_path, approved_copy)
-            copied_sha256 = _sha256_file(approved_copy)
-            if copied_sha256 != expected_sha256:
-                raise ValueError(
-                    "media changed while creating immutable upload copy: "
-                    f"expected {expected_sha256}, got {copied_sha256}"
-                )
-            try:
-                client.upload_storage_object(
-                    bucket, storage_path, approved_copy, content_type, upsert=False
-                )
-            except TypeError:
-                client.upload_storage_object(
-                    bucket, storage_path, approved_copy, content_type
-                )
-    public_url = (
-        f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
-    )
-    base_row = {
-        "user_id": user_id,
-        "file_name": local_path.name,
-        "file_url": public_url,
-        "file_type": file_type,
-        "file_size": local_path.stat().st_size,
-        "mime_type": content_type,
-        "folder_id": None,
-        "group_id": None,
-        "storage_url": public_url,
-        "storage_path": storage_path,
-        "url": public_url,
-        "tags": tags,
-    }
-    reused = bool(existing_rows)
-    if existing_rows:
-        row = existing_rows[0]
-    else:
-        try:
-            row = client.insert_with_fallback(
-                "media", base_row, fallback_remove=["url"]
-            )
-        except RuntimeError as insert_error:
-            # Production's storage_path uniqueness is enforced by a partial index,
-            # which PostgREST cannot target with on_conflict=storage_path. Recover
-            # a concurrent or ambiguously committed plain insert with one exact
-            # read instead of issuing a second write.
-            try:
-                recovered_rows = select_existing()
-            except RuntimeError as recovery_error:
-                raise RuntimeError(
-                    "media insert failed and its exact recovery read also failed"
-                ) from recovery_error
-            if not recovered_rows:
-                raise insert_error
-            row = recovered_rows[0]
-            reused = True
-    result = {
-        "id": row.get("id"),
-        "publicUrl": public_url,
-        "storagePath": storage_path,
-        "fileName": local_path.name,
-        "sha256": expected_sha256,
-    }
-    if reused:
-        result["reused"] = True
-    return result
 
 
 def _batch_guardrail_warnings(
@@ -1391,11 +1142,3 @@ def _freeze_exact_draft_batch(
             "draftKeys": draft_keys,
         },
     }
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

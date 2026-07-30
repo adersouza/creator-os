@@ -299,8 +299,11 @@ def sync_performance_snapshots(
                      suitability_reason, source_clip, caption_outcome_context_json, recipe,
                      post_id, platform, content_surface, status, account_id, instagram_account_id,
                      permalink, published_at, snapshot_at, views, likes, comments, shares, saves, impressions,
-                     reach, watch_time_seconds, metrics_eligible, history_source, lineage_v2_valid, raw_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     reach, watch_time_seconds, metrics_eligible, history_source, lineage_v2_valid,
+                     source_metric_history_id, source_platform_post_id,
+                     source_observation_fingerprint, metric_window, imported_at,
+                     raw_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(post_id, snapshot_at) DO UPDATE SET
                       campaign_id = excluded.campaign_id,
                       rendered_asset_id = excluded.rendered_asset_id,
@@ -349,6 +352,11 @@ def sync_performance_snapshots(
                       metrics_eligible = excluded.metrics_eligible,
                       history_source = excluded.history_source,
                       lineage_v2_valid = excluded.lineage_v2_valid,
+                      source_metric_history_id = excluded.source_metric_history_id,
+                      source_platform_post_id = excluded.source_platform_post_id,
+                      source_observation_fingerprint = excluded.source_observation_fingerprint,
+                      metric_window = excluded.metric_window,
+                      imported_at = excluded.imported_at,
                       raw_json = excluded.raw_json
                     """,
                     (
@@ -402,6 +410,11 @@ def sync_performance_snapshots(
                         snapshot["metrics_eligible"],
                         snapshot["history_source"],
                         snapshot["lineage_v2_valid"],
+                        snapshot["source_metric_history_id"],
+                        snapshot["source_platform_post_id"],
+                        snapshot["source_observation_fingerprint"],
+                        snapshot["metric_window"],
+                        snapshot["imported_at"],
                         snapshot["raw_json"],
                         snapshot["created_at"],
                     ),
@@ -740,6 +753,15 @@ def _threadsdash_post_with_metric_history(
         "postId": history_row.get("post_id"),
         "snapshotAt": history_row.get("snapshot_at"),
         "hoursSincePublish": history_row.get("hours_since_publish"),
+        "captureWindow": history_row.get("capture_window"),
+        "sourcePayloadFingerprint": hashlib.sha256(
+            json.dumps(
+                history_row,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
     }
     merged["metadata"] = metadata
     return merged
@@ -800,6 +822,12 @@ def _dead_letter_performance_sync_row(
 def _performance_snapshot_from_row(
     *, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]
 ) -> dict[str, Any]:
+    row_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    history_binding = (
+        row_metadata.get("threadsdash_metric_history")
+        if isinstance(row_metadata.get("threadsdash_metric_history"), dict)
+        else {}
+    )
     metrics_meta = _merged_metric_metadata(row.get("metadata"))
     if row.get("history_source") == "metric_history":
         snapshot_at = row.get("metrics_updated_at")
@@ -850,6 +878,7 @@ def _performance_snapshot_from_row(
     )
     raw_row = dict(row)
     raw_row["metric_contract"] = metric_contract
+    imported_at = utc_now()
     return {
         "id": new_id("perf"),
         "campaign_id": campaign_id,
@@ -954,6 +983,20 @@ def _performance_snapshot_from_row(
         "watch_time_seconds": _watch_time_seconds(row, metrics_meta),
         "metrics_eligible": 1 if meta.get("metrics_eligible") else 0,
         "history_source": row.get("history_source") or "post_row_fallback",
+        "source_metric_history_id": history_binding.get("id"),
+        "source_platform_post_id": row.get("platform_post_id")
+        or row.get("instagram_media_id")
+        or row.get("threads_post_id"),
+        "source_observation_fingerprint": history_binding.get(
+            "sourcePayloadFingerprint"
+        ),
+        "metric_window": history_binding.get("captureWindow")
+        or (
+            f"{history_binding['hoursSincePublish']}h"
+            if history_binding.get("hoursSincePublish") is not None
+            else None
+        ),
+        "imported_at": imported_at,
         "lineage_v2_valid": 1
         if not meta.get("learning_lineage_blocking_reasons")
         and lineage_v2_is_learning_traceable(
@@ -970,7 +1013,7 @@ def _performance_snapshot_from_row(
         )
         or [],
         "raw_json": json.dumps(raw_row, ensure_ascii=False, sort_keys=True),
-        "created_at": utc_now(),
+        "created_at": imported_at,
     }
 
 

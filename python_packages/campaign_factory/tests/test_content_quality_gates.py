@@ -1687,8 +1687,6 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(
                 campaign_slug="may",
                 user_id="user_1",
                 dry_run=False,
-                supabase_url="https://example.supabase.co",
-                supabase_service_role_key="service-role",
             )
     finally:
         cf.close()
@@ -3430,8 +3428,6 @@ def test_campaign_factory_has_no_legacy_supabase_or_preview_write_surface(
                     user_id="user_1",
                     dry_run=False,
                     schedule_mode=mode,
-                    supabase_url="https://example.supabase.co",
-                    supabase_service_role_key="service-role",
                 )
 
         assert not hasattr(threadsdash_delivery_adapter, "_write_supabase")

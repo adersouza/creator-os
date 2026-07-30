@@ -218,11 +218,18 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
         )
         assert imported["patternsImported"] == 1
         assert imported["patternsCreated"] == 1
+        assert imported["promotionReceiptsCreated"] == 1
         repeated = cf.domains.reference.import_reference_bank(
             bank_path, prompt_pack_path
         )
         assert repeated["patternsImported"] == 0
         assert repeated["patternsUnchanged"] == 1
+        assert repeated["promotionReceiptsCreated"] == 0
+        receipt = cf.conn.execute(
+            "SELECT * FROM reference_promotion_receipts"
+        ).fetchone()
+        assert receipt["source_system"] == "reference_factory"
+        assert receipt["destination_table"] == "reference_patterns"
         patterns = cf.domains.reference.reference_patterns()
         assert (
             patterns["patterns"][0]["raw"]["bank"]["embeddingClusterId"]

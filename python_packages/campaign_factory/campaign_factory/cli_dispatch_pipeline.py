@@ -48,6 +48,7 @@ from .recreation_anchor_approval import approve_recreation_anchor
 from .recreation_lifecycle import explain_recreation_job, record_recreation_review
 from .recreation_prompting import build_openai_prompt_pack
 from .reference_url_workflow import run_reference_analysis
+from .state_ownership import explain_state, reconcile_bridge
 from .trial_reels import (
     graduate_trial_reel,
     record_trial_observation,
@@ -57,6 +58,19 @@ from .variation_stage import run_variation_stage
 
 
 def dispatch_pipeline_commands(args, cf, settings) -> int | None:
+    if args.cmd == "state" and args.state_cmd == "explain":
+        print_json(explain_state(args.record_or_id))
+        return 0
+    if args.cmd == "bridge" and args.bridge_cmd == "reconcile":
+        print_json(
+            reconcile_bridge(
+                cf,
+                export_id=args.export_id,
+                ingest_url=args.threadsdash_ingest_url,
+                ingest_secret=args.threadsdash_ingest_secret,
+            )
+        )
+        return 0
     if args.cmd == "init":
         print_json(
             {
@@ -510,10 +524,10 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         return 0
     if args.cmd == "export-threadsdash":
         if not args.dry_run and (
-            not (args.supabase_url and args.supabase_service_role_key)
+            not (args.threadsdash_ingest_url and args.threadsdash_ingest_secret)
         ):
             raise SystemExit(
-                "live ThreadsDashboard export requested but Supabase URL/service role key are missing; pass --dry-run or provide credentials"
+                "live ThreadsDashboard export requested but ingest URL/secret are missing; pass --dry-run or provide owner-API credentials"
             )
         print_json(
             export_threadsdash(
@@ -521,8 +535,6 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 campaign_slug=args.campaign,
                 user_id=args.user_id,
                 dry_run=args.dry_run,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
                 supabase_storage_bucket=args.supabase_storage_bucket,
                 allow_warnings=args.allow_warnings,
                 warning_override_reason=args.warning_override_reason,
@@ -539,6 +551,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 publish_mode=args.publish_mode,
                 review_only=args.review_only,
                 draft_payload_schema=args.draft_payload_schema,
+                threadsdash_ingest_url=args.threadsdash_ingest_url,
+                threadsdash_ingest_secret=args.threadsdash_ingest_secret,
             )
         )
         return 0
