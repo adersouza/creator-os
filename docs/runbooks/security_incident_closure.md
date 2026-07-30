@@ -37,6 +37,8 @@ pnpm check:artifacts
 
 - `scripts/security/secret-scan.sh` includes Creator OS-specific secret patterns.
 - `scripts/check-runtime-artifacts.sh` rejects tracked env files, `.mcp.json`, DBs, generated outputs, model weights, and runtime media.
-- CI runs CodeQL, TruffleHog, Trivy, dependency review, and artifact hygiene checks.
+- CI runs current-tree secret hygiene on pull requests. Trusted `main` and
+  manual runs additionally run CodeQL, Trivy, and full-history TruffleHog.
+  Dependency Review is not currently available for this private repository.
 
 These guardrails prevent recurrence; they do not rotate external credentials.

@@ -298,6 +298,18 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
+        campaign = cf.domains.campaign_by_slug("may")
+        model_id = cf.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+        model = cf.domains.models.upsert_model(model_id)
+        cf.domains.models.upsert_account(
+            "stacey_fixture",
+            external_id="ig_stacey_1",
+            model_id=model["id"],
+        )
+        cf.domains.models.upsert_model_account_profile(
+            model["slug"],
+            allowed_instagram_account_ids=["ig_stacey_1"],
+        )
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(cf)
         cf.conn.execute(
@@ -377,7 +389,7 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
             draft_intent["operator_selection"]["selected_reason"]
             == "operator_selected_for_proof"
         )
-        assert readiness["liveExportAllowed"] is True
+        assert readiness["liveExportAllowed"] is True, readiness["blockingReasons"]
         assert not any(
             "campaign_audio_unresolved" in reason
             for reason in readiness["blockingReasons"]

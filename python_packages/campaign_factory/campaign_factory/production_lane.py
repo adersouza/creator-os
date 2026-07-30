@@ -18,7 +18,11 @@ from creator_os_core.recreation_anchor_approval import (
 
 from . import learning_consumption
 from . import production_higgsfield_authorization as higgsfield_auth
-from .audio_policy import AUDIO_POLICIES, build_embedded_trending_audio_intent
+from .audio_policy import (
+    AUDIO_POLICIES,
+    build_embedded_trending_audio_intent,
+    validate_production_intent_audio_policy,
+)
 from .audio_radar import (
     AudioCache,
     AudioLocator,
@@ -74,10 +78,20 @@ from .production_higgsfield_authorization import (
 from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
 )
-from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
-from .production_prompts import require_creator_soul_id as _require_creator_soul_id
-from .production_source_selection import select_requested_source_assets
+from .production_source_selection import (
+    active_production_identity,
+    bind_source_governance,
+    resolve_reference_analysis_governance,
+    resolved_account_id,
+    select_requested_source_assets,
+)
+from .production_source_selection import (
+    optional_safe_media as _optional_safe_media,
+)
+from .production_source_selection import (
+    source_image_resolution as _source_image_resolution,
+)
 from .provider_spend import (
     ProviderOverspendError,
     record_provider_execution,
@@ -171,11 +185,9 @@ def fulfill_production_audio(
     candidates: list[TrendCandidate] | None = None,
     selected_at: str | None = None,
 ) -> dict[str, Any]:
-    """Carry one generated asset through canonical embedded-audio fulfillment."""
-
     intent = str(job.get("intent") or "")
     policy = _audio_policy(str(job.get("audioPolicy") or ""))
-    _validate_intent_audio_policy(intent, policy)
+    validate_production_intent_audio_policy(intent, policy)
     if policy == "silent_allowed":
         return {
             "policy": policy,
@@ -226,7 +238,7 @@ def fulfill_production_audio(
         factory.conn,
         candidates=discovered,
         creator=creator_slug,
-        creator_identity_profile=_CREATOR_SOUL_IDS.get(creator_slug, ""),
+        creator_identity_profile=str(job.get("creatorIdentityProfile") or ""),
         account=str(job.get("accountGroup") or "") or None,
         intent=intent,
         now=datetime.fromisoformat(completed_at.replace("Z", "+00:00")),
@@ -261,7 +273,7 @@ def fulfill_production_audio(
     receipt = fulfilled.embedding_receipt
     receipt["creativeContext"] = {
         "creator": job.get("creator"),
-        "creatorIdentityProfile": _CREATOR_SOUL_IDS.get(creator_slug),
+        "creatorIdentityProfile": job.get("creatorIdentityProfile"),
         "account": job.get("accountGroup"),
         "intent": job.get("intent"),
         "speaking": False,
@@ -329,7 +341,8 @@ def build_production_motion_recipe(
     execution: str,
     source_sha256: str,
 ) -> dict[str, Any]:
-    creator_slug, _ = _require_creator_soul_id(creator)
+    if not (creator_slug := creator.strip().lower().replace(" ", "_")):
+        raise ValueError("creator is required")
     if intent not in _INTENT_PROMPTS:
         raise ValueError(f"intent {intent!r} is not in the production motion catalog")
     if execution == "cloud" and intent in _RECREATE_INTENTS:
@@ -445,14 +458,18 @@ def plan_production_batch(
         not recreation_attempt_id.strip() or len(recreation_attempt_id.strip()) > 100
     ):
         raise ValueError("recreation attempt id must be 1 to 100 characters")
-    creator_slug, _ = _require_creator_soul_id(creator)
+    creator_slug, soul_id = active_production_identity(factory, creator)
     resolved_audio_policy = _audio_policy(audio_preference)
-    _validate_intent_audio_policy(intent, resolved_audio_policy)
+    validate_production_intent_audio_policy(intent, resolved_audio_policy)
     reference_analysis = None
+    reference_governance = None
     recreation_prompt = None
     if intent in _RECREATE_INTENTS:
         if reference_video_path is None:
             raise ValueError("recreate_reel requires --reference-video")
+        reference_governance = resolve_reference_analysis_governance(
+            factory, creator_slug
+        )
         reference_analysis = analyze_reference_reel(
             reference_video_path,
             source_platform=reference_platform,
@@ -495,7 +512,7 @@ def plan_production_batch(
         assert reference_analysis is not None
         if (
             planned_anchor["creator"] != creator_slug
-            or planned_anchor["soulId"] != _CREATOR_SOUL_IDS[creator_slug]
+            or planned_anchor["soulId"] != soul_id
             or planned_anchor["referenceVideoSha256"]
             != reference_analysis["originalLocalFile"]["sha256"]
         ):
@@ -574,13 +591,20 @@ def plan_production_batch(
             "review and approve sources with `creator-os sources`"
         )
     sources = select_requested_source_assets(sources, selected_source_asset_ids)
+    bind_source_governance(
+        factory,
+        sources,
+        creator=creator_slug,
+        soul_id=soul_id,
+        account_id=resolved_account_id(factory.conn, accounts),
+    )
     if reference_analysis is not None:
         sources = rank_character_references(sources, reference_analysis)
     sources, selected_prompt, learning_decision = (
         learning_consumption.apply_learning_to_production_plan(
             factory.conn,
             creator=creator_slug,
-            creator_identity_profile=_CREATOR_SOUL_IDS[creator_slug],
+            creator_identity_profile=soul_id,
             account=accounts,
             intent=intent,
             sources=sources,
@@ -667,7 +691,7 @@ def plan_production_batch(
             anchor_approval = load_recreation_anchor_approval(
                 recreation_anchor_approval_path,
                 expected_creator=creator_slug,
-                expected_soul_id=_CREATOR_SOUL_IDS[creator_slug],
+                expected_soul_id=soul_id,
                 expected_creator_image_sha256=source_sha,
                 expected_reference_video_sha256=reference_analysis["originalLocalFile"][
                     "sha256"
@@ -728,6 +752,14 @@ def plan_production_batch(
                     if recreation_attempt_id
                     else "attempt_1"
                 ),
+                "creatorGovernanceFingerprint": source["creatorGovernance"][
+                    "governanceFingerprint"
+                ],
+                "referenceGovernanceFingerprint": (
+                    reference_governance["governanceFingerprint"]
+                    if reference_governance is not None
+                    else None
+                ),
             }
         )
         if intent in _RECREATE_INTENTS:
@@ -762,6 +794,9 @@ def plan_production_batch(
                 "sourceResolution": source.get("sourceResolution"),
                 "sourceApproval": source.get("sourceApproval"),
                 "creator": creator_slug,
+                "creatorIdentityProfile": soul_id,
+                "_creatorGovernance": source["creatorGovernance"],
+                "_referenceGovernance": reference_governance,
                 "intent": intent,
                 "prompt": (
                     compiled_prompt["text"]
@@ -841,24 +876,6 @@ def plan_production_batch(
         "learningDecision": learning_decision,
         "jobs": jobs,
     }
-
-
-def _validate_intent_audio_policy(intent: str, policy: str) -> None:
-    if intent in _RECREATE_INTENTS:
-        if policy not in {
-            "embedded_trending_required",
-            "original_embedded",
-            "silent_allowed",
-        }:
-            raise ValueError(
-                "recreate_reel audio must be embedded_trending_required, "
-                "REFERENCE_AUDIO_REQUIRED, or silent_allowed"
-            )
-        return
-    if intent in _SUPPORTED_PASSIVE_INTENTS and policy != "embedded_trending_required":
-        raise ValueError(
-            "non-talking production intents require embedded_trending_required"
-        )
 
 
 def run_production_batch(
@@ -1471,28 +1488,3 @@ def _execute_higgsfield_provider_job(
             terminal_effect_reconciled=terminal_technical_rejection,
         )
         raise
-
-
-def _optional_safe_media(path: Path | None, label: str) -> Path | None:
-    if path is None:
-        return None
-    expanded = Path(path).expanduser()
-    if expanded.is_symlink():
-        raise ValueError(f"{label} must not be a symlink")
-    resolved = expanded.resolve()
-    if not resolved.is_file():
-        raise FileNotFoundError(f"{label} is missing: {resolved}")
-    return resolved
-
-
-def _source_image_resolution(path: Path) -> tuple[int, int] | None:
-    try:
-        from PIL import Image, UnidentifiedImageError
-
-        with Image.open(path) as image:
-            width, height = image.size
-    except (OSError, UnidentifiedImageError):
-        return None
-    if width <= 0 or height <= 0:
-        return None
-    return int(width), int(height)

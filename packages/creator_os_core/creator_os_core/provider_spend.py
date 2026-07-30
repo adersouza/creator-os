@@ -105,6 +105,7 @@ def build_generate_assets_spend_scope(
         "mode": mode,
         "provider": "higgsfield",
         "campaign": str(options.get("--campaign") or ""),
+        "creator": str(options.get("--creator") or "").strip().lower(),
         "cohortId": str(options.get("--cohort-id") or "creator_os_default"),
         "stem": str(options.get("--stem") or ""),
         "soulId": soul_id.strip(),
@@ -125,6 +126,12 @@ def build_generate_assets_spend_scope(
         "videoMode": str(options.get("--video-mode") or "pro"),
         "videoSound": str(options.get("--video-sound") or "off"),
     }
+    if options.get("--account-id"):
+        scope["accountId"] = str(options["--account-id"])
+    if options.get("--territory"):
+        scope["territory"] = str(options["--territory"])
+    if options.get("--campaign-source-asset-id"):
+        scope["campaignSourceAssetId"] = str(options["--campaign-source-asset-id"])
     return {**scope, "requestFingerprint": spend_scope_fingerprint(scope)}
 
 

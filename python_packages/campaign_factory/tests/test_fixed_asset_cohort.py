@@ -109,6 +109,15 @@ def _fixture(tmp_path: Path) -> sqlite3.Connection:
         """,
         (NOW, NOW, NOW),
     )
+    conn.execute(
+        """
+        INSERT INTO creator_lifecycle_state
+        (model_id,status,status_reason,effective_at,changed_by,version,
+         retention_state,updated_at)
+        VALUES ('model_stacey','active','fixture',?,'test',1,'retain_audit',?)
+        """,
+        (NOW, NOW),
+    )
     for index in range(1, 4):
         campaign_id = f"campaign_{index}"
         source_id = f"source_{index}"
@@ -131,6 +140,15 @@ def _fixture(tmp_path: Path) -> sqlite3.Connection:
                 NOW,
                 NOW,
             ),
+        )
+        conn.execute(
+            """
+            INSERT INTO campaign_governance
+            (campaign_id,model_id,lifecycle_status,blocker_codes_json,
+             status_reason,changed_by,effective_at,version,updated_at)
+            VALUES (?,'model_stacey','production_ready','[]','fixture','test',?,1,?)
+            """,
+            (campaign_id, NOW, NOW),
         )
         conn.execute(
             """
@@ -254,6 +272,30 @@ def _fixture(tmp_path: Path) -> sqlite3.Connection:
                 NOW,
             ),
         )
+    identity_manifest = tmp_path / "stacey_identity_profile.json"
+    identity_manifest.write_text('{"creatorKey":"stacey"}', encoding="utf-8")
+    conn.execute(
+        """
+        INSERT INTO creator_identity_profiles (
+          id, model_id, provider, provider_identity_id, version, profile_json,
+          profile_fingerprint, identity_manifest_path, identity_manifest_sha256,
+          canonical_source_asset_id, canonical_evidence_type, status,
+          activated_at, retired_at, operator, created_at
+        ) VALUES (
+          'identity_stacey', 'model_stacey', 'higgsfield', ?, 1, '{}', ?,
+          ?, ?, 'source_1', 'operator_approved_original', 'active',
+          ?, NULL, 'test', ?
+        )
+        """,
+        (
+            SOUL_ID,
+            "f" * 64,
+            str(identity_manifest),
+            _sha(identity_manifest),
+            NOW,
+            NOW,
+        ),
+    )
     conn.execute(
         """
         INSERT INTO reference_patterns (

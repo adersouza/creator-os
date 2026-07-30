@@ -90,3 +90,51 @@ def test_recovery_status_uses_scoped_blocker_language(tmp_path: Path):
         )
     finally:
         cf.close()
+
+
+def test_recovery_status_derives_mapping_blockers_from_durable_jobs(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.domains.models.upsert_campaign("june", "model")
+        job = cf.domains.events.create_pipeline_job(
+            "higgsfield_motion_generation",
+            campaign["id"],
+            {},
+        )
+        cf.domains.events.start_pipeline_job(job["id"])
+        cf.domains.events.mark_pipeline_effect_state(job["id"], "SUBMISSION_STARTED")
+        cf.domains.events.fail_pipeline_job(job["id"], "timeout")
+
+        report = recovery_status(cf.conn)
+        assert report["mappingBlockersSummary"] == "Mapping blockers: 1."
+        assert report["mappingBlockers"] == [
+            {
+                "recordType": "pipeline_job",
+                "recordId": job["id"],
+                "effectState": "AMBIGUOUS",
+                "missingFields": ["authorization_id"],
+                "repairAction": "reconcile_pipeline_job_mapping",
+            }
+        ]
+    finally:
+        cf.close()
+
+
+def test_nonpaid_recovery_job_does_not_require_spend_authorization(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.domains.models.upsert_campaign("july", "model")
+        job = cf.domains.events.create_pipeline_job(
+            "threadsdash_export",
+            campaign["id"],
+            {},
+        )
+        cf.domains.events.start_pipeline_job(job["id"])
+        cf.domains.events.mark_pipeline_effect_state(job["id"], "SUBMISSION_STARTED")
+        cf.domains.events.fail_pipeline_job(job["id"], "timeout")
+
+        report = recovery_status(cf.conn)
+        assert report["mappingBlockers"] == []
+        assert report["mappingBlockersSummary"] == "Mapping blockers: none."
+    finally:
+        cf.close()

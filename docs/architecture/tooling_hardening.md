@@ -10,16 +10,17 @@ publishing, QStash, metrics sync, account health, or production inventory.
   versioned Pipeline Contracts package synchronized.
 - `pnpm security:secrets` runs a local current-tree secret scan when `gitleaks`
   or `trufflehog` is installed.
-- GitHub Actions runs CodeQL for JavaScript/TypeScript and Python on pull
-  requests and `main`.
+- GitHub Actions runs CodeQL for JavaScript/TypeScript and Python on trusted
+  `main` pushes and manual workflow dispatches. It is not a pull-request gate.
 - GitHub Actions runs current-tree secret hygiene as a blocking check.
 - GitHub Actions runs TruffleHog with verified-secret gating. The action
   supplies its own fail flag; workflow arguments keep only policy filters.
 - GitHub Dependency Review is not an active gate because this private
   repository does not have the required Dependency Graph/GHAS support enabled.
-- GitHub Actions runs Trivy filesystem scans on pull requests and `main`,
-  uploads SARIF findings, and blocks HIGH/CRITICAL findings. Accepted false
-  positives require a narrowly documented ignore.
+- GitHub Actions runs Trivy filesystem scans on trusted `main` pushes and
+  manual workflow dispatches, uploads SARIF findings, and blocks HIGH/CRITICAL
+  findings. It is not a pull-request gate. Accepted false positives require a
+  narrowly documented ignore.
 - GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
   snapshots.
 - GitHub Actions creates artifact attestations for SBOM artifacts. Dashboard
@@ -119,8 +120,8 @@ supply-chain reports:
 
 - StepSecurity Harden-Runner runs in `egress-policy: audit` on security and
   architecture jobs.
-- Trivy uploads SARIF and blocks pull requests on unignored HIGH/CRITICAL
-  findings.
+- Trivy uploads SARIF and blocks trusted `main` and manual runs on unignored
+  HIGH/CRITICAL findings. It is not a pull-request gate.
 - Dependency Review is report-only until GitHub Dependency Graph is enabled;
   then it should block direct high/critical vulnerable dependency changes and
   denied licenses.
@@ -133,7 +134,7 @@ supply-chain reports:
   workflow patterns before making Scorecard required.
 
 Keep Harden-Runner in audit mode until its outbound-host baseline is reviewed.
-Do not weaken the blocking Trivy gate to accommodate vulnerable lockfiles.
+Do not weaken the trusted-run Trivy gate to accommodate vulnerable lockfiles.
 
 ## Architecture Drift Policy
 

@@ -6,7 +6,9 @@ from pathlib import Path
 from creator_os_core.sqlite import connect_sqlite
 from creator_os_core.sqlite import ensure_columns as _ensure_columns
 
+from .creator_governance_schema import CREATOR_GOVERNANCE_SCHEMA
 from .db_migrations import (
+    _apply_creator_governance_backfill,
     _backfill_generation_output_lineage,
     _ensure_generation_lineage_guards,
     _migrate_rendered_assets_hash_scope,
@@ -28,6 +30,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _apply_creator_governance_backfill(conn)
     _ensure_columns(
         conn,
         "accounts",
@@ -671,6 +674,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _repair_source_asset_fk_references(conn)
     _repair_fk_references(conn, "rendered_assets_old_global_hash", "rendered_assets")
+    # Legacy table rebuilds drop triggers attached to the replaced tables.
+    conn.executescript(CREATOR_GOVERNANCE_SCHEMA)
     _ensure_generation_lineage_guards(conn)
     _backfill_generation_output_lineage(conn)
     conn.commit()

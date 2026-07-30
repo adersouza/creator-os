@@ -15,7 +15,6 @@ from .production_batch_results import (
 from .production_lane import (
     _SUPPORTED_PASSIVE_INTENTS,
     _audio_policy,
-    _require_creator_soul_id,
     _sha256_file,
     fulfill_production_audio,
     plan_production_batch,
@@ -73,6 +72,17 @@ def run_creation_batch(
         if reference_video_path is not None
         else None
     )
+    destination = _resolve_destination_account(factory, accounts)
+    if destination["status"] != "not_requested":
+        if destination["status"] != "resolved":
+            raise PermissionError(f"destination_account_{destination['status']}")
+        identity = factory.domains.creator_governance.active_identity_profile(
+            creator, provider="internal"
+        )
+        if not destination.get("modelId"):
+            raise PermissionError("destination_account_creator_missing")
+        if str(destination["modelId"]) != str(identity["creator_id"]):
+            raise PermissionError("cross_creator_account_blocked")
     reusable = (
         _qualified_reusable_assets(
             factory,
@@ -81,11 +91,11 @@ def run_creation_batch(
             intent=intent,
             audio_policy=_audio_policy(audio_preference),
             reference_sha256=reference_sha,
+            account_id=destination.get("accountId"),
         )
         if reuse_policy == "prefer_exact" and not source_asset_ids
         else []
     )
-    destination = _resolve_destination_account(factory, accounts)
     reservation = _select_destination_reuse(
         factory,
         candidates=reusable,
@@ -181,8 +191,12 @@ def _qualified_reusable_assets(
     intent: str,
     audio_policy: str,
     reference_sha256: str | None,
+    account_id: str | None,
 ) -> list[dict[str, Any]]:
-    creator_slug, _ = _require_creator_soul_id(creator)
+    identity = factory.domains.creator_governance.active_identity_profile(
+        creator, provider="internal"
+    )
+    creator_slug = str(identity["creator_slug"])
     rows = factory.conn.execute(
         """
         SELECT ra.*, c.slug AS campaign_slug
@@ -214,6 +228,17 @@ def _qualified_reusable_assets(
         if not isinstance(metadata, dict):
             continue
         if metadata.get("contentIntent") != intent:
+            continue
+        try:
+            factory.domains.creator_governance.resolve_operation(
+                creator=creator_slug,
+                campaign=str(asset["campaign_id"]),
+                operation="reuse",
+                provider="internal",
+                source_asset_id=str(asset["source_asset_id"]),
+                account_id=account_id,
+            )
+        except PermissionError:
             continue
         if mode == "static_reel" and asset.get("recipe") != "static_mp4":
             continue
@@ -371,6 +396,7 @@ def _resolve_destination_account(factory: Any, requested: str | None) -> dict[st
         "handle": account.get("handle"),
         "externalId": account.get("external_id"),
         "accountGroupId": account.get("account_group_id") or account.get("model_id"),
+        "modelId": account.get("model_id"),
         "status": "resolved",
     }
 

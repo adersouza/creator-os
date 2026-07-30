@@ -108,25 +108,56 @@ def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def prepare_learning_cohort(
-    conn: sqlite3.Connection, *, start_date: str, seed: str = COHORT_ID
-) -> dict[str, Any]:
-    ensure_learning_cohort_tables(conn)
-    parsed_start = date.fromisoformat(start_date)
-    existing = conn.execute(
-        "SELECT * FROM learning_cohorts WHERE id = ?", (COHORT_ID,)
+def _ensure_learning_cohort_governance(conn: sqlite3.Connection, *, now: str) -> str:
+    model = conn.execute(
+        "SELECT id FROM models WHERE lower(slug) = 'stacey' LIMIT 1"
     ).fetchone()
-    if existing:
-        assignments = _assignment_rows(conn)
-        return _prepare_report(assignments, idempotent=True)
-
-    now = _utc_now()
+    model_id = str(model["id"]) if model is not None else "model_stacey"
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO models
+        (id, slug, name, notes, created_at, updated_at)
+        VALUES (?, 'stacey', 'Stacey', 'learning cohort owner', ?, ?)
+        """,
+        (model_id, now, now),
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO creator_lifecycle_state
+        (model_id, status, status_reason, effective_at, changed_by, version,
+         offboarding_state, retention_state, updated_at)
+        VALUES (?, 'active', 'learning_cohort_creator_registered', ?,
+                'campaign_factory', 1, NULL, 'retain_audit', ?)
+        """,
+        (model_id, now, now),
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO creator_lifecycle_events
+        (id, model_id, old_status, new_status, reason, actor, effective_at,
+         evidence_json, version, created_at)
+        VALUES ('creator_state_stacey_learning', ?, NULL, 'active',
+                'learning_cohort_creator_registered', 'campaign_factory', ?,
+                '{"rightsVerified":false}', 1, ?)
+        """,
+        (model_id, now, now),
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO creator_slug_history
+        (id, model_id, slug, effective_at, retired_at, actor, reason, created_at)
+        VALUES ('creator_slug_stacey_learning', ?, 'stacey', ?, NULL,
+                'campaign_factory', 'learning_cohort_creator_registered', ?)
+        """,
+        (model_id, now, now),
+    )
+    campaign_id = f"campaign_{_digest(COHORT_ID)[:12]}"
     conn.execute(
         """INSERT OR IGNORE INTO campaigns
         (id, slug, name, platform, root_path, created_at, updated_at)
         VALUES (?, ?, ?, 'instagram', ?, ?, ?)""",
         (
-            f"campaign_{_digest(COHORT_ID)[:12]}",
+            campaign_id,
             COHORT_ID,
             "Stacey Learning Cohort v1",
             COHORT_ID,
@@ -134,6 +165,43 @@ def prepare_learning_cohort(
             now,
         ),
     )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO campaign_governance
+        (campaign_id, model_id, lifecycle_status, blocker_codes_json,
+         status_reason, changed_by, effective_at, version, updated_at)
+        VALUES (?, ?, 'created', '[]', 'learning_cohort_prepared',
+                'campaign_factory', ?, 1, ?)
+        """,
+        (campaign_id, model_id, now, now),
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO campaign_lifecycle_events
+        (id, campaign_id, model_id, old_status, new_status, reason, actor,
+         evidence_json, related_ids_json, version, created_at)
+        VALUES ('campaign_state_stacey_learning', ?, ?, NULL, 'created',
+                'learning_cohort_prepared', 'campaign_factory', '{}', '[]', 1, ?)
+        """,
+        (campaign_id, model_id, now),
+    )
+    return campaign_id
+
+
+def prepare_learning_cohort(
+    conn: sqlite3.Connection, *, start_date: str, seed: str = COHORT_ID
+) -> dict[str, Any]:
+    ensure_learning_cohort_tables(conn)
+    parsed_start = date.fromisoformat(start_date)
+    now = _utc_now()
+    _ensure_learning_cohort_governance(conn, now=now)
+    existing = conn.execute(
+        "SELECT * FROM learning_cohorts WHERE id = ?", (COHORT_ID,)
+    ).fetchone()
+    if existing:
+        assignments = _assignment_rows(conn)
+        return _prepare_report(assignments, idempotent=True)
+
     conn.execute(
         """INSERT INTO learning_cohorts
         (id, campaign_slug, creator, soul_id, account_handle, timezone,

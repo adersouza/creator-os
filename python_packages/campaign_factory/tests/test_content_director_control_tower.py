@@ -10,7 +10,7 @@ from campaign_factory.learning_consumption import (
     build_measured_recommendations,
     persist_measured_recommendations,
 )
-from campaign_factory.production_lane import _CREATOR_SOUL_IDS
+from campaign_factory.production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from test_content_director import _conn, _request
 from test_learning_consumption import _outcome, _pack
 

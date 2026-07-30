@@ -68,6 +68,67 @@ from .threadsdash_owner_api import (
 )
 
 
+def _bind_export_governance(
+    factory: CampaignFactory,
+    payload: dict[str, Any],
+    *,
+    campaign_id: str,
+    creator: str,
+    expected_fingerprints: dict[str, str] | None = None,
+) -> dict[str, str]:
+    fingerprints: dict[str, str] = {}
+    for index, draft in enumerate(payload.get("drafts") or []):
+        metadata_root = draft.setdefault("metadata", {})
+        if not isinstance(metadata_root, dict):
+            raise PermissionError("export_metadata_invalid")
+        metadata = metadata_root.setdefault("campaign_factory", {})
+        if not isinstance(metadata, dict):
+            raise PermissionError("export_campaign_metadata_invalid")
+        source_asset_id = str(
+            draft.get("sourceAssetId") or metadata.get("source_asset_id") or ""
+        )
+        if not source_asset_id:
+            rendered_asset_id = str(draft.get("renderedAssetId") or "").strip()
+            row = factory.conn.execute(
+                """
+                SELECT source_asset_id
+                FROM rendered_assets
+                WHERE id = ? AND campaign_id = ?
+                """,
+                (rendered_asset_id, campaign_id),
+            ).fetchone()
+            source_asset_id = str(row["source_asset_id"] if row else "")
+        if not source_asset_id:
+            raise PermissionError("export_source_asset_identity_missing")
+        account_value = str(
+            draft.get("accountId") or draft.get("instagramAccountId") or ""
+        ).strip()
+        account_id = (
+            None if account_value.casefold() in {"", "unassigned"} else account_value
+        )
+        context = factory.domains.creator_governance.resolve_operation(
+            creator=creator,
+            campaign=campaign_id,
+            operation="export",
+            provider="internal",
+            source_asset_id=source_asset_id,
+            account_id=account_id,
+        )
+        draft_key = str(
+            draft.get("campaignFactoryDraftKey") or draft.get("id") or f"draft:{index}"
+        )
+        fingerprint = str(context["governanceFingerprint"])
+        if (
+            expected_fingerprints is not None
+            and expected_fingerprints.get(draft_key) != fingerprint
+        ):
+            raise PermissionError("export_governance_stale")
+        fingerprints[draft_key] = fingerprint
+        if expected_fingerprints is None:
+            metadata["creator_governance"] = context
+    return fingerprints
+
+
 def _campaign_factory_manifest_blockers(
     payload: dict[str, Any],
     *,
@@ -343,6 +404,15 @@ def export_threadsdash(
     if not dry_run:
         require_global_write_allowed("ThreadsDashboard draft export")
     campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    governance_context = None
+    if not dry_run:
+        governance_context = factory.domains.creator_governance.resolve_operation(
+            creator=str(model_slug),
+            campaign=str(campaign["id"]),
+            operation="export",
+            provider="internal",
+        )
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
     if not dry_run and normalized_schedule_mode != "draft":
@@ -384,10 +454,12 @@ def export_threadsdash(
                 "variationPreset": variation_preset,
                 "reviewOnly": review_only,
                 "draftPayloadSchema": normalized_draft_payload_schema,
+                "creatorGovernanceFingerprint": governance_context[
+                    "governanceFingerprint"
+                ],
             },
         )
         factory.domains.events.start_pipeline_job(pipeline_job["id"])
-    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     if dry_run:
         exports_dir = (
             factory.settings.campaigns_dir
@@ -430,6 +502,14 @@ def export_threadsdash(
             review_only=review_only,
             draft_payload_schema=normalized_draft_payload_schema,
         )
+        governance_fingerprints: dict[str, str] = {}
+        if not dry_run:
+            governance_fingerprints = _bind_export_governance(
+                factory,
+                payload,
+                campaign_id=str(campaign["id"]),
+                creator=str(model_slug),
+            )
         payload = _freeze_exact_draft_batch(payload, max_drafts=max_drafts)
         uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
         readiness = evaluate_export_readiness(
@@ -529,6 +609,13 @@ def export_threadsdash(
             _validate_exact_creative_approvals(
                 factory, payload, campaign_slug=campaign_slug
             )
+            _bind_export_governance(
+                factory,
+                payload,
+                campaign_id=str(campaign["id"]),
+                creator=str(model_slug),
+                expected_fingerprints=governance_fingerprints,
+            )
             dashboard_ingest_media = _upload_media_for_dashboard_ingest(
                 factory,
                 payload,
@@ -597,6 +684,13 @@ def export_threadsdash(
         assert pipeline_job is not None
         _validate_exact_creative_approvals(
             factory, payload, campaign_slug=campaign_slug
+        )
+        _bind_export_governance(
+            factory,
+            payload,
+            campaign_id=str(campaign["id"]),
+            creator=str(model_slug),
+            expected_fingerprints=governance_fingerprints,
         )
         set_export_state(factory.conn, export_id, "submitted")
         submission_started = True

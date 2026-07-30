@@ -10,7 +10,8 @@ from .cli_dispatch_pipeline import dispatch_pipeline_commands
 from .cli_dispatch_scale import dispatch_scale_commands
 from .cli_parser import build_cli_parser
 from .config import get_settings
-from .core import CampaignFactory
+from .core import CampaignFactory, new_id, slugify, utc_now
+from .creator_governance import CreatorGovernanceRepository
 from .db import init_db
 
 
@@ -47,6 +48,43 @@ def main() -> int:
         factory = SimpleNamespace(settings=settings, conn=conn)
         try:
             result = dispatch_pipeline_commands(args, factory, settings)
+            return int(result or 0)
+        finally:
+            conn.close()
+
+    governance_commands = {
+        "creator-governance-status",
+        "creator-governance-transition",
+        "creator-governance-rename",
+        "creator-identity-enroll",
+        "creator-authorization-grant",
+        "creator-authorization-revoke",
+        "campaign-governance-status",
+        "campaign-governance-transition",
+    }
+    if getattr(args, "cmd", None) in governance_commands and not getattr(
+        args, "apply", False
+    ):
+        if not settings.db_path.exists():
+            raise FileNotFoundError(
+                f"governance preview database not found: {settings.db_path}"
+            )
+        conn = connect_sqlite(settings.db_path, readonly=True, wal=False)
+        conn.execute("PRAGMA query_only = ON")
+        repository = CreatorGovernanceRepository(
+            conn,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            managed_root=settings.root,
+        )
+        factory = SimpleNamespace(
+            settings=settings,
+            conn=conn,
+            domains=SimpleNamespace(creator_governance=repository),
+        )
+        try:
+            result = dispatch_operations_commands(args, factory, settings)
             return int(result or 0)
         finally:
             conn.close()

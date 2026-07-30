@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -22,6 +23,7 @@ from campaign_factory.provider_spend import (
     record_provider_execution,
     validate_provider_spend_batch_capacity,
 )
+from campaign_test_support import authorize_campaign_governance, make_factory
 from creator_os_core.provider_spend import build_generate_assets_spend_scope
 
 SECRET = "test-only-spend-authorization-secret-32-bytes"
@@ -56,25 +58,30 @@ def _budgets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS", "10")
 
 
-def _scope(tmp_path: Path) -> dict:
+def _scope(
+    tmp_path: Path,
+    *,
+    campaign: str = "campaign_1",
+    creator: str | None = None,
+) -> dict:
     prompt = tmp_path / "prompt.json"
     prompt.write_text("{}", encoding="utf-8")
-    return build_generate_assets_spend_scope(
-        [
-            "image",
-            "--prompt-json",
-            str(prompt),
-            "--stem",
-            "clip_1",
-            "--campaign",
-            "campaign_1",
-            "--cohort-id",
-            "cohort_1",
-            "--soul-id",
-            "soul_1",
-        ],
-        root=tmp_path,
-    )
+    args = [
+        "image",
+        "--prompt-json",
+        str(prompt),
+        "--stem",
+        "clip_1",
+        "--campaign",
+        campaign,
+        "--cohort-id",
+        "cohort_1",
+        "--soul-id",
+        "soul_1",
+    ]
+    if creator:
+        args += ["--creator", creator]
+    return build_generate_assets_spend_scope(args, root=tmp_path)
 
 
 def test_combined_create_alias_is_not_an_authorizable_runtime_mode(
@@ -284,7 +291,7 @@ def test_campaign_fails_before_quote_when_secret_is_missing(tmp_path: Path) -> N
     with pytest.raises(PermissionError, match="at least 32 bytes"):
         issue_provider_spend_authorization(
             conn,
-            scope=_scope(tmp_path),
+            scope=_scope(tmp_path, campaign="may", creator="stacey"),
             campaign_id="campaign_1",
             max_credits=10,
             secret="short",
@@ -292,6 +299,112 @@ def test_campaign_fails_before_quote_when_secret_is_missing(tmp_path: Path) -> N
             balance_provider=Balance(),
         )
     assert quote.calls == 0
+
+
+def test_governed_authorization_is_revalidated_before_provider_effect(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        authorized = authorize_campaign_governance(
+            cf,
+            tmp_path,
+            provider="higgsfield",
+            soul_id="soul_1",
+        )
+        authorization = issue_provider_spend_authorization(
+            cf.conn,
+            scope=_scope(tmp_path, campaign="may", creator="stacey"),
+            campaign_id=authorized["campaign"]["id"],
+            max_credits=10,
+            secret=SECRET,
+            quote_provider=Quote(),
+            balance_provider=Balance(),
+        )
+        cf.domains.creator_governance.transition_creator(
+            "stacey",
+            new_status="suspended",
+            actor="test",
+            reason="fixture suspension",
+        )
+
+        with pytest.raises(PermissionError, match="creator_inactive"):
+            consume_provider_spend_authorization(
+                cf.conn, authorization["authorizationId"]
+            )
+    finally:
+        cf.close()
+
+
+def test_soul_version_change_invalidates_stale_provider_authorization(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        authorized = authorize_campaign_governance(
+            cf,
+            tmp_path,
+            provider="higgsfield",
+            soul_id="soul_1",
+        )
+        authorization = issue_provider_spend_authorization(
+            cf.conn,
+            scope=_scope(tmp_path, campaign="may", creator="stacey"),
+            campaign_id=authorized["campaign"]["id"],
+            max_credits=10,
+            secret=SECRET,
+            quote_provider=Quote(),
+            balance_provider=Balance(),
+        )
+        source = cf.conn.execute(
+            "SELECT * FROM source_assets WHERE id = ?",
+            (authorized["identitySourceId"],),
+        ).fetchone()
+        profile = {
+            "schema": "creator_os.creator_identity_profile.v1",
+            "profileId": "stacey_higgsfield_soul_2",
+            "creatorKey": "stacey",
+            "displayName": "Stacey",
+            "modelProfile": "higgsfield_soul_v2",
+            "identityReferences": [
+                {
+                    "namespace": "higgsfield.identity",
+                    "externalId": "soul_2",
+                    "fingerprint": "b" * 64,
+                }
+            ],
+            "provenance": {
+                "producer": "operator",
+                "producedAt": "2026-07-30T12:00:00Z",
+                "sourceReferences": [
+                    {
+                        "recordId": source["id"],
+                        "fingerprint": source["content_hash"],
+                    }
+                ],
+            },
+        }
+        manifest = tmp_path / "stacey_higgsfield_identity_v2.json"
+        manifest.write_text(json.dumps(profile, sort_keys=True), encoding="utf-8")
+        cf.domains.creator_governance.enroll_identity_profile(
+            "stacey",
+            provider="higgsfield",
+            provider_identity_id="soul_2",
+            profile=profile,
+            canonical_source_asset_id=source["id"],
+            identity_manifest_path=manifest,
+            identity_manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),
+            operator="test",
+        )
+
+        with pytest.raises(
+            PermissionError, match="provider_authorization_governance_stale"
+        ):
+            consume_provider_spend_authorization(
+                cf.conn, authorization["authorizationId"]
+            )
+    finally:
+        cf.close()
 
 
 def test_active_reservations_reduce_provider_balance_capacity(

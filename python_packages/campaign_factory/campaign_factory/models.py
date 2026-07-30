@@ -30,6 +30,87 @@ class ModelRepository:
         self._ensure_graph_node = ensure_graph_node
         self._record_event = record_event
 
+    def _ensure_model_governance(self, model_id: str, slug: str, now: str) -> None:
+        existing = self.conn.execute(
+            "SELECT 1 FROM creator_lifecycle_state WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
+        if existing is None:
+            event_id = self._new_id("creator_state")
+            self.conn.execute(
+                """
+                INSERT INTO creator_lifecycle_state
+                (model_id, status, status_reason, effective_at, changed_by,
+                 version, offboarding_state, retention_state, updated_at)
+                VALUES (?, 'active', 'creator_onboarded', ?, 'campaign_factory',
+                        1, NULL, 'retain_audit', ?)
+                """,
+                (model_id, now, now),
+            )
+            self.conn.execute(
+                """
+                INSERT INTO creator_lifecycle_events
+                (id, model_id, old_status, new_status, reason, actor,
+                 effective_at, evidence_json, version, created_at)
+                VALUES (?, ?, NULL, 'active', 'creator_onboarded',
+                        'campaign_factory', ?, '{}', 1, ?)
+                """,
+                (event_id, model_id, now, now),
+            )
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO creator_slug_history
+            (id, model_id, slug, effective_at, retired_at, actor, reason, created_at)
+            VALUES (?, ?, ?, ?, NULL, 'campaign_factory', 'creator_onboarded', ?)
+            """,
+            (self._new_id("creator_slug"), model_id, slug, now, now),
+        )
+
+    def _ensure_campaign_governance(
+        self, campaign_id: str, model_id: str, now: str
+    ) -> None:
+        governance = self.conn.execute(
+            "SELECT model_id FROM campaign_governance WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchone()
+        if governance is not None:
+            if str(governance["model_id"]) != model_id:
+                raise PermissionError("campaign_creator_owner_mismatch")
+            return
+        source_models = {
+            str(row[0])
+            for row in self.conn.execute(
+                "SELECT DISTINCT model_id FROM source_assets WHERE campaign_id = ?",
+                (campaign_id,),
+            ).fetchall()
+            if row[0]
+        }
+        if len(source_models) > 1:
+            raise PermissionError("legacy_campaign_mixed_creator_ownership")
+        if source_models and model_id not in source_models:
+            raise PermissionError("campaign_creator_owner_mismatch")
+        event_id = self._new_id("campaign_state")
+        self.conn.execute(
+            """
+            INSERT INTO campaign_governance
+            (campaign_id, model_id, lifecycle_status, blocker_codes_json,
+             status_reason, changed_by, effective_at, version, updated_at)
+            VALUES (?, ?, 'created', '[]', 'campaign_created',
+                    'campaign_factory', ?, 1, ?)
+            """,
+            (campaign_id, model_id, now, now),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO campaign_lifecycle_events
+            (id, campaign_id, model_id, old_status, new_status, reason, actor,
+             evidence_json, related_ids_json, version, created_at)
+            VALUES (?, ?, ?, NULL, 'created', 'campaign_created',
+                    'campaign_factory', '{}', '[]', 1, ?)
+            """,
+            (event_id, campaign_id, model_id, now),
+        )
+
     def _campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
         root = self.settings.campaigns_dir / model_slug / campaign_slug
         dirs = {
@@ -51,7 +132,15 @@ class ModelRepository:
         slug = self._slugify(slug)
         now = self._utc_now()
         row = self.conn.execute(
-            "SELECT * FROM models WHERE slug = ?", (slug,)
+            """
+            SELECT m.*
+            FROM models m
+            LEFT JOIN creator_slug_history h ON h.model_id = m.id
+            WHERE m.slug = ? OR h.slug = ?
+            ORDER BY CASE WHEN m.slug = ? THEN 0 ELSE 1 END
+            LIMIT 1
+            """,
+            (slug, slug, slug),
         ).fetchone()
         if row:
             self.conn.execute(
@@ -62,8 +151,9 @@ class ModelRepository:
                 "model",
                 local_table="models",
                 local_id=row["id"],
-                payload={"slug": slug, "name": name or row["name"]},
+                payload={"slug": row["slug"], "name": name or row["name"]},
             )
+            self._ensure_model_governance(str(row["id"]), slug, now)
             self.conn.commit()
             return dict(
                 self.conn.execute(
@@ -81,6 +171,7 @@ class ModelRepository:
             local_id=model_id,
             payload={"slug": slug, "name": name or slug.replace("_", " ").title()},
         )
+        self._ensure_model_governance(model_id, slug, now)
         self.conn.commit()
         model = dict(
             self.conn.execute(
@@ -108,11 +199,28 @@ class ModelRepository:
     ) -> dict[str, Any]:
         slug = self._slugify(slug)
         model_slug = self._slugify(model_slug)
-        dirs = self._campaign_dirs(model_slug, slug)
         now = self._utc_now()
         row = self.conn.execute(
             "SELECT * FROM campaigns WHERE slug = ?", (slug,)
         ).fetchone()
+        if row:
+            owner = self.conn.execute(
+                """
+                SELECT m.slug
+                FROM campaign_governance cg
+                JOIN models m ON m.id = cg.model_id
+                WHERE cg.campaign_id = ?
+                """,
+                (row["id"],),
+            ).fetchone()
+            if owner is None:
+                raise PermissionError("legacy_campaign_creator_owner_unresolved")
+            if owner is not None and str(owner["slug"]) != model_slug:
+                raise PermissionError("campaign_creator_owner_mismatch")
+        model = self.upsert_model(model_slug)
+        if row:
+            self._ensure_campaign_governance(str(row["id"]), str(model["id"]), now)
+        dirs = self._campaign_dirs(model_slug, slug)
         if row:
             self.conn.execute(
                 "UPDATE campaigns SET name = ?, platform = ?, root_path = ?, updated_at = ? WHERE id = ?",
@@ -149,6 +257,7 @@ class ModelRepository:
             local_id=campaign_id,
             payload={"slug": slug, "platform": platform},
         )
+        self._ensure_campaign_governance(campaign_id, str(model["id"]), now)
         self.conn.commit()
         campaign = dict(
             self.conn.execute(
@@ -437,7 +546,7 @@ class ModelRepository:
     ) -> tuple[bool, str | None, dict[str, Any] | None]:
         profile = self.model_account_profile(model_slug)
         if not profile:
-            return True, None, None
+            return False, "model_account_profile_missing", None
         allowed_ids = set(profile.get("allowedInstagramAccountIds") or [])
         if instagram_account_id and allowed_ids:
             return (
@@ -460,4 +569,4 @@ class ModelRepository:
         if handle and patterns:
             ok = any(pattern in handle for pattern in patterns)
             return ok, None if ok else "model_account_handle_mismatch", profile
-        return True, None, profile
+        return False, "model_account_identity_unproven", profile

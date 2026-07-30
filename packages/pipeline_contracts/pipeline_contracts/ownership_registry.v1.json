@@ -273,6 +273,376 @@
       "externalSourceOfTruth": null
     }
   ],
+  "authoritativeReportDiscovery": {
+    "sourceFiles": [
+      "python_packages/campaign_factory/campaign_factory/operator_status.py",
+      "python_packages/campaign_factory/campaign_factory/creator_governance.py",
+      "python_packages/campaign_factory/campaign_factory/lifecycle_reporting.py",
+      "python_packages/campaign_factory/campaign_factory/cost_tracker.py"
+    ]
+  },
+  "authoritativeReports": [
+    {
+      "schema": "creator_os.operator_status.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/operator_status.py",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "Campaign Factory SQLite",
+        "freshness": "query_time",
+        "staleBehavior": "timestamps and source state are preserved; no freshness is inferred",
+        "unknownBehavior": "missing rows remain absent or explicit unknown and never become healthy",
+        "authorityLevel": "authoritative_local_state",
+        "evidence": "canonical row IDs and status counts",
+        "repairAction": "use the scope-specific reconciliation command"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant creator_os.operator_status.v1"
+        },
+        {
+          "path": "/scope",
+          "calculation": "requested operator-status scope"
+        },
+        {
+          "path": "/creator",
+          "calculation": "canonical creator identity for the creator scope"
+        },
+        {
+          "path": "/campaign",
+          "calculation": "canonical campaign identity for the campaign scope"
+        },
+        {
+          "path": "/generation",
+          "calculation": "canonical generation-attempt identity for the generation scope"
+        },
+        {
+          "path": "/snapshots",
+          "calculation": "publication observations returned by the publication scope"
+        },
+        {
+          "path": "/catalog",
+          "calculation": "audio catalog counts returned by the audio scope"
+        },
+        {
+          "path": "/recommendations",
+          "calculation": "recommendation counts returned by the learning scope"
+        }
+      ]
+    },
+    {
+      "schema": "creator_os.recovery_status.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/operator_status.py::recovery_status",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "pipeline_jobs and learning_fanout_ledger",
+        "freshness": "query_time",
+        "staleBehavior": "open durable rows remain open until reconciled",
+        "unknownBehavior": "missing recovery identities become mapping blockers",
+        "authorityLevel": "authoritative_local_state",
+        "evidence": "pipeline job, attempt, external-operation, and ledger IDs",
+        "repairAction": "reconcile the named record through its owning domain"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant creator_os.recovery_status.v1"
+        },
+        {
+          "path": "/scope",
+          "calculation": "constant recovery"
+        },
+        {
+          "path": "/mappingBlockers",
+          "calculation": "missing durable recovery identities derived from current rows"
+        },
+        {
+          "path": "/operationalRecoveryGaps",
+          "calculation": "open recovery rows grouped by effect state and retry class"
+        },
+        {
+          "path": "/operationalRecoveryGapCount",
+          "calculation": "sum of all operational recovery gap rows"
+        }
+      ]
+    },
+    {
+      "schema": "creator_os.draft_freshness_report.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/operator_status.py::draft_freshness_status",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "threadsdash_exports",
+        "freshness": "query_time against configured maximum age",
+        "staleBehavior": "stale exports require re-export and reapproval",
+        "unknownBehavior": "invalid or missing timestamps are stale",
+        "authorityLevel": "authoritative_local_handoff_state",
+        "evidence": "export ID, manifest path, status, and created_at",
+        "repairAction": "reexport_and_reapprove"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant creator_os.draft_freshness_report.v1"
+        },
+        {
+          "path": "/policy",
+          "calculation": "configured maximum age and fail-closed timestamp policy"
+        },
+        {
+          "path": "/staleCount",
+          "calculation": "count of exports classified stale"
+        },
+        {
+          "path": "/exports",
+          "calculation": "per-export age, freshness, and required-action projections"
+        }
+      ]
+    },
+    {
+      "schema": "campaign_factory.creator_governance_status.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/creator_governance.py::creator_status",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "creator lifecycle, slug history, identity profiles, platform accounts, and authorization events",
+        "freshness": "query_time",
+        "staleBehavior": "historical identity and authorization evidence remains attributable while current lifecycle state is read at query time",
+        "unknownBehavior": "missing lifecycle, identity, or authorization evidence remains absent and never becomes authorized",
+        "authorityLevel": "authoritative_local_governance",
+        "evidence": "creator, lifecycle version, identity profile IDs and fingerprints, account IDs, and authorization event IDs",
+        "repairAction": "use the creator-governance command for the missing or invalid governance record"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant campaign_factory.creator_governance_status.v1"
+        },
+        {
+          "path": "/creator",
+          "calculation": "canonical creator ID, active slug, and display name"
+        },
+        {
+          "path": "/lifecycle",
+          "calculation": "current creator lifecycle row or explicit null"
+        },
+        {
+          "path": "/slugHistory",
+          "calculation": "ordered immutable creator slug evidence"
+        },
+        {
+          "path": "/identityProfiles",
+          "calculation": "versioned provider identity profiles and exact evidence fingerprints"
+        },
+        {
+          "path": "/platformAccounts",
+          "calculation": "accounts canonically associated with the creator"
+        },
+        {
+          "path": "/authorizationEvents",
+          "calculation": "append-only authorization grants and revocations"
+        }
+      ]
+    },
+    {
+      "schema": "campaign_factory.campaign_readiness.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/lifecycle_reporting.py::campaign_readiness",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "campaign assets, jobs, audits, approvals, and performance snapshots",
+        "freshness": "query_time",
+        "staleBehavior": "stale evidence is a warning or blocker according to its domain policy",
+        "unknownBehavior": "missing required evidence blocks readiness",
+        "authorityLevel": "authoritative_local_readiness",
+        "evidence": "asset IDs, job IDs, audit IDs, and snapshot timestamps",
+        "repairAction": "resolve each blockingReasons item through its owning domain"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant campaign_factory.campaign_readiness.v1"
+        },
+        {
+          "path": "/campaign",
+          "calculation": "canonical campaign slug"
+        },
+        {
+          "path": "/checkedAt",
+          "calculation": "query timestamp without implying future freshness"
+        },
+        {
+          "path": "/ready",
+          "calculation": "true only when blockingReasons is empty"
+        },
+        {
+          "path": "/blockingReasons",
+          "calculation": "deduplicated fail-closed production blockers"
+        },
+        {
+          "path": "/warnings",
+          "calculation": "non-blocking incomplete or stale evidence"
+        },
+        {
+          "path": "/health",
+          "calculation": "embedded Campaign dashboard health projection"
+        },
+        {
+          "path": "/ranking",
+          "calculation": "bounded Campaign ranking projection"
+        }
+      ]
+    },
+    {
+      "schema": "campaign_factory.lifecycle_report.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/lifecycle_reporting.py::lifecycle_report",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "rendered assets, distribution plans, imported dashboard evidence, and metrics",
+        "freshness": "query_time with upstream observation timestamps retained",
+        "staleBehavior": "past-due and stale states remain explicit blockers",
+        "unknownBehavior": "unmapped upstream states become needs_reconciliation",
+        "authorityLevel": "authoritative_local_projection",
+        "evidence": "asset, plan, post, snapshot, and lineage IDs",
+        "repairAction": "execute each row nextOperatorAction"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant campaign_factory.lifecycle_report.v1"
+        },
+        {
+          "path": "/campaignId",
+          "calculation": "canonical Campaign Factory campaign ID"
+        },
+        {
+          "path": "/generatedAt",
+          "calculation": "query timestamp with source observation timestamps retained"
+        },
+        {
+          "path": "/threadsdash",
+          "calculation": "bounded downstream evidence availability and source"
+        },
+        {
+          "path": "/summary/stateCounts",
+          "calculation": "count of rows by exact currentState"
+        },
+        {
+          "path": "/summary/stuckCounts",
+          "calculation": "count of rows grouped by exact blocking reason"
+        },
+        {
+          "path": "/stuck",
+          "calculation": "rows grouped by exact blocker and required next action"
+        },
+        {
+          "path": "/rows",
+          "calculation": "allowlisted lifecycle state, blocker, action, and bounded evidence for each asset-plan row"
+        }
+      ]
+    },
+    {
+      "schema": "creator_os.lifecycle_dashboard.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/lifecycle_reporting.py::creator_os_lifecycle_dashboard",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "campaign_factory.lifecycle_report.v1",
+        "freshness": "same as the embedded lifecycle report query",
+        "staleBehavior": "stale and past-due rows retain explicit states",
+        "unknownBehavior": "unmapped states are counted in unknown",
+        "authorityLevel": "authoritative_local_projection",
+        "evidence": "source lifecycle row IDs and blocking reasons",
+        "repairAction": "execute each row nextOperatorAction"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant creator_os.lifecycle_dashboard.v1"
+        },
+        {
+          "path": "/generatedAt",
+          "calculation": "query timestamp inherited from the lifecycle projection"
+        },
+        {
+          "path": "/campaignId",
+          "calculation": "canonical Campaign Factory campaign ID"
+        },
+        {
+          "path": "/counts",
+          "calculation": "count of rows in each allowlisted dashboard bucket including unknown"
+        },
+        {
+          "path": "/commandCenter",
+          "calculation": "copy of the allowlisted dashboard bucket counts"
+        },
+        {
+          "path": "/stuckCounts",
+          "calculation": "count of lifecycle rows grouped by blocker"
+        },
+        {
+          "path": "/rows",
+          "calculation": "bounded asset rows with allowlisted bucket and unknown fallback"
+        },
+        {
+          "path": "/wouldWrite",
+          "calculation": "constant false"
+        },
+        {
+          "path": "/inputs",
+          "calculation": "lifecycle report schema and downstream-evidence availability"
+        }
+      ]
+    },
+    {
+      "schema": "campaign_factory.cost_summary.v1",
+      "emittedBy": "python_packages/campaign_factory/campaign_factory/cost_tracker.py::cost_summary",
+      "fieldDefaults": {
+        "owner": "campaign_factory",
+        "source": "ai_cost_events",
+        "freshness": "query_time",
+        "staleBehavior": "historical events remain attributable and are not rewritten",
+        "unknownBehavior": "unattributable or non-USD costs remain unknown and never become USD zero",
+        "authorityLevel": "authoritative_cost_ledger_projection",
+        "evidence": "cost event IDs, request fingerprints, native units, and provider quotes",
+        "repairAction": "reconcile unknown cost with provider evidence"
+      },
+      "fieldRules": [
+        {
+          "path": "/schema",
+          "calculation": "constant campaign_factory.cost_summary.v1"
+        },
+        {
+          "path": "/total_calls",
+          "calculation": "count of matching durable cost events"
+        },
+        {
+          "path": "/total_cost_usd",
+          "calculation": "known total only when every matching event has attributable USD cost; otherwise null"
+        },
+        {
+          "path": "/cost",
+          "calculation": "known USD amount or explicit unknown state and reason"
+        },
+        {
+          "path": "/known_cost_usd",
+          "calculation": "sum of only USD-known events"
+        },
+        {
+          "path": "/unknown_calls",
+          "calculation": "count of events whose USD amount is unknown"
+        },
+        {
+          "path": "/native_units",
+          "calculation": "actual native provider amounts grouped by unit"
+        },
+        {
+          "path": "/by_provider",
+          "calculation": "provider-operation aggregates preserving known, partial, and unknown cost state"
+        },
+        {
+          "path": "/filters",
+          "calculation": "campaign and time-window filters applied to the projection"
+        }
+      ]
+    }
+  ],
   "accountFieldOwnership": {
     "creator_os": [
       "creativeAccountTargetId",

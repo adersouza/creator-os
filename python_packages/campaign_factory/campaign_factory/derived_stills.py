@@ -32,7 +32,11 @@ from reel_factory.worker_api import (
 from .core import new_id, sanitize_for_storage, sha256_file
 from .cost_tracker import record_ai_cost
 from .persistence import utc_now
-from .provider_spend import AUTHORIZATION_TABLE, ensure_authorization_table
+from .provider_spend import (
+    AUTHORIZATION_TABLE,
+    consume_provider_spend_authorization,
+    ensure_authorization_table,
+)
 
 TIER_POLICIES = {
     "canonical_identity_source": {
@@ -355,6 +359,17 @@ def edit_still(
             ),
         },
     }
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    governance_context = factory.domains.creator_governance.resolve_operation(
+        creator=str(source["creator"]),
+        campaign=str(campaign["id"]),
+        operation="still_edit",
+        provider=provider,
+        source_asset_id=str(source["sourceAsset"]["id"]),
+    )
+    request_core["creatorGovernance"] = {
+        key: value for key, value in governance_context.items() if key != "resolvedAt"
+    }
     request_fingerprint = _fingerprint(request_core)
     cached = _cached_edit(factory, request_fingerprint)
     if cached is not None:
@@ -378,7 +393,6 @@ def edit_still(
         return plan
     if global_kill_switch_active():
         raise PermissionError("creator_os_global_kill_switch_active")
-    campaign = factory.domains.campaign_by_slug(campaign_slug)
     creator = str(source["creator"])
     dirs = factory.domains.campaign_dirs(creator, campaign["slug"])
     output_root = (
@@ -392,13 +406,28 @@ def edit_still(
         provider=provider,
         quote=quote,
         scope=request_core,
+        governance_context=governance_context,
     )
+    try:
+        consume_provider_spend_authorization(
+            factory.conn, str(authorization["authorizationId"])
+        )
+    except Exception:
+        _cancel_spend(factory, authorization["authorizationId"])
+        raise
     try:
         provider_result = transport.generate(
             source=source_path,
             prompt=prompt,
             count=count,
             output_format=output_format,
+        )
+        _record_spend_result(
+            factory,
+            authorization=authorization,
+            provider_result=provider_result,
+            quote=quote,
+            campaign_id=campaign["id"],
         )
         images = list(provider_result.get("images") or [])
         if output_format == "grid_2x3":
@@ -518,13 +547,6 @@ def edit_still(
                     audit_status="needs_review",
                 )
             )
-        _consume_spend(
-            factory,
-            authorization=authorization,
-            provider_result=provider_result,
-            quote=quote,
-            campaign_id=campaign["id"],
-        )
         completed = {
             **plan,
             "apply": True,
@@ -556,8 +578,20 @@ def edit_still(
             metadata=completed,
         )
         return completed
-    except Exception:
-        _cancel_spend(factory, authorization["authorizationId"])
+    except Exception as exc:
+        factory.domains.events.record_event(
+            "derived_still_provider_outcome_ambiguous",
+            campaign_id=campaign["id"],
+            source_asset_id=source["sourceAsset"]["id"],
+            status="failure",
+            message="Derived still provider outcome requires reconciliation",
+            metadata={
+                "authorizationId": authorization["authorizationId"],
+                "requestFingerprint": request_fingerprint,
+                "errorType": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
         raise
 
 
@@ -1157,6 +1191,7 @@ def _authorize_spend(
     provider: str,
     quote: Mapping[str, Any],
     scope: Mapping[str, Any],
+    governance_context: Mapping[str, Any],
 ) -> dict[str, Any]:
     ensure_authorization_table(factory.conn)
     now = datetime.now(UTC)
@@ -1174,8 +1209,10 @@ def _authorize_spend(
             INSERT INTO {AUTHORIZATION_TABLE} (
               authorization_id, reservation_id, provider, campaign_id, cohort_id,
               request_fingerprint, amount, unit, scope_json, provider_quote_json,
-              status, issued_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'USD', ?, ?, 'authorized', ?, ?)
+              creator_id, identity_profile_id, governance_fingerprint,
+              governance_context_json, status, issued_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?,
+                      'authorized', ?, ?)
             """,
             (
                 authorization_id,
@@ -1187,6 +1224,12 @@ def _authorize_spend(
                 float(quote["amount"]),
                 json.dumps(sanitize_for_storage(dict(scope)), sort_keys=True),
                 json.dumps(sanitize_for_storage(dict(quote)), sort_keys=True),
+                governance_context["creatorId"],
+                governance_context["identityProfileId"],
+                governance_context["governanceFingerprint"],
+                json.dumps(
+                    sanitize_for_storage(dict(governance_context)), sort_keys=True
+                ),
                 now.isoformat(),
                 (now + timedelta(minutes=10)).isoformat(),
             ),
@@ -1197,10 +1240,11 @@ def _authorize_spend(
         "requestFingerprint": request_fingerprint,
         "provider": provider,
         "quote": dict(quote),
+        "governanceContext": dict(governance_context),
     }
 
 
-def _consume_spend(
+def _record_spend_result(
     factory: Any,
     *,
     authorization: Mapping[str, Any],
@@ -1208,18 +1252,6 @@ def _consume_spend(
     quote: Mapping[str, Any],
     campaign_id: str,
 ) -> None:
-    now = utc_now()
-    with factory.conn:
-        cursor = factory.conn.execute(
-            f"""
-            UPDATE {AUTHORIZATION_TABLE}
-            SET status = 'consumed', consumed_at = ?
-            WHERE authorization_id = ? AND status = 'authorized'
-            """,
-            (now, authorization["authorizationId"]),
-        )
-        if cursor.rowcount != 1:
-            raise PermissionError("derived still spend authorization is not consumable")
     record_ai_cost(
         factory.conn,
         provider=str(provider_result.get("provider")),

@@ -12,8 +12,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .content_director import (
-    _CREATOR_SOUL_IDS,
     _account_state,
+    _creator_planning_context,
     _fingerprint,
     _json,
     _now,
@@ -162,12 +162,15 @@ def _asset_rows(
     conn: sqlite3.Connection,
     *,
     request: FixedAssetCohortRequest,
+    identity_profile: str,
+    eligible_campaign_ids: frozenset[str],
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for asset_id in request.asset_ids:
         row = conn.execute(
             """
-            SELECT ra.id, ra.source_asset_id, ra.content_hash AS final_sha256,
+            SELECT ra.id, ra.campaign_id, ra.source_asset_id,
+                   ra.content_hash AS final_sha256,
                    ra.output_path, ra.review_state, ra.audit_status,
                    ra.metadata_json, sa.content_hash AS source_sha256,
                    sa.stored_path AS source_path, sa.status AS source_status,
@@ -230,7 +233,9 @@ def _asset_rows(
             blockers.append("wrong_account_scope")
         if _text(receipt.get("contentIntent")) != request.intent:
             blockers.append("mixed_or_wrong_content_intent")
-        if _text(receipt.get("identityProfile")) != _CREATOR_SOUL_IDS[request.creator]:
+        if value.get("campaign_id") not in eligible_campaign_ids:
+            blockers.append("campaign_state_blocks_fixed_asset_cohort")
+        if _text(receipt.get("identityProfile")) != identity_profile:
             blockers.append("identity_profile_mismatch")
         if _text(value["source_status"]).lower() != "approved":
             blockers.append("missing_source_approval")
@@ -323,9 +328,18 @@ def build_fixed_asset_cohort(
     """Build one explicit fixed cohort without mutating the database or media."""
 
     before = conn.total_changes
-    creator = request.creator.strip().lower()
-    if creator not in _CREATOR_SOUL_IDS:
-        raise ValueError(f"unknown creator identity: {request.creator}")
+    governance = _creator_planning_context(
+        conn,
+        request.creator,
+        allowed_campaign_states=frozenset(
+            {"production_ready", "producing", "reviewing", "approved"}
+        ),
+    )
+    creator = str(governance["creatorSlug"])
+    identity_profile = str(governance["providerIdentityId"])
+    eligible_campaign_ids = frozenset(
+        str(row["campaignId"]) for row in governance["campaigns"]
+    )
     if request.autonomy_mode != "SUPERVISED":
         raise ValueError("fixed-asset cohorts require supervised mode")
     if len(request.asset_ids) < 2 or len(request.asset_ids) > 100:
@@ -346,7 +360,11 @@ def build_fixed_asset_cohort(
         timezone=request.timezone,
         start_date=request.start_date,
     )
-    account_state = _account_state(conn, request.account)
+    account_state = _account_state(
+        conn,
+        request.account,
+        expected_model_id=str(governance["creatorId"]),
+    )
     account_creator = conn.execute(
         """
         SELECT m.slug
@@ -355,7 +373,12 @@ def build_fixed_asset_cohort(
         """,
         (request.account,),
     ).fetchone()
-    assets = _asset_rows(conn, request=request)
+    assets = _asset_rows(
+        conn,
+        request=request,
+        identity_profile=identity_profile,
+        eligible_campaign_ids=eligible_campaign_ids,
+    )
     if account_creator is None or _text(account_creator["slug"]).lower() != creator:
         for asset in assets:
             asset["blockers"].append("account_creator_mismatch")
@@ -400,7 +423,8 @@ def build_fixed_asset_cohort(
         "mode": "FIXED_ASSET_COHORT",
         "purpose": COHORT_PURPOSE,
         "creator": request.creator,
-        "identityProfile": _CREATOR_SOUL_IDS[request.creator],
+        "identityProfile": identity_profile,
+        "creatorGovernanceFingerprint": governance["governanceFingerprint"],
         "account": request.account,
         "intent": request.intent,
         "assetIds": list(request.asset_ids),
@@ -461,7 +485,7 @@ def build_fixed_asset_cohort(
         _, _, learning = apply_learning_to_production_plan(
             conn,
             creator=request.creator,
-            creator_identity_profile=_CREATOR_SOUL_IDS[request.creator],
+            creator_identity_profile=identity_profile,
             account=request.account,
             intent=request.intent,
             sources=[source],
@@ -477,7 +501,7 @@ def build_fixed_asset_cohort(
         item = {
             "index": index,
             "creator": request.creator,
-            "identityProfile": _CREATOR_SOUL_IDS[request.creator],
+            "identityProfile": identity_profile,
             "targetAccount": request.account,
             "contentIntent": request.intent,
             "renderedAssetId": asset["id"],
@@ -601,7 +625,8 @@ def build_fixed_asset_cohort(
         "planId": plan_version_id,
         "version": plan_version,
         "creator": request.creator,
-        "identityProfile": _CREATOR_SOUL_IDS[request.creator],
+        "identityProfile": identity_profile,
+        "creatorGovernance": governance,
         "account": account_state,
         "contentIntent": request.intent,
         "assetIds": list(request.asset_ids),

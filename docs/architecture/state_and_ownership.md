@@ -76,6 +76,29 @@ A committed migration is not a deployed schema. HTTP success, a QStash
 receipt, or an Instagram container is not reconciled publication. A current
 `posts` counter is not a timed metric-history observation.
 
+## Authoritative report truth
+
+The ownership registry also names the bounded read-only reports that are
+allowed to describe canonical Creator OS state. Each entry identifies a real
+repo-relative emitter and explicit report fields with their source, freshness,
+unknown behavior, evidence, and repair action. Wildcard field rules are
+forbidden because they would let a new field inherit authority without review.
+
+Discovery is intentionally limited to the report-only source files listed in
+`authoritativeReportDiscovery.sourceFiles`. Within those files,
+`pnpm check:ownership` discovers literal schemas ending in `_status`,
+`_report`, `_dashboard`, `_summary`, or `_readiness` and requires every one to
+be registered. This catches new authoritative projections without treating
+plans, operation contexts, receipts, or other incidental payloads as reports.
+The checker also fails when a registered emitter file or named function does
+not exist, when the emitter does not contain the registered schema, or when an
+explicit `/schema` field rule is missing.
+
+`campaign_factory.creator_governance_status.v1` is the authoritative local
+projection for creator lifecycle, slug history, identity profiles, platform
+accounts, and authorization events. It does not prove external provider state
+or downstream publication.
+
 ## Operator commands
 
 ```bash

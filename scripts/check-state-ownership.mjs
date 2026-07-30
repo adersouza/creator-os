@@ -1,16 +1,35 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { resolve, join, extname } from "node:path";
+import {
+  resolve,
+  join,
+  extname,
+  relative,
+  isAbsolute,
+  sep,
+} from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const registryPath = join(
-  root,
-  "packages/pipeline_contracts/pipeline_contracts/ownership_registry.v1.json",
-);
+const registryArg = process.argv.find((value) => value.startsWith("--registry="));
+const registryPath = registryArg
+  ? resolve(registryArg.split("=", 2)[1])
+  : join(
+      root,
+      "packages/pipeline_contracts/pipeline_contracts/ownership_registry.v1.json",
+    );
 const registry = JSON.parse(readFileSync(registryPath, "utf8"));
 const contractPackage = JSON.parse(
   readFileSync(join(root, "packages/pipeline_contracts/package.json"), "utf8"),
 );
 const errors = [];
+
+function isInsideRoot(path) {
+  const relativePath = relative(root, path);
+  return (
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  );
+}
 
 if (registry.schema !== "creator_os.state_ownership_registry.v1") {
   errors.push("ownership registry schema must be creator_os.state_ownership_registry.v1");
@@ -50,6 +69,172 @@ for (const [index, domain] of (registry.domains || []).entries()) {
         domain: domain.domain,
       });
     }
+  }
+}
+
+const requiredReportDefaults = [
+  "owner",
+  "source",
+  "freshness",
+  "staleBehavior",
+  "unknownBehavior",
+  "authorityLevel",
+  "evidence",
+  "repairAction",
+];
+const discoveryFiles = registry.authoritativeReportDiscovery?.sourceFiles;
+const discoverySources = new Set();
+const discoveredReportSchemas = new Map();
+const authoritativeReportSchemaPattern =
+  /(?:_status|_report|_dashboard|_summary|_readiness)\.v\d+$/;
+if (!Array.isArray(discoveryFiles) || !discoveryFiles.length) {
+  errors.push(
+    "authoritativeReportDiscovery.sourceFiles must be a non-empty array",
+  );
+} else {
+  for (const [index, sourceFile] of discoveryFiles.entries()) {
+    if (typeof sourceFile !== "string" || !sourceFile.trim()) {
+      errors.push(
+        `authoritativeReportDiscovery.sourceFiles[${index}] must be a repo-relative file`,
+      );
+      continue;
+    }
+    const normalizedSource = sourceFile.trim();
+    if (discoverySources.has(normalizedSource)) {
+      errors.push(
+        `authoritativeReportDiscovery.sourceFiles contains duplicate ${normalizedSource}`,
+      );
+      continue;
+    }
+    discoverySources.add(normalizedSource);
+    const absoluteSource = resolve(root, normalizedSource);
+    if (
+      !isInsideRoot(absoluteSource) ||
+      !statSafe(absoluteSource)?.isFile()
+    ) {
+      errors.push(
+        `authoritative report discovery source does not exist inside the repository: ${normalizedSource}`,
+      );
+      continue;
+    }
+    const sourceText = readFileSync(absoluteSource, "utf8");
+    const schemasInSource = new Set();
+    const schemaPattern =
+      /["']schema["']\s*:\s*["']([A-Za-z0-9_.-]+)["']/g;
+    for (const match of sourceText.matchAll(schemaPattern)) {
+      if (!authoritativeReportSchemaPattern.test(match[1])) continue;
+      schemasInSource.add(match[1]);
+      const prior = discoveredReportSchemas.get(match[1]);
+      if (prior && prior !== normalizedSource) {
+        errors.push(
+          `authoritative report schema ${match[1]} is emitted by both ${prior} and ${normalizedSource}`,
+        );
+      } else {
+        discoveredReportSchemas.set(match[1], normalizedSource);
+      }
+    }
+    if (!schemasInSource.size) {
+      errors.push(
+        `authoritative report discovery source emits no literal schema: ${normalizedSource}`,
+      );
+    }
+  }
+}
+
+const reportSchemas = new Set();
+for (const [index, report] of (registry.authoritativeReports || []).entries()) {
+  if (!report.schema || reportSchemas.has(report.schema)) {
+    errors.push(
+      `authoritativeReports[${index}] must have a unique non-empty schema`,
+    );
+  }
+  reportSchemas.add(report.schema);
+  if (typeof report.emittedBy !== "string" || !report.emittedBy.trim()) {
+    errors.push(`authoritativeReports[${index}] is missing emittedBy`);
+  } else {
+    const [emitterPath, ...symbolParts] = report.emittedBy.split("::");
+    const emitterSymbol = symbolParts.join("::");
+    if (!discoverySources.has(emitterPath)) {
+      errors.push(
+        `authoritativeReports[${index}].emittedBy must use a registered discovery source: ${emitterPath}`,
+      );
+    }
+    const absoluteEmitter = resolve(root, emitterPath);
+    const emitterStat = statSafe(absoluteEmitter);
+    if (
+      !isInsideRoot(absoluteEmitter) ||
+      !emitterStat?.isFile()
+    ) {
+      errors.push(
+        `authoritativeReports[${index}] emitter does not exist: ${emitterPath}`,
+      );
+    } else {
+      const emitterText = readFileSync(absoluteEmitter, "utf8");
+      if (!emitterText.includes(report.schema)) {
+        errors.push(
+          `authoritativeReports[${index}] emitter does not emit ${report.schema}`,
+        );
+      }
+      if (emitterSymbol) {
+        const escapedSymbol = emitterSymbol.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        const symbolPattern = new RegExp(
+          `\\b(?:async\\s+def|def|class|function)\\s+${escapedSymbol}\\b`,
+        );
+        if (!symbolPattern.test(emitterText)) {
+          errors.push(
+            `authoritativeReports[${index}] emitter symbol does not exist: ${report.emittedBy}`,
+          );
+        }
+      }
+    }
+  }
+  for (const field of requiredReportDefaults) {
+    if (!report.fieldDefaults?.[field]) {
+      errors.push(
+        `authoritativeReports[${index}].fieldDefaults is missing ${field}`,
+      );
+    }
+  }
+  const paths = new Set();
+  for (const [fieldIndex, fieldRule] of (report.fieldRules || []).entries()) {
+    if (!fieldRule.path || paths.has(fieldRule.path)) {
+      errors.push(
+        `authoritativeReports[${index}].fieldRules[${fieldIndex}] must have a unique path`,
+      );
+    }
+    paths.add(fieldRule.path);
+    if (
+      typeof fieldRule.path === "string" &&
+      (!fieldRule.path.startsWith("/") || fieldRule.path.includes("*"))
+    ) {
+      errors.push(
+        `authoritativeReports[${index}].fieldRules[${fieldIndex}] must use an explicit JSON path without wildcards`,
+      );
+    }
+    if (!fieldRule.calculation) {
+      errors.push(
+        `authoritativeReports[${index}].fieldRules[${fieldIndex}] is missing calculation`,
+      );
+    }
+  }
+  if (!paths.size) {
+    errors.push(`authoritativeReports[${index}] must register report fields`);
+  }
+  if (!paths.has("/schema")) {
+    errors.push(
+      `authoritativeReports[${index}] must register its explicit /schema field`,
+    );
+  }
+}
+
+for (const [schema, emitter] of discoveredReportSchemas.entries()) {
+  if (!reportSchemas.has(schema)) {
+    errors.push(
+      `authoritative report schema emitted by ${emitter} is missing from the registry: ${schema}`,
+    );
   }
 }
 
@@ -145,5 +330,5 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(
-  `ownership registry valid: ${registry.domains.length} domains, ${tableOwners.size} canonical records`,
+  `ownership registry valid: ${registry.domains.length} domains, ${tableOwners.size} canonical records, ${reportSchemas.size} authoritative reports`,
 );

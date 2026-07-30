@@ -15,6 +15,7 @@ from campaign_factory.content_director import (
     transition_plan,
 )
 from campaign_factory.db_schema import SCHEMA
+from campaign_factory.production_prompts import CREATOR_SOUL_IDS
 
 
 def _conn(tmp_path: Path, *, approved_sources: int = 3) -> sqlite3.Connection:
@@ -33,6 +34,26 @@ def _conn(tmp_path: Path, *, approved_sources: int = 3) -> sqlite3.Connection:
     )
     conn.execute(
         """
+        INSERT INTO creator_lifecycle_state
+        (model_id, status, status_reason, effective_at, changed_by, version,
+         offboarding_state, retention_state, updated_at)
+        VALUES ('model_1', 'active', 'fixture', ?, 'test', 1, NULL,
+                'retain_audit', ?)
+        """,
+        (now, now),
+    )
+    conn.execute(
+        """
+        INSERT INTO campaign_governance
+        (campaign_id, model_id, lifecycle_status, blocker_codes_json,
+         status_reason, changed_by, effective_at, version, updated_at)
+        VALUES ('camp_1', 'model_1', 'production_ready', '[]', 'fixture',
+                'test', ?, 1, ?)
+        """,
+        (now, now),
+    )
+    conn.execute(
+        """
         INSERT INTO accounts (
           id, handle, platform, model_id, threadsdash_is_active,
           threadsdash_status, threadsdash_needs_reauth,
@@ -43,6 +64,54 @@ def _conn(tmp_path: Path, *, approved_sources: int = 3) -> sqlite3.Connection:
         )
         """,
         (now, now, now),
+    )
+    identity_source = tmp_path / "stacey_identity.bin"
+    identity_source.write_bytes(b"operator-approved-stacey-identity")
+    identity_source_sha = hashlib.sha256(identity_source.read_bytes()).hexdigest()
+    conn.execute(
+        """
+        INSERT INTO source_assets (
+          id, campaign_id, model_id, content_hash, original_path, stored_path,
+          filename, media_type, content_surface, platform, source_prompt,
+          account_ids_json, status, created_at, updated_at
+        ) VALUES (
+          'src_identity', 'camp_1', 'model_1', ?, ?, ?, 'stacey_identity.bin',
+          'identity_reference', 'identity', 'instagram', '{}', '[]', 'approved',
+          ?, ?
+        )
+        """,
+        (
+            identity_source_sha,
+            str(identity_source),
+            str(identity_source),
+            now,
+            now,
+        ),
+    )
+    identity_manifest = tmp_path / "stacey_identity_profile.json"
+    identity_manifest.write_text('{"creatorKey":"stacey"}', encoding="utf-8")
+    identity_manifest_sha = hashlib.sha256(identity_manifest.read_bytes()).hexdigest()
+    conn.execute(
+        """
+        INSERT INTO creator_identity_profiles (
+          id, model_id, provider, provider_identity_id, version, profile_json,
+          profile_fingerprint, identity_manifest_path, identity_manifest_sha256,
+          canonical_source_asset_id, canonical_evidence_type, status,
+          activated_at, retired_at, operator, created_at
+        ) VALUES (
+          'identity_1', 'model_1', 'higgsfield', ?, 1, '{}', ?,
+          ?, ?, 'src_identity', 'operator_approved_original', 'active',
+          ?, NULL, 'test', ?
+        )
+        """,
+        (
+            CREATOR_SOUL_IDS["stacey"],
+            "f" * 64,
+            str(identity_manifest),
+            identity_manifest_sha,
+            now,
+            now,
+        ),
     )
     for index in range(approved_sources):
         path = tmp_path / f"source_{index}.png"
@@ -153,17 +222,18 @@ def test_only_approved_creator_sources_are_planned(tmp_path: Path) -> None:
     conn.execute(
         "INSERT INTO models VALUES ('model_2', 'larissa', 'Larissa', NULL, 'n', 'n')"
     )
-    conn.execute(
-        """
-        INSERT INTO source_assets (
-          id, campaign_id, model_id, content_hash, original_path, stored_path,
-          filename, media_type, content_surface, platform, account_ids_json,
-          status, created_at, updated_at
-        ) VALUES ('wrong_creator', 'camp_1', 'model_2', ?, ?, ?, 'larissa.png',
-                  'image', 'reel', 'instagram', '[]', 'approved', 'n', 'n')
-        """,
-        (digest, str(other), str(other)),
-    )
+    with pytest.raises(sqlite3.IntegrityError, match="does not own campaign"):
+        conn.execute(
+            """
+            INSERT INTO source_assets (
+              id, campaign_id, model_id, content_hash, original_path, stored_path,
+              filename, media_type, content_surface, platform, account_ids_json,
+              status, created_at, updated_at
+            ) VALUES ('wrong_creator', 'camp_1', 'model_2', ?, ?, ?, 'larissa.png',
+                      'image', 'reel', 'instagram', '[]', 'approved', 'n', 'n')
+            """,
+            (digest, str(other), str(other)),
+        )
     conn.execute("UPDATE source_assets SET status='imported' WHERE id='src_0'")
     plan = build_plan(conn, _request())
     candidates = {
@@ -234,3 +304,110 @@ def test_valid_state_transition_is_receipt_backed(tmp_path: Path) -> None:
     assert approved["status"] == "APPROVED"
     assert approved["transitionReceipt"]["from"] == "DRAFT"
     assert load_plan(conn, stored["planId"])["status"] == "APPROVED"
+
+
+@pytest.mark.parametrize("campaign_status", ["paused", "archived"])
+def test_inactive_campaign_rejects_plan_before_any_write(
+    tmp_path: Path, campaign_status: str
+) -> None:
+    conn = _conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO campaign_lifecycle_events
+        (id, campaign_id, model_id, old_status, new_status, reason, actor,
+         evidence_json, related_ids_json, version, created_at)
+        VALUES ('campaign_state_test', 'camp_1', 'model_1', 'production_ready',
+                ?, 'fixture', 'test', '{}', '[]', 2, '2026-07-27T00:00:01Z')
+        """,
+        (campaign_status,),
+    )
+    conn.execute(
+        """
+        UPDATE campaign_governance
+        SET lifecycle_status = ?, version = 2
+        WHERE campaign_id = 'camp_1'
+        """,
+        (campaign_status,),
+    )
+    before = conn.total_changes
+    with pytest.raises(PermissionError, match="campaign_state_blocks_content_plan"):
+        build_plan(conn, _request())
+    assert conn.total_changes == before
+
+
+def test_inactive_creator_rejects_plan_before_any_write(tmp_path: Path) -> None:
+    conn = _conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO creator_lifecycle_events
+        (id, model_id, old_status, new_status, reason, actor, effective_at,
+         evidence_json, version, created_at)
+        VALUES ('creator_state_test', 'model_1', 'active', 'suspended',
+                'fixture', 'test', '2026-07-27T00:00:01Z', '{}', 2,
+                '2026-07-27T00:00:01Z')
+        """
+    )
+    conn.execute(
+        """
+        UPDATE creator_lifecycle_state
+        SET status = 'suspended', version = 2
+        WHERE model_id = 'model_1'
+        """
+    )
+    before = conn.total_changes
+    with pytest.raises(PermissionError, match="creator_inactive"):
+        build_plan(conn, _request())
+    assert conn.total_changes == before
+
+
+def test_plan_uses_versioned_registry_identity_and_revalidates_before_persist(
+    tmp_path: Path,
+) -> None:
+    conn = _conn(tmp_path)
+    conn.execute(
+        """
+        UPDATE creator_identity_profiles
+        SET status = 'retired', retired_at = '2026-07-30T01:00:00Z'
+        WHERE id = 'identity_1'
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO creator_identity_profiles (
+          id, model_id, provider, provider_identity_id, version, profile_json,
+          profile_fingerprint, identity_manifest_path, identity_manifest_sha256,
+          canonical_source_asset_id, canonical_evidence_type, status,
+          activated_at, retired_at, operator, created_at
+        )
+        SELECT
+          'identity_2', model_id, provider, 'registry_soul_v2', 2, profile_json,
+          ?, identity_manifest_path, identity_manifest_sha256,
+          canonical_source_asset_id, canonical_evidence_type, 'active',
+          '2026-07-30T01:00:00Z', NULL, 'test', '2026-07-30T01:00:00Z'
+        FROM creator_identity_profiles WHERE id = 'identity_1'
+        """,
+        ("e" * 64,),
+    )
+    plan = build_plan(conn, _request())
+    assert plan["identityProfile"] == "registry_soul_v2"
+    assert all(item["identityProfile"] == "registry_soul_v2" for item in plan["items"])
+
+    conn.execute(
+        """
+        INSERT INTO campaign_lifecycle_events
+        (id, campaign_id, model_id, old_status, new_status, reason, actor,
+         evidence_json, related_ids_json, version, created_at)
+        VALUES ('campaign_state_revalidate', 'camp_1', 'model_1',
+                'production_ready', 'paused', 'fixture', 'test', '{}', '[]', 2,
+                '2026-07-30T01:00:01Z')
+        """
+    )
+    conn.execute(
+        """
+        UPDATE campaign_governance
+        SET lifecycle_status = 'paused', version = 2
+        WHERE campaign_id = 'camp_1'
+        """
+    )
+    with pytest.raises(PermissionError, match="campaign_state_blocks_content_plan"):
+        persist_plan(conn, plan)

@@ -51,34 +51,23 @@ def _paged_posts_client(total_rows: int):
 def test_rendered_asset_content_hash_is_scoped_to_campaign(tmp_path: Path):
     cf = make_factory(tmp_path)
     now = "2026-05-24T00:00:00+00:00"
-    for campaign_id, slug, source_id, asset_id in [
-        ("camp_a", "campaign-a", "src_a", "asset_a"),
-        ("camp_b", "campaign-b", "src_b", "asset_b"),
+    for slug, source_id, asset_id in [
+        ("campaign-a", "src_a", "asset_a"),
+        ("campaign-b", "src_b", "asset_b"),
     ]:
-        cf.conn.execute(
-            """
-            INSERT INTO campaigns (id, slug, name, platform, root_path, created_at, updated_at)
-            VALUES (?, ?, ?, 'instagram', ?, ?, ?)
-            """,
-            (campaign_id, slug, slug, str(tmp_path / slug), now, now),
-        )
-        cf.conn.execute(
-            """
-            INSERT INTO models (id, slug, name, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO NOTHING
-            """,
-            ("model_1", "model", "Model", now, now),
-        )
+        campaign = cf.domains.models.upsert_campaign(slug, "model")
+        campaign_id = campaign["id"]
+        model_id = cf.domains.models.upsert_model("model")["id"]
         cf.conn.execute(
             """
             INSERT INTO source_assets
             (id, campaign_id, model_id, content_hash, original_path, stored_path, filename, created_at, updated_at)
-            VALUES (?, ?, 'model_1', ?, ?, ?, 'source.mp4', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'source.mp4', ?, ?)
             """,
             (
                 source_id,
                 campaign_id,
+                model_id,
                 f"source-{campaign_id}",
                 str(tmp_path / "source.mp4"),
                 str(tmp_path / "source.mp4"),

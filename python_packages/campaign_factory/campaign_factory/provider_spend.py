@@ -24,6 +24,7 @@ from creator_os_core.runtime_guards import global_kill_switch_active
 from pipeline_contracts import validate_provider_spend_authorization
 
 from .cost_tracker import ensure_cost_table, record_ai_cost
+from .creator_governance import resolve_campaign_operation
 
 AUTHORIZATION_TABLE = "provider_spend_authorizations"
 AUTHORIZATION_TABLE_SQL = f"""
@@ -38,6 +39,10 @@ CREATE TABLE IF NOT EXISTS {AUTHORIZATION_TABLE} (
     unit TEXT NOT NULL,
     scope_json TEXT NOT NULL,
     provider_quote_json TEXT NOT NULL,
+    creator_id TEXT,
+    identity_profile_id TEXT,
+    governance_fingerprint TEXT,
+    governance_context_json TEXT,
     status TEXT NOT NULL CHECK(status IN ('authorized', 'consumed', 'cancelled')),
     issued_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
@@ -153,6 +158,18 @@ class HiggsfieldCliBalanceProvider:
 
 def ensure_authorization_table(conn: sqlite3.Connection) -> None:
     conn.execute(AUTHORIZATION_TABLE_SQL)
+    columns = {
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info({AUTHORIZATION_TABLE})").fetchall()
+    }
+    for column in (
+        "creator_id",
+        "identity_profile_id",
+        "governance_fingerprint",
+        "governance_context_json",
+    ):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {AUTHORIZATION_TABLE} ADD COLUMN {column} TEXT")
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS idx_{AUTHORIZATION_TABLE}_status "
         f"ON {AUTHORIZATION_TABLE}(provider, status, issued_at)"
@@ -179,6 +196,48 @@ def issue_provider_spend_authorization(
         )
     if global_kill_switch_active():
         raise PermissionError("creator_os_global_kill_switch_active")
+    governance_context: dict[str, Any] | None = None
+    has_governance = conn.execute(
+        """
+        SELECT 1 FROM sqlite_master
+        WHERE type = 'table' AND name = 'campaign_governance'
+        """
+    ).fetchone()
+    if has_governance:
+        if not campaign_id:
+            raise PermissionError("campaign_governance_required_for_provider_spend")
+        scope_source_asset_id = str(
+            scope.get("campaignSourceAssetId") or scope.get("sourceAssetId") or ""
+        ).strip()
+        governance_context = resolve_campaign_operation(
+            conn,
+            campaign_id=campaign_id,
+            operation="provider_spend",
+            provider="higgsfield",
+            source_asset_id=scope_source_asset_id or None,
+            account_id=(str(scope["accountId"]) if scope.get("accountId") else None),
+            territory=(str(scope["territory"]) if scope.get("territory") else None),
+        )
+        scoped_campaign = str(scope.get("campaign") or "").strip()
+        if scoped_campaign not in {
+            str(governance_context["campaignId"]),
+            str(governance_context["campaignSlug"]),
+        }:
+            raise PermissionError("provider_campaign_scope_mismatch")
+        scoped_creator = str(scope.get("creator") or "").strip().lower()
+        if scoped_creator != str(governance_context["creatorSlug"]).lower():
+            raise PermissionError("provider_creator_scope_mismatch")
+        if (
+            scope_source_asset_id
+            and scope_source_asset_id != governance_context["sourceAssetId"]
+        ):
+            raise PermissionError("provider_source_scope_mismatch")
+        scoped_soul_id = str(scope.get("soulId") or "")
+        if (
+            scoped_soul_id
+            and scoped_soul_id != governance_context["providerIdentityId"]
+        ):
+            raise PermissionError("provider_identity_scope_mismatch")
     if (
         isinstance(max_credits, bool)
         or not isinstance(max_credits, (int, float))
@@ -235,6 +294,11 @@ def issue_provider_spend_authorization(
             "expiresAt": expires_at,
             "scope": scope,
             "providerQuote": quote,
+            **(
+                {"governanceContext": governance_context}
+                if governance_context is not None
+                else {"legacyCompatibility": True}
+            ),
         },
         secret=secret,
     )
@@ -271,8 +335,10 @@ def issue_provider_spend_authorization(
             INSERT INTO {AUTHORIZATION_TABLE}
                 (authorization_id, reservation_id, provider, campaign_id, cohort_id,
                  request_fingerprint, amount, unit, scope_json, provider_quote_json,
-                 status, issued_at, expires_at)
-            VALUES (?, ?, 'higgsfield', ?, ?, ?, ?, ?, ?, ?, 'authorized', ?, ?)
+                 creator_id, identity_profile_id, governance_fingerprint,
+                 governance_context_json, status, issued_at, expires_at)
+            VALUES (?, ?, 'higgsfield', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    'authorized', ?, ?)
             """,
             (
                 authorization_id,
@@ -284,6 +350,26 @@ def issue_provider_spend_authorization(
                 HIGGSFIELD_CREDIT_UNIT,
                 json.dumps(scope, sort_keys=True),
                 json.dumps(quote, sort_keys=True),
+                (
+                    governance_context["creatorId"]
+                    if governance_context is not None
+                    else None
+                ),
+                (
+                    governance_context["identityProfileId"]
+                    if governance_context is not None
+                    else None
+                ),
+                (
+                    governance_context["governanceFingerprint"]
+                    if governance_context is not None
+                    else None
+                ),
+                (
+                    json.dumps(governance_context, sort_keys=True)
+                    if governance_context is not None
+                    else None
+                ),
                 issued_at,
                 expires_at,
             ),
@@ -352,6 +438,63 @@ def consume_provider_spend_authorization(
     now: datetime.datetime | None = None,
 ) -> None:
     ensure_authorization_table(conn)
+    authorization = conn.execute(
+        f"""
+        SELECT campaign_id, provider, governance_fingerprint,
+               governance_context_json
+        FROM {AUTHORIZATION_TABLE} WHERE authorization_id = ?
+        """,
+        (authorization_id,),
+    ).fetchone()
+    if authorization is None:
+        raise PermissionError(
+            "provider spend authorization is missing, expired, or consumed"
+        )
+    campaign_id = authorization[0]
+    provider = authorization[1]
+    governance_fingerprint = authorization[2]
+    governance_context_json = authorization[3]
+    governance_row = (
+        conn.execute(
+            "SELECT 1 FROM campaign_governance WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchone()
+        if campaign_id
+        and conn.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'campaign_governance'
+            """
+        ).fetchone()
+        else None
+    )
+    if governance_row is not None:
+        if not governance_context_json:
+            raise PermissionError("provider_authorization_governance_missing")
+        prior_context = json.loads(governance_context_json)
+        current_context = resolve_campaign_operation(
+            conn,
+            campaign_id=str(campaign_id),
+            operation=str(prior_context["operation"]),
+            provider=str(provider),
+            source_asset_id=(
+                str(prior_context["sourceAssetId"])
+                if prior_context.get("sourceAssetId")
+                else None
+            ),
+            account_id=(
+                str(prior_context["accountId"])
+                if prior_context.get("accountId")
+                else None
+            ),
+            territory=(
+                str(prior_context["territory"])
+                if prior_context.get("territory")
+                else None
+            ),
+        )
+        if current_context["governanceFingerprint"] != governance_fingerprint:
+            raise PermissionError("provider_authorization_governance_stale")
     timestamp = _iso(now or datetime.datetime.now(datetime.UTC))
     cursor = conn.execute(
         f"""
@@ -402,7 +545,7 @@ def load_provider_spend_authorization(
     row = conn.execute(
         f"""
         SELECT authorization_id, reservation_id, issued_at, expires_at,
-               scope_json, provider_quote_json
+               scope_json, provider_quote_json, governance_context_json
         FROM {AUTHORIZATION_TABLE}
         WHERE authorization_id = ?
         """,
@@ -410,6 +553,7 @@ def load_provider_spend_authorization(
     ).fetchone()
     if row is None:
         raise PermissionError("provider_spend_authorization_missing")
+    governance_context = json.loads(str(row[6])) if row[6] else None
     payload = sign_authorization(
         {
             "schema": AUTHORIZATION_SCHEMA,
@@ -421,6 +565,11 @@ def load_provider_spend_authorization(
             "expiresAt": str(row[3]),
             "scope": json.loads(str(row[4])),
             "providerQuote": json.loads(str(row[5])),
+            **(
+                {"governanceContext": governance_context}
+                if governance_context is not None
+                else {}
+            ),
         },
         secret=secret,
     )
@@ -579,9 +728,9 @@ def _quote_credits(payload: Any) -> float | None:
             if math.isfinite(parsed) and parsed >= 0:
                 return parsed
     for key in ("quote", "usage", "data", "result"):
-        parsed = _quote_credits(payload.get(key))
-        if parsed is not None:
-            return parsed
+        nested = _quote_credits(payload.get(key))
+        if nested is not None:
+            return nested
     return None
 
 
@@ -595,9 +744,9 @@ def _find_balance(payload: Any) -> float | None:
             if math.isfinite(parsed) and parsed >= 0:
                 return parsed
     for key in ("account", "billing", "data", "result"):
-        parsed = _find_balance(payload.get(key))
-        if parsed is not None:
-            return parsed
+        nested = _find_balance(payload.get(key))
+        if nested is not None:
+            return nested
     return None
 
 

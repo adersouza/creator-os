@@ -550,6 +550,25 @@ def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) ->
         "INSERT INTO models VALUES ('model_1', 'stacey', 'Stacey', NULL, ?, ?)",
         (now, now),
     )
+    conn.execute(
+        """
+        INSERT INTO creator_lifecycle_state
+        (model_id,status,status_reason,effective_at,changed_by,version,
+         retention_state,updated_at)
+        VALUES ('model_1','active','fixture',?,'test',1,'retain_audit',?)
+        """,
+        (now, now),
+    )
+    conn.execute(
+        """
+        INSERT INTO campaign_governance
+        (campaign_id,model_id,lifecycle_status,blocker_codes_json,status_reason,
+         changed_by,effective_at,version,updated_at)
+        VALUES ('campaign_1','model_1','production_ready','[]','fixture',
+                'test',?,1,?)
+        """,
+        (now, now),
+    )
     for index, digest_seed in ((1, "a"), (2, "b")):
         path = tmp_path / f"approved_{index}.png"
         Image.new("RGB", (360, 640), color=(index, 20, 30)).save(path)
@@ -613,8 +632,22 @@ def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) ->
     )
     persist_measured_recommendations(conn, recommendations, pack=pack)
     conn.execute("UPDATE recommendation_items SET status = 'accepted'")
+    governance = SimpleNamespace(
+        active_identity_profile=lambda _creator, provider: {
+            "creator_slug": "stacey",
+            "provider": provider,
+            "provider_identity_id": soul_id,
+        },
+        resolve_operation=lambda **_kwargs: {
+            "providerIdentityId": soul_id,
+            "governanceFingerprint": "g" * 64,
+        },
+    )
     batch = plan_production_batch(
-        SimpleNamespace(conn=conn),
+        SimpleNamespace(
+            conn=conn,
+            domains=SimpleNamespace(creator_governance=governance),
+        ),
         creator="stacey",
         intent="passive_selfie",
         count=1,

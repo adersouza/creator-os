@@ -25,6 +25,23 @@ EMBEDDED_AUDIO_POLICIES = {
 }
 
 
+def validate_production_intent_audio_policy(intent: str, policy: str) -> None:
+    if intent == "recreate_reel":
+        if policy not in {
+            "embedded_trending_required",
+            "original_embedded",
+            "silent_allowed",
+        }:
+            raise ValueError(
+                "recreate_reel audio must be embedded_trending_required, "
+                "REFERENCE_AUDIO_REQUIRED, or silent_allowed"
+            )
+    elif policy != "embedded_trending_required":
+        raise ValueError(
+            "non-talking production intents require embedded_trending_required"
+        )
+
+
 def resolve_motion_audio_policy(
     policy: str | None,
     *,

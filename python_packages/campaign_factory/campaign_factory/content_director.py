@@ -16,7 +16,6 @@ from creator_os_core.sqlite import connect_sqlite
 
 from .config import get_settings
 from .learning_consumption import apply_learning_to_production_plan
-from .production_lane import _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS
 
 POLICY_PATH = Path(__file__).with_name("config") / "content_director_policy.json"
@@ -121,6 +120,109 @@ def _safe_file(path_value: object, expected_sha: str) -> Path | None:
     return resolved if digest == expected_sha else None
 
 
+def _creator_planning_context(
+    conn: sqlite3.Connection,
+    creator: str,
+    *,
+    allowed_campaign_states: frozenset[str] = frozenset(
+        {"production_ready", "producing"}
+    ),
+) -> dict[str, Any]:
+    key = creator.strip().lower().replace("-", "_").replace(" ", "_")
+    matches = conn.execute(
+        """
+        SELECT DISTINCT m.id, m.slug
+        FROM models m
+        LEFT JOIN creator_slug_history h ON h.model_id = m.id
+        WHERE lower(m.slug) = lower(?) OR lower(h.slug) = lower(?)
+        ORDER BY m.id
+        """,
+        (key, key),
+    ).fetchall()
+    if not matches:
+        raise ValueError(f"unknown creator identity: {creator}")
+    if len(matches) != 1:
+        raise PermissionError("creator_identity_lookup_ambiguous")
+    model = matches[0]
+    lifecycle = conn.execute(
+        """
+        SELECT status, version, effective_at
+        FROM creator_lifecycle_state WHERE model_id = ?
+        """,
+        (model["id"],),
+    ).fetchone()
+    if lifecycle is None or lifecycle["status"] != "active":
+        raise PermissionError("creator_inactive")
+    identity = conn.execute(
+        """
+        SELECT id, provider_identity_id, version, profile_fingerprint,
+               identity_manifest_path, identity_manifest_sha256,
+               canonical_source_asset_id
+        FROM creator_identity_profiles
+        WHERE model_id = ? AND provider = 'higgsfield' AND status = 'active'
+          AND activated_at >= ?
+        ORDER BY version DESC
+        LIMIT 1
+        """,
+        (model["id"], lifecycle["effective_at"]),
+    ).fetchone()
+    if identity is None:
+        raise PermissionError("creator_identity_profile_missing")
+    manifest = _safe_file(
+        identity["identity_manifest_path"], identity["identity_manifest_sha256"]
+    )
+    source = conn.execute(
+        """
+        SELECT model_id, status, stored_path, content_hash
+        FROM source_assets WHERE id = ?
+        """,
+        (identity["canonical_source_asset_id"],),
+    ).fetchone()
+    if (
+        manifest is None
+        or source is None
+        or source["model_id"] != model["id"]
+        or str(source["status"]).lower() != "approved"
+        or _safe_file(source["stored_path"], source["content_hash"]) is None
+    ):
+        raise PermissionError("creator_identity_profile_stale")
+    campaigns = conn.execute(
+        """
+        SELECT cg.campaign_id, cg.lifecycle_status, cg.version
+        FROM campaign_governance cg
+        WHERE cg.model_id = ?
+        ORDER BY cg.campaign_id
+        """,
+        (model["id"],),
+    ).fetchall()
+    eligible = [
+        row for row in campaigns if row["lifecycle_status"] in allowed_campaign_states
+    ]
+    if not eligible:
+        states = sorted({str(row["lifecycle_status"]) for row in campaigns})
+        suffix = ",".join(states) if states else "missing"
+        raise PermissionError(f"campaign_state_blocks_content_plan:{suffix}")
+    context = {
+        "creatorId": str(model["id"]),
+        "creatorSlug": str(model["slug"]),
+        "creatorLifecycleVersion": int(lifecycle["version"]),
+        "identityProfileId": str(identity["id"]),
+        "identityProfileVersion": int(identity["version"]),
+        "identityProfileFingerprint": str(identity["profile_fingerprint"]),
+        "providerIdentityId": str(identity["provider_identity_id"]),
+        "campaigns": [
+            {
+                "campaignId": str(row["campaign_id"]),
+                "lifecycleStatus": str(row["lifecycle_status"]),
+                "lifecycleVersion": int(row["version"]),
+            }
+            for row in eligible
+        ],
+    }
+    context["governanceFingerprint"] = _fingerprint(context)
+    return context
+
+
 def _source_compatibility(row: dict[str, Any]) -> set[str]:
     compatible = {
         "passive_selfie",
@@ -141,19 +243,28 @@ def _source_compatibility(row: dict[str, Any]) -> set[str]:
     return compatible
 
 
-def _approved_sources(conn: sqlite3.Connection, creator: str) -> list[dict[str, Any]]:
+def _approved_sources(
+    conn: sqlite3.Connection,
+    creator: str,
+    *,
+    campaign_ids: frozenset[str],
+) -> list[dict[str, Any]]:
+    if not campaign_ids:
+        return []
+    placeholders = ",".join("?" for _ in campaign_ids)
     rows = conn.execute(
-        """
+        f"""
         SELECT s.*, m.slug AS creator_slug, c.slug AS campaign_slug
         FROM source_assets s
         JOIN models m ON m.id = s.model_id
         JOIN campaigns c ON c.id = s.campaign_id
         WHERE lower(m.slug) = lower(?)
+          AND s.campaign_id IN ({placeholders})
           AND s.media_type = 'image'
           AND lower(s.status) = 'approved'
         ORDER BY s.updated_at DESC, s.id
         """,
-        (creator,),
+        (creator, *sorted(campaign_ids)),
     ).fetchall()
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -210,7 +321,12 @@ def _approved_patterns(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return result
 
 
-def _account_state(conn: sqlite3.Connection, handle: str) -> dict[str, Any]:
+def _account_state(
+    conn: sqlite3.Connection,
+    handle: str,
+    *,
+    expected_model_id: str | None = None,
+) -> dict[str, Any]:
     row = conn.execute(
         """
         SELECT id, handle, model_id, account_group_id, threadsdash_is_active,
@@ -228,8 +344,13 @@ def _account_state(conn: sqlite3.Connection, handle: str) -> dict[str, Any]:
             "accountId": None,
         }
     item = dict(row)
+    creator_matches = (
+        expected_model_id is None or item.get("model_id") == expected_model_id
+    )
     eligible = (
-        item.get("threadsdash_is_active") == 1
+        creator_matches
+        and item.get("model_id") is not None
+        and item.get("threadsdash_is_active") == 1
         and item.get("threadsdash_needs_reauth") in {0, None}
         and str(item.get("threadsdash_status") or "").lower()
         not in {"blocked", "restricted", "disabled", "reauth_required"}
@@ -239,7 +360,14 @@ def _account_state(conn: sqlite3.Connection, handle: str) -> dict[str, Any]:
         "accountId": item["id"],
         "accountGroupId": item.get("account_group_id"),
         "eligible": eligible,
-        "reason": "healthy_projection" if eligible else "account_projection_unhealthy",
+        "reason": (
+            "healthy_projection"
+            if eligible
+            else "account_creator_mismatch"
+            if not creator_matches or item.get("model_id") is None
+            else "account_projection_unhealthy"
+        ),
+        "modelId": item.get("model_id"),
         "projectionObservedAt": item.get("threadsdash_projection_observed_at"),
     }
 
@@ -272,9 +400,10 @@ def _plan_count(request: PlanningRequest, policy: dict[str, Any]) -> int:
 
 
 def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, Any]:
-    creator = request.creator.strip().lower()
-    if creator not in _CREATOR_SOUL_IDS:
-        raise ValueError(f"unknown creator identity: {request.creator}")
+    governance = _creator_planning_context(conn, request.creator)
+    creator = str(governance["creatorSlug"])
+    identity_profile = str(governance["providerIdentityId"])
+    campaign_ids = frozenset(str(row["campaignId"]) for row in governance["campaigns"])
     if request.objective not in _policy()["objectives"]:
         raise ValueError(f"unsupported objective: {request.objective}")
     if request.autonomy_mode not in AUTONOMY_MODES:
@@ -287,9 +416,12 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
     policy = _policy()
     objective_policy = dict(policy["objectives"][request.objective])
     count = _plan_count(request, policy)
-    sources = _approved_sources(conn, creator)
+    sources = _approved_sources(conn, creator, campaign_ids=campaign_ids)
     patterns = _approved_patterns(conn)
-    account_states = [_account_state(conn, account) for account in request.accounts]
+    account_states = [
+        _account_state(conn, account, expected_model_id=str(governance["creatorId"]))
+        for account in request.accounts
+    ]
     account_by_handle = {str(row["handle"]): row for row in account_states}
     horizon_end = request.start_date + timedelta(days=request.horizon_days - 1)
     classes = _exploration_classes(count, objective_policy)
@@ -307,7 +439,9 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
     for index in range(count):
         intent = intents[index % len(intents)]
         account = request.accounts[index % len(request.accounts)]
-        state = account_by_handle.get(account) or _account_state(conn, account)
+        state = account_by_handle.get(account) or _account_state(
+            conn, account, expected_model_id=str(governance["creatorId"])
+        )
         compatible = [
             source for source in sources if intent in source["compatibleIntents"]
         ]
@@ -318,7 +452,7 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
         learning_sources, learned_prompt, learning = apply_learning_to_production_plan(
             conn,
             creator=creator,
-            creator_identity_profile=_CREATOR_SOUL_IDS[creator],
+            creator_identity_profile=identity_profile,
             account=account,
             intent=intent,
             sources=compatible,
@@ -348,7 +482,7 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
         item_core = {
             "index": index,
             "creator": creator,
-            "identityProfile": _CREATOR_SOUL_IDS[creator],
+            "identityProfile": identity_profile,
             "targetAccount": account,
             "accountState": state,
             "contentIntent": intent,
@@ -414,7 +548,8 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
                 item["executionState"] = "BLOCKED"
     inputs = {
         "creator": creator,
-        "identityProfile": _CREATOR_SOUL_IDS[creator],
+        "identityProfile": identity_profile,
+        "creatorGovernanceFingerprint": governance["governanceFingerprint"],
         "horizonStart": request.start_date.isoformat(),
         "horizonEnd": horizon_end.isoformat(),
         "accounts": list(request.accounts),
@@ -469,7 +604,8 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
         "planId": plan_id,
         "version": 1,
         "creator": creator,
-        "identityProfile": _CREATOR_SOUL_IDS[creator],
+        "identityProfile": identity_profile,
+        "creatorGovernance": governance,
         "horizon": {
             "start": request.start_date.isoformat(),
             "end": horizon_end.isoformat(),
@@ -521,6 +657,14 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
 
 
 def persist_plan(conn: sqlite3.Connection, plan: dict[str, Any]) -> dict[str, Any]:
+    current_governance = _creator_planning_context(conn, str(plan["creator"]))
+    expected_governance = plan.get("creatorGovernance")
+    if (
+        not isinstance(expected_governance, dict)
+        or expected_governance.get("governanceFingerprint")
+        != current_governance["governanceFingerprint"]
+    ):
+        raise PermissionError("content_plan_creator_governance_changed")
     existing = conn.execute(
         "SELECT * FROM creative_plan_versions WHERE input_fingerprint = ?",
         (plan["inputFingerprint"],),
