@@ -50,6 +50,13 @@ def test_sbom_job_allows_setup_uv_download_endpoint() -> None:
         "sudo apt-get install -y --no-install-recommends ffmpeg tesseract-ocr"
         in sbom_job
     )
+    for endpoint in (
+        "fulcio.sigstore.dev:443",
+        "rekor.sigstore.dev:443",
+        "timestamp.sigstore.dev:443",
+        "tuf-repo-cdn.sigstore.dev:443",
+    ):
+        assert endpoint in sbom_job
 
 
 def test_secret_scan_allows_trufflehog_container_registry() -> None:

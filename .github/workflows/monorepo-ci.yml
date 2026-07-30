@@ -131,6 +131,10 @@ jobs:
             release-assets.githubusercontent.com:443
             azure.archive.ubuntu.com:80
             security.ubuntu.com:80
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
