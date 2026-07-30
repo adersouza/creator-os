@@ -46,6 +46,9 @@ from campaign_factory.adapters.threadsdash import (
 from campaign_factory.adapters.threadsdash import (
     sync_metrics as sync_performance_snapshots,
 )
+from campaign_factory.adapters.threadsdash_handoff_evidence import (
+    shared_handoff_payload,
+)
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 
@@ -204,6 +207,7 @@ def add_audit_report(
     assert asset is not None
     report_path = Path(asset["campaign_path"]).with_suffix(f".{audit_id}.json")
     report_payload = {
+        "subjectSha256": asset["content_hash"],
         "readinessSummary": {
             "uploadReady": True,
             "blockingReasons": [],
@@ -221,21 +225,31 @@ def add_audit_report(
         "warnings": [],
         "failedChecks": [],
         "error": None,
+        "finalArtifactIntegrity": {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": True,
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
     }
     report_path.write_text(json.dumps(report_payload), encoding="utf-8")
     cf.conn.execute(
         """
         INSERT INTO audit_reports
-        (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score,
+        (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id, report_path, score,
          status, layers_json, verdicts_json, overall_verdict, files_analyzed,
          failed_checks_json, warnings_json, created_at)
-        VALUES (?, ?, ?, 'run_e2e', ?, 100, 'approved_candidate', '{}', '{}', 'pass',
+        VALUES (?, ?, ?, ?, 'run_e2e', ?, 100, 'approved_candidate', '{}', '{}', 'pass',
                 1, '[]', '[]', ?)
         """,
         (
             audit_id,
             asset["campaign_id"],
             rendered_asset_id,
+            asset["content_hash"],
             str(report_path),
             "2026-01-01T00:00:00+00:00",
         ),
@@ -462,6 +476,9 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
     class _Resp:
         status = 200
 
+        def __init__(self, body: dict[str, Any] | None = None):
+            self.body = body
+
         def __enter__(self):
             return self
 
@@ -469,20 +486,33 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
             return False
 
         def read(self):
-            return json.dumps(
-                {
-                    "success": True,
-                    "postIds": self.post_ids,
-                    "writtenDrafts": len(self.post_ids),
-                }
-            ).encode("utf-8")
+            return (
+                json.dumps(self.body).encode("utf-8") if self.body is not None else b""
+            )
 
     def fake_urlopen(request, timeout):
+        if request.method == "PUT":
+            return _Resp()
         body = json.loads(request.data.decode("utf-8"))
+        if request.full_url.endswith("/api/campaign-factory/media/upload-ticket"):
+            return _Resp(
+                {
+                    "uploadTicketId": "ticket_e2e_1",
+                    "signedUrl": "https://storage.example.com/signed",
+                    "publicUrl": remote_url,
+                    "storagePath": "campaign-factory/user_1/asset.mp4",
+                    "bucket": "media",
+                }
+            )
         post_ids = dashboard.ingest(body)
-        resp = _Resp()
-        resp.post_ids = post_ids
-        return resp
+        return _Resp(
+            {
+                "success": True,
+                "postIds": post_ids,
+                "writtenDrafts": len(post_ids),
+                "acknowledgment": {"status": "accepted", "postIds": post_ids},
+            }
+        )
 
     class _HandshakeResp:
         status = 200
@@ -654,7 +684,6 @@ def export_real_asset(
         dry_run=False,
         threadsdash_ingest_url=_INGEST_URL,
         threadsdash_ingest_secret="ingest-secret",
-        **_SUPABASE_KW,
     )
     return {
         "asset": asset,
@@ -779,9 +808,12 @@ def test_seam_a_sync_output_flows_into_export_draft(
         assert (
             post["metadata"]["campaign_factory"]["caption_hash"] == synced_caption_hash
         )
+        expected_remote_context = shared_handoff_payload(
+            {"captionOutcomeContext": final_context}
+        )["captionOutcomeContext"]
         assert (
             post["metadata"]["campaign_factory"]["caption_outcome_context"]
-            == final_context
+            == expected_remote_context
         )
     finally:
         cf.close()
@@ -858,7 +890,6 @@ def test_export_and_performance_sync_are_idempotent(
             allow_warnings=True,
             threadsdash_ingest_url=_INGEST_URL,
             threadsdash_ingest_secret="ingest-secret",
-            **_SUPABASE_KW,
         )
         second_meta = _export_campaign_meta(second_export)
         assert second_meta["post_key"] == first_post_key

@@ -11,7 +11,7 @@
     "pipeline_contracts/schemas/audio_catalog_export.v1.example.json": "61fc9e674341d8e94380298c405214d7cdc01bf96bd7e0d221e92207e81d99da",
     "pipeline_contracts/schemas/audio_catalog_export.v1.schema.json": "44cdd005f482e8840fd3d168a471dc766684bb3e1ed0b67c0a3cbbfda2b7e00d",
     "pipeline_contracts/schemas/audio_intent.v1.example.json": "907437705f3bcc9ee531e0fec5b7287f28ac301686aaa0a21be2bd7027622b77",
-    "pipeline_contracts/schemas/audio_intent.v1.schema.json": "6c0240217ace4b5d04778c596c4154bf7c18d633ada5eb0f21b7cb9be0d69459",
+    "pipeline_contracts/schemas/audio_intent.v1.schema.json": "10a26110d6b7d04f9fce4998f612c16f2d02f9441f921bc6036b841c3e8a7efe",
     "pipeline_contracts/schemas/benchmark_recipe.v1.schema.json": "6d9417e543b7684f8d071d4318c441b681b661b0fe5c44287533298051ba9d2b",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.example.json": "92cfeb94716a9b7b587fb50bbb9b805fa41c82b1ddf9937d17697aa718968c10",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json": "c3ab72d9dde40f45509b17086a7029c0fdc59d04dff83441f9ded717ea1e64f4",
@@ -98,7 +98,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "b394c17c1e17c7003b16ed3e67d6cea83ac10a3015954c3f8d4f6ddc1d3f93b9",
+    "typescript/generated-schemas.ts": "051290fc3512d3fc48b89e6d8b3fa4b87815beed89cd3da68fd730bec32be560",
     "typescript/index.ts": "e467ba50decdd642830fb53639f15d97219f1e1d9bcd79d9ab9f726f5dfbcfac"
   }
 }

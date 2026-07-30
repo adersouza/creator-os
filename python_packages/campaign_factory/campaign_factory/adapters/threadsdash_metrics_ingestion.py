@@ -356,7 +356,6 @@ def sync_performance_snapshots(
                       source_platform_post_id = excluded.source_platform_post_id,
                       source_observation_fingerprint = excluded.source_observation_fingerprint,
                       metric_window = excluded.metric_window,
-                      imported_at = excluded.imported_at,
                       raw_json = excluded.raw_json
                     """,
                     (
@@ -1092,7 +1091,10 @@ def _repair_learning_lineage_from_local_asset(
     stored_lineage_path = str(stored_source.get("sourceLineagePath") or "").strip()
     incoming_lineage_path = str(incoming_source.get("sourceLineagePath") or "").strip()
     if stored_lineage_path and incoming_lineage_path != stored_lineage_path:
-        if incoming_lineage_path:
+        if (
+            incoming_lineage_path
+            and Path(incoming_lineage_path).name != Path(stored_lineage_path).name
+        ):
             blockers.append("sourceLineagePath_conflict")
         else:
             incoming_source["sourceLineagePath"] = stored_lineage_path

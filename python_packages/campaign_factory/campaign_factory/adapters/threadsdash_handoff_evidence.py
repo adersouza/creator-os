@@ -156,10 +156,9 @@ def shared_handoff_payload(payload: dict[str, Any]) -> dict[str, Any]:
             return creative_approval_evidence(value)
         if isinstance(value, dict):
             return {
-                child_key: sanitized
+                child_key: sanitize(child_value, child_key)
                 for child_key, child_value in value.items()
                 if not child_key.startswith("_")
-                and (sanitized := sanitize(child_value, child_key)) is not None
             }
         if isinstance(value, list):
             return [sanitize(item) for item in value]

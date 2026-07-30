@@ -871,7 +871,6 @@ export const generatedPipelineContractSchemas = {
 	              "output_sha256",
 	              "acquired_audio_sha256",
 	              "embedded_audio_fingerprint",
-	              "evidence_class",
 	              "proof_type",
 	              "verification_receipt"
 	            ],
@@ -901,7 +900,30 @@ export const generatedPipelineContractSchemas = {
 	          }
 	        },
 	        "required": [
-	          "fulfillment",
+	          "fulfillment"
+	        ]
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "fulfillment": {
+	            "properties": {
+	              "evidence_class": {
+	                "const": "EXACT_BYTE_VERIFIED"
+	              }
+	            },
+	            "required": [
+	              "evidence_class"
+	            ]
+	          }
+	        },
+	        "required": [
+	          "fulfillment"
+	        ]
+	      },
+	      "then": {
+	        "required": [
 	          "lineage"
 	        ]
 	      }

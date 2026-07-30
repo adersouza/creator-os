@@ -27,11 +27,17 @@ def test_shared_handoff_removes_private_fields_and_absolute_paths() -> None:
     shared = shared_handoff_payload(
         {
             "_localFilePath": "/Users/operator/private.mp4",
-            "drafts": [{"debugPath": "/Users/operator/private.mp4"}],
+            "drafts": [
+                {
+                    "debugPath": "/Users/operator/private.mp4",
+                    "requiredNullableField": None,
+                }
+            ],
         }
     )
     assert "_localFilePath" not in shared
     assert shared["drafts"][0]["debugPath"] == "private.mp4"
+    assert shared["drafts"][0]["requiredNullableField"] is None
 
 
 def test_delivery_media_uses_owner_ticket_and_exact_approved_bytes(
