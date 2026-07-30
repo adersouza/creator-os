@@ -8,6 +8,17 @@ from .closed_loop_proof import DEFAULT_STACEY_PROMPT_PATH
 
 def register_core_commands(sub) -> None:
     sub.add_parser("init")
+    reconcile = sub.add_parser(
+        "reconcile",
+        help="report or explicitly repair database/filesystem byte drift",
+    )
+    reconcile_sub = reconcile.add_subparsers(dest="reconcile_cmd", required=True)
+    reconcile_sub.add_parser("report")
+    reconcile_repair = reconcile_sub.add_parser("repair")
+    reconcile_repair.add_argument("--case", required=True)
+    reconcile_repair.add_argument("--operator", required=True)
+    reconcile_repair.add_argument("--reason", required=True)
+    reconcile_repair.add_argument("--apply", action="store_true")
     state = sub.add_parser("state")
     state_sub = state.add_subparsers(dest="state_cmd", required=True)
     state_explain = state_sub.add_parser("explain")

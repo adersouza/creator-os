@@ -45,6 +45,7 @@ from .learning_cohort import (
 from .production_higgsfield_authorization import provider_control_reconciliation
 from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
+from .reconciliation import reconciliation_report, repair_reconciliation_case
 from .recreation_anchor_approval import approve_recreation_anchor
 from .recreation_lifecycle import explain_recreation_job, record_recreation_review
 from .recreation_prompting import build_openai_prompt_pack
@@ -59,6 +60,21 @@ from .variation_stage import run_variation_stage
 
 
 def dispatch_pipeline_commands(args, cf, settings) -> int | None:
+    if args.cmd == "reconcile":
+        if args.reconcile_cmd == "report":
+            print_json(reconciliation_report(cf.conn, settings))
+        else:
+            print_json(
+                repair_reconciliation_case(
+                    cf.conn,
+                    settings,
+                    case_id=args.case,
+                    operator=args.operator,
+                    reason=args.reason,
+                    apply=args.apply,
+                )
+            )
+        return 0
     if args.cmd == "state" and args.state_cmd == "explain":
         print_json(explain_state(args.record_or_id))
         return 0

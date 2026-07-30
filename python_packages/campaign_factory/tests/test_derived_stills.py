@@ -47,7 +47,7 @@ def _approved_source(cf, tmp_path: Path) -> dict[str, Any]:
         folder,
         campaign_slug="may",
         model_slug="stacey",
-        storage_mode="reference",
+        storage_mode="copy",
     )
     source = cf.domains.asset_import.assets_for_campaign(
         cf.domains.campaign_by_slug("may")["id"]

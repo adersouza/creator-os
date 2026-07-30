@@ -1,4 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   resolve,
   join,
@@ -68,6 +70,276 @@ for (const [index, domain] of (registry.domains || []).entries()) {
         repository: domain.repository,
         domain: domain.domain,
       });
+    }
+  }
+}
+
+const persistence = registry.persistenceOwnership;
+const requiredPersistencePolicy = [
+  "ownerDomain",
+  "legalWriterRoots",
+  "legalReaders",
+  "mutability",
+  "allowedValues",
+  "stateTransitionOwner",
+  "retention",
+  "deletionBehavior",
+  "receiptBinding",
+  "repairPath",
+];
+const persistenceStores = new Map();
+if (persistence?.schema !== "creator_os.persistence_ownership_registry.v1") {
+  errors.push(
+    "persistenceOwnership.schema must be creator_os.persistence_ownership_registry.v1",
+  );
+}
+if (
+  persistence?.inventoryCommand !==
+  "uv run python scripts/inventory-persistence.py"
+) {
+  errors.push("persistenceOwnership.inventoryCommand is not the reviewed command");
+}
+for (const [index, store] of (persistence?.sqliteStores || []).entries()) {
+  if (!store.store || persistenceStores.has(store.store)) {
+    errors.push(
+      `persistenceOwnership.sqliteStores[${index}] must have a unique store`,
+    );
+    continue;
+  }
+  persistenceStores.set(store.store, store);
+  for (const field of requiredPersistencePolicy) {
+    if (
+      !(field in store) ||
+      store[field] === null ||
+      store[field] === "" ||
+      (Array.isArray(store[field]) && !store[field].length)
+    ) {
+      errors.push(
+        `persistenceOwnership.sqliteStores[${index}] is missing ${field}`,
+      );
+    }
+  }
+  for (const writer of store.legalWriterRoots || []) {
+    const writerPath = resolve(root, writer);
+    if (!isInsideRoot(writerPath) || !statSafe(writerPath)) {
+      errors.push(
+        `persistence store ${store.store} has nonexistent legal writer ${writer}`,
+      );
+    }
+  }
+}
+
+const inventoryScript = join(root, "scripts/inventory-persistence.py");
+let fieldInventory = null;
+if (!statSafe(inventoryScript)?.isFile()) {
+  errors.push("persistence inventory script is missing");
+} else {
+  const result = spawnSync("uv", ["run", "python", inventoryScript], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    errors.push(
+      `persistence inventory failed: ${(result.stderr || result.stdout || "unknown error").trim()}`,
+    );
+  } else {
+    try {
+      fieldInventory = JSON.parse(result.stdout);
+    } catch {
+      errors.push("persistence inventory did not emit valid JSON");
+    }
+  }
+}
+
+const inventoryRecordsByStore = new Map();
+let persistentRecordCount = 0;
+let persistentFieldCount = 0;
+if (
+  fieldInventory &&
+  fieldInventory.schema !== "creator_os.persistence_field_inventory.v1"
+) {
+  errors.push(
+    "persistence field inventory schema must be creator_os.persistence_field_inventory.v1",
+  );
+}
+for (const [storeName, records] of Object.entries(
+  fieldInventory?.stores || {},
+)) {
+  const store = persistenceStores.get(storeName);
+  if (!store) {
+    errors.push(`unregistered persistent SQLite store: ${storeName}`);
+    continue;
+  }
+  inventoryRecordsByStore.set(storeName, records);
+  for (const [recordName, record] of Object.entries(records || {})) {
+    persistentRecordCount += 1;
+    if (
+      !Array.isArray(record.checks) ||
+      !Array.isArray(record.triggers) ||
+      !Array.isArray(record.uniqueConstraints)
+    ) {
+      errors.push(
+        `${storeName}.${recordName} is missing CHECK, trigger, or uniqueness inventory`,
+      );
+    }
+    const fields = Object.entries(record.fields || {});
+    if (!fields.length) {
+      errors.push(`${storeName}.${recordName} has no registered fields`);
+    }
+    for (const [fieldName, field] of fields) {
+      persistentFieldCount += 1;
+      for (const required of [
+        "type",
+        "required",
+        "default",
+        "primaryKey",
+        "unique",
+        "foreignKeys",
+      ]) {
+        if (!(required in field)) {
+          errors.push(
+            `${storeName}.${recordName}.${fieldName} is missing ${required}`,
+          );
+        }
+      }
+    }
+  }
+}
+for (const storeName of persistenceStores.keys()) {
+  if (!inventoryRecordsByStore.has(storeName)) {
+    errors.push(`persistence field inventory is missing store ${storeName}`);
+  }
+  if (!(registry.domains || []).some((domain) => domain.canonicalStore === storeName)) {
+    errors.push(`persistent SQLite store has no owning domain: ${storeName}`);
+  }
+}
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])]),
+    );
+  }
+  return value;
+}
+const observedWriterFingerprint = createHash("sha256")
+  .update(JSON.stringify(canonicalJson(fieldInventory?.directSqlWriters || {})))
+  .digest("hex");
+if (
+  !/^[a-f0-9]{64}$/.test(
+    String(persistence?.directSqlWriterInventorySha256 || ""),
+  ) ||
+  observedWriterFingerprint !== persistence.directSqlWriterInventorySha256
+) {
+  errors.push(
+    `direct SQL writer inventory drift: observed ${observedWriterFingerprint}; review the exact record/table writer set before updating the registry`,
+  );
+}
+const observedJsonWriterFingerprint = createHash("sha256")
+  .update(
+    JSON.stringify(canonicalJson(fieldInventory?.persistentJsonWriters || {})),
+  )
+  .digest("hex");
+if (
+  !/^[a-f0-9]{64}$/.test(
+    String(persistence?.persistentJsonWriterInventorySha256 || ""),
+  ) ||
+  observedJsonWriterFingerprint !==
+    persistence.persistentJsonWriterInventorySha256
+) {
+  errors.push(
+    `persistent JSON writer inventory drift: observed ${observedJsonWriterFingerprint}; register the new sidecar/artifact family before updating the registry`,
+  );
+}
+
+const registeredRecordNames = new Set(
+  [...inventoryRecordsByStore.values()].flatMap((records) =>
+    Object.keys(records || {}),
+  ),
+);
+for (const [index, rule] of (persistence?.recordRules || []).entries()) {
+  if (!rule.records?.length) {
+    errors.push(`persistenceOwnership.recordRules[${index}] has no records`);
+    continue;
+  }
+  for (const record of rule.records) {
+    if (!registeredRecordNames.has(record)) {
+      errors.push(
+        `persistenceOwnership.recordRules[${index}] references unknown record ${record}`,
+      );
+    }
+  }
+  for (const field of [
+    "mutability",
+    "stateTransitionOwner",
+    "deletionBehavior",
+  ]) {
+    if (!rule[field]) {
+      errors.push(
+        `persistenceOwnership.recordRules[${index}] is missing ${field}`,
+      );
+    }
+  }
+}
+
+const requiredArtifactPolicy = [
+  "family",
+  "patterns",
+  "ownerDomain",
+  "legalWriters",
+  "legalReaders",
+  "fields",
+  "mutability",
+  "allowedValues",
+  "stateTransitionOwner",
+  "retention",
+  "deletionBehavior",
+  "receiptBinding",
+  "repairPath",
+];
+const artifactFamilies = new Set();
+for (const [index, family] of (persistence?.artifactFamilies || []).entries()) {
+  if (!family.family || artifactFamilies.has(family.family)) {
+    errors.push(
+      `persistenceOwnership.artifactFamilies[${index}] must have a unique family`,
+    );
+  }
+  artifactFamilies.add(family.family);
+  for (const field of requiredArtifactPolicy) {
+    if (
+      !(field in family) ||
+      family[field] === null ||
+      family[field] === "" ||
+      (Array.isArray(family[field]) && !family[field].length)
+    ) {
+      errors.push(
+        `persistenceOwnership.artifactFamilies[${index}] is missing ${field}`,
+      );
+    }
+  }
+  for (const writer of family.legalWriters || []) {
+    const writerPath = resolve(root, writer);
+    if (!isInsideRoot(writerPath) || !statSafe(writerPath)) {
+      errors.push(
+        `persistent artifact family ${family.family} has nonexistent legal writer ${writer}`,
+      );
+    }
+  }
+}
+const artifactDomain = (registry.domains || []).find(
+  (domain) => domain.canonicalStore === "persistent_json_artifacts",
+);
+if (!artifactDomain) {
+  errors.push("persistent JSON artifacts have no owning domain");
+} else {
+  for (const family of artifactFamilies) {
+    if (!artifactDomain.canonicalTables?.includes(family)) {
+      errors.push(
+        `persistent artifact family is missing from its owning domain: ${family}`,
+      );
     }
   }
 }
@@ -280,6 +552,47 @@ const creatorFiles = filesUnder(
   new Set([".py"]),
   new Set(["tests", "__pycache__"]),
 );
+
+const productionPython = filesUnder(
+  join(root, "python_packages"),
+  new Set([".py"]),
+  new Set(["tests", "__pycache__"]),
+);
+const mutationPattern =
+  /\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+["`\[]?([A-Za-z_][A-Za-z0-9_]*)/gi;
+const recordStores = new Map();
+for (const [storeName, records] of inventoryRecordsByStore.entries()) {
+  for (const recordName of Object.keys(records || {})) {
+    const stores = recordStores.get(recordName) || [];
+    stores.push(storeName);
+    recordStores.set(recordName, stores);
+  }
+}
+for (const file of productionPython) {
+  const source = readFileSync(file, "utf8");
+  const relativeFile = relative(root, file);
+  for (const match of source.matchAll(mutationPattern)) {
+    const candidateStores = recordStores.get(match[1]) || [];
+    if (!candidateStores.length) continue;
+    const registered = candidateStores.some((storeName) =>
+      (persistenceStores.get(storeName)?.legalWriterRoots || []).some(
+        (writer) => {
+          const writerPath = resolve(root, writer);
+          const writerStat = statSafe(writerPath);
+          return writerStat?.isDirectory()
+            ? file.startsWith(`${writerPath}${sep}`)
+            : file === writerPath;
+        },
+      ),
+    );
+    if (!registered) {
+      errors.push(
+        `unauthorized direct write: ${relativeFile} mutates ${match[1]} owned by ${candidateStores.join(", ")}`,
+      );
+    }
+  }
+}
+
 rejectMatches(
   creatorFiles,
   [
@@ -330,5 +643,5 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(
-  `ownership registry valid: ${registry.domains.length} domains, ${tableOwners.size} canonical records, ${reportSchemas.size} authoritative reports`,
+  `ownership registry valid: ${registry.domains.length} domains, ${persistentRecordCount} persistent records, ${persistentFieldCount} persistent fields, ${artifactFamilies.size} artifact families, ${reportSchemas.size} authoritative reports`,
 );

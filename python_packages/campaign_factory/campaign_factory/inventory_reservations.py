@@ -895,6 +895,13 @@ class InventoryReservationRepository:
             raise ValueError(f"reservation not found: {reservation_id}")
         if pending_only and row["status"] != "pending":
             return dict(row)
+        if row["status"] == status:
+            return dict(row)
+        if row["status"] not in {"pending", "committed"}:
+            raise ValueError(
+                f"reservation cannot transition from terminal state: "
+                f"{reservation_id} ({row['status']})"
+            )
         now = self._utc_now()
         self.conn.execute(
             "UPDATE asset_inventory_reservations SET status = ?, updated_at = ? WHERE id = ?",

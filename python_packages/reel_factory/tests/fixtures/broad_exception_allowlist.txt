@@ -11,6 +11,7 @@ reel_factory/audio_mux.py:audio_stream_count:44
 reel_factory/audio_mux.py:_audio_meta:71
 reel_factory/audio_mux.py:mux_root:246
 reel_factory/caption_render.py:render_caption_png:330
+reel_factory/db_migrations.py:_apply_one:333
 reel_factory/discoverability_safety.py:audit_caption_sources:103
 reel_factory/embedding_provider.py:get_embedding_provider:95
 reel_factory/embedding_provider.py:get_embedding_provider:102
@@ -20,9 +21,9 @@ reel_factory/generation_qc.py:generated_video_qc:122
 reel_factory/hook_tools.py:<module>:26
 reel_factory/hook_tools.py:read_hook_library:131
 reel_factory/identity_verification.py:get_identity_provider:166
-reel_factory/manifest.py:_import_json:153
-reel_factory/manifest.py:materialize_cached_job:227
-reel_factory/manifest.py:get_analysis:454
+reel_factory/manifest.py:_import_json:63
+reel_factory/manifest.py:materialize_cached_job:137
+reel_factory/manifest.py:get_analysis:376
 reel_factory/observed_profiles.py:render_observed_profile:310
 reel_factory/placement.py:probe_caption_region_luminance:128
 reel_factory/placement.py:probe_caption_region_luminance:134

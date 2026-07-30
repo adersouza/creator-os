@@ -52,6 +52,22 @@ def main() -> int:
         finally:
             conn.close()
 
+    if getattr(args, "cmd", None) == "reconcile" and (
+        args.reconcile_cmd == "report" or not args.apply
+    ):
+        if not settings.db_path.exists():
+            raise FileNotFoundError(
+                f"reconciliation database not found: {settings.db_path}"
+            )
+        conn = connect_sqlite(settings.db_path, readonly=True, wal=False)
+        conn.execute("PRAGMA query_only = ON")
+        factory = SimpleNamespace(settings=settings, conn=conn)
+        try:
+            result = dispatch_pipeline_commands(args, factory, settings)
+            return int(result or 0)
+        finally:
+            conn.close()
+
     governance_commands = {
         "creator-governance-status",
         "creator-governance-transition",

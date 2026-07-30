@@ -17,16 +17,14 @@ from reel_factory.sqlite_utils import connect_sqlite
 
 from .audio_intent import read_audio_intent
 from .caption_bank import caption_static_metadata
-from .evidence_store import ensure_evidence_schema
+from .db_migrations import run_manifest_migrations
 from .feature_extract import FEATURE_KEYS, extract_features, features_from_lineage
-from .intelligence_store import ensure_intelligence_schema
 from .state_paths import manifest_db_path
 
 
 def connect(root: Path) -> sqlite3.Connection:
     conn = connect_sqlite(manifest_db_path(root))
-    ensure_intelligence_schema(conn)
-    ensure_evidence_schema(conn)
+    run_manifest_migrations(conn)
     return conn
 
 

@@ -18,6 +18,7 @@ from campaign_factory.canonical_analyzer_registry import (
 from campaign_factory.cli_dispatch_operations import dispatch_operations_commands
 from campaign_factory.cli_parser import build_cli_parser
 from campaign_factory.contentforge_cli import run_contentforge
+from campaign_factory.db_migrations import _backfill_generation_output_lineage
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.motion_generation_stage import (
     MotionWorkerError,
@@ -612,7 +613,7 @@ def test_generation_blob_deduplicates_bytes_but_preserves_every_attempt(
         cf.close()
 
 
-def test_generation_lineage_backfills_legacy_assets_without_changing_asset_reads(
+def test_generation_lineage_explicitly_repairs_legacy_assets_without_changing_reads(
     tmp_path: Path,
 ) -> None:
     cf = make_factory(tmp_path)
@@ -620,18 +621,15 @@ def test_generation_lineage_backfills_legacy_assets_without_changing_asset_reads
         legacy, _ = _legacy_rendered_asset_fixture(cf, tmp_path)
         legacy_id = legacy["id"]
         legacy_hash = legacy["content_hash"]
-    finally:
-        cf.close()
-
-    reopened = make_factory(tmp_path)
-    try:
+        _backfill_generation_output_lineage(cf.conn)
+        cf.conn.commit()
         assert (
-            reopened.conn.execute(
+            cf.conn.execute(
                 "SELECT content_hash FROM rendered_assets WHERE id = ?", (legacy_id,)
             ).fetchone()[0]
             == legacy_hash
         )
-        attempt = reopened.conn.execute(
+        attempt = cf.conn.execute(
             "SELECT * FROM generation_attempts WHERE id = ?",
             (f"attempt_legacy_{legacy_id}",),
         ).fetchone()
@@ -639,7 +637,7 @@ def test_generation_lineage_backfills_legacy_assets_without_changing_asset_reads
         assert attempt["duplicate_disposition"] == "legacy_reference"
         assert attempt["output_blob_id"] == f"blob_{legacy_hash}"
         assert (
-            reopened.conn.execute(
+            cf.conn.execute(
                 "SELECT COUNT(*) FROM generation_lineage_edges "
                 "WHERE generation_attempt_id = ?",
                 (attempt["id"],),
@@ -647,7 +645,7 @@ def test_generation_lineage_backfills_legacy_assets_without_changing_asset_reads
             == 1
         )
     finally:
-        reopened.close()
+        cf.close()
 
 
 def _legacy_rendered_asset_fixture(cf, tmp_path: Path) -> tuple[dict, Path]:

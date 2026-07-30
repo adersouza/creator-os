@@ -123,9 +123,10 @@ def test_asset_account_assignment_unique_index_rejects_duplicates(tmp_path: Path
         cf.conn.close()
 
 
-def test_migration_dedupes_preexisting_duplicate_plans(tmp_path: Path):
-    """Simulates a pre-migration DB with duplicate plan rows and verifies the
-    schema migration keeps exactly one row per logical target."""
+def test_migration_reports_preexisting_duplicate_plans_without_deleting(
+    tmp_path: Path,
+):
+    """Ambiguous legacy rows require explicit repair and remain untouched."""
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -153,9 +154,12 @@ def test_migration_dedupes_preexisting_duplicate_plans(tmp_path: Path):
         )
         cf.conn.commit()
 
-        init_db(cf.conn)
-
-        assert _plan_count(cf) == 1
+        with pytest.raises(
+            RuntimeError,
+            match="campaign_schema_duplicate_repair_required:distribution_plans",
+        ):
+            init_db(cf.conn)
+        assert _plan_count(cf) == 2
         remaining = cf.conn.execute(
             "SELECT id FROM distribution_plans WHERE rendered_asset_id = 'asset_1'"
         ).fetchone()["id"]

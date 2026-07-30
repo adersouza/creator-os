@@ -7,6 +7,7 @@ from pathlib import Path
 
 from reel_factory.sqlite_utils import connect_sqlite
 
+from .db_migrations import execute_script, run_manifest_migrations
 from .state_paths import manifest_db_path
 
 
@@ -17,12 +18,14 @@ def db_path(root: Path) -> Path:
 def connect(root: Path) -> sqlite3.Connection:
     conn = connect_sqlite(db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
-    ensure_intelligence_schema(conn)
+    run_manifest_migrations(conn)
     return conn
 
 
 def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript("""
+    execute_script(
+        conn,
+        """
     CREATE TABLE IF NOT EXISTS reference_analysis (
         analysis_id TEXT PRIMARY KEY,
         reference_path TEXT NOT NULL,
@@ -71,7 +74,8 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         updated_at INTEGER NOT NULL
     );
 
-    """)
+    """,
+    )
     _ensure_columns(
         conn,
         "variations",
@@ -86,7 +90,6 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
             "audio_track_id": "TEXT",
         },
     )
-    conn.commit()
 
 
 def _ensure_columns(

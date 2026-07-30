@@ -13,8 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .evidence_store import ensure_evidence_schema
-from .intelligence_store import ensure_intelligence_schema
+from .db_migrations import run_manifest_migrations
 
 try:
     from .fileops import atomic_write_text
@@ -40,7 +39,7 @@ def sha256_str(s: str) -> str:
 
 
 class Manifest:
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 9
 
     def __init__(self, json_path: Path):
         self.json_path = json_path
@@ -52,96 +51,7 @@ class Manifest:
             self._import_json(json_path)
 
     def _init_db(self) -> None:
-        self.conn.executescript("""
-        PRAGMA foreign_keys=ON;
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            version INTEGER PRIMARY KEY,
-            applied_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS videos (
-            video_id TEXT PRIMARY KEY,
-            source_path TEXT NOT NULL,
-            source_video_hash TEXT NOT NULL,
-            source_duration_sec REAL NOT NULL,
-            ingested_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS variations (
-            job_key TEXT PRIMARY KEY,
-            video_id TEXT NOT NULL,
-            recipe TEXT NOT NULL,
-            recipe_params_json TEXT NOT NULL,
-            caption_text TEXT NOT NULL,
-            caption_hash TEXT NOT NULL,
-            output_path TEXT NOT NULL,
-            filename TEXT,
-            output_hash TEXT NOT NULL,
-            output_size_bytes INTEGER NOT NULL,
-            duration_sec REAL NOT NULL,
-            audio TEXT NOT NULL,
-            encoded_at INTEGER NOT NULL,
-            encoder TEXT NOT NULL,
-            status TEXT NOT NULL,
-            render_time_sec REAL,
-            error_message TEXT,
-            FOREIGN KEY(video_id) REFERENCES videos(video_id)
-        );
-        CREATE TABLE IF NOT EXISTS render_attempts (
-            attempt_id TEXT PRIMARY KEY,
-            job_key TEXT NOT NULL,
-            attempt_no INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            temp_path TEXT NOT NULL,
-            final_path TEXT NOT NULL,
-            ffmpeg_cmd TEXT NOT NULL,
-            started_at INTEGER NOT NULL,
-            ended_at INTEGER,
-            error_message TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_variations_video_id ON variations(video_id);
-        CREATE INDEX IF NOT EXISTS idx_variations_recipe ON variations(recipe);
-        CREATE INDEX IF NOT EXISTS idx_variations_caption_hash ON variations(caption_hash);
-        CREATE INDEX IF NOT EXISTS idx_variations_active_failures
-            ON variations(encoded_at, recipe)
-            WHERE status = 'failed';
-        CREATE INDEX IF NOT EXISTS idx_render_attempts_job_key
-            ON render_attempts(job_key, attempt_no);
-        CREATE TABLE IF NOT EXISTS analysis_cache (
-            cache_key TEXT PRIMARY KEY,
-            source_hash TEXT NOT NULL,
-            analyzer TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_analysis_cache_source
-            ON analysis_cache(source_hash, analyzer);
-        """)
-        ensure_evidence_schema(self.conn)
-        ensure_intelligence_schema(self.conn)
-        cols = {
-            row["name"]
-            for row in self.conn.execute("PRAGMA table_info(variations)").fetchall()
-        }
-        if "error_message" not in cols:
-            self.conn.execute("ALTER TABLE variations ADD COLUMN error_message TEXT")
-        if "filename" not in cols:
-            self.conn.execute("ALTER TABLE variations ADD COLUMN filename TEXT")
-        rows = self.conn.execute(
-            "SELECT job_key, output_path FROM variations WHERE filename IS NULL OR filename = ''"
-        ).fetchall()
-        self.conn.executemany(
-            "UPDATE variations SET filename = ? WHERE job_key = ?",
-            [(Path(row["output_path"]).name, row["job_key"]) for row in rows],
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_variations_filename ON variations(filename)"
-        )
-        self.conn.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-            (self.SCHEMA_VERSION, int(time.time())),
-        )
-        self.conn.execute(f"PRAGMA user_version={self.SCHEMA_VERSION}")
-        self.conn.commit()
+        run_manifest_migrations(self.conn)
 
     def _is_empty(self) -> bool:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM videos").fetchone()
@@ -421,26 +331,38 @@ class Manifest:
         ended_at: int | None = None,
         error_message: str | None = None,
     ) -> None:
-        self.conn.execute(
+        values = (
+            f"{key}:{attempt_no}",
+            key,
+            attempt_no,
+            status,
+            str(temp_path),
+            str(final_path),
+            " ".join(shlex.quote(c) for c in ffmpeg_cmd),
+            started_at,
+            ended_at,
+            error_message[-2000:] if error_message else None,
+        )
+        cur = self.conn.execute(
             """
-            INSERT OR REPLACE INTO render_attempts (
+            INSERT OR IGNORE INTO render_attempts (
                 attempt_id, job_key, attempt_no, status, temp_path, final_path,
                 ffmpeg_cmd, started_at, ended_at, error_message
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                f"{key}:{attempt_no}",
-                key,
-                attempt_no,
-                status,
-                str(temp_path),
-                str(final_path),
-                " ".join(shlex.quote(c) for c in ffmpeg_cmd),
-                started_at,
-                ended_at,
-                error_message[-2000:] if error_message else None,
-            ),
+            values,
         )
+        if cur.rowcount == 0:
+            stored = self.conn.execute(
+                """
+                SELECT attempt_id, job_key, attempt_no, status, temp_path, final_path,
+                       ffmpeg_cmd, started_at, ended_at, error_message
+                FROM render_attempts WHERE attempt_id=?
+                """,
+                (values[0],),
+            ).fetchone()
+            if stored is None or tuple(stored) != values:
+                raise RuntimeError("render_attempt_evidence_conflict")
 
     def get_analysis(self, source_hash: str, analyzer: str) -> dict | None:
         row = self.conn.execute(

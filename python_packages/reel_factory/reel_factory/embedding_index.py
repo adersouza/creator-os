@@ -12,14 +12,14 @@ from typing import Any
 
 from reel_factory.sqlite_utils import connect_sqlite
 
+from .db_migrations import run_manifest_migrations
 from .embedding_provider import HASH_MODEL, cosine_similarity, get_embedding_provider
-from .intelligence_store import ensure_intelligence_schema
 from .state_paths import manifest_db_path
 
 
 def connect(root: Path) -> sqlite3.Connection:
     conn = connect_sqlite(manifest_db_path(root))
-    ensure_intelligence_schema(conn)
+    run_manifest_migrations(conn)
     return conn
 
 

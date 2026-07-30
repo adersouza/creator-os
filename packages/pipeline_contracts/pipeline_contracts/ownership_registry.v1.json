@@ -1,6 +1,6 @@
 {
   "schema": "creator_os.state_ownership_registry.v1",
-  "version": 1,
+  "version": 2,
   "contractPackage": {
     "name": "@creator-os/pipeline-contracts",
     "version": "4.2.0"
@@ -11,7 +11,9 @@
       "canonicalStores": [
         "campaign_factory_sqlite",
         "reference_factory_sqlite",
-        "reel_factory_local_evidence"
+        "reel_factory_local_evidence",
+        "reel_factory_render_queue",
+        "persistent_json_artifacts"
       ]
     },
     "threadsdashboard": {
@@ -120,6 +122,59 @@
       "importDirection": [],
       "exportDirection": [
         "reel_factory_to_campaign_factory_immutable_render_receipt"
+      ],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "render_queue_and_execution_receipts",
+      "repository": "creator-os",
+      "canonicalStore": "reel_factory_render_queue",
+      "canonicalTables": [
+        "queue_jobs",
+        "provider_execution_receipts"
+      ],
+      "allowedWriters": [
+        "reel_factory_render_queue",
+        "reel_factory_provider_spend_authorization"
+      ],
+      "allowedReaders": [
+        "reel_factory_worker",
+        "campaign_factory_operator_status"
+      ],
+      "importDirection": [
+        "campaign_factory_spend_authorization_to_reel_factory"
+      ],
+      "exportDirection": [
+        "reel_factory_execution_receipt_to_campaign_factory_reconciliation"
+      ],
+      "externalSourceOfTruth": null
+    },
+    {
+      "domain": "persistent_artifact_evidence",
+      "repository": "creator-os",
+      "canonicalStore": "persistent_json_artifacts",
+      "canonicalTables": [
+        "campaign_handoff_manifests_and_receipts",
+        "reel_manifest_and_artifact_metadata",
+        "reel_analysis_and_provider_receipts",
+        "reel_caption_banks_and_review_sidecars",
+        "reference_intake_and_pattern_artifacts"
+      ],
+      "allowedWriters": [
+        "campaign_factory",
+        "reel_factory",
+        "reference_factory"
+      ],
+      "allowedReaders": [
+        "campaign_factory",
+        "reel_factory",
+        "reference_factory",
+        "contentforge",
+        "threadsdashboard_signed_ingest_api"
+      ],
+      "importDirection": [],
+      "exportDirection": [
+        "creator_os_to_threadsdashboard_signed_ingest_api"
       ],
       "externalSourceOfTruth": null
     },
@@ -273,6 +328,274 @@
       "externalSourceOfTruth": null
     }
   ],
+  "persistenceOwnership": {
+    "schema": "creator_os.persistence_ownership_registry.v1",
+    "inventoryCommand": "uv run python scripts/inventory-persistence.py",
+    "directSqlWriterInventory": "record-and-table-level exact source file sets",
+    "directSqlWriterInventorySha256": "769ab8bc9d72dedfef681979bd24903230481ac630977a03f31634c2a2bb3a65",
+    "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
+    "persistentJsonWriterInventorySha256": "70961d7052de89a56a196431a2de2e3117cf40c6f9edd03be3b41682cff78dbd",
+    "policyInheritance": [
+      "store policy applies to every discovered record",
+      "record policy applies to every discovered field unless a stricter field rule applies",
+      "primary-key and created-at fields are immutable after insert",
+      "SQLite type, nullability, default, foreign-key, unique, CHECK, and trigger declarations are the allowed structural constraints",
+      "unregistered records, fields, direct-SQL writers, and artifact families fail ownership validation"
+    ],
+    "sqliteStores": [
+      {
+        "store": "campaign_factory_sqlite",
+        "ownerDomain": "campaign_factory",
+        "legalWriterRoots": [
+          "python_packages/campaign_factory/campaign_factory"
+        ],
+        "legalReaders": [
+          "campaign_factory",
+          "reel_factory_registration",
+          "contentforge_audit",
+          "reference_factory_promotion"
+        ],
+        "mutability": "domain_mutable_unless_database_trigger_or_record_rule_is_stricter",
+        "allowedValues": "SQLite declarations plus Campaign Factory domain validators",
+        "stateTransitionOwner": "campaign_factory_domain_api",
+        "retention": "historical rows and evidence retained by Campaign Factory policy",
+        "deletionBehavior": "domain tombstone or explicit audited repair; no cross-repository deletion",
+        "receiptBinding": "canonical row identity and exact subject SHA where the record describes bytes",
+        "repairPath": "creator-os reconcile report and the owning Campaign Factory repair command"
+      },
+      {
+        "store": "reference_factory_sqlite",
+        "ownerDomain": "reference_factory",
+        "legalWriterRoots": [
+          "python_packages/reference_factory/reference_factory"
+        ],
+        "legalReaders": [
+          "reference_factory",
+          "campaign_factory_promotion_import"
+        ],
+        "mutability": "domain_mutable_unless_database_trigger_or_record_rule_is_stricter",
+        "allowedValues": "SQLite declarations plus Reference Factory domain validators",
+        "stateTransitionOwner": "reference_factory_domain_api",
+        "retention": "authorized reference evidence retained until governed archival or deletion",
+        "deletionBehavior": "owner-domain archival or explicit audited repair",
+        "receiptBinding": "reference ID, content hash, and receipt path where applicable",
+        "repairPath": "Reference Factory reconciliation through the owning command"
+      },
+      {
+        "store": "reel_factory_local_evidence",
+        "ownerDomain": "reel_factory",
+        "legalWriterRoots": [
+          "python_packages/reel_factory/reel_factory"
+        ],
+        "legalReaders": [
+          "reel_factory",
+          "campaign_factory_registration"
+        ],
+        "mutability": "render evidence is append-only; caches and derived feature projections may be replaced by their owning Reel Factory module",
+        "allowedValues": "SQLite declarations plus Reel Factory render validators",
+        "stateTransitionOwner": "reel_factory_render_and_evidence_modules",
+        "retention": "render evidence retained through downstream registration and audit retention",
+        "deletionBehavior": "cache pruning only through its owner; evidence requires audited repair",
+        "receiptBinding": "source/output SHA, render attempt, and local evidence identity",
+        "repairPath": "Reel Factory evidence reconciliation"
+      },
+      {
+        "store": "reel_factory_render_queue",
+        "ownerDomain": "reel_factory",
+        "legalWriterRoots": [
+          "python_packages/reel_factory/reel_factory/render_queue.py",
+          "python_packages/reel_factory/reel_factory/db_migrations.py",
+          "python_packages/reel_factory/reel_factory/provider_spend_authorization.py"
+        ],
+        "legalReaders": [
+          "reel_factory_worker",
+          "campaign_factory_operator_status"
+        ],
+        "mutability": "queue state is mutable only through RenderQueue; provider execution receipts are append-only",
+        "allowedValues": "SQLite declarations and RenderQueue state machine",
+        "stateTransitionOwner": "reel_factory.render_queue.RenderQueue",
+        "retention": "terminal jobs and provider execution receipts retained for recovery and spend audit",
+        "deletionBehavior": "no implicit deletion; explicit audited maintenance only",
+        "receiptBinding": "job key or Campaign-issued authorization and request fingerprint",
+        "repairPath": "RenderQueue stale recovery or spend-attempt reconciliation"
+      }
+    ],
+    "recordRules": [
+      {
+        "records": [
+          "activity_events",
+          "approval_decisions",
+          "asset_inventory_reservation_events",
+          "audit_reports",
+          "audio_cache_prune_receipts",
+          "audio_publication_history",
+          "campaign_lifecycle_events",
+          "creative_plan_events",
+          "creative_plan_item_events",
+          "creator_authorization_events",
+          "creator_lifecycle_events",
+          "generation_lineage_edges",
+          "performance_snapshot_observations",
+          "promotion_events",
+          "reference_anchor_receipts",
+          "reference_promotion_receipts",
+          "provider_execution_receipts",
+          "schema_migrations"
+        ],
+        "mutability": "append_only_or_database_immutable",
+        "stateTransitionOwner": "event_or_receipt_producer",
+        "deletionBehavior": "supersede with a new event or use explicit audited repair"
+      },
+      {
+        "records": [
+          "campaign_governance",
+          "creator_lifecycle_state",
+          "pipeline_jobs",
+          "queue_jobs",
+          "render_attempts",
+          "asset_inventory_reservations",
+          "threadsdash_exports"
+        ],
+        "mutability": "state_machine_only",
+        "stateTransitionOwner": "registered owner-domain transition API",
+        "deletionBehavior": "terminal state or tombstone; never erase transition evidence"
+      }
+    ],
+    "artifactFamilies": [
+      {
+        "family": "campaign_handoff_manifests_and_receipts",
+        "patterns": [
+          "**/*threadsdash*manifest*.json",
+          "**/*threadsdash*receipt*.json",
+          "**/*export*.json"
+        ],
+        "ownerDomain": "campaign_factory",
+        "legalWriters": [
+          "python_packages/campaign_factory/campaign_factory/exports.py",
+          "python_packages/campaign_factory/campaign_factory/adapters/threadsdash_export_saga.py",
+          "python_packages/campaign_factory/campaign_factory/adapters/threadsdash_handoff_evidence.py"
+        ],
+        "legalReaders": [
+          "campaign_factory",
+          "threadsdashboard_signed_ingest_api"
+        ],
+        "fields": "producer payload plus versioned Pipeline Contract",
+        "mutability": "append_only_or_content_addressed",
+        "allowedValues": "versioned payload validator",
+        "stateTransitionOwner": "campaign_factory_export_saga",
+        "retention": "through acknowledgment, reconciliation, and historical retention",
+        "deletionBehavior": "supersede; do not overwrite acknowledged evidence",
+        "receiptBinding": "export ID, final SHA, approval fingerprint, and contract fingerprint",
+        "repairPath": "creator-os bridge reconcile"
+      },
+      {
+        "family": "reel_manifest_and_artifact_metadata",
+        "patterns": [
+          "**/manifest.json",
+          "**/*.generated_asset_lineage.json",
+          "**/*.direct_reference_lineage.json",
+          "**/*.caption_lineage.json",
+          "**/*.audio_intent.json"
+        ],
+        "ownerDomain": "reel_factory",
+        "legalWriters": [
+          "python_packages/reel_factory/reel_factory/manifest.py",
+          "python_packages/reel_factory/reel_factory/generate_assets.py",
+          "python_packages/reel_factory/reel_factory/audio_intent.py",
+          "python_packages/reel_factory/reel_factory/reel_pipeline.py"
+        ],
+        "legalReaders": [
+          "reel_factory",
+          "campaign_factory_registration",
+          "contentforge"
+        ],
+        "fields": "producer-owned versioned payload; byte identities remain exact",
+        "mutability": "atomic replacement before registration; immutable after exact-SHA registration",
+        "allowedValues": "producer validator and registered schema where present",
+        "stateTransitionOwner": "reel_factory",
+        "retention": "with registered source and final media evidence",
+        "deletionBehavior": "audited repair only after registration",
+        "receiptBinding": "source/output SHA and render or audio identity",
+        "repairPath": "Reel Factory evidence reconciliation"
+      },
+      {
+        "family": "reel_analysis_and_provider_receipts",
+        "patterns": [
+          "**/*.virality_report.json",
+          "**/*.video_analysis.json",
+          "**/_ai_qc.json",
+          "**/*.higgsfield_submission.json",
+          "**/*receipt*.json"
+        ],
+        "ownerDomain": "reel_factory",
+        "legalWriters": [
+          "python_packages/reel_factory/reel_factory"
+        ],
+        "legalReaders": [
+          "reel_factory",
+          "campaign_factory_registration",
+          "contentforge"
+        ],
+        "fields": "literal schema and producer-owned evidence payload",
+        "mutability": "append_only_or_content_addressed",
+        "allowedValues": "producer validator",
+        "stateTransitionOwner": "receipt producer",
+        "retention": "with subject media and downstream lineage",
+        "deletionBehavior": "supersede or explicit audited repair",
+        "receiptBinding": "subject SHA, request fingerprint, or provider output identity",
+        "repairPath": "owner-domain provider or evidence reconciliation"
+      },
+      {
+        "family": "reel_caption_banks_and_review_sidecars",
+        "patterns": [
+          "**/caption_banks/*.json",
+          "**/01_captions/*.json"
+        ],
+        "ownerDomain": "reel_factory",
+        "legalWriters": [
+          "python_packages/reel_factory/reel_factory/caption_bank.py",
+          "python_packages/reel_factory/reel_factory/caption_intake.py",
+          "python_packages/reel_factory/reel_factory/caption_generation_log.py"
+        ],
+        "legalReaders": [
+          "reel_factory",
+          "campaign_factory_daily_production"
+        ],
+        "fields": "typed caption-bank or review-sidecar payload",
+        "mutability": "atomic versioned rebuild; approvals and payload hashes remain attributable",
+        "allowedValues": "caption-bank validator",
+        "stateTransitionOwner": "reel_factory_caption_intake",
+        "retention": "approved payloads and approval receipts retained",
+        "deletionBehavior": "rebuild or supersede; do not rewrite approval history",
+        "receiptBinding": "candidate, approval, static-text, and structured-payload hashes",
+        "repairPath": "caption bank rebuild and structured approval review"
+      },
+      {
+        "family": "reference_intake_and_pattern_artifacts",
+        "patterns": [
+          "**/*reference*receipt*.json",
+          "**/*pattern*.json",
+          "**/*contact_sheet*.json"
+        ],
+        "ownerDomain": "reference_factory",
+        "legalWriters": [
+          "python_packages/reference_factory/reference_factory"
+        ],
+        "legalReaders": [
+          "reference_factory",
+          "campaign_factory_promotion_import"
+        ],
+        "fields": "Reference Factory producer payload",
+        "mutability": "append-only evidence or versioned derived pattern",
+        "allowedValues": "Reference Factory validator",
+        "stateTransitionOwner": "reference_factory",
+        "retention": "while source authorization and promoted lineage require attribution",
+        "deletionBehavior": "owner-domain archival or explicit rights-governed repair",
+        "receiptBinding": "reference ID, content hash, and promotion fingerprint",
+        "repairPath": "Reference Factory intake or promotion reconciliation"
+      }
+    ]
+  },
   "authoritativeReportDiscovery": {
     "sourceFiles": [
       "python_packages/campaign_factory/campaign_factory/operator_status.py",

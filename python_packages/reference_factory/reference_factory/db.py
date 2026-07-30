@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import sqlite3
 from collections.abc import Iterable
@@ -8,9 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.sqlite import connect_sqlite
 from creator_os_core.sqlite import ensure_columns as _ensure_columns
 
 from .config import DEFAULT_DB_PATH, ensure_data_dirs
+from .db_migrations import Migration, run_migrations
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -413,31 +417,234 @@ CREATE INDEX IF NOT EXISTS idx_prompt_post_outcomes_post ON prompt_post_outcomes
 CREATE INDEX IF NOT EXISTS idx_prompt_post_outcomes_snapshot ON prompt_post_outcomes(source_snapshot_at);
 """
 
+EVIDENCE_GUARDS = """
+CREATE TABLE IF NOT EXISTS reference_compatibility_runs (
+  run_id TEXT PRIMARY KEY,
+  step_id TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  affected_rows INTEGER NOT NULL,
+  source_version TEXT NOT NULL,
+  details_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS reference_schema_migrations_applied_immutable_update
+BEFORE UPDATE ON reference_schema_migrations
+WHEN OLD.status = 'applied'
+BEGIN
+  SELECT RAISE(ABORT, 'applied reference migrations are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_schema_migrations_applied_immutable_delete
+BEFORE DELETE ON reference_schema_migrations
+WHEN OLD.status = 'applied'
+BEGIN
+  SELECT RAISE(ABORT, 'applied reference migrations are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_compatibility_runs_immutable_update
+BEFORE UPDATE ON reference_compatibility_runs
+BEGIN
+  SELECT RAISE(ABORT, 'reference compatibility receipts are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_compatibility_runs_immutable_delete
+BEFORE DELETE ON reference_compatibility_runs
+BEGIN
+  SELECT RAISE(ABORT, 'reference compatibility receipts are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_anchor_receipts_immutable_update
+BEFORE UPDATE ON reference_anchor_receipts
+BEGIN
+  SELECT RAISE(ABORT, 'reference anchor receipts are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_anchor_receipts_immutable_delete
+BEFORE DELETE ON reference_anchor_receipts
+BEGIN
+  SELECT RAISE(ABORT, 'reference anchor receipts are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS learning_runs_immutable_update
+BEFORE UPDATE ON learning_runs
+BEGIN
+  SELECT RAISE(ABORT, 'learning runs are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS learning_runs_immutable_delete
+BEFORE DELETE ON learning_runs
+BEGIN
+  SELECT RAISE(ABORT, 'learning runs are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS learning_clusters_immutable_update
+BEFORE UPDATE ON learning_clusters
+BEGIN
+  SELECT RAISE(ABORT, 'learning clusters are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS learning_clusters_immutable_delete
+BEFORE DELETE ON learning_clusters
+BEGIN
+  SELECT RAISE(ABORT, 'learning clusters are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS audio_trend_snapshots_immutable_update
+BEFORE UPDATE ON audio_trend_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'audio trend snapshots are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS audio_trend_snapshots_immutable_delete
+BEFORE DELETE ON audio_trend_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'audio trend snapshots are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_analysis_jobs_status_insert
+BEFORE INSERT ON reference_analysis_jobs
+WHEN NEW.status NOT IN ('needs_analysis', 'analyzed', 'pattern_ready')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid reference analysis status');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_analysis_jobs_status_update
+BEFORE UPDATE OF status ON reference_analysis_jobs
+WHEN NEW.status NOT IN ('needs_analysis', 'analyzed', 'pattern_ready')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid reference analysis status');
+END;
+"""
+
 
 def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     ensure_data_dirs(db_path.parent)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.executescript("\n".join(_schema_statements("TABLE")))
-    _ensure_schema_columns(conn)
-    backfill_source_metrics_from_sidecars(conn)
-    conn.executescript("\n".join(_schema_statements("INDEX")))
-    conn.executescript(
-        """
-        CREATE TRIGGER IF NOT EXISTS reference_anchor_receipts_immutable_update
-        BEFORE UPDATE ON reference_anchor_receipts
-        BEGIN
-          SELECT RAISE(ABORT, 'reference anchor receipts are immutable');
-        END;
-        CREATE TRIGGER IF NOT EXISTS reference_anchor_receipts_immutable_delete
-        BEFORE DELETE ON reference_anchor_receipts
-        BEGIN
-          SELECT RAISE(ABORT, 'reference anchor receipts are immutable');
-        END;
-        """
-    )
+    conn = connect_sqlite(db_path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    run_migrations(conn, _migrations())
+    with conn:
+        updated = backfill_source_metrics_from_sidecars(conn)
+        if updated:
+            _record_compatibility_run(
+                conn, "source_metric_sidecar_backfill_v1", updated
+            )
     return conn
+
+
+def _migrations() -> tuple[Migration, ...]:
+    return (
+        Migration(
+            version=1,
+            migration_id="20260730_reference_schema_baseline_v1",
+            checksum_material=SCHEMA,
+            apply=_apply_schema,
+            postcondition=_schema_postcondition,
+        ),
+        Migration(
+            version=2,
+            migration_id="20260730_reference_evidence_guards_v1",
+            checksum_material=EVIDENCE_GUARDS,
+            apply=_apply_evidence_guards,
+            postcondition=_guard_postcondition,
+        ),
+    )
+
+
+def _apply_schema(conn: sqlite3.Connection) -> None:
+    for statement in _schema_statements("TABLE"):
+        conn.execute(statement)
+    _ensure_schema_columns(conn)
+    for statement in _schema_statements("INDEX"):
+        conn.execute(statement)
+
+
+def _apply_evidence_guards(conn: sqlite3.Connection) -> None:
+    statement = ""
+    for line in EVIDENCE_GUARDS.splitlines():
+        statement += f"{line}\n"
+        if sqlite3.complete_statement(statement):
+            conn.execute(statement)
+            statement = ""
+    if statement.strip():
+        raise RuntimeError("reference_schema_guard_sql_incomplete")
+
+
+def _schema_postcondition(conn: sqlite3.Connection) -> None:
+    required = {
+        "source_files",
+        "reference_anchor_receipts",
+        "reference_analysis_jobs",
+        "generated_video_prompts",
+        "prompt_post_outcomes",
+    }
+    actual = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    if missing := required - actual:
+        raise RuntimeError(
+            f"reference_schema_tables_missing:{','.join(sorted(missing))}"
+        )
+    source_columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(source_files)").fetchall()
+    }
+    if (
+        "source_platform" not in source_columns
+        or "intake_metadata_json" not in source_columns
+    ):
+        raise RuntimeError("reference_schema_compatibility_columns_missing")
+
+
+def _guard_postcondition(conn: sqlite3.Connection) -> None:
+    required = {
+        "reference_schema_migrations_applied_immutable_update",
+        "reference_anchor_receipts_immutable_update",
+        "learning_runs_immutable_update",
+        "audio_trend_snapshots_immutable_update",
+        "reference_analysis_jobs_status_update",
+    }
+    actual = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        ).fetchall()
+    }
+    if missing := required - actual:
+        raise RuntimeError(
+            f"reference_schema_triggers_missing:{','.join(sorted(missing))}"
+        )
+
+
+def _record_compatibility_run(
+    conn: sqlite3.Connection, step_id: str, affected_rows: int
+) -> None:
+    now = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    state_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT reference_id, source_views, source_likes, source_comments,
+                   source_posted_at
+            FROM source_files
+            WHERE source_views IS NOT NULL OR source_likes IS NOT NULL
+               OR source_comments IS NOT NULL OR source_posted_at IS NOT NULL
+            ORDER BY reference_id
+            """
+        ).fetchall()
+    ]
+    state_checksum = hashlib.sha256(
+        json.dumps(state_rows, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    receipt_checksum = hashlib.sha256(
+        f"{step_id}\n{state_checksum}".encode()
+    ).hexdigest()
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO reference_compatibility_runs (
+          run_id, step_id, checksum, affected_rows, source_version,
+          details_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            f"compat_{receipt_checksum[:32]}",
+            step_id,
+            receipt_checksum,
+            affected_rows,
+            os.environ.get("CREATOR_OS_SOURCE_SHA") or "unknown",
+            json.dumps({"stateChecksum": state_checksum}, sort_keys=True),
+            now,
+        ),
+    )
 
 
 def _schema_statements(kind: str) -> list[str]:
@@ -451,7 +658,6 @@ def _schema_statements(kind: str) -> list[str]:
 def _ensure_schema_columns(conn: sqlite3.Connection) -> None:
     for table, columns in _declared_schema_columns().items():
         _ensure_columns(conn, table, columns)
-    conn.commit()
 
 
 def _declared_schema_columns() -> dict[str, dict[str, str]]:
@@ -511,7 +717,7 @@ def backfill_source_metrics_from_sidecars(conn: sqlite3.Connection) -> int:
         metrics = source_metrics_from_info_json(Path(str(row["path"])))
         if not any(value is not None for value in metrics.values()):
             continue
-        conn.execute(
+        cursor = conn.execute(
             """
             UPDATE source_files
             SET source_views = COALESCE(source_views, ?),
@@ -519,6 +725,12 @@ def backfill_source_metrics_from_sidecars(conn: sqlite3.Connection) -> int:
                 source_comments = COALESCE(source_comments, ?),
                 source_posted_at = COALESCE(source_posted_at, ?)
             WHERE reference_id = ?
+              AND (
+                (source_views IS NULL AND ? IS NOT NULL)
+                OR (source_likes IS NULL AND ? IS NOT NULL)
+                OR (source_comments IS NULL AND ? IS NOT NULL)
+                OR (source_posted_at IS NULL AND ? IS NOT NULL)
+              )
             """,
             (
                 metrics["source_views"],
@@ -526,11 +738,13 @@ def backfill_source_metrics_from_sidecars(conn: sqlite3.Connection) -> int:
                 metrics["source_comments"],
                 metrics["source_posted_at"],
                 row["reference_id"],
+                metrics["source_views"],
+                metrics["source_likes"],
+                metrics["source_comments"],
+                metrics["source_posted_at"],
             ),
         )
-        updated += 1
-    if updated:
-        conn.commit()
+        updated += max(cursor.rowcount, 0)
     return updated
 
 

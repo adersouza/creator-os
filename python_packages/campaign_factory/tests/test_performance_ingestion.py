@@ -2002,13 +2002,12 @@ def test_lifecycle_report_derives_approved_assigned_planned_and_ready_states(
         assert _lifecycle_state(ready) == "exportable"
         assert ready["rows"][0]["distributionPlanId"] == plan["id"]
 
-        cf.conn.execute("DELETE FROM audit_reports")
-        cf.conn.commit()
-        blocked = cf.domains.lifecycle_reporting.lifecycle_report(
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            cf.conn.execute("DELETE FROM audit_reports")
+        unchanged = cf.domains.lifecycle_reporting.lifecycle_report(
             "may", include_threadsdash="off"
         )
-        assert _lifecycle_state(blocked) == "distribution_planned"
-        assert blocked["rows"][0]["blockingReason"] == "missing_audit"
+        assert _lifecycle_state(unchanged) == "exportable"
     finally:
         cf.close()
 
@@ -2636,9 +2635,24 @@ def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_sa
             cf.domains.finished_video.review_rendered_asset(
                 asset_id, decision=decision, notes=f"owner {decision}"
             )
+            audit = dict(
+                cf.conn.execute(
+                    """
+                    SELECT * FROM audit_reports
+                    WHERE rendered_asset_id = ?
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                    """,
+                    (asset_id,),
+                ).fetchone()
+            )
+            audit["id"] = f"audit_score_{idx}"
+            audit["score"] = score
+            audit["created_at"] = f"2026-01-0{idx}T00:00:00+00:00"
+            columns = ", ".join(audit)
+            placeholders = ", ".join("?" for _ in audit)
             cf.conn.execute(
-                "UPDATE audit_reports SET score = ?, created_at = ? WHERE rendered_asset_id = ?",
-                (score, f"2026-01-0{idx}T00:00:00+00:00", asset_id),
+                f"INSERT INTO audit_reports ({columns}) VALUES ({placeholders})",
+                tuple(audit.values()),
             )
         cf.conn.commit()
 
