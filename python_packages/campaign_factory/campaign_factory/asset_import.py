@@ -9,7 +9,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .artifact_storage import (
+    atomic_copy,
+    campaign_dirs,
+    has_symlink_component,
+    is_regular_file,
+)
 from .config import CREATOR_OS_ROOT, Settings
+from .source_intake import classify_source, record_source_lifecycle
 
 
 def _json_dict(path: Path) -> dict[str, Any]:
@@ -206,19 +213,7 @@ class AssetImportRepository:
         self._graph_id_for = graph_id_for
 
     def _campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
-        root = self.settings.campaigns_dir / model_slug / campaign_slug
-        dirs = {
-            "root": root,
-            "sources": root / "00_sources",
-            "reel_inputs": root / "01_reel_inputs",
-            "rendered": root / "02_rendered",
-            "audits": root / "03_contentforge_audits",
-            "approved": root / "04_approved",
-            "exports": root / "05_threadsdash_exports",
-        }
-        for path in dirs.values():
-            path.mkdir(parents=True, exist_ok=True)
-        return dirs
+        return campaign_dirs(self.settings.campaigns_dir, model_slug, campaign_slug)
 
     def import_folder(
         self,
@@ -233,7 +228,10 @@ class AssetImportRepository:
         notes: str | None = None,
         storage_mode: str = "copy",
     ) -> dict[str, Any]:
-        folder = Path(folder).expanduser().resolve()
+        requested_folder = Path(folder).expanduser()
+        if has_symlink_component(requested_folder):
+            raise ValueError("input folder must not contain symlink components")
+        folder = requested_folder.resolve()
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"input folder not found: {folder}")
         normalized_storage_mode = str(storage_mode).strip().lower()
@@ -269,9 +267,14 @@ class AssetImportRepository:
             imported: list[dict[str, Any]] = []
             duplicates: list[str] = []
             ignored: list[str] = []
+            quarantined: list[dict[str, Any]] = []
             for src in sorted(folder.iterdir()):
-                media_type = self._media_type_for_path(src)
-                if not src.is_file() or media_type not in {"video", "image"}:
+                if not is_regular_file(src):
+                    ignored.append(str(src))
+                    continue
+                classification = classify_source(src)
+                media_type = str(classification["mediaType"])
+                if media_type not in {"video", "image"}:
                     ignored.append(str(src))
                     continue
                 digest = self._sha256_file(src)
@@ -296,6 +299,17 @@ class AssetImportRepository:
                         commit=False,
                     )
                     continue
+                global_duplicates = [
+                    str(row["id"])
+                    for row in self.conn.execute(
+                        """
+                        SELECT id FROM source_assets
+                        WHERE content_hash = ? AND campaign_id != ?
+                        ORDER BY id
+                        """,
+                        (digest, campaign["id"]),
+                    ).fetchall()
+                ]
                 dest_name = (
                     f"{self._slugify(src.stem)}_{digest[:10]}{src.suffix.lower()}"
                 )
@@ -303,7 +317,12 @@ class AssetImportRepository:
                     dest = src
                 else:
                     dest = dirs["sources"] / dest_name
-                    shutil.copy2(src, dest)
+                    atomic_copy(
+                        src,
+                        dest,
+                        expected_sha256=digest,
+                        storage_root=self.settings.campaigns_dir,
+                    )
                 now = self._utc_now()
                 source_id = self._new_id("src")
                 self.conn.execute(
@@ -335,6 +354,23 @@ class AssetImportRepository:
                         "SELECT * FROM source_assets WHERE id = ?", (source_id,)
                     ).fetchone()
                 )
+                record_source_lifecycle(
+                    self.conn,
+                    source_asset_id=source_id,
+                    stored_path=dest,
+                    storage_mode=normalized_storage_mode,
+                    classification=classification,
+                    settings=self.settings,
+                    now=now,
+                    duplicate_source_asset_ids=global_duplicates,
+                )
+                if classification.get("quarantineReason"):
+                    quarantined.append(
+                        {
+                            "sourceAssetId": source_id,
+                            "reason": classification["quarantineReason"],
+                        }
+                    )
                 source_graph_id = self._ensure_graph_node(
                     "source_asset",
                     local_table="source_assets",
@@ -345,6 +381,8 @@ class AssetImportRepository:
                         "filename": dest.name,
                         "mediaType": media_type,
                         "storageMode": normalized_storage_mode,
+                        "classification": classification,
+                        "globalDuplicateSourceAssetIds": global_duplicates,
                     },
                 )
                 self._ensure_graph_edge(
@@ -391,6 +429,7 @@ class AssetImportRepository:
                 "imported": imported,
                 "duplicates": duplicates,
                 "ignored": ignored,
+                "quarantined": quarantined,
                 "rendered": rendered,
                 "renderedCount": len(rendered),
                 "campaign": campaign,
@@ -409,6 +448,7 @@ class AssetImportRepository:
                     "importedCount": len(imported),
                     "duplicateCount": len(duplicates),
                     "ignoredCount": len(ignored),
+                    "quarantinedCount": len(quarantined),
                     "renderedCount": len(rendered),
                     "storageMode": normalized_storage_mode,
                 },
@@ -421,6 +461,7 @@ class AssetImportRepository:
                     "importedCount": len(imported),
                     "duplicateCount": len(duplicates),
                     "ignoredCount": len(ignored),
+                    "quarantinedCount": len(quarantined),
                     "renderedCount": len(rendered),
                     "storageMode": normalized_storage_mode,
                 },

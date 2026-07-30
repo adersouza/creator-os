@@ -185,6 +185,19 @@ def make_conn(tmp_path: Path) -> sqlite3.Connection:
     return connect(tmp_path / "reference_factory.sqlite")
 
 
+def insert_test_ocr(
+    conn: sqlite3.Connection, reference_id: str, ocr_id: str, text: str = ""
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO ocr_results (
+          id, reference_id, engine, requested_engine, ocr_text, created_at
+        ) VALUES (?, ?, 'test', 'test', ?, '2026-07-30T00:00:00Z')
+        """,
+        (ocr_id, reference_id, text),
+    )
+
+
 def create_video(path: Path, *, duration: float = 1.2) -> None:
     subprocess.run(
         [
@@ -437,6 +450,62 @@ def test_connect_backfills_source_metrics_from_existing_sidecar(
     assert row["source_likes"] == 88
     assert row["source_comments"] == 7
     assert row["source_posted_at"] == "2026-07-01T00:00:00+00:00"
+    receipt = backfilled.execute(
+        """
+        SELECT affected_rows, details_json
+        FROM reference_compatibility_runs
+        WHERE step_id = 'source_metric_sidecar_backfill_v1'
+        """
+    ).fetchone()
+    assert receipt["affected_rows"] == 1
+    assert len(json.loads(receipt["details_json"])["stateChecksum"]) == 64
+    backfilled.close()
+
+    reopened = connect(db_path)
+    assert (
+        reopened.execute(
+            """
+            SELECT COUNT(*) FROM reference_compatibility_runs
+            WHERE step_id = 'source_metric_sidecar_backfill_v1'
+            """
+        ).fetchone()[0]
+        == 1
+    )
+
+
+def test_sidecar_backfill_counts_only_rows_that_change(tmp_path: Path) -> None:
+    db_path = tmp_path / "reference_factory.sqlite"
+    video = tmp_path / "legacy.mp4"
+    video.write_bytes(b"not a real video")
+    conn = connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, file_name, extension, kind, size_bytes, mtime,
+          path_hash, source_views, created_at, updated_at
+        ) VALUES ('ref_legacy', ?, 'legacy.mp4', 'mp4', 'video', 16, 'mtime',
+                  'hash', 800, 'created', 'updated')
+        """,
+        (str(video),),
+    )
+    conn.commit()
+    conn.close()
+    video.with_suffix(".info.json").write_text(
+        json.dumps({"views": 800}),
+        encoding="utf-8",
+    )
+
+    checked = connect(db_path)
+
+    assert (
+        checked.execute(
+            """
+            SELECT COUNT(*) FROM reference_compatibility_runs
+            WHERE step_id = 'source_metric_sidecar_backfill_v1'
+            """
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_scan_leaves_missing_source_metrics_null(tmp_path: Path) -> None:
@@ -544,6 +613,7 @@ def test_caption_pattern_and_label_export(tmp_path: Path) -> None:
     ref = conn.execute("SELECT reference_id FROM source_files LIMIT 1").fetchone()[
         "reference_id"
     ]
+    insert_test_ocr(conn, ref, "ocr_1", "just cracked you in my head")
 
     upsert_caption_pattern(
         conn,
@@ -774,6 +844,21 @@ def test_pattern_and_video_analysis_contract_validation_blocks_write(
     tmp_path: Path,
 ) -> None:
     conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, file_name, extension, kind, size_bytes, mtime,
+          path_hash, created_at, updated_at
+        ) VALUES ('ref_1', '/ref_1.mp4', 'ref_1.mp4', 'mp4', 'video', 1, '', '', '', '')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_analysis_jobs (
+          id, reference_id, prompt_text, created_at, updated_at
+        ) VALUES ('job_1', 'ref_1', '', '', '')
+        """
+    )
     pattern = {
         "schema": "reference_factory.pattern_card.v1",
         "id": "pattern_1",
@@ -1667,6 +1752,7 @@ def test_review_query_filters_and_clear_label(tmp_path: Path) -> None:
     ref = conn.execute("SELECT reference_id FROM source_files LIMIT 1").fetchone()[
         "reference_id"
     ]
+    insert_test_ocr(conn, ref, "ocr_1", "good hook caption")
     upsert_caption_pattern(conn, ref, "ocr_1", "good hook caption", [], 80)
     conn.commit()
 
@@ -1714,6 +1800,7 @@ def test_review_batch_balances_and_excludes_labeled_items(tmp_path: Path) -> Non
             (ref,),
         )
         if idx % 2 == 0:
+            insert_test_ocr(conn, ref, f"ocr_{idx}", f"caption {idx}")
             upsert_caption_pattern(conn, ref, f"ocr_{idx}", f"caption {idx}", [], 90)
     set_reference_label(conn, "ref_0", "ignore")
 
@@ -1739,6 +1826,8 @@ def test_ocr_cleanup_drops_junk_and_keeps_useful_caption(tmp_path: Path) -> None
     ref = conn.execute("SELECT reference_id FROM source_files LIMIT 1").fetchone()[
         "reference_id"
     ]
+    insert_test_ocr(conn, ref, "ocr_short", "B")
+    insert_test_ocr(conn, ref, "ocr_good", "this is a strong hook")
     upsert_caption_pattern(conn, ref, "ocr_short", "B", [], 99)
     upsert_caption_pattern(conn, ref, "ocr_good", "this is a strong hook", [], 82)
     conn.commit()
@@ -1765,6 +1854,7 @@ def test_gold_export_includes_metadata(tmp_path: Path) -> None:
     ref = conn.execute("SELECT reference_id FROM source_files LIMIT 1").fetchone()[
         "reference_id"
     ]
+    insert_test_ocr(conn, ref, "ocr_1", "caption text here")
     upsert_caption_pattern(conn, ref, "ocr_1", "caption text here", [], 91)
     set_reference_label(conn, ref, "gold", ["caption_style"], "keeper")
 
@@ -2163,6 +2253,7 @@ def test_top_public_posts_balances_signal_types_and_caps_source_accounts(
             caption_text = {0: "alpha caption", 3: "beta caption", 4: "gamma caption"}[
                 index
             ]
+            insert_test_ocr(conn, reference_id, f"ocr_{index}", caption_text)
             upsert_caption_pattern(
                 conn,
                 reference_id,

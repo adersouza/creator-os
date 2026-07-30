@@ -2228,10 +2228,10 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
                     "metadata": {
                         "campaign_factory": {
                             "campaign_id": "may",
-                            "source_asset_id": "src_1",
+                            "source_asset_id": source_id,
                             "rendered_asset_id": "asset_1",
                             "content_hash": rendered_hash,
-                            "source_content_hash": "source_hash_1",
+                            "source_content_hash": source_hash,
                         }
                     },
                 },
@@ -2247,10 +2247,10 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
                     "metadata": {
                         "campaign_factory": {
                             "campaign_id": "may",
-                            "source_asset_id": "src_1",
+                            "source_asset_id": source_id,
                             "rendered_asset_id": "other_asset",
                             "content_hash": "other_hash",
-                            "source_content_hash": "source_hash_1",
+                            "source_content_hash": source_hash,
                         }
                     },
                 },
@@ -2263,11 +2263,9 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
             folder, campaign_slug="may", model_slug="model"
         )
         source = imported["imported"][0]
-        cf.conn.execute(
-            "UPDATE source_assets SET id = 'src_1', content_hash = 'source_hash_1' WHERE id = ?",
-            (source["id"],),
-        )
-        set_test_source_prompt(cf, "src_1")
+        source_id = source["id"]
+        source_hash = source["content_hash"]
+        set_test_source_prompt(cf, source_id)
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         rendered_hash = threadsdash_integrity_adapter.sha256_file(rendered_path)
@@ -2276,10 +2274,12 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
-            VALUES ('asset_1', ?, 'src_1', ?, ?, ?, 'ok.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
+            VALUES ('asset_1', ?, ?, ?, ?, ?, 'ok.mp4', 'caption',
+                    'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
             (
                 source["campaign_id"],
+                source_id,
                 rendered_hash,
                 str(rendered_path),
                 str(rendered_path),
@@ -2298,7 +2298,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
         )
         asset = usage["assets"][0]
         assert asset["usage"]["published"] == 1
-        assert usage["sourceUsage"]["src_1"]["total"] == 2
+        assert usage["sourceUsage"][source_id]["total"] == 2
         assert usage["contentHashUsage"][rendered_hash]["published"] == 1
         assert usage["accountUsage"]["ig_1"]["published"] == 1
         assert usage["surfaceUsage"]["reel"]["published"] == 1

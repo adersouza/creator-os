@@ -945,8 +945,16 @@ def test_identity_enrollment_requires_exact_origin_attestation(tmp_path: Path):
             (authorized["identitySourceId"],),
         ).fetchone()
         cf.conn.execute(
-            "DELETE FROM activity_events "
-            "WHERE event_type = 'canonical_identity_origin_attested'"
+            """
+            INSERT INTO activity_events
+            (id, event_type, campaign_id, source_asset_id, status, message,
+             metadata_json, created_at)
+            VALUES ('evt_invalid_origin_attestation',
+                    'canonical_identity_origin_attested', ?, ?, 'warning',
+                    'invalid newer attestation fixture', '{}',
+                    '9999-12-31T23:59:59Z')
+            """,
+            (source["campaign_id"], source["id"]),
         )
         cf.conn.commit()
         profile = _identity_profile(

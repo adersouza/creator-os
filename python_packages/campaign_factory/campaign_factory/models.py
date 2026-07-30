@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .artifact_storage import campaign_dirs
 from .config import Settings
 from .persistence import json_load
 
@@ -112,19 +113,7 @@ class ModelRepository:
         )
 
     def _campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
-        root = self.settings.campaigns_dir / model_slug / campaign_slug
-        dirs = {
-            "root": root,
-            "sources": root / "00_sources",
-            "reel_inputs": root / "01_reel_inputs",
-            "rendered": root / "02_rendered",
-            "audits": root / "03_contentforge_audits",
-            "approved": root / "04_approved",
-            "exports": root / "05_threadsdash_exports",
-        }
-        for path in dirs.values():
-            path.mkdir(parents=True, exist_ok=True)
-        return dirs
+        return campaign_dirs(self.settings.campaigns_dir, model_slug, campaign_slug)
 
     def upsert_model(
         self, slug: str, name: str | None = None, notes: str | None = None

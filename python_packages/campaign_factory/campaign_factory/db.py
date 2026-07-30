@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import inspect
+import json
+import os
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from creator_os_core.sqlite import connect_sqlite
@@ -17,6 +22,14 @@ from .db_migrations import (
     _repair_source_asset_fk_references,
 )
 from .db_schema import SCHEMA
+from .source_lifecycle_schema import SOURCE_LIFECYCLE_SCHEMA
+
+_CAMPAIGN_SCHEMA_VERSION = 3
+_CAMPAIGN_SCHEMA_MIGRATIONS = (
+    (1, "20260730_campaign_schema_baseline_v1"),
+    (2, "20260730_campaign_state_evidence_guards_v1"),
+    (3, "20260730_source_lifecycle_reconciliation_v1"),
+)
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -28,7 +41,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def init_db(conn: sqlite3.Connection) -> None:
+def _apply_campaign_schema_v1(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _apply_creator_governance_backfill(conn)
     _ensure_columns(
@@ -635,25 +648,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         ON asset_inventory_reservations(campaign_id, surface, source_family_id, perceptual_cluster_id, status, reserved_at)
         """
     )
-    # Dedupe legacy rows before enforcing uniqueness (keep earliest insert).
-    conn.execute(
-        """
-        DELETE FROM asset_account_assignments WHERE rowid NOT IN (
-          SELECT MIN(rowid) FROM asset_account_assignments
-          GROUP BY rendered_asset_id, COALESCE(account_id, ''),
-                   COALESCE(instagram_account_id, ''), COALESCE(planned_window_start, '')
-        )
-        """
-    )
-    conn.execute(
-        """
-        DELETE FROM distribution_plans WHERE rowid NOT IN (
-          SELECT MIN(rowid) FROM distribution_plans
-          GROUP BY rendered_asset_id, surface, COALESCE(account_id, ''),
-                   COALESCE(instagram_account_id, ''), COALESCE(planned_window_start, '')
-        )
-        """
-    )
+    _reject_ambiguous_legacy_duplicates(conn)
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_account_assignments_uniqueness
@@ -679,3 +674,597 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_generation_lineage_guards(conn)
     _backfill_generation_output_lineage(conn)
     conn.commit()
+
+
+def _reject_ambiguous_legacy_duplicates(conn: sqlite3.Connection) -> None:
+    duplicate_specs = (
+        (
+            "asset_account_assignments",
+            """
+            SELECT rendered_asset_id, COALESCE(account_id, '') AS account_id,
+                   COALESCE(instagram_account_id, '') AS instagram_account_id,
+                   COALESCE(planned_window_start, '') AS planned_window_start,
+                   COUNT(*) AS row_count
+            FROM asset_account_assignments
+            GROUP BY rendered_asset_id, COALESCE(account_id, ''),
+                     COALESCE(instagram_account_id, ''),
+                     COALESCE(planned_window_start, '')
+            HAVING COUNT(*) > 1
+            ORDER BY rendered_asset_id, account_id, instagram_account_id,
+                     planned_window_start
+            LIMIT 20
+            """,
+        ),
+        (
+            "distribution_plans",
+            """
+            SELECT rendered_asset_id, surface,
+                   COALESCE(account_id, '') AS account_id,
+                   COALESCE(instagram_account_id, '') AS instagram_account_id,
+                   COALESCE(planned_window_start, '') AS planned_window_start,
+                   COUNT(*) AS row_count
+            FROM distribution_plans
+            GROUP BY rendered_asset_id, surface, COALESCE(account_id, ''),
+                     COALESCE(instagram_account_id, ''),
+                     COALESCE(planned_window_start, '')
+            HAVING COUNT(*) > 1
+            ORDER BY rendered_asset_id, surface, account_id, instagram_account_id,
+                     planned_window_start
+            LIMIT 20
+            """,
+        ),
+    )
+    for table, query in duplicate_specs:
+        rows = [dict(row) for row in conn.execute(query).fetchall()]
+        if rows:
+            raise RuntimeError(
+                f"campaign_schema_duplicate_repair_required:{table}:"
+                f"{json.dumps(rows, sort_keys=True, separators=(',', ':'))}"
+            )
+
+
+def _execute_transactional_script(conn: sqlite3.Connection, script: str) -> None:
+    """Execute complete SQLite statements without ``executescript`` auto-commits."""
+    statement = ""
+    for line in script.splitlines():
+        statement += f"{line}\n"
+        if sqlite3.complete_statement(statement):
+            conn.execute(statement)
+            statement = ""
+    if statement.strip():
+        raise RuntimeError("campaign_schema_sql_incomplete")
+
+
+def _apply_campaign_schema_v2(conn: sqlite3.Connection) -> None:
+    _execute_transactional_script(
+        conn,
+        """
+        CREATE TRIGGER IF NOT EXISTS approval_decisions_valid_insert
+        BEFORE INSERT ON approval_decisions
+        WHEN NEW.decision NOT IN ('approved', 'rejected')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid approval decision');
+        END;
+        CREATE TRIGGER IF NOT EXISTS approval_decisions_immutable_update
+        BEFORE UPDATE ON approval_decisions
+        BEGIN
+          SELECT RAISE(ABORT, 'approval decisions are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS approval_decisions_immutable_delete
+        BEFORE DELETE ON approval_decisions
+        BEGIN
+          SELECT RAISE(ABORT, 'approval decisions are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS audit_reports_immutable_update
+        BEFORE UPDATE ON audit_reports
+        BEGIN
+          SELECT RAISE(ABORT, 'audit reports are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS audit_reports_immutable_delete
+        BEFORE DELETE ON audit_reports
+        BEGIN
+          SELECT RAISE(ABORT, 'audit reports are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS activity_events_immutable_update
+        BEFORE UPDATE ON activity_events
+        BEGIN
+          SELECT RAISE(ABORT, 'activity events are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS activity_events_immutable_delete
+        BEFORE DELETE ON activity_events
+        BEGIN
+          SELECT RAISE(ABORT, 'activity events are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS promotion_events_immutable_update
+        BEFORE UPDATE ON promotion_events
+        BEGIN
+          SELECT RAISE(ABORT, 'promotion events are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS promotion_events_immutable_delete
+        BEFORE DELETE ON promotion_events
+        BEGIN
+          SELECT RAISE(ABORT, 'promotion events are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS campaign_schema_migrations_applied_immutable_update
+        BEFORE UPDATE ON campaign_schema_migrations
+        WHEN OLD.status = 'applied'
+        BEGIN
+          SELECT RAISE(ABORT, 'applied campaign migrations are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS campaign_schema_migrations_applied_immutable_delete
+        BEFORE DELETE ON campaign_schema_migrations
+        WHEN OLD.status = 'applied'
+        BEGIN
+          SELECT RAISE(ABORT, 'applied campaign migrations are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS pipeline_jobs_valid_insert
+        BEFORE INSERT ON pipeline_jobs
+        WHEN NEW.status NOT IN ('queued', 'running', 'succeeded', 'failed')
+          OR NEW.effect_state NOT IN (
+            'PRE_EFFECT', 'AUTHORIZATION_CONSUMED', 'SUBMISSION_STARTED',
+            'EXTERNAL_ID_KNOWN', 'AMBIGUOUS', 'PROVIDER_FAILED',
+            'PROVIDER_COMPLETED', 'OUTPUT_DOWNLOADED', 'OUTPUT_RETAINED',
+            'COST_RECONCILED', 'NO_EFFECT_CONFIRMED', 'EFFECT_CONFIRMED',
+            'FINALIZED'
+          )
+          OR NEW.recovery_policy NOT IN (
+            'LOCAL', 'IDEMPOTENT_EXTERNAL', 'NEVER_AUTOMATIC'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid pipeline job state');
+        END;
+        CREATE TRIGGER IF NOT EXISTS pipeline_jobs_effect_transition_guard
+        BEFORE UPDATE OF effect_state ON pipeline_jobs
+        WHEN OLD.effect_state != NEW.effect_state
+         AND NOT (
+           (OLD.effect_state = 'PRE_EFFECT' AND NEW.effect_state IN (
+             'AUTHORIZATION_CONSUMED', 'SUBMISSION_STARTED',
+             'NO_EFFECT_CONFIRMED', 'EXTERNAL_ID_KNOWN', 'FINALIZED'))
+           OR (OLD.effect_state = 'AUTHORIZATION_CONSUMED'
+               AND NEW.effect_state IN (
+                 'SUBMISSION_STARTED', 'EXTERNAL_ID_KNOWN',
+                 'NO_EFFECT_CONFIRMED', 'FINALIZED'))
+           OR (OLD.effect_state = 'SUBMISSION_STARTED' AND NEW.effect_state IN (
+                 'EXTERNAL_ID_KNOWN', 'AMBIGUOUS', 'PROVIDER_FAILED',
+                 'NO_EFFECT_CONFIRMED', 'EFFECT_CONFIRMED', 'FINALIZED'))
+           OR (OLD.effect_state = 'EXTERNAL_ID_KNOWN' AND NEW.effect_state IN (
+                 'AMBIGUOUS', 'PROVIDER_FAILED', 'PROVIDER_COMPLETED',
+                 'EFFECT_CONFIRMED', 'FINALIZED'))
+           OR (OLD.effect_state = 'PROVIDER_FAILED'
+               AND NEW.effect_state = 'FINALIZED')
+           OR (OLD.effect_state = 'PROVIDER_COMPLETED'
+               AND NEW.effect_state IN (
+                 'OUTPUT_DOWNLOADED', 'OUTPUT_RETAINED', 'AMBIGUOUS',
+                 'FINALIZED'))
+           OR (OLD.effect_state = 'OUTPUT_DOWNLOADED'
+               AND NEW.effect_state IN (
+                 'OUTPUT_RETAINED', 'AMBIGUOUS', 'FINALIZED'))
+           OR (OLD.effect_state = 'OUTPUT_RETAINED'
+               AND NEW.effect_state IN (
+                 'COST_RECONCILED', 'AMBIGUOUS', 'FINALIZED'))
+           OR (OLD.effect_state = 'COST_RECONCILED'
+               AND NEW.effect_state = 'FINALIZED')
+           OR (OLD.effect_state = 'AMBIGUOUS' AND NEW.effect_state IN (
+                 'EXTERNAL_ID_KNOWN', 'NO_EFFECT_CONFIRMED',
+                 'EFFECT_CONFIRMED'))
+           OR (OLD.effect_state = 'NO_EFFECT_CONFIRMED'
+               AND NEW.effect_state IN ('PRE_EFFECT', 'FINALIZED'))
+           OR (OLD.effect_state = 'EFFECT_CONFIRMED'
+               AND NEW.effect_state = 'FINALIZED')
+         )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid pipeline effect transition');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS inventory_reservations_valid_insert
+        BEFORE INSERT ON asset_inventory_reservations
+        WHEN NEW.status NOT IN (
+          'pending', 'committed', 'released', 'expired', 'cancelled', 'published'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid inventory reservation status');
+        END;
+        CREATE TRIGGER IF NOT EXISTS inventory_reservations_transition_guard
+        BEFORE UPDATE OF status ON asset_inventory_reservations
+        WHEN OLD.status != NEW.status
+         AND NOT (
+           (OLD.status = 'pending' AND NEW.status IN (
+             'committed', 'released', 'expired', 'cancelled'))
+           OR (OLD.status = 'committed' AND NEW.status IN (
+             'released', 'expired', 'cancelled', 'published'))
+         )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid inventory reservation transition');
+        END;
+        """,
+    )
+
+
+def _apply_campaign_schema_v3(conn: sqlite3.Connection) -> None:
+    _execute_transactional_script(conn, SOURCE_LIFECYCLE_SCHEMA)
+    now = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    allowed = {
+        "rejected",
+        "superseded",
+        "archived",
+        "deleted",
+        "quarantined",
+    }
+    for row in conn.execute(
+        """
+        SELECT s.id, s.status FROM source_assets s
+        LEFT JOIN source_asset_lifecycle l ON l.source_asset_id = s.id
+        WHERE l.source_asset_id IS NULL
+        ORDER BY s.id
+        """
+    ).fetchall():
+        source_id = str(row["id"])
+        legacy_status = str(row["status"] or "").lower()
+        lifecycle_state = (
+            "quarantined"
+            if legacy_status == "approved"
+            else legacy_status
+            if legacy_status in allowed
+            else (
+                "cataloged"
+                if legacy_status in {"imported", "cataloged"}
+                else "quarantined"
+            )
+        )
+        quarantine_reason = (
+            None
+            if lifecycle_state != "quarantined"
+            else (
+                "legacy_approved_source_requires_managed_backup"
+                if legacy_status == "approved"
+                else "legacy_source_requires_probe_reconciliation"
+            )
+        )
+        conn.execute(
+            """
+            INSERT INTO source_asset_lifecycle
+            (source_asset_id, lifecycle_state, storage_policy,
+             classification_authority, probe_json, quarantine_reason,
+             backup_state, metadata_json, updated_at)
+            VALUES (?, ?, 'external_reference', 'unknown', '{}', ?,
+                    'unknown', ?, ?)
+            """,
+            (
+                source_id,
+                lifecycle_state,
+                quarantine_reason,
+                json.dumps(
+                    {
+                        "migrationId": "20260730_source_lifecycle_reconciliation_v1",
+                        "legacyStatus": legacy_status,
+                        "pathOwnershipFabricated": False,
+                        "probeEvidenceFabricated": False,
+                    },
+                    sort_keys=True,
+                ),
+                now,
+            ),
+        )
+        if legacy_status == "approved":
+            conn.execute(
+                """
+                UPDATE source_assets
+                SET status = 'quarantined', updated_at = ?
+                WHERE id = ? AND status = 'approved'
+                """,
+                (now, source_id),
+            )
+        event_id = (
+            "source_lifecycle_migration_"
+            + hashlib.sha256(source_id.encode()).hexdigest()[:20]
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO source_asset_lifecycle_events
+            (id, source_asset_id, previous_state, new_state, reason, actor,
+             evidence_json, created_at)
+            VALUES (?, ?, NULL, ?, 'legacy_source_lifecycle_backfill',
+                    'schema_migration', ?, ?)
+            """,
+            (
+                event_id,
+                source_id,
+                lifecycle_state,
+                json.dumps(
+                    {
+                        "legacyStatus": legacy_status,
+                        "classificationAuthority": "unknown",
+                    },
+                    sort_keys=True,
+                ),
+                now,
+            ),
+        )
+
+
+def _campaign_schema_v1_postcondition(conn: sqlite3.Connection) -> None:
+    required_tables = {
+        "campaigns",
+        "models",
+        "source_assets",
+        "rendered_assets",
+        "pipeline_jobs",
+        "approval_decisions",
+        "audit_reports",
+        "activity_events",
+        "asset_inventory_reservations",
+    }
+    tables = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if missing := required_tables - tables:
+        raise RuntimeError(
+            "campaign_schema_tables_missing:" + ",".join(sorted(missing))
+        )
+    _reject_ambiguous_legacy_duplicates(conn)
+    required_indexes = {
+        "idx_asset_account_assignments_uniqueness",
+        "idx_distribution_plans_uniqueness",
+    }
+    indexes = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'"
+        ).fetchall()
+    }
+    if missing := required_indexes - indexes:
+        raise RuntimeError(
+            "campaign_schema_indexes_missing:" + ",".join(sorted(missing))
+        )
+
+
+def _campaign_schema_v2_postcondition(conn: sqlite3.Connection) -> None:
+    _require_campaign_schema_triggers(
+        conn,
+        {
+            "approval_decisions_immutable_update",
+            "audit_reports_immutable_update",
+            "activity_events_immutable_update",
+            "promotion_events_immutable_update",
+            "campaign_schema_migrations_applied_immutable_update",
+            "pipeline_jobs_effect_transition_guard",
+            "inventory_reservations_transition_guard",
+        },
+    )
+
+
+def _campaign_schema_v3_postcondition(conn: sqlite3.Connection) -> None:
+    _require_campaign_schema_triggers(
+        conn,
+        {
+            "source_asset_lifecycle_transition_guard",
+            "source_asset_lifecycle_approval_backup_guard_insert",
+            "source_asset_lifecycle_approval_backup_guard_update",
+            "source_asset_lifecycle_terminal_guard",
+            "source_asset_lifecycle_delete_guard",
+            "source_asset_lifecycle_events_immutable_update",
+            "source_asset_lifecycle_events_immutable_delete",
+            "artifact_reconciliation_repairs_immutable_update",
+            "artifact_reconciliation_repairs_immutable_delete",
+        },
+    )
+
+
+def _require_campaign_schema_triggers(
+    conn: sqlite3.Connection, required_triggers: set[str]
+) -> None:
+    triggers = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+        ).fetchall()
+    }
+    if missing := required_triggers - triggers:
+        raise RuntimeError(
+            "campaign_schema_triggers_missing:" + ",".join(sorted(missing))
+        )
+
+
+def _campaign_schema_postcondition(conn: sqlite3.Connection, *, version: int) -> None:
+    {
+        1: _campaign_schema_v1_postcondition,
+        2: _campaign_schema_v2_postcondition,
+        3: _campaign_schema_v3_postcondition,
+    }[version](conn)
+
+
+def _campaign_schema_checksum(version: int, migration_id: str) -> str:
+    implementation = {
+        1: _apply_campaign_schema_v1,
+        2: _apply_campaign_schema_v2,
+        3: _apply_campaign_schema_v3,
+    }[version]
+    postcondition = {
+        1: _campaign_schema_v1_postcondition,
+        2: _campaign_schema_v2_postcondition,
+        3: _campaign_schema_v3_postcondition,
+    }[version]
+    payload = inspect.getsource(implementation)
+    if version == 1:
+        payload += "\n" + inspect.getsource(_reject_ambiguous_legacy_duplicates)
+        payload += "\n" + SCHEMA
+    elif version == 2:
+        payload += "\n" + inspect.getsource(_execute_transactional_script)
+    elif version == 3:
+        payload += "\n" + inspect.getsource(_execute_transactional_script)
+        payload += "\n" + SOURCE_LIFECYCLE_SCHEMA
+    payload += "\n" + inspect.getsource(postcondition)
+    if version in {2, 3}:
+        payload += "\n" + inspect.getsource(_require_campaign_schema_triggers)
+    return hashlib.sha256(f"{migration_id}\n{payload}".encode()).hexdigest()
+
+
+def _ensure_campaign_schema_ledger(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS campaign_schema_migrations (
+          migration_id TEXT PRIMARY KEY,
+          checksum TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('applying', 'applied', 'failed')),
+          started_at TEXT NOT NULL,
+          applied_at TEXT,
+          source_version TEXT NOT NULL,
+          details_json TEXT NOT NULL DEFAULT '{}',
+          error TEXT,
+          repair_instructions TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS campaign_schema_state (
+          singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+          version INTEGER NOT NULL CHECK(version >= 0),
+          updated_at TEXT NOT NULL
+        );
+        """
+    )
+    now = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    conn.execute(
+        """
+        INSERT INTO campaign_schema_state(singleton, version, updated_at)
+        VALUES (1, 0, ?)
+        ON CONFLICT(singleton) DO NOTHING
+        """,
+        (now,),
+    )
+    conn.commit()
+
+
+def _run_campaign_schema_migration(
+    conn: sqlite3.Connection, *, version: int, migration_id: str
+) -> None:
+    checksum = _campaign_schema_checksum(version, migration_id)
+    prior = conn.execute(
+        """
+        SELECT checksum, status
+        FROM campaign_schema_migrations
+        WHERE migration_id = ?
+        """,
+        (migration_id,),
+    ).fetchone()
+    if prior is not None and prior["checksum"] != checksum:
+        raise RuntimeError(f"campaign_schema_migration_checksum_drift:{migration_id}")
+    current = int(
+        conn.execute(
+            "SELECT version FROM campaign_schema_state WHERE singleton = 1"
+        ).fetchone()["version"]
+    )
+    if current >= version:
+        if prior is None or prior["status"] != "applied":
+            raise RuntimeError(
+                f"campaign_schema_ledger_state_mismatch:{migration_id}:{current}"
+            )
+        _campaign_schema_postcondition(conn, version=version)
+        return
+
+    source_version = os.environ.get("CREATOR_OS_SOURCE_SHA") or f"migration:{checksum}"
+    conn.execute(
+        """
+        INSERT INTO campaign_schema_migrations
+        (migration_id, checksum, status, started_at, applied_at, source_version,
+         details_json, error, repair_instructions)
+        VALUES (?, ?, 'applying', ?, NULL, ?, ?, NULL, ?)
+        ON CONFLICT(migration_id) DO UPDATE SET
+          checksum = excluded.checksum,
+          status = 'applying',
+          started_at = excluded.started_at,
+          applied_at = NULL,
+          source_version = excluded.source_version,
+          details_json = excluded.details_json,
+          error = NULL,
+          repair_instructions = excluded.repair_instructions
+        """,
+        (
+            migration_id,
+            checksum,
+            datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z"),
+            source_version,
+            json.dumps(
+                {
+                    "schemaVersion": version,
+                    "transactionMode": (
+                        "legacy_replay_safe_staged"
+                        if version == 1
+                        else "atomic_immediate"
+                    ),
+                },
+                sort_keys=True,
+            ),
+            "restore a backup, repair the reported condition, then reconnect",
+        ),
+    )
+    conn.commit()
+    try:
+        if version > 1:
+            conn.execute("BEGIN IMMEDIATE")
+        implementation = {
+            1: _apply_campaign_schema_v1,
+            2: _apply_campaign_schema_v2,
+            3: _apply_campaign_schema_v3,
+        }[version]
+        implementation(conn)
+        _campaign_schema_postcondition(conn, version=version)
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError(
+                "campaign_schema_foreign_key_check_failed:"
+                + json.dumps([list(row) for row in violations], separators=(",", ":"))
+            )
+        applied_at = (
+            datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        )
+        cursor = conn.execute(
+            """
+            UPDATE campaign_schema_state
+            SET version = ?, updated_at = ?
+            WHERE singleton = 1 AND version = ?
+            """,
+            (version, applied_at, version - 1),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError(
+                f"campaign_schema_version_advance_failed:{version - 1}:{version}"
+            )
+        conn.execute(
+            """
+            UPDATE campaign_schema_migrations
+            SET status = 'applied', applied_at = ?, error = NULL
+            WHERE migration_id = ?
+            """,
+            (applied_at, migration_id),
+        )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        conn.execute(
+            """
+            UPDATE campaign_schema_migrations
+            SET status = 'failed', error = ?
+            WHERE migration_id = ?
+            """,
+            (f"{type(exc).__name__}:{exc}", migration_id),
+        )
+        conn.commit()
+        raise
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    _ensure_campaign_schema_ledger(conn)
+    current = int(
+        conn.execute(
+            "SELECT version FROM campaign_schema_state WHERE singleton = 1"
+        ).fetchone()["version"]
+    )
+    if current > _CAMPAIGN_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"campaign_schema_newer_than_runtime:{current}>{_CAMPAIGN_SCHEMA_VERSION}"
+        )
+    for version, migration_id in _CAMPAIGN_SCHEMA_MIGRATIONS:
+        _run_campaign_schema_migration(conn, version=version, migration_id=migration_id)

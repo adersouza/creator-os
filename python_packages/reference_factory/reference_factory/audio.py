@@ -744,15 +744,7 @@ def upsert_audio_trend_snapshot(
           raw_json, created_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(audio_catalog_id, observed_at) DO UPDATE SET
-          trend_status = excluded.trend_status,
-          usage_count = excluded.usage_count,
-          saturation_score = excluded.saturation_score,
-          velocity_score = excluded.velocity_score,
-          curator = excluded.curator,
-          source = excluded.source,
-          notes = excluded.notes,
-          raw_json = excluded.raw_json
+        ON CONFLICT(audio_catalog_id, observed_at) DO NOTHING
         """,
         (
             record["id"],
@@ -771,6 +763,30 @@ def upsert_audio_trend_snapshot(
             now,
         ),
     )
+    stored = conn.execute(
+        """
+        SELECT id, trend_status, usage_count, saturation_score, velocity_score,
+               curator, source, notes, raw_json
+        FROM audio_trend_snapshots
+        WHERE audio_catalog_id=? AND observed_at=?
+        """,
+        (record["audioCatalogId"], record["observedAt"]),
+    ).fetchone()
+    expected = (
+        record["id"],
+        record["trendStatus"],
+        record.get("usageCount"),
+        record.get("saturationScore"),
+        record.get("velocityScore"),
+        record.get("curator"),
+        record.get("source"),
+        record.get("notes"),
+        json_dump(record.get("raw") or {}),
+    )
+    if stored is None or tuple(stored) != expected:
+        raise ValueError(
+            "audio trend snapshot already exists with different immutable evidence"
+        )
     conn.execute(
         """
         UPDATE audio_catalog

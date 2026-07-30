@@ -1551,7 +1551,7 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
                     "metadata": {
                         "campaign_factory": {
                             "campaign_id": "may",
-                            "source_asset_id": "src_1",
+                            "source_asset_id": source_id,
                             "rendered_asset_id": "asset_1",
                         }
                     },
@@ -1564,9 +1564,7 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
             folder, campaign_slug="may", model_slug="model"
         )
         source = imported["imported"][0]
-        cf.conn.execute(
-            "UPDATE source_assets SET id = 'src_1' WHERE id = ?", (source["id"],)
-        )
+        source_id = source["id"]
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -1574,9 +1572,17 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
-            VALUES ('asset_1', ?, 'src_1', 'hash_1', ?, ?, 'ok.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
+            VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, 'ok.mp4', 'caption',
+                    'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
-            (source["campaign_id"], str(rendered_path), str(rendered_path), now, now),
+            (
+                source["campaign_id"],
+                source_id,
+                str(rendered_path),
+                str(rendered_path),
+                now,
+                now,
+            ),
         )
         cf.conn.commit()
 

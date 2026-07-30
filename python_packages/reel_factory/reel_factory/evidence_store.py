@@ -20,6 +20,7 @@ from creator_os_core.sqlite import ensure_columns as _ensure_columns
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .asset_prompt_contract import parse_asset_prompt_response
+from .db_migrations import execute_script, run_manifest_migrations
 from .intelligence_store import ensure_intelligence_schema
 from .state_paths import manifest_db_path
 
@@ -32,7 +33,7 @@ def connect(root: Path) -> sqlite3.Connection:
     Path(root).resolve().mkdir(parents=True, exist_ok=True)
     conn = connect_sqlite(db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
-    ensure_evidence_schema(conn)
+    run_manifest_migrations(conn)
     return conn
 
 
@@ -44,7 +45,9 @@ def slugify(value: str) -> str:
 def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
     """Create only render evidence tables; never create campaign planner state."""
 
-    conn.executescript("""
+    execute_script(
+        conn,
+        """
     CREATE TABLE IF NOT EXISTS prompt_runs (
         prompt_run_id TEXT PRIMARY KEY,
         campaign_id TEXT,
@@ -111,7 +114,8 @@ def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
         FOREIGN KEY(prompt_run_id) REFERENCES prompt_runs(prompt_run_id)
     );
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_metrics_filename ON campaign_outputs(metrics_filename);
-    """)
+    """,
+    )
     for table, columns in {
         "prompt_runs": {
             "campaign_key": "TEXT",
@@ -133,7 +137,6 @@ def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign_key ON asset_generations(campaign_key)"
     )
-    conn.commit()
 
 
 def record_prompt_run(

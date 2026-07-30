@@ -12,6 +12,7 @@ from .account_health import AccountHealthRepository
 from .account_memory import AccountMemoryRepository
 from .account_planning import AccountPlanningRepository
 from .archive_quality import ArchiveQualityRepository
+from .artifact_storage import campaign_dirs as build_campaign_dirs
 from .asset_import import AssetImportRepository
 from .audio_operations import AudioOperationsRepository
 from .audio_recommendations import AudioRecommendationRepository
@@ -1231,19 +1232,9 @@ class CampaignDomainServices:
         return [dict(row) for row in rows]
 
     def campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
-        root = self.settings.campaigns_dir / model_slug / campaign_slug
-        dirs = {
-            "root": root,
-            "sources": root / "00_sources",
-            "reel_inputs": root / "01_reel_inputs",
-            "rendered": root / "02_rendered",
-            "audits": root / "03_contentforge_audits",
-            "approved": root / "04_approved",
-            "exports": root / "05_threadsdash_exports",
-        }
-        for path in dirs.values():
-            path.mkdir(parents=True, exist_ok=True)
-        return dirs
+        return build_campaign_dirs(
+            self.settings.campaigns_dir, model_slug, campaign_slug
+        )
 
     def rendered_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(

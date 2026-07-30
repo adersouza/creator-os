@@ -27,6 +27,7 @@ Seam coverage:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import sys
@@ -1175,6 +1176,22 @@ def seed_reference_pattern(
     now = "2026-01-01T00:00:00+00:00"
     conn = connect_reference_db(reference_db)
     try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO source_files
+            (reference_id, path, file_name, extension, kind, size_bytes, mtime,
+             path_hash, created_at, updated_at)
+            VALUES (?, ?, 'reference.mp4', 'mp4', 'video', 0, ?, ?, ?, ?)
+            """,
+            (
+                reference_id,
+                str(reference_db.parent / f"{reference_id}.mp4"),
+                now,
+                hashlib.sha256(reference_id.encode()).hexdigest(),
+                now,
+                now,
+            ),
+        )
         conn.execute(
             """
             INSERT INTO reference_patterns (

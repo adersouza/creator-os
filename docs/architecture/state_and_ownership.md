@@ -99,6 +99,51 @@ projection for creator lifecycle, slug history, identity profiles, platform
 accounts, and authorization events. It does not prove external provider state
 or downstream publication.
 
+## Persistent field ownership
+
+`persistenceOwnership` in the registry covers the four local SQLite stores and
+the persistent JSON artifact families. The field inventory is derived from
+fresh temporary databases created by the real Campaign Factory, Reference
+Factory, Reel manifest/evidence, and Reel render-queue initializers:
+
+```bash
+uv run python scripts/inventory-persistence.py
+```
+
+The inventory records every table field's SQLite type, nullability, default,
+primary-key status, unique constraint, foreign keys, and table immutability
+triggers. Registry policy then supplies the owner, legal readers/writers,
+mutability, allowed-value authority, transition owner, retention, deletion or
+tombstone behavior, receipt binding, and repair path. Primary keys and
+`created_at` fields are immutable after insert; explicit record rules make
+evidence/event records append-only and state-machine records transition-only.
+
+`pnpm check:ownership` rebuilds this inventory and scans production Python SQL.
+A direct `INSERT`, `UPDATE`, `DELETE`, or `REPLACE` against a known record is
+legal only from the reviewed exact record/table writer set. The canonical
+fingerprint changes even when a new writer is added inside the owning package,
+so package membership alone is not write authority. A newly initialized table
+or field is covered immediately by the store policy; an unregistered store,
+writer, artifact family, or record rule fails closed.
+
+Persistent JSON is registered by artifact family because its exact fields are
+owned by the producer payload or versioned Pipeline Contract, not SQLite. The
+families cover Campaign handoff manifests/receipts, Reel manifest and lineage
+sidecars, analysis/provider receipts, caption banks/review sidecars, and
+Reference intake/pattern artifacts. Each family names its legal writers,
+readers, mutation policy, retention, byte/receipt binding, and repair owner.
+The checker also fingerprints producer modules and their literal `.json` or
+`.jsonl` families. Adding a new persistent JSON producer or filename family
+requires an ownership review instead of silently inheriting authority.
+
+Campaign-managed intake and reconciliation copies use the shared
+`artifact_storage.atomic_copy` path. It rejects traversal, symlink components,
+and byte collisions; removes failed temporary files; preserves root-keyed paths
+across runtime-root changes; and reserves the incoming byte count before the
+copy. The default minimum remaining free space is 512 MiB. Operators may set
+`CREATOR_OS_ARTIFACT_MIN_FREE_BYTES` and
+`CREATOR_OS_ARTIFACT_QUOTA_BYTES`; malformed or exceeded limits fail closed.
+
 ## Operator commands
 
 ```bash
