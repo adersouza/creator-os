@@ -184,7 +184,7 @@ def higgsfield_request(
             _fingerprint(dict(provider_quote)) if provider_quote is not None else None
         ),
         balance_delta_attribution_allowed=bool(
-            job.get("_providerBalanceDeltaExclusive", True)
+            job.get("_providerBalanceDeltaExclusive", False)
         ),
         batch_balance_snapshot_fingerprint=(
             str(job["_higgsfieldBalanceSnapshotFingerprint"])

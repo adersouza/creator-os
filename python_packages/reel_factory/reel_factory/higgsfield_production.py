@@ -136,7 +136,7 @@ class HiggsfieldProductionRequest:
     prompt_builder_fingerprint: str | None = None
     authorized_request_fingerprint: str | None = None
     authorized_quote_fingerprint: str | None = None
-    balance_delta_attribution_allowed: bool = True
+    balance_delta_attribution_allowed: bool = False
     batch_balance_snapshot_fingerprint: str | None = None
 
 

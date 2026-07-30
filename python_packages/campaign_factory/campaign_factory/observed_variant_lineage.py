@@ -16,6 +16,7 @@ from pipeline_contracts import (
     validate_visual_derivative_receipt,
 )
 
+from .asset_evidence import invalidate_asset_evidence_after_byte_change
 from .persistence import json_load
 
 
@@ -307,16 +308,14 @@ class ObservedVariantLineageMixin:
             self.conn.execute(
                 """
                 UPDATE rendered_assets
-                SET content_hash = ?, output_path = ?, campaign_path = ?, filename = ?,
+                SET output_path = ?, campaign_path = ?, filename = ?,
                     caption = ?, caption_hash = ?, caption_banks_json = ?,
                     creator_mix = COALESCE(?, creator_mix),
                     caption_outcome_context_json = ?, caption_generation_json = ?,
-                    metadata_json = ?, audit_status = 'pending',
-                    review_state = 'review_ready', updated_at = ?
+                    metadata_json = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
-                    output_sha,
                     str(output),
                     str(output),
                     output.name,
@@ -330,6 +329,15 @@ class ObservedVariantLineageMixin:
                     now,
                     rendered_asset_id,
                 ),
+            )
+            invalidate_asset_evidence_after_byte_change(
+                self.conn,
+                rendered_asset_id=rendered_asset_id,
+                previous_sha=current_sha,
+                new_sha=output_sha,
+                mutation_type="caption_render",
+                mutation_receipt=receipt,
+                changed_at=now,
             )
         return {
             **receipt,

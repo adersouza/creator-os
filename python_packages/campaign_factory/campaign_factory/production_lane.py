@@ -347,7 +347,8 @@ def build_production_motion_recipe(
             "durationSeconds": 5,
             "resolution": "720p",
             "mode": "turbo",
-            "sound": "off",
+            "providerAudioControl": "unavailable",
+            "requiredOutputAudioStreams": 0,
         }
         stages = ({**stage, "task": "image_to_video"},)
         model_id = str(stages[0]["modelId"])
