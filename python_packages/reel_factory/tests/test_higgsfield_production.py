@@ -119,6 +119,10 @@ def _request(tmp_path: Path, **overrides: Any) -> subject.HiggsfieldProductionRe
     return subject.HiggsfieldProductionRequest(**values)
 
 
+def test_balance_delta_attribution_defaults_fail_closed(tmp_path: Path) -> None:
+    assert _request(tmp_path).balance_delta_attribution_allowed is False
+
+
 def test_discovers_exact_authenticated_cli_contracts() -> None:
     adapter = FakeAdapter(
         [
@@ -696,7 +700,7 @@ def test_success_hashes_registers_and_preserves_review_fields(
         },
     )
 
-    request = _request(tmp_path)
+    request = _request(tmp_path, balance_delta_attribution_allowed=True)
     receipt = subject.execute_higgsfield_production(
         request,
         capabilities=_capabilities(),
@@ -835,7 +839,7 @@ def test_silent_recipe_quarantines_returned_provider_audio(
     monkeypatch.setattr(subject, "_probe_video", lambda _path: {"audioStreams": 1})
 
     result = subject.execute_higgsfield_production(
-        _request(tmp_path),
+        _request(tmp_path, balance_delta_attribution_allowed=True),
         capabilities=_capabilities(),
         adapter=adapter,  # type: ignore[arg-type]
         confirm_paid=True,

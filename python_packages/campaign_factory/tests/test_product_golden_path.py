@@ -511,7 +511,10 @@ def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) ->
     assert batch["providerQuoteStatus"] == "required_before_apply"
     assert batch["quotedProviderCredits"] is None
     assert all(
-        job["productionRecipe"]["stages"][0]["sound"] == "off" for job in batch["jobs"]
+        job["productionRecipe"]["stages"][0]["providerAudioControl"] == "unavailable"
+        and job["productionRecipe"]["stages"][0]["requiredOutputAudioStreams"] == 0
+        and "sound" not in job["productionRecipe"]["stages"][0]
+        for job in batch["jobs"]
     )
     assert all(
         job["promptCard"]["source"]["sha256"] == job["sourceSha256"]
@@ -588,7 +591,8 @@ def test_supported_cloud_intents_bind_each_creator_soul(
     assert job["creator"] == creator
     assert job["productionRecipe"]["creator"] == creator
     assert job["productionRecipe"]["provider"] == "higgsfield"
-    assert job["productionRecipe"]["stages"][0]["sound"] == "off"
+    assert job["productionRecipe"]["stages"][0]["providerAudioControl"] == "unavailable"
+    assert job["productionRecipe"]["stages"][0]["requiredOutputAudioStreams"] == 0
 
 
 def test_unknown_creator_fails_before_provider_planning(tmp_path: Path) -> None:

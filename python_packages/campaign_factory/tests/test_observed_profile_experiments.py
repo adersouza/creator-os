@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -458,6 +459,12 @@ def test_observed_caption_binding_preserves_exact_lineage(tmp_path: Path):
         assert row["caption"] == "be honest"
         assert row["review_state"] == "review_ready"
         assert metadata["burnedCaption"] is True
+        invalidation = metadata["evidenceInvalidations"][-1]
+        assert invalidation["previousSha256"] == result["replacesSha256"]
+        assert invalidation["newSha256"] == result["outputSha256"]
+        assert invalidation["mutationType"] == "caption_render"
+        assert invalidation["mutationReceipt"] == metadata["captionRenderReceipt"]
+        assert invalidation["changedAt"] == result["boundAt"]
         assert (
             cf.conn.execute(
                 """
@@ -1233,3 +1240,19 @@ def test_sample_tiers_and_bootstrap_are_deterministic():
         )["status"]
         == "operator_review_eligible"
     )
+
+
+def test_rendered_asset_sha_mutations_use_canonical_invalidation() -> None:
+    package = Path(__file__).parents[1] / "campaign_factory"
+    mutation = re.compile(
+        r"UPDATE\s+rendered_assets\s+SET(?:(?!WHERE).){0,2000}"
+        r"\bcontent_hash\s*=",
+        re.IGNORECASE | re.DOTALL,
+    )
+    offenders = [
+        source.name
+        for source in package.glob("*.py")
+        if source.name != "asset_evidence.py"
+        and mutation.search(source.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []

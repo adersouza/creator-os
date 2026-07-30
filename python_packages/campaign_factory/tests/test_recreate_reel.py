@@ -630,6 +630,7 @@ def test_passive_paid_request_requires_exact_source_approval_fingerprint(
     }
     request = higgsfield_request(job, max_credits=20)
     assert request.source_approval == "a" * 64
+    assert request.balance_delta_attribution_allowed is False
 
 
 def test_recovery_request_reuses_exact_authorization_and_quote(tmp_path: Path) -> None:
