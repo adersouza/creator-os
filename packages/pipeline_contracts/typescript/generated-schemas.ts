@@ -11674,6 +11674,47 @@ export const generatedPipelineContractSchemas = {
 	      "format": "date-time"
 	    },
 	    "scope": {
+	      "oneOf": [
+	        {
+	          "$ref": "#/$defs/legacyScope"
+	        },
+	        {
+	          "$ref": "#/$defs/exactHiggsfieldVideoScope"
+	        }
+	      ]
+	    },
+	    "providerQuote": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "provider",
+	        "amount",
+	        "unit"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "amount": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "unit": {
+	          "const": "higgsfield_credits"
+	        }
+	      }
+	    },
+	    "signature": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    },
+	    "legacyScope": {
 	      "type": "object",
 	      "additionalProperties": false,
 	      "required": [
@@ -11792,35 +11833,145 @@ export const generatedPipelineContractSchemas = {
 	          "type": "string"
 	        },
 	        "requestFingerprint": {
-	          "type": "string",
-	          "pattern": "^[0-9a-f]{64}$"
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
 	    },
-	    "providerQuote": {
+	    "exactHiggsfieldVideoScope": {
 	      "type": "object",
-	      "additionalProperties": true,
+	      "additionalProperties": false,
 	      "required": [
+	        "publicMode",
 	        "provider",
-	        "amount",
-	        "unit"
+	        "campaign",
+	        "cohortId",
+	        "workItemId",
+	        "attemptId",
+	        "batchBalanceSnapshotFingerprint",
+	        "recipeId",
+	        "creator",
+	        "soulId",
+	        "source",
+	        "sourceApprovalFingerprint",
+	        "recreationAnchorApproval",
+	        "drivingVideo",
+	        "speechAudio",
+	        "referenceElement",
+	        "resolvedPromptSha256",
+	        "promptBuilderFingerprint",
+	        "providerModels",
+	        "providerCallCount",
+	        "seed",
+	        "parameters",
+	        "providerCommandFingerprint",
+	        "requestFingerprint"
 	      ],
 	      "properties": {
+	        "publicMode": {
+	          "enum": [
+	            "calm_animation",
+	            "recreate_reel"
+	          ]
+	        },
 	        "provider": {
 	          "const": "higgsfield"
 	        },
-	        "amount": {
-	          "type": "number",
-	          "exclusiveMinimum": 0
+	        "campaign": {
+	          "type": "string",
+	          "minLength": 1
 	        },
-	        "unit": {
-	          "const": "higgsfield_credits"
+	        "cohortId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "workItemId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "attemptId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "batchBalanceSnapshotFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "recipeId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "creator": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "soulId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "source": {
+	          "type": "object"
+	        },
+	        "sourceApprovalFingerprint": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "recreationAnchorApproval": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "drivingVideo": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "speechAudio": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "referenceElement": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "resolvedPromptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "promptBuilderFingerprint": {
+	          "type": "string"
+	        },
+	        "providerModels": {
+	          "type": "array",
+	          "minItems": 1,
+	          "maxItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "providerCallCount": {
+	          "const": 1
+	        },
+	        "seed": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ]
+	        },
+	        "parameters": {
+	          "type": "object"
+	        },
+	        "providerCommandFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "requestFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
-	    },
-	    "signature": {
-	      "type": "string",
-	      "pattern": "^[0-9a-f]{64}$"
 	    }
 	  }
 	} as const,

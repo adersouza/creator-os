@@ -55,6 +55,20 @@ class BalanceProvider(Protocol):
     def balance(self) -> float | None: ...
 
 
+class ProviderOverspendError(PermissionError):
+    def __init__(
+        self,
+        *,
+        actual: float,
+        authorized_maximum: float,
+        cost_event_ids: list[str],
+    ) -> None:
+        super().__init__("provider_overspend_requires_operator_review")
+        self.actual = actual
+        self.authorized_maximum = authorized_maximum
+        self.cost_event_ids = cost_event_ids
+
+
 @dataclass
 class HiggsfieldCliQuoteProvider:
     timeout_seconds: int = 60
@@ -325,10 +339,16 @@ def record_provider_execution(
     event_ids = []
     quote = authorization["providerQuote"]
     scope = authorization["scope"]
+    authorized_maximum = _positive_number(
+        quote.get("amount"), "authorized provider maximum"
+    )
+    overspend_actual: float | None = None
     for event in events:
         if not isinstance(event, dict) or not event.get("jobId"):
             continue
         amount = _event_amount(event.get("actualCredits"))
+        if amount is not None and amount > authorized_maximum + 0.0001:
+            overspend_actual = amount
         event_ids.append(
             record_ai_cost(
                 conn,
@@ -342,6 +362,10 @@ def record_provider_execution(
                     "model": event.get("model"),
                     "jobId": event.get("jobId"),
                     "requestFingerprint": scope.get("requestFingerprint"),
+                    "authorizedMaximumCredits": authorized_maximum,
+                    "overspend": (
+                        amount is not None and amount > authorized_maximum + 0.0001
+                    ),
                 },
                 source_event_key=(
                     f"campaign_factory:{authorization['authorizationId']}:"
@@ -356,6 +380,12 @@ def record_provider_execution(
             )
         )
     conn.commit()
+    if overspend_actual is not None:
+        raise ProviderOverspendError(
+            actual=overspend_actual,
+            authorized_maximum=authorized_maximum,
+            cost_event_ids=event_ids,
+        )
     return event_ids
 
 

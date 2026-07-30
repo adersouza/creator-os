@@ -25,6 +25,9 @@ def register_core_commands(sub) -> None:
         "--threadsdash-ingest-secret",
         default=os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
     )
+    provider = sub.add_parser("provider")
+    provider_sub = provider.add_subparsers(dest="provider_cmd", required=True)
+    provider_sub.add_parser("reconcile")
     create = sub.add_parser(
         "create",
         help="create an independent production batch from operator intent",

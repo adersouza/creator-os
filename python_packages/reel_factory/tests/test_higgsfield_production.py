@@ -225,6 +225,132 @@ def test_passive_plan_uses_kling_turbo_at_720p(tmp_path: Path) -> None:
     assert plan["command"][3] == "kling3_0_turbo"
     assert plan["command"][plan["command"].index("--resolution") + 1] == "720p"
     assert "--sound" not in plan["command"]
+    assert plan["authorizationScope"]["parameters"]["providerSoundArgument"] is None
+    assert (
+        plan["authorizationScope"]["parameters"]["audioOutputPostcondition"] == "silent"
+    )
+
+
+def test_provider_request_fingerprint_excludes_local_output_destination(
+    tmp_path: Path,
+) -> None:
+    first = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            work_item_id="work-1",
+            attempt_id="attempt-1",
+            output_path=tmp_path / "first.mp4",
+        ),
+        capabilities=_capabilities(),
+    )
+    second = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            work_item_id="work-1",
+            attempt_id="attempt-1",
+            output_path=tmp_path / "second.mp4",
+        ),
+        capabilities=_capabilities(),
+    )
+
+    assert first["providerRequestFingerprint"] == second["providerRequestFingerprint"]
+    assert first["executionFingerprint"] != second["executionFingerprint"]
+
+
+def test_prompt_and_seed_changes_require_a_new_provider_request(
+    tmp_path: Path,
+) -> None:
+    base = subject.build_higgsfield_production_plan(
+        _request(tmp_path, seed=1),
+        capabilities=_capabilities(),
+    )
+    changed_prompt = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            seed=1,
+            prompt="A different restrained natural head turn in stable framing.",
+        ),
+        capabilities=_capabilities(),
+    )
+    changed_seed = subject.build_higgsfield_production_plan(
+        _request(tmp_path, seed=2),
+        capabilities=_capabilities(),
+    )
+    changed_approval = subject.build_higgsfield_production_plan(
+        _request(tmp_path, seed=1, source_approval="approved-source-2"),
+        capabilities=_capabilities(),
+    )
+
+    assert (
+        base["providerRequestFingerprint"]
+        != changed_prompt["providerRequestFingerprint"]
+    )
+    assert (
+        base["providerRequestFingerprint"] != changed_seed["providerRequestFingerprint"]
+    )
+    assert (
+        base["providerRequestFingerprint"]
+        != changed_approval["providerRequestFingerprint"]
+    )
+
+
+def test_execution_rejects_a_changed_authorized_provider_request(
+    tmp_path: Path,
+) -> None:
+    request = _request(
+        tmp_path,
+        authorized_request_fingerprint="f" * 64,
+    )
+    plan = subject.build_higgsfield_production_plan(
+        request,
+        capabilities=_capabilities(),
+    )
+    adapter = FakeAdapter([])
+
+    with pytest.raises(
+        PermissionError,
+        match="authorized_provider_request_mismatch",
+    ):
+        subject.execute_higgsfield_production(
+            request,
+            adapter=adapter,  # type: ignore[arg-type]
+            confirm_paid=True,
+            prepared_plan=plan,
+        )
+
+    assert adapter.commands == []
+
+
+def test_execution_rejects_quote_fingerprint_drift(tmp_path: Path) -> None:
+    base_request = _request(tmp_path)
+    plan = subject.build_higgsfield_production_plan(
+        base_request,
+        capabilities=_capabilities(),
+    )
+    authorized_quote = {
+        "provider": "higgsfield",
+        "amount": 8.0,
+        "unit": "higgsfield_credits",
+    }
+    request = _request(
+        tmp_path,
+        authorized_request_fingerprint=plan["providerRequestFingerprint"],
+        authorized_quote_fingerprint=subject.higgsfield_quote_fingerprint(
+            authorized_quote
+        ),
+    )
+    adapter = FakeAdapter([])
+
+    with pytest.raises(PermissionError, match="quote_changed_after_authorization"):
+        subject.execute_higgsfield_production(
+            request,
+            adapter=adapter,  # type: ignore[arg-type]
+            confirm_paid=True,
+            prepared_plan=plan,
+            prepared_quote={**authorized_quote, "amount": 8.5},
+        )
+
+    assert adapter.commands == []
 
 
 def test_motion_control_qualification_plan_uses_exact_contract(
@@ -502,8 +628,9 @@ def test_success_hashes_registers_and_preserves_review_fields(
         },
     )
 
+    request = _request(tmp_path)
     receipt = subject.execute_higgsfield_production(
-        _request(tmp_path),
+        request,
         capabilities=_capabilities(),
         adapter=adapter,  # type: ignore[arg-type]
         confirm_paid=True,
@@ -536,6 +663,111 @@ def test_success_hashes_registers_and_preserves_review_fields(
     receipts = list((tmp_path / "review" / "receipts").glob("*.json"))
     assert len(receipts) == 1
     assert "secret" not in receipts[0].read_text(encoding="utf-8")
+
+    recovered = subject.execute_higgsfield_production(
+        request,
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+        confirm_paid=True,
+    )
+    assert recovered["generationId"] == "generation-1"
+
+
+def test_concurrent_balance_delta_is_not_attributed_to_one_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FakeAdapter(
+        [
+            {"credits": 8.75},
+            {"credits": 100.0},
+            {"items": ["generation-concurrent"]},
+            {
+                "items": [
+                    {
+                        "id": "generation-concurrent",
+                        "status": "completed",
+                        "result_url": "https://cdn.example/video.mp4",
+                    }
+                ]
+            },
+            {"credits": 70.0},
+        ]
+    )
+
+    def fake_download(_url: str, output: Path) -> Path:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"concurrent-review-video")
+        return output
+
+    monkeypatch.setattr(subject, "download_result", fake_download)
+    monkeypatch.setattr(
+        subject,
+        "_probe_video",
+        lambda _path: {"audioStreams": 0},
+    )
+    monkeypatch.setattr(
+        subject,
+        "record_asset_generation",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "asset_generation_id": "asset-concurrent",
+        },
+    )
+
+    receipt = subject.execute_higgsfield_production(
+        _request(tmp_path, balance_delta_attribution_allowed=False),
+        capabilities=_capabilities(),
+        adapter=adapter,  # type: ignore[arg-type]
+        confirm_paid=True,
+    )
+
+    assert receipt["creditsConsumed"] is None
+    assert receipt["creditsConsumedSource"] == "unknown_concurrent_provider_operations"
+
+
+def test_downloaded_receipt_recovers_by_atomic_finalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "output.mp4"
+    temporary = tmp_path / ".output.mp4.temporary.download"
+    temporary.write_bytes(b"downloaded-before-crash")
+    digest = hashlib.sha256(temporary.read_bytes()).hexdigest()
+    receipt_path = tmp_path / "receipt.json"
+    receipt = {
+        "downloadedOutput": {
+            "generationId": "generation-1",
+            "temporaryPath": str(temporary),
+            "finalPath": str(output),
+            "sha256": digest,
+        }
+    }
+    expected_temporary = output.with_name(
+        f".{output.name}.{hashlib.sha256(b'generation-1').hexdigest()[:16]}.download"
+    )
+    temporary.replace(expected_temporary)
+    monkeypatch.setattr(
+        subject,
+        "_probe_video",
+        lambda _path: {"audioStreams": 0},
+    )
+    monkeypatch.setattr(
+        subject,
+        "download_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("recovery must not download again")
+        ),
+    )
+
+    retained, retained_sha, _probe = subject._retain_downloaded_output(
+        result_url="https://cdn.example/video.mp4",
+        output=output,
+        generation_id="generation-1",
+        receipt=receipt,
+        receipt_path=receipt_path,
+    )
+
+    assert retained == output
+    assert retained_sha == digest
+    assert output.read_bytes() == b"downloaded-before-crash"
 
 
 def test_motion_copy_missing_driving_video_never_submits(

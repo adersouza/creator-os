@@ -17,23 +17,51 @@ _PIPELINE_SAFE_REPLAY_CLASSES = {
 }
 _EFFECT_STATES = {
     "PRE_EFFECT",
+    "AUTHORIZATION_CONSUMED",
     "SUBMISSION_STARTED",
     "EXTERNAL_ID_KNOWN",
     "AMBIGUOUS",
+    "PROVIDER_FAILED",
+    "PROVIDER_COMPLETED",
+    "OUTPUT_RETAINED",
+    "COST_RECONCILED",
     "NO_EFFECT_CONFIRMED",
     "EFFECT_CONFIRMED",
     "FINALIZED",
 }
 _EFFECT_TRANSITIONS = {
-    "PRE_EFFECT": {"SUBMISSION_STARTED", "EXTERNAL_ID_KNOWN", "FINALIZED"},
+    "PRE_EFFECT": {
+        "AUTHORIZATION_CONSUMED",
+        "SUBMISSION_STARTED",
+        "NO_EFFECT_CONFIRMED",
+        "EXTERNAL_ID_KNOWN",
+        "FINALIZED",
+    },
+    "AUTHORIZATION_CONSUMED": {
+        "SUBMISSION_STARTED",
+        "EXTERNAL_ID_KNOWN",
+        "NO_EFFECT_CONFIRMED",
+        "FINALIZED",
+    },
     "SUBMISSION_STARTED": {
         "EXTERNAL_ID_KNOWN",
         "AMBIGUOUS",
+        "PROVIDER_FAILED",
         "NO_EFFECT_CONFIRMED",
         "EFFECT_CONFIRMED",
         "FINALIZED",
     },
-    "EXTERNAL_ID_KNOWN": {"AMBIGUOUS", "EFFECT_CONFIRMED", "FINALIZED"},
+    "EXTERNAL_ID_KNOWN": {
+        "AMBIGUOUS",
+        "PROVIDER_FAILED",
+        "PROVIDER_COMPLETED",
+        "EFFECT_CONFIRMED",
+        "FINALIZED",
+    },
+    "PROVIDER_FAILED": {"FINALIZED"},
+    "PROVIDER_COMPLETED": {"OUTPUT_RETAINED", "AMBIGUOUS", "FINALIZED"},
+    "OUTPUT_RETAINED": {"COST_RECONCILED", "AMBIGUOUS", "FINALIZED"},
+    "COST_RECONCILED": {"FINALIZED"},
     "AMBIGUOUS": {
         "EXTERNAL_ID_KNOWN",
         "NO_EFFECT_CONFIRMED",
@@ -460,15 +488,58 @@ class EventRepository:
             raise ValueError(f"pipeline job not found: {job_id}")
         if (
             row["status"] == "running"
-            and row["effect_state"] in {"SUBMISSION_STARTED", "AMBIGUOUS"}
+            and row["effect_state"]
+            in {
+                "AUTHORIZATION_CONSUMED",
+                "SUBMISSION_STARTED",
+                "AMBIGUOUS",
+            }
             and not row["external_operation_id"]
         ):
+            target = (
+                "NO_EFFECT_CONFIRMED"
+                if row["effect_state"] == "AUTHORIZATION_CONSUMED"
+                else "AMBIGUOUS"
+            )
             with self.conn:
                 self.conn.execute(
                     """
                     UPDATE pipeline_jobs
-                    SET effect_state = 'AMBIGUOUS', result_json = ?, error = ?,
-                        reconciliation_classification = 'HISTORY_REQUIRED',
+                    SET effect_state = ?, result_json = ?, error = ?,
+                        reconciliation_classification = ?,
+                        updated_at = ?
+                    WHERE id = ? AND status = 'running'
+                    """,
+                    (
+                        target,
+                        json.dumps(
+                            self._sanitize_for_storage(result_payload or {}),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        error,
+                        (
+                            "PROVIDER_PROVED_NO_EFFECT"
+                            if target == "NO_EFFECT_CONFIRMED"
+                            else "HISTORY_REQUIRED"
+                        ),
+                        now,
+                        job_id,
+                    ),
+                )
+            return self.pipeline_job(job_id)
+        if row["status"] == "running" and row["effect_state"] in {
+            "EXTERNAL_ID_KNOWN",
+            "PROVIDER_COMPLETED",
+            "OUTPUT_RETAINED",
+            "COST_RECONCILED",
+        }:
+            with self.conn:
+                self.conn.execute(
+                    """
+                    UPDATE pipeline_jobs
+                    SET result_json = ?, error = ?,
+                        reconciliation_classification = 'EXACT_MATCH',
                         updated_at = ?
                     WHERE id = ? AND status = 'running'
                     """,
@@ -753,9 +824,13 @@ class EventRepository:
                     manual_hold = recovery[
                         "safeReplayClass"
                     ] == "NEVER_AUTOMATIC" and recovery["effectState"] in {
+                        "AUTHORIZATION_CONSUMED",
                         "SUBMISSION_STARTED",
                         "EXTERNAL_ID_KNOWN",
                         "AMBIGUOUS",
+                        "PROVIDER_COMPLETED",
+                        "OUTPUT_RETAINED",
+                        "COST_RECONCILED",
                         "EFFECT_CONFIRMED",
                     }
                     if manual_hold:
@@ -775,6 +850,21 @@ class EventRepository:
                             f"(threshold {stuck_hours}h)"
                         )
                     if manual_hold:
+                        retained_effect_state = (
+                            recovery["effectState"]
+                            if recovery["effectState"]
+                            in {
+                                "PROVIDER_COMPLETED",
+                                "OUTPUT_RETAINED",
+                                "COST_RECONCILED",
+                                "EFFECT_CONFIRMED",
+                            }
+                            else (
+                                "EXTERNAL_ID_KNOWN"
+                                if recovery["externalOperationId"]
+                                else "AMBIGUOUS"
+                            )
+                        )
                         cursor = self.conn.execute(
                             """
                             UPDATE pipeline_jobs
@@ -784,11 +874,7 @@ class EventRepository:
                             WHERE id = ? AND status = ? AND updated_at = ?
                             """,
                             (
-                                (
-                                    "EXTERNAL_ID_KNOWN"
-                                    if recovery["externalOperationId"]
-                                    else "AMBIGUOUS"
-                                ),
+                                retained_effect_state,
                                 error,
                                 (
                                     "EXACT_MATCH"
@@ -804,11 +890,7 @@ class EventRepository:
                         outcome = "manual_hold"
                         recovery = {
                             **recovery,
-                            "effectState": (
-                                "EXTERNAL_ID_KNOWN"
-                                if recovery["externalOperationId"]
-                                else "AMBIGUOUS"
-                            ),
+                            "effectState": retained_effect_state,
                             "reconciliationRequired": not bool(
                                 recovery["externalOperationId"]
                             ),

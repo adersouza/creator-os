@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -124,6 +125,14 @@ class HiggsfieldProductionRequest:
     attempt_id: str | None = None
     client_request_correlation_id: str | None = None
     recreation_anchor_approval: dict[str, Any] | None = None
+    public_mode: str | None = None
+    campaign: str | None = None
+    cohort_id: str | None = None
+    prompt_builder_fingerprint: str | None = None
+    authorized_request_fingerprint: str | None = None
+    authorized_quote_fingerprint: str | None = None
+    balance_delta_attribution_allowed: bool = True
+    batch_balance_snapshot_fingerprint: str | None = None
 
 
 _EXACT_JOB_TYPES = (
@@ -214,6 +223,57 @@ def higgsfield_candidate_catalog(
     return _candidate_capabilities(identifiers)
 
 
+def _remote_media_binding(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        key: value.get(key)
+        for key in ("kind", "sha256", "approval", "generationId", "bytes")
+        if value.get(key) is not None
+    }
+
+
+def _remote_anchor_binding(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        key: value.get(key)
+        for key in (
+            "schema",
+            "creator",
+            "soulId",
+            "anchorGenerationId",
+            "anchorFileSha256",
+            "approvalFingerprint",
+            "receiptSha256",
+            "promptPackFingerprint",
+            "anchorPromptFingerprint",
+            "referenceVideoSha256",
+        )
+        if value.get(key) is not None
+    }
+
+
+def _remote_reference_element_binding(
+    value: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        key: value.get(key)
+        for key in ("id", "creator", "fileSha256", "deliveryMethod")
+        if value.get(key) is not None
+    }
+
+
+def _command_option(command: list[str], name: str) -> str | None:
+    try:
+        index = command.index(name)
+    except ValueError:
+        return None
+    return command[index + 1] if index + 1 < len(command) else None
+
+
 def build_higgsfield_production_plan(
     request: HiggsfieldProductionRequest,
     *,
@@ -263,24 +323,67 @@ def build_higgsfield_production_plan(
         reference_elements_path=reference_elements_path,
     )
     selected_model = command[3]
-    material = {
+    provider_scope = {
+        "publicMode": request.public_mode or request.recipe_id,
+        "provider": "higgsfield",
+        "campaign": request.campaign or "",
+        "cohortId": request.cohort_id or request.work_item_id or "",
+        "workItemId": request.work_item_id,
+        "attemptId": request.attempt_id,
+        "batchBalanceSnapshotFingerprint": (request.batch_balance_snapshot_fingerprint),
         "recipeId": request.recipe_id,
         "creator": request.creator.strip().lower(),
         "soulId": request.soul_id,
-        "source": source,
-        "recreationAnchorApproval": anchor_approval,
-        "drivingVideo": driving,
-        "speechAudio": speech,
-        "referenceElement": reference_element_binding,
-        "prompt": prompt,
-        "model": selected_model,
+        "source": _remote_media_binding(source),
+        "sourceApprovalFingerprint": request.source_approval,
+        "recreationAnchorApproval": _remote_anchor_binding(anchor_approval),
+        "drivingVideo": _remote_media_binding(driving),
+        "speechAudio": _remote_media_binding(speech),
+        "referenceElement": _remote_reference_element_binding(
+            reference_element_binding
+        ),
+        "resolvedPromptSha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "promptBuilderFingerprint": request.prompt_builder_fingerprint,
+        "providerModels": [selected_model],
+        "providerCallCount": 1,
         "seed": request.seed,
-        "outputPath": str(_output_path(request.output_path)),
+        "parameters": {
+            "durationSeconds": request.duration_seconds,
+            "aspectRatio": _command_option(command, "--aspect_ratio"),
+            "resolution": _command_option(command, "--resolution"),
+            "mode": _command_option(command, "--mode"),
+            "quality": _command_option(command, "--quality"),
+            "bitrateMode": _command_option(command, "--bitrate_mode"),
+            "providerSoundArgument": _command_option(command, "--sound")
+            or _command_option(command, "--generate_audio"),
+            "audioOutputPostcondition": (
+                "silent"
+                if request.recipe_id
+                in {"higgsfield_passive_selfie", "higgsfield_recreate_reel"}
+                else None
+            ),
+        },
+        "providerCommandFingerprint": _fingerprint({"command": command}),
     }
-    request_fingerprint = _fingerprint(material)
-    return {
-        "schema": "reel_factory.higgsfield_production_plan.v1",
+    request_fingerprint = _fingerprint(provider_scope)
+    authorization_scope = {
+        **provider_scope,
         "requestFingerprint": request_fingerprint,
+    }
+    execution_fingerprint = _fingerprint(
+        {
+            "providerRequestFingerprint": request_fingerprint,
+            "outputPath": str(_output_path(request.output_path)),
+            "reviewRoot": str(_review_root(request.review_root)),
+            "runtimeSchema": "reel_factory.higgsfield_production_plan.v2",
+        }
+    )
+    return {
+        "schema": "reel_factory.higgsfield_production_plan.v2",
+        "requestFingerprint": request_fingerprint,
+        "providerRequestFingerprint": request_fingerprint,
+        "executionFingerprint": execution_fingerprint,
+        "authorizationScope": authorization_scope,
         "recipe": candidate.to_dict(),
         "creator": request.creator.strip().lower(),
         "soul": soul,
@@ -302,6 +405,10 @@ def build_higgsfield_production_plan(
         "schedulingAllowed": False,
         "publishingAllowed": False,
     }
+
+
+def higgsfield_quote_fingerprint(quote: dict[str, Any]) -> str:
+    return _fingerprint(quote)
 
 
 def quote_higgsfield_production_plan(
@@ -367,16 +474,40 @@ def execute_higgsfield_production(
     capabilities: dict[str, Any] | None = None,
     adapter: HiggsfieldCliAdapter | None = None,
     confirm_paid: bool,
+    prepared_plan: dict[str, Any] | None = None,
+    prepared_quote: dict[str, Any] | None = None,
+    effect_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Submit once, poll, retain, hash, register, and write review evidence."""
 
+    completed_local = _completed_local_receipt(request)
+    if completed_local is not None:
+        return completed_local
     cli = adapter or HiggsfieldCliAdapter()
-    live = capabilities or discover_higgsfield_production_capabilities(adapter=cli)
-    plan = build_higgsfield_production_plan(request, capabilities=live, adapter=cli)
+    if prepared_plan is None:
+        live = capabilities or discover_higgsfield_production_capabilities(adapter=cli)
+        plan = build_higgsfield_production_plan(request, capabilities=live, adapter=cli)
+    else:
+        plan = dict(prepared_plan)
+    if (
+        request.authorized_request_fingerprint
+        and plan.get("providerRequestFingerprint")
+        != request.authorized_request_fingerprint
+    ):
+        raise PermissionError("higgsfield_authorized_provider_request_mismatch")
     cap = _positive_credits(request.max_credits)
     if not confirm_paid:
         raise PermissionError("Higgsfield generation requires --confirm-paid")
-    quote = quote_higgsfield_production_plan(plan, adapter=cli)
+    quote = (
+        dict(prepared_quote)
+        if prepared_quote is not None
+        else quote_higgsfield_production_plan(plan, adapter=cli)
+    )
+    if (
+        request.authorized_quote_fingerprint
+        and higgsfield_quote_fingerprint(quote) != request.authorized_quote_fingerprint
+    ):
+        raise PermissionError("higgsfield_quote_changed_after_authorization")
     if float(quote["amount"]) > cap:
         raise PermissionError(
             f"higgsfield_quote_exceeds_credit_cap:{quote['amount']} > {cap}"
@@ -402,10 +533,13 @@ def execute_higgsfield_production(
             receipt=existing,
             receipt_path=receipt_path,
             adapter=cli,
+            effect_recorder=effect_recorder,
         )
     receipt = {
         "schema": SCHEMA,
         "requestFingerprint": plan["requestFingerprint"],
+        "providerRequestFingerprint": plan["providerRequestFingerprint"],
+        "executionFingerprint": plan["executionFingerprint"],
         "workItemId": request.work_item_id,
         "authorizationId": request.authorization_id,
         "attemptId": request.attempt_id,
@@ -455,6 +589,15 @@ def execute_higgsfield_production(
     receipt["status"] = "submission_started"
     receipt["submittedAt"] = _utc_now()
     _write_receipt(receipt_path, receipt)
+    if effect_recorder is not None:
+        effect_recorder(
+            "SUBMISSION_STARTED",
+            {
+                "receiptPath": str(receipt_path),
+                "providerRequestFingerprint": plan["providerRequestFingerprint"],
+                "executionFingerprint": plan["executionFingerprint"],
+            },
+        )
     try:
         created = cli.run_json([str(value) for value in plan["command"]])
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
@@ -476,6 +619,14 @@ def execute_higgsfield_production(
     receipt["status"] = str(extract_status(created) or "created")
     receipt["submissionResponse"] = _scrub_provider_payload(created)
     _write_receipt(receipt_path, receipt)
+    if effect_recorder is not None:
+        effect_recorder(
+            "EXTERNAL_ID_KNOWN",
+            {
+                "receiptPath": str(receipt_path),
+                "externalOperationId": generation_id,
+            },
+        )
     return _complete_higgsfield_generation(
         request,
         plan=plan,
@@ -483,6 +634,7 @@ def execute_higgsfield_production(
         receipt_path=receipt_path,
         adapter=cli,
         started=started,
+        effect_recorder=effect_recorder,
     )
 
 
@@ -493,6 +645,7 @@ def _recover_higgsfield_generation(
     receipt: dict[str, Any],
     receipt_path: Path,
     adapter: HiggsfieldCliAdapter,
+    effect_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     if receipt.get("requestFingerprint") != plan["requestFingerprint"]:
         raise PermissionError("higgsfield_recovery_scope_mismatch")
@@ -547,8 +700,26 @@ def _recover_higgsfield_generation(
             ).hexdigest(),
         }
         _write_receipt(receipt_path, receipt)
+        if effect_recorder is not None:
+            effect_recorder(
+                "EXTERNAL_ID_KNOWN",
+                {
+                    "receiptPath": str(receipt_path),
+                    "externalOperationId": str(generation["id"]),
+                    "reconciled": True,
+                },
+            )
     if not receipt.get("generationId"):
         raise PermissionError("higgsfield_submission_not_recoverable")
+    if effect_recorder is not None:
+        effect_recorder(
+            "EXTERNAL_ID_KNOWN",
+            {
+                "receiptPath": str(receipt_path),
+                "externalOperationId": str(receipt["generationId"]),
+                "reconciled": True,
+            },
+        )
     return _complete_higgsfield_generation(
         request,
         plan=plan,
@@ -556,6 +727,7 @@ def _recover_higgsfield_generation(
         receipt_path=receipt_path,
         adapter=adapter,
         started=time.monotonic(),
+        effect_recorder=effect_recorder,
     )
 
 
@@ -719,6 +891,7 @@ def _complete_higgsfield_generation(
     receipt_path: Path,
     adapter: HiggsfieldCliAdapter,
     started: float,
+    effect_recorder: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     generation_id = str(receipt["generationId"])
     completed = adapter.run_json(
@@ -739,7 +912,26 @@ def _complete_higgsfield_generation(
         receipt["status"] = status or "poll_incomplete"
         receipt["pollResponse"] = completed
         _write_receipt(receipt_path, receipt)
+        if effect_recorder is not None and status.lower() in {
+            "failed",
+            "error",
+            "cancelled",
+            "canceled",
+        }:
+            effect_recorder(
+                "PROVIDER_FAILED",
+                {
+                    "externalOperationId": generation_id,
+                    "providerStatus": status,
+                    "receiptPath": str(receipt_path),
+                },
+            )
         raise RuntimeError(f"higgsfield_generation_not_completed:{status}")
+    if effect_recorder is not None:
+        effect_recorder(
+            "PROVIDER_COMPLETED",
+            {"externalOperationId": generation_id, "providerStatus": status},
+        )
     result_url = extract_url(completed)
     if not result_url:
         inspected = adapter.run_json(
@@ -752,10 +944,13 @@ def _complete_higgsfield_generation(
         _write_receipt(receipt_path, receipt)
         raise RuntimeError("higgsfield_completed_result_url_missing")
     output = _output_path(request.output_path)
-    if output.exists():
-        raise FileExistsError(f"higgsfield_output_collision:{output}")
-    download_result(result_url, output)
-    probe = _probe_video(output)
+    output, digest, probe = _retain_downloaded_output(
+        result_url=result_url,
+        output=output,
+        generation_id=generation_id,
+        receipt=receipt,
+        receipt_path=receipt_path,
+    )
     if (
         request.recipe_id
         in {
@@ -766,7 +961,15 @@ def _complete_higgsfield_generation(
     ):
         output.unlink(missing_ok=True)
         raise RuntimeError("higgsfield_silent_candidate_returned_audio")
-    digest = _sha256_file(output)
+    if effect_recorder is not None:
+        effect_recorder(
+            "OUTPUT_RETAINED",
+            {
+                "externalOperationId": generation_id,
+                "outputSha256": digest,
+                "outputPath": str(output),
+            },
+        )
     balance_after = _numeric_account_value(
         adapter.run_json(["higgsfield", "account", "status", "--json"]), "credits"
     )
@@ -780,7 +983,11 @@ def _complete_higgsfield_generation(
         exposed_credits
         if exposed_credits is not None
         else balance_delta
-        if balance_delta is not None and balance_delta >= 0
+        if (
+            request.balance_delta_attribution_allowed
+            and balance_delta is not None
+            and balance_delta >= 0
+        )
         else None
     )
     generation_duration = round(time.monotonic() - started, 3)
@@ -805,7 +1012,9 @@ def _complete_higgsfield_generation(
                 if exposed_credits is not None
                 else "account_balance_delta"
                 if consumed is not None
-                else None
+                else "unknown_concurrent_provider_operations"
+                if not request.balance_delta_attribution_allowed
+                else "unknown"
             ),
             "balanceAfter": balance_after,
             "finalOutput": {
@@ -823,6 +1032,137 @@ def _complete_higgsfield_generation(
     )
     receipt["registration"] = registration
     _write_receipt(receipt_path, receipt)
+    return receipt
+
+
+def _retain_downloaded_output(
+    *,
+    result_url: str,
+    output: Path,
+    generation_id: str,
+    receipt: dict[str, Any],
+    receipt_path: Path,
+) -> tuple[Path, str, dict[str, Any]]:
+    downloaded = receipt.get("downloadedOutput")
+    expected_sha = (
+        str(downloaded.get("sha256") or "")
+        if isinstance(downloaded, dict)
+        and downloaded.get("generationId") == generation_id
+        else ""
+    )
+    if output.exists():
+        if expected_sha and _sha256_file(output) == expected_sha:
+            return output, expected_sha, _probe_video(output)
+        quarantine = _quarantine_collision(output)
+        raise FileExistsError(f"higgsfield_output_collision_quarantined:{quarantine}")
+    attempt = hashlib.sha256(generation_id.encode("utf-8")).hexdigest()[:16]
+    temporary = output.with_name(f".{output.name}.{attempt}.download")
+    if temporary.exists():
+        if not expected_sha or _sha256_file(temporary) != expected_sha:
+            quarantine = _quarantine_collision(temporary)
+            raise FileExistsError(
+                f"higgsfield_download_collision_quarantined:{quarantine}"
+            )
+        digest = expected_sha
+        probe = _probe_video(temporary)
+    else:
+        download_result(result_url, temporary)
+        probe = _probe_video(temporary)
+        digest = _sha256_file(temporary)
+        receipt["status"] = "downloaded_output"
+        receipt["downloadedOutput"] = {
+            "generationId": generation_id,
+            "temporaryPath": str(temporary),
+            "finalPath": str(output),
+            "sha256": digest,
+            "bytes": temporary.stat().st_size,
+            "probe": probe,
+            "downloadedAt": _utc_now(),
+        }
+        _write_receipt(receipt_path, receipt)
+    if output.exists():
+        quarantine = _quarantine_collision(output)
+        raise FileExistsError(f"higgsfield_output_collision_quarantined:{quarantine}")
+    temporary.replace(output)
+    return output, digest, probe
+
+
+def _quarantine_collision(path: Path) -> Path:
+    digest = _sha256_file(path)[:16]
+    quarantine = path.with_name(f"{path.name}.quarantine.{digest}")
+    if quarantine.exists():
+        raise FileExistsError(f"higgsfield_quarantine_collision:{quarantine}")
+    path.replace(quarantine)
+    return quarantine
+
+
+def _completed_local_receipt(
+    request: HiggsfieldProductionRequest,
+) -> dict[str, Any] | None:
+    receipt_dir = _review_root(request.review_root) / "receipts"
+    if not receipt_dir.is_dir() or request.source_image_path is None:
+        return None
+    source_path = _safe_file(request.source_image_path, "source image")
+    source = {
+        "kind": "local_approved_image",
+        "path": str(source_path),
+        "sha256": _sha256_file(source_path),
+        "approval": request.source_approval,
+        "generationId": None,
+    }
+    driving = _optional_media_identity(request.driving_video_path, "driving video")
+    _, reference_element = _reference_element(request)
+    expected_prompt = _candidate_prompt(
+        request,
+        reference_element=reference_element,
+    )
+    anchor = _recreation_anchor_approval(request, source=source, driving=driving)
+    expected_output = _output_path(request.output_path)
+    matches: list[tuple[Path, dict[str, Any]]] = []
+    for path in receipt_dir.glob("*.higgsfield_submission.json"):
+        receipt = _read_receipt(path)
+        final = receipt.get("finalOutput")
+        receipt_source = receipt.get("source")
+        if (
+            receipt.get("status") != "completed"
+            or not isinstance(final, dict)
+            or not isinstance(receipt_source, dict)
+            or receipt.get("workItemId") != request.work_item_id
+            or receipt.get("attemptId") != request.attempt_id
+            or receipt.get("authorizationId") != request.authorization_id
+            or (
+                request.authorized_request_fingerprint
+                and receipt.get("providerRequestFingerprint")
+                != request.authorized_request_fingerprint
+            )
+            or (
+                request.authorized_quote_fingerprint
+                and (
+                    not isinstance(receipt.get("creditQuote"), dict)
+                    or higgsfield_quote_fingerprint(receipt["creditQuote"])
+                    != request.authorized_quote_fingerprint
+                )
+            )
+            or receipt.get("model") != request.model
+            or receipt.get("seed") != request.seed
+            or receipt.get("prompt") != expected_prompt
+            or receipt_source.get("sha256") != source["sha256"]
+            or receipt.get("drivingVideo") != driving
+            or receipt.get("recreationAnchorApproval") != anchor
+            or Path(str(final.get("path") or "")).expanduser().resolve()
+            != expected_output
+            or not expected_output.is_file()
+            or _sha256_file(expected_output) != final.get("sha256")
+        ):
+            continue
+        _probe_video(expected_output)
+        matches.append((path, receipt))
+    if len(matches) > 1:
+        raise PermissionError("higgsfield_completed_local_recovery_is_ambiguous")
+    if not matches:
+        return None
+    path, receipt = matches[0]
+    receipt["evidencePath"] = str(path.resolve())
     return receipt
 
 

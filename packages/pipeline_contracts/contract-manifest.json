@@ -68,7 +68,7 @@
     "pipeline_contracts/schemas/post_metric_history.read.v1.example.json": "4984cc54d50ed522641cd564b331db85bd80d5c726281713fa8096ebc950ec26",
     "pipeline_contracts/schemas/post_metric_history.read.v1.schema.json": "9898a201b739b147ae9150c2610589c3304cb9ab394d3dde2ddfad7b02496427",
     "pipeline_contracts/schemas/provider_spend_authorization.v1.example.json": "615ca65882197d875a012529a09699019b51564f867f27c58c0f7cb4961e899d",
-    "pipeline_contracts/schemas/provider_spend_authorization.v1.schema.json": "b524e8ac2fcd8908224d65b9c90a7d112c29839fa33972cf54c4a902cb78e5a2",
+    "pipeline_contracts/schemas/provider_spend_authorization.v1.schema.json": "becf9af41761aa561bbff0ffea7d798ad7e7deca1a65317b4f4b431a118697cb",
     "pipeline_contracts/schemas/provider_spend_authorization.v2.example.json": "044525477625c28d09ac866d368e755d909183a67eebf02c293b074e5718def7",
     "pipeline_contracts/schemas/provider_spend_authorization.v2.schema.json": "b7b8cd19a53b17dcef8d51deb67262aeb01794bea2221ff828b05c924acd8f2a",
     "pipeline_contracts/schemas/recommendation_accuracy_report.v1.example.json": "9e0053d30d7573d3220f1ee9699fca5f236421a38785dbd56f4369f9d69e12f6",
@@ -98,7 +98,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "9036d1414baa92262a2c6ab28255003cc1b8ac8ec69b18d91b9cf038d36edd75",
+    "typescript/generated-schemas.ts": "b394c17c1e17c7003b16ed3e67d6cea83ac10a3015954c3f8d4f6ddc1d3f93b9",
     "typescript/index.ts": "e467ba50decdd642830fb53639f15d97219f1e1d9bcd79d9ab9f726f5dfbcfac"
   }
 }

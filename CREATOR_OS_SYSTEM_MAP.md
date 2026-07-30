@@ -351,16 +351,28 @@ The Higgsfield adapter:
 1. discovers the authenticated contract;
 2. constructs the exact provider request;
 3. gets a quote when exposed;
-4. checks balance and batch credit ceiling;
+4. checks the full prepared batch against one authenticated balance snapshot,
+   retained minimum, active reservations, and the batch credit ceiling;
 5. creates a signed one-time spend authorization;
-6. revalidates immediately before the paid call;
-7. submits once;
-8. polls by generation ID;
-9. downloads and hashes the result;
-10. records actual/reconciled credits when exposed.
+6. persists the provider attempt and binds the authorization to the exact
+   provider request, prompt, seed, source/anchor/reference hashes, command,
+   work item, attempt, and quote fingerprint;
+7. rebuilds and revalidates that same provider plan immediately before
+   consuming the authorization;
+8. writes `SUBMISSION_STARTED` evidence before invoking the create command;
+9. submits once;
+10. polls by generation ID;
+11. stages, probes, hashes, checkpoints, and atomically retains the result;
+12. records provider-reported actual credits, or explicit unknown cost when
+    concurrent account activity makes a balance delta unsafe.
 
 Unknown cost is not zero. An expired, mismatched, reused, or over-cap
-authorization fails closed.
+authorization fails closed. Actual cost above the authorization is still
+recorded, but creates an overspend incident and blocks asset progression.
+`providerRequestFingerprint` excludes the local output destination;
+`executionFingerprint` adds the output/review destination and runtime plan
+version. Exact completed local receipts recover without another provider quote
+or balance read.
 
 ### 5. Generate visual media
 
@@ -368,7 +380,7 @@ The active passive recipes are:
 
 | Recipe | Provider model | Duration | Output | Provider audio |
 |---|---|---:|---|---|
-| Calm animation | `kling3_0_turbo` | 5 seconds | 720p portrait | `sound=off` |
+| Calm animation | `kling3_0_turbo` | 5 seconds | 720p portrait | no sound parameter; returned audio is rejected |
 | Reference recreation | `seedance_2_0` Fast | 4–15 seconds | 480p portrait, high bitrate | `generate_audio=false` |
 
 Product configuration chooses between the two operator-approved candidates.

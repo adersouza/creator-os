@@ -42,6 +42,7 @@ from .learning_cohort import (
     record_learning_cohort_publish,
     run_learning_cohort_day,
 )
+from .production_higgsfield_authorization import provider_control_reconciliation
 from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
 from .recreation_anchor_approval import approve_recreation_anchor
@@ -70,6 +71,9 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 ingest_secret=args.threadsdash_ingest_secret,
             )
         )
+        return 0
+    if args.cmd == "provider" and args.provider_cmd == "reconcile":
+        print_json(provider_control_reconciliation(cf))
         return 0
     if args.cmd == "init":
         print_json(

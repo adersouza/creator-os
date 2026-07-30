@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
-from creator_os_core.provider_spend import verify_authorization
 from creator_os_core.recreation_anchor_approval import (
     inspect_recreation_anchor_approval,
     load_recreation_anchor_approval,
@@ -60,6 +59,7 @@ from .production_creative_evidence import (
     build_job_creative_evidence,
     persist_asset_creative_evidence,
     prepare_source_creative_evidence,
+    source_approval_binding,
 )
 from .production_creative_evidence import (
     expand_production_job_prompt as _expand_production_job_prompt,
@@ -71,19 +71,22 @@ from .production_higgsfield_authorization import (
     higgsfield_request as _higgsfield_request,
 )
 from .production_higgsfield_authorization import (
+    prepare_authorized_higgsfield_execution as _prepare_authorized_higgsfield_execution,
+)
+from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
 )
 from .production_higgsfield_authorization import (
-    recovered_higgsfield_cost_binding as _recovered_higgsfield_cost_binding,
+    reconcile_recovered_higgsfield_attempt as _reconcile_recovered_higgsfield_attempt,
 )
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
 from .production_prompts import require_creator_soul_id as _require_creator_soul_id
 from .production_source_selection import select_requested_source_assets
 from .provider_spend import (
-    consume_provider_spend_authorization as consume_higgsfield_authorization,
+    ProviderOverspendError,
+    record_provider_execution,
 )
-from .provider_spend import record_provider_execution
 from .recreate_reel import (
     RECREATE_REEL_STAGE,
     analyze_reference_reel,
@@ -563,6 +566,7 @@ def plan_production_batch(
                 "aspectRatio": round(ratio, 6),
             }
         prepare_source_creative_evidence(source)
+        source["sourceApproval"] = source_approval_binding(factory, source)
         if source["compatibility"]["hardBlockers"]:
             incompatible_sources += 1
             continue
@@ -774,6 +778,7 @@ def plan_production_batch(
                 "sourcePath": source["stored_path"],
                 "sourceSha256": source_sha,
                 "sourceResolution": source.get("sourceResolution"),
+                "sourceApproval": source.get("sourceApproval"),
                 "creator": creator_slug,
                 "intent": intent,
                 "prompt": (
@@ -1005,6 +1010,9 @@ def run_production_batch(
         and _supports_isolated_factories(factory)
     )
     workers = min(plan["maxConcurrency"], len(prepared)) if concurrent else 1
+    prepared = [
+        {**job, "_providerBalanceDeltaExclusive": workers == 1} for job in prepared
+    ]
     if workers > 1:
         with ThreadPoolExecutor(
             max_workers=workers, thread_name_prefix="creator-os-higgsfield"
@@ -1181,7 +1189,9 @@ def _execute_higgsfield_provider_job(
     job: Mapping[str, Any],
     max_credits: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    from reel_factory.worker_api import execute_higgsfield_production
+    from reel_factory.worker_api import (
+        execute_higgsfield_production,
+    )
 
     from .motion_generation_stage import _register_review_asset
 
@@ -1194,85 +1204,59 @@ def _execute_higgsfield_provider_job(
         raise PermissionError("higgsfield_spend_authorization_missing")
     if not isinstance(scope_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
-    if not isinstance(capabilities_value, dict):
+    if recovery is None and not isinstance(capabilities_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
     authorization = (
         authorization_value if isinstance(authorization_value, dict) else None
     )
     scope = scope_value
-    capabilities = capabilities_value
-    if authorization is not None:
-        secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
-        verify_authorization(
-            authorization,
-            expected_scope=scope,
-            secret=secret,
-            now=datetime.now(UTC),
-        )
-        consume_higgsfield_authorization(
-            factory.conn, str(authorization["authorizationId"])
-        )
+    capabilities = capabilities_value if isinstance(capabilities_value, dict) else None
     campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
-    pipeline_job = factory.domains.events.create_pipeline_job(
-        "higgsfield_motion_generation",
-        campaign["id"],
-        {
-            "jobId": job["jobId"],
-            "authorizationId": (
-                authorization.get("authorizationId") if authorization else None
-            ),
-            "sourceAssetId": job["sourceAssetId"],
-            "sourceSha256": job["sourceSha256"],
-            "modelId": job["productionRecipe"]["modelId"],
-            "requestFingerprint": job["requestFingerprint"],
-            "providerPlanFingerprint": job["providerPlanFingerprint"],
-            "referenceVideo": job.get("referenceVideo"),
-            "recreationAnchorApproval": job.get("recreationAnchorApproval"),
-        },
-    )
-    factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    pipeline_job_id = str(job.get("_providerPipelineJobId") or "")
+    attempt_id = str(job.get("_providerAttemptId") or "")
+    if not pipeline_job_id or not attempt_id:
+        raise PermissionError("higgsfield_provider_attempt_missing")
+    pipeline_job = factory.domains.events.pipeline_job(pipeline_job_id)
     try:
         request = _higgsfield_request(
             job,
             max_credits=max_credits,
-            attempt_id=f"{pipeline_job['id']}:1",
+            attempt_id=attempt_id,
         )
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            recovered_external_id = str(
-                receipt.get("externalOperationId") or receipt.get("generationId") or ""
-            ).strip()
-            if recovered_external_id:
-                factory.domains.events.mark_pipeline_effect_state(
-                    pipeline_job["id"],
-                    "EXTERNAL_ID_KNOWN",
-                    authorization_id=(
-                        str(authorization["authorizationId"]) if authorization else None
-                    ),
-                    external_operation_id=recovered_external_id,
-                    evidence={"receiptPath": str(receipt_path)},
-                )
-            cost_binding = _recovered_higgsfield_cost_binding(
+            cost_binding = _reconcile_recovered_higgsfield_attempt(
                 factory,
+                pipeline_job_id=pipeline_job_id,
                 job=job,
                 receipt=receipt,
+                receipt_path=receipt_path,
                 spend_scope=scope,
             )
         else:
-            factory.domains.events.mark_pipeline_effect_state(
-                pipeline_job["id"],
-                "SUBMISSION_STARTED",
-                authorization_id=(
-                    str(authorization["authorizationId"]) if authorization else None
-                ),
-                evidence={"requestFingerprint": job["requestFingerprint"]},
+            assert authorization is not None
+            assert capabilities is not None
+            provider_plan, live_quote, record_effect = (
+                _prepare_authorized_higgsfield_execution(
+                    factory,
+                    pipeline_job_id=pipeline_job_id,
+                    job=job,
+                    request=request,
+                    authorization=authorization,
+                    spend_scope=scope,
+                    capabilities=capabilities,
+                )
             )
+
             receipt = execute_higgsfield_production(
                 request,
                 capabilities=capabilities,
                 confirm_paid=True,
+                prepared_plan=provider_plan,
+                prepared_quote=live_quote,
+                effect_recorder=record_effect,
             )
             cost_binding = None
         output = receipt.get("finalOutput")
@@ -1297,23 +1281,54 @@ def _execute_higgsfield_provider_job(
             reservation_id = str(cost_binding["reservationId"])
         else:
             assert authorization is not None
-            cost_ids = record_provider_execution(
-                factory.conn,
-                authorization=authorization,
-                execution={
-                    "events": [
-                        {
-                            "provider": "higgsfield",
-                            "operation": "video_generation",
-                            "model": receipt["model"],
-                            "jobId": receipt["generationId"],
-                            "actualCredits": receipt.get("creditsConsumed"),
-                        }
-                    ]
-                },
-            )
+            try:
+                cost_ids = record_provider_execution(
+                    factory.conn,
+                    authorization=authorization,
+                    execution={
+                        "events": [
+                            {
+                                "provider": "higgsfield",
+                                "operation": "video_generation",
+                                "model": receipt["model"],
+                                "jobId": receipt["generationId"],
+                                "actualCredits": receipt.get("creditsConsumed"),
+                            }
+                        ]
+                    },
+                )
+            except ProviderOverspendError as exc:
+                factory.domains.events.record_event(
+                    "provider_overspend",
+                    campaign_id=str(campaign["id"]),
+                    pipeline_job_id=pipeline_job_id,
+                    status="failure",
+                    message="Provider charged more than the authorized maximum",
+                    metadata={
+                        "authorizationId": authorization["authorizationId"],
+                        "providerRequestFingerprint": job["providerPlanFingerprint"],
+                        "authorizedMaximumCredits": exc.authorized_maximum,
+                        "actualCredits": exc.actual,
+                        "costEventIds": exc.cost_event_ids,
+                        "assetProgression": "blocked",
+                    },
+                )
+                raise
             authorization_id = str(authorization["authorizationId"])
             reservation_id = str(authorization["reservationId"])
+            actual_credits = receipt.get("creditsConsumed")
+            factory.domains.events.mark_pipeline_effect_state(
+                pipeline_job_id,
+                "COST_RECONCILED",
+                authorization_id=authorization_id,
+                evidence={
+                    "costEventIds": cost_ids,
+                    "actualCredits": actual_credits,
+                    "actualCreditsStatus": (
+                        "known" if actual_credits is not None else "unknown"
+                    ),
+                },
+            )
         provider = {
             "requestId": receipt["generationId"],
             "model": receipt["model"],
