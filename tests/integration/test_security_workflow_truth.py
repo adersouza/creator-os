@@ -44,3 +44,15 @@ def test_sbom_job_allows_setup_uv_download_endpoint() -> None:
     sbom_job = workflow.split("\n  sbom:\n", 1)[1]
 
     assert "raw.githubusercontent.com:443" in sbom_job
+
+
+def test_secret_scan_allows_trufflehog_container_registry() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "security.yml").read_text(
+        encoding="utf-8"
+    )
+    secret_scan_job = workflow.split("\n  secrets:\n", 1)[1].split(
+        "\n  trivy:\n", 1
+    )[0]
+
+    assert "ghcr.io:443" in secret_scan_job
+    assert "pkg-containers.githubusercontent.com:443" in secret_scan_job
