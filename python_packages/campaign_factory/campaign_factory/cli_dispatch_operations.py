@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -1256,5 +1257,185 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
             )
             cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
+        return 0
+    if args.cmd == "creator-governance-status":
+        print_json(cf.domains.creator_governance.creator_status(args.creator))
+        return 0
+    if args.cmd == "creator-governance-transition":
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.transition_creator(
+                    args.creator,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence=load_json_object(args.evidence_json),
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.transition_creator(
+                    args.creator,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence=load_json_object(args.evidence_json),
+                )
+            )
+        return 0
+    if args.cmd == "creator-governance-rename":
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.rename_creator(
+                    args.creator,
+                    new_slug=args.new_slug,
+                    actor=args.actor,
+                    reason=args.reason,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.rename_creator(
+                    args.creator,
+                    new_slug=args.new_slug,
+                    actor=args.actor,
+                    reason=args.reason,
+                )
+            )
+        return 0
+    if args.cmd == "creator-identity-enroll":
+        profile_path = Path(args.profile_json).expanduser().resolve()
+        profile = load_json_object(str(profile_path))
+        profile_sha = hashlib.sha256(profile_path.read_bytes()).hexdigest()
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.enroll_identity_profile(
+                    args.creator,
+                    provider=args.provider,
+                    provider_identity_id=args.provider_identity_id,
+                    profile=profile or {},
+                    canonical_source_asset_id=args.canonical_source_asset_id,
+                    identity_manifest_path=profile_path,
+                    identity_manifest_sha256=profile_sha,
+                    operator=args.operator,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.enroll_identity_profile(
+                    args.creator,
+                    provider=args.provider,
+                    provider_identity_id=args.provider_identity_id,
+                    profile=profile or {},
+                    canonical_source_asset_id=args.canonical_source_asset_id,
+                    identity_manifest_path=profile_path,
+                    identity_manifest_sha256=profile_sha,
+                    operator=args.operator,
+                )
+            )
+        return 0
+    if args.cmd == "creator-authorization-grant":
+        evidence = Path(args.evidence).expanduser().resolve()
+        evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.grant_authorization(
+                    args.creator,
+                    scope=args.scope,
+                    provider=args.provider,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                    actor=args.actor,
+                    reason=args.reason,
+                    effective_at=args.effective_at,
+                    expires_at=args.expires_at,
+                    territories=args.territory,
+                    account_scope=args.account_id,
+                    reference_video_use=args.reference_video_use,
+                    training_reference_use=args.training_reference_use,
+                    voice_authorized=args.voice_authorized,
+                    legal_hold=args.legal_hold,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.grant_authorization(
+                    args.creator,
+                    scope=args.scope,
+                    provider=args.provider,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                    actor=args.actor,
+                    reason=args.reason,
+                    effective_at=args.effective_at,
+                    expires_at=args.expires_at,
+                    territories=args.territory,
+                    account_scope=args.account_id,
+                    reference_video_use=args.reference_video_use,
+                    training_reference_use=args.training_reference_use,
+                    voice_authorized=args.voice_authorized,
+                    legal_hold=args.legal_hold,
+                )
+            )
+        return 0
+    if args.cmd == "creator-authorization-revoke":
+        evidence = Path(args.evidence).expanduser().resolve()
+        evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.revoke_authorization(
+                    args.authorization_id,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.revoke_authorization(
+                    args.authorization_id,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                )
+            )
+        return 0
+    if args.cmd == "campaign-governance-status":
+        print_json(cf.domains.creator_governance.campaign_status(args.campaign))
+        return 0
+    if args.cmd == "campaign-governance-transition":
+        evidence = load_json_object(args.evidence_json) or {}
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.transition_campaign(
+                    args.campaign,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    blocker_codes=args.blocker_code,
+                    evidence=evidence,
+                    related_ids=args.related_id,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.transition_campaign(
+                    args.campaign,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    blocker_codes=args.blocker_code,
+                    evidence=evidence,
+                    related_ids=args.related_id,
+                )
+            )
         return 0
     return None

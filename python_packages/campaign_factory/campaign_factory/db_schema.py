@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .audio_cache_schema import AUDIO_CACHE_SCHEMA
 from .content_director_schema import CONTENT_DIRECTOR_SCHEMA
+from .creator_governance_schema import CREATOR_GOVERNANCE_SCHEMA
 from .existing_media_schema import EXISTING_MEDIA_SCHEMA
 from .ownership_schema import OWNERSHIP_SCHEMA
 from .recovery_schema import RECOVERY_SCHEMA
@@ -1459,7 +1460,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_content_graph_nodes_local
 CREATE UNIQUE INDEX IF NOT EXISTS idx_content_graph_nodes_external
   ON content_graph_nodes(external_system, external_id)
   WHERE external_system IS NOT NULL AND external_id IS NOT NULL;
-
 CREATE INDEX IF NOT EXISTS idx_content_graph_nodes_type
   ON content_graph_nodes(entity_type, updated_at);
 
@@ -1477,10 +1477,8 @@ CREATE TABLE IF NOT EXISTS content_graph_edges (
 
 CREATE INDEX IF NOT EXISTS idx_content_graph_edges_from
   ON content_graph_edges(from_global_id, relation_type);
-
 CREATE INDEX IF NOT EXISTS idx_content_graph_edges_to
   ON content_graph_edges(to_global_id, relation_type);
-
 CREATE TABLE IF NOT EXISTS content_graph_sync_state (
   system TEXT PRIMARY KEY,
   cursor_json TEXT NOT NULL DEFAULT '{}',
@@ -1489,10 +1487,13 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
 """
 SCHEMA = (
     BASE_SCHEMA
+    + CREATOR_GOVERNANCE_SCHEMA
     + AUDIO_CACHE_SCHEMA
-    + CONTENT_DIRECTOR_SCHEMA
-    + EXISTING_MEDIA_SCHEMA
-    + REFERENCE_AUDIO_SCHEMA
-    + RECOVERY_SCHEMA
-    + OWNERSHIP_SCHEMA
+    + (
+        CONTENT_DIRECTOR_SCHEMA
+        + EXISTING_MEDIA_SCHEMA
+        + REFERENCE_AUDIO_SCHEMA
+        + RECOVERY_SCHEMA
+        + OWNERSHIP_SCHEMA
+    )
 )

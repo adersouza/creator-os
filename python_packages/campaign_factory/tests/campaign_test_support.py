@@ -25,6 +25,218 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
     )
 
 
+def authorize_campaign_governance(
+    cf: CampaignFactory,
+    tmp_path: Path,
+    *,
+    creator: str = "stacey",
+    campaign: str = "may",
+    provider: str = "openai",
+    soul_id: str = "soul_stacey_v1",
+    territories: list[str] | None = None,
+    account_scope: list[str] | None = None,
+    reference_video_use: bool = False,
+) -> dict:
+    model = cf.domains.models.upsert_model(creator)
+    campaign_row = cf.domains.models.upsert_campaign(campaign, creator)
+    identity_campaign = cf.domains.models.upsert_campaign(
+        f"{creator}-identity-registry", creator
+    )
+    source_path = tmp_path / f"{creator}_canonical_original.bin"
+    source_path.write_bytes(f"operator-original:{creator}".encode())
+    source_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    source_id = f"src_identity_{creator}"
+    now = "2026-07-30T12:00:00Z"
+    cf.conn.execute(
+        """
+        INSERT OR IGNORE INTO source_assets
+        (id, campaign_id, model_id, content_hash, original_path, stored_path,
+         filename, media_type, platform, source_prompt, account_ids_json, status,
+         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'image', 'instagram', '{}', '[]', 'approved',
+                ?, ?)
+        """,
+        (
+            source_id,
+            identity_campaign["id"],
+            model["id"],
+            source_sha,
+            str(source_path),
+            str(source_path),
+            source_path.name,
+            now,
+            now,
+        ),
+    )
+    approval = {
+        "sourceAssetId": source_id,
+        "sha256": source_sha,
+        "decision": "approved",
+        "operator": "test",
+        "reason": "canonical identity fixture",
+        "decidedAt": now,
+    }
+    cf.conn.execute(
+        """
+        INSERT OR IGNORE INTO activity_events
+        (id, event_type, campaign_id, source_asset_id, status, message,
+         metadata_json, created_at)
+        VALUES (?, 'source_approval_decided', ?, ?, 'success',
+                'Canonical identity source approved', ?, ?)
+        """,
+        (
+            f"event_identity_{creator}",
+            identity_campaign["id"],
+            source_id,
+            json.dumps(approval, sort_keys=True),
+            now,
+        ),
+    )
+    origin_attestation = {
+        "sourceAssetId": source_id,
+        "sha256": source_sha,
+        "originClassification": "human_original",
+        "operatorApproved": True,
+        "operator": "test",
+        "attestedAt": now,
+    }
+    cf.conn.execute(
+        """
+        INSERT OR IGNORE INTO activity_events
+        (id, event_type, campaign_id, source_asset_id, status, message,
+         metadata_json, created_at)
+        VALUES (?, 'canonical_identity_origin_attested', ?, ?, 'success',
+                'Canonical identity origin attested', ?, ?)
+        """,
+        (
+            f"event_identity_origin_{creator}",
+            identity_campaign["id"],
+            source_id,
+            json.dumps(origin_attestation, sort_keys=True),
+            now,
+        ),
+    )
+    cf.conn.commit()
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": f"{creator}_{provider}_{soul_id}",
+        "creatorKey": creator,
+        "displayName": creator.title(),
+        "modelProfile": "higgsfield_soul_v2",
+        "identityReferences": [
+            {
+                "namespace": f"{provider}.identity",
+                "externalId": soul_id,
+                "fingerprint": "a" * 64,
+            }
+        ],
+        "provenance": {
+            "producer": "operator",
+            "producedAt": "2026-07-30T12:00:00Z",
+            "sourceReferences": [{"recordId": source_id, "fingerprint": source_sha}],
+        },
+    }
+    manifest = tmp_path / f"{creator}_{provider}_identity.json"
+    manifest.write_text(json.dumps(profile, sort_keys=True), encoding="utf-8")
+    manifest_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    cf.domains.creator_governance.enroll_identity_profile(
+        creator,
+        provider=provider,
+        provider_identity_id=soul_id,
+        profile=profile,
+        canonical_source_asset_id=source_id,
+        identity_manifest_path=manifest,
+        identity_manifest_sha256=manifest_sha,
+        operator="test",
+    )
+    evidence = tmp_path / f"{creator}_{provider}_rights.txt"
+    evidence.write_text("operator-approved rights fixture", encoding="utf-8")
+    evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    for authorization_provider in sorted({provider, "internal"}):
+        for scope in ("likeness_generation", "commercial_use"):
+            cf.domains.creator_governance.grant_authorization(
+                creator,
+                scope=scope,
+                provider=authorization_provider,
+                evidence_path=evidence,
+                evidence_sha256=evidence_sha,
+                actor="test",
+                reason="fixture authorization",
+                territories=territories,
+                account_scope=account_scope,
+            )
+    if reference_video_use:
+        cf.domains.creator_governance.grant_authorization(
+            creator,
+            scope="reference_video_use",
+            provider="internal",
+            evidence_path=evidence,
+            evidence_sha256=evidence_sha,
+            actor="test",
+            reason="fixture reference authorization",
+            reference_video_use=True,
+        )
+    for state in ("configured", "source_ready", "production_ready"):
+        cf.domains.creator_governance.transition_campaign(
+            campaign,
+            new_status=state,
+            actor="test",
+            reason="fixture lifecycle",
+        )
+    return {"model": model, "campaign": campaign_row, "identitySourceId": source_id}
+
+
+def authorize_campaign_export(
+    cf: CampaignFactory,
+    tmp_path: Path,
+    *,
+    creator: str,
+    campaign: str,
+) -> None:
+    state = cf.conn.execute(
+        """
+        SELECT cg.lifecycle_status
+        FROM campaign_governance cg
+        JOIN campaigns c ON c.id = cg.campaign_id
+        WHERE c.slug = ?
+        """,
+        (campaign.replace("-", "_"),),
+    ).fetchone()
+    identities = cf.conn.execute(
+        """
+        SELECT COUNT(*) FROM creator_identity_profiles cip
+        JOIN models m ON m.id = cip.model_id
+        WHERE m.slug = ? AND cip.status = 'active'
+        """,
+        (creator.replace("-", "_"),),
+    ).fetchone()[0]
+    if not identities:
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator=creator,
+            campaign=campaign,
+            provider="higgsfield",
+            soul_id=f"soul_{creator}_fixture",
+        )
+        current = "production_ready"
+    else:
+        current = str(state["lifecycle_status"])
+    if current == "production_ready":
+        for target in ("producing", "reviewing", "approved"):
+            cf.domains.creator_governance.transition_campaign(
+                campaign,
+                new_status=target,
+                actor="test",
+                reason="export fixture lifecycle",
+                evidence=(
+                    {"approvedAssetIds": ["fixture_pending_asset"]}
+                    if target == "approved"
+                    else None
+                ),
+            )
+
+
 def set_test_source_prompt(
     cf: CampaignFactory,
     source_id: str,
@@ -69,6 +281,13 @@ def add_rendered_asset(
     source = cf.domains.asset_import.assets_for_campaign(
         cf.domains.campaign_by_slug(campaign_slug)["id"]
     )[0]
+    authorize_campaign_export(
+        cf,
+        tmp_path,
+        creator="model",
+        campaign=campaign_slug,
+    )
+    cf.domains.models.upsert_model_account_profile("model")
     set_test_source_prompt(cf, source["id"])
     rendered_path = tmp_path / filename
     rendered_path.write_bytes(b"rendered")

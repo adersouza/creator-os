@@ -33,5 +33,6 @@
     "amount": 10,
     "unit": "higgsfield_credits"
   },
+  "legacyCompatibility": true,
   "signature": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 }

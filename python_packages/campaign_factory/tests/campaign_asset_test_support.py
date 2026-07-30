@@ -98,6 +98,25 @@ def ensure_exportable_distribution_plan(
     planned_window_start: str = "2026-01-02T10:00:00+00:00",
     planned_window_end: str = "2026-01-02T10:30:00+00:00",
 ) -> dict:
+    model = cf.conn.execute(
+        """
+        SELECT m.id, m.slug
+        FROM rendered_assets r
+        JOIN source_assets s ON s.id = r.source_asset_id
+        JOIN models m ON m.id = s.model_id
+        WHERE r.id = ?
+        """,
+        (rendered_asset_id,),
+    ).fetchone()
+    assert model is not None
+    cf.domains.models.upsert_model_account_profile(
+        model["slug"], allowed_instagram_account_ids=[instagram_account_id]
+    )
+    cf.domains.models.upsert_account(
+        f"fixture-{instagram_account_id}",
+        external_id=instagram_account_id,
+        model_id=model["id"],
+    )
     existing = cf.conn.execute(
         "SELECT * FROM distribution_plans WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
         (rendered_asset_id,),

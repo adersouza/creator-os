@@ -1,7 +1,276 @@
 from __future__ import annotations
 
+import hashlib
+import inspect
+import json
+import os
 import re
 import sqlite3
+from datetime import UTC, datetime
+
+from .creator_governance_schema import CREATOR_GOVERNANCE_SCHEMA
+
+_GOVERNANCE_MIGRATION_ID = "20260730_creator_campaign_governance_v1"
+
+
+def _migration_id(prefix: str, value: str) -> str:
+    digest = hashlib.sha256(f"{prefix}:{value}".encode()).hexdigest()
+    return f"{prefix}_{digest[:24]}"
+
+
+def _apply_creator_governance_backfill(conn: sqlite3.Connection) -> None:
+    """Backfill only ownership facts that existing rows prove unambiguously."""
+    migration_checksum = hashlib.sha256(
+        (
+            _GOVERNANCE_MIGRATION_ID
+            + "\n"
+            + CREATOR_GOVERNANCE_SCHEMA
+            + "\n"
+            + inspect.getsource(_apply_creator_governance_backfill)
+        ).encode()
+    ).hexdigest()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          migration_id TEXT PRIMARY KEY,
+          checksum TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('applying', 'applied', 'failed')),
+          applied_at TEXT,
+          source_version TEXT NOT NULL,
+          details_json TEXT NOT NULL DEFAULT '{}',
+          error TEXT
+        )
+        """
+    )
+    prior = conn.execute(
+        "SELECT * FROM schema_migrations WHERE migration_id = ?",
+        (_GOVERNANCE_MIGRATION_ID,),
+    ).fetchone()
+    if prior is not None:
+        checksum = prior["checksum"] if isinstance(prior, sqlite3.Row) else prior[1]
+        status = prior["status"] if isinstance(prior, sqlite3.Row) else prior[2]
+        if checksum != migration_checksum:
+            raise RuntimeError("creator_governance_migration_checksum_drift")
+        if status == "applied":
+            return
+    now = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    source_version = (
+        os.environ.get("CREATOR_OS_SOURCE_SHA") or f"migration:{migration_checksum}"
+    )
+    conn.execute(
+        """
+        INSERT INTO schema_migrations
+        (migration_id, checksum, status, applied_at, source_version,
+         details_json, error)
+        VALUES (?, ?, 'applying', NULL, ?, '{}', NULL)
+        ON CONFLICT(migration_id) DO UPDATE SET
+          checksum = excluded.checksum,
+          status = 'applying',
+          applied_at = NULL,
+          source_version = excluded.source_version,
+          details_json = '{}',
+          error = NULL
+        """,
+        (_GOVERNANCE_MIGRATION_ID, migration_checksum, source_version),
+    )
+    conn.commit()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for model in conn.execute("SELECT id, slug FROM models ORDER BY id").fetchall():
+            model_id = str(model["id"] if isinstance(model, sqlite3.Row) else model[0])
+            slug = str(model["slug"] if isinstance(model, sqlite3.Row) else model[1])
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO creator_lifecycle_state
+                (model_id, status, status_reason, effective_at, changed_by, version,
+                 offboarding_state, retention_state, updated_at)
+                VALUES (?, 'active', 'legacy_creator_backfill_unverified_rights',
+                        ?, 'schema_migration', 1, NULL, 'retain_audit', ?)
+                """,
+                (model_id, now, now),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO creator_lifecycle_events
+                (id, model_id, old_status, new_status, reason, actor, effective_at,
+                 evidence_json, version, created_at)
+                VALUES (?, ?, NULL, 'active',
+                        'legacy_creator_backfill_unverified_rights',
+                        'schema_migration', ?, ?, 1, ?)
+                """,
+                (
+                    _migration_id("creator_state", model_id),
+                    model_id,
+                    now,
+                    json.dumps(
+                        {
+                            "migrationId": _GOVERNANCE_MIGRATION_ID,
+                            "identityOrConsentFabricated": False,
+                        },
+                        sort_keys=True,
+                    ),
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO creator_slug_history
+                (id, model_id, slug, effective_at, retired_at, actor, reason,
+                 created_at)
+                VALUES (?, ?, ?, ?, NULL, 'schema_migration',
+                        'legacy_creator_slug_backfill', ?)
+                """,
+                (_migration_id("creator_slug", model_id), model_id, slug, now, now),
+            )
+
+        ambiguous_campaigns: list[str] = []
+        backfilled_campaigns: list[str] = []
+        campaigns = conn.execute("SELECT id FROM campaigns ORDER BY id").fetchall()
+        for campaign in campaigns:
+            campaign_id = str(
+                campaign["id"] if isinstance(campaign, sqlite3.Row) else campaign[0]
+            )
+            owners = conn.execute(
+                """
+                SELECT DISTINCT model_id FROM source_assets
+                WHERE campaign_id = ? AND model_id IS NOT NULL
+                ORDER BY model_id
+                """,
+                (campaign_id,),
+            ).fetchall()
+            owner_ids = [
+                str(owner["model_id"] if isinstance(owner, sqlite3.Row) else owner[0])
+                for owner in owners
+            ]
+            if len(owner_ids) != 1:
+                ambiguous_campaigns.append(campaign_id)
+                continue
+            model_id = owner_ids[0]
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO campaign_governance
+                (campaign_id, model_id, lifecycle_status, blocker_codes_json,
+                 status_reason, changed_by, effective_at, version, updated_at)
+                VALUES (?, ?, 'created', '[]', 'legacy_campaign_owner_backfill',
+                        'schema_migration', ?, 1, ?)
+                """,
+                (campaign_id, model_id, now, now),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO campaign_lifecycle_events
+                (id, campaign_id, model_id, old_status, new_status, reason, actor,
+                 evidence_json, related_ids_json, version, created_at)
+                VALUES (?, ?, ?, NULL, 'created',
+                        'legacy_campaign_owner_backfill', 'schema_migration',
+                        ?, '[]', 1, ?)
+                """,
+                (
+                    _migration_id("campaign_state", campaign_id),
+                    campaign_id,
+                    model_id,
+                    json.dumps(
+                        {
+                            "migrationId": _GOVERNANCE_MIGRATION_ID,
+                            "ownershipEvidence": "single_distinct_source_asset_model",
+                        },
+                        sort_keys=True,
+                    ),
+                    now,
+                ),
+            )
+            backfilled_campaigns.append(campaign_id)
+        for model in conn.execute("SELECT id FROM models ORDER BY id").fetchall():
+            model_id = str(model["id"] if isinstance(model, sqlite3.Row) else model[0])
+            state = conn.execute(
+                "SELECT status, version FROM creator_lifecycle_state WHERE model_id = ?",
+                (model_id,),
+            ).fetchone()
+            if state is None:
+                raise RuntimeError(
+                    f"creator_governance_backfill_missing_state:{model_id}"
+                )
+            version = int(
+                state["version"] if isinstance(state, sqlite3.Row) else state[1]
+            )
+            status = str(
+                state["status"] if isinstance(state, sqlite3.Row) else state[0]
+            )
+            event = conn.execute(
+                """
+                SELECT 1 FROM creator_lifecycle_events
+                WHERE model_id = ? AND version = ? AND new_status = ?
+                """,
+                (model_id, version, status),
+            ).fetchone()
+            active_slug_count = conn.execute(
+                """
+                SELECT COUNT(*) FROM creator_slug_history
+                WHERE model_id = ? AND retired_at IS NULL
+                """,
+                (model_id,),
+            ).fetchone()[0]
+            if event is None or int(active_slug_count) != 1:
+                raise RuntimeError(
+                    f"creator_governance_backfill_postcondition_failed:{model_id}"
+                )
+        for campaign_id in backfilled_campaigns:
+            governance = conn.execute(
+                """
+                SELECT model_id, lifecycle_status, version FROM campaign_governance
+                WHERE campaign_id = ?
+                """,
+                (campaign_id,),
+            ).fetchone()
+            event = (
+                conn.execute(
+                    """
+                    SELECT 1 FROM campaign_lifecycle_events
+                    WHERE campaign_id = ? AND model_id = ? AND version = ?
+                      AND new_status = ?
+                    """,
+                    (
+                        campaign_id,
+                        governance["model_id"],
+                        governance["version"],
+                        governance["lifecycle_status"],
+                    ),
+                ).fetchone()
+                if governance is not None
+                else None
+            )
+            if governance is None or event is None:
+                raise RuntimeError(
+                    f"campaign_governance_backfill_postcondition_failed:{campaign_id}"
+                )
+        details = {
+            "backfilledCampaignIds": backfilled_campaigns,
+            "unresolvedCampaignIds": ambiguous_campaigns,
+            "unresolvedReason": "campaign_requires_explicit_creator_owner"
+            if ambiguous_campaigns
+            else None,
+        }
+        conn.execute(
+            """
+            UPDATE schema_migrations
+            SET status = 'applied', applied_at = ?, details_json = ?, error = NULL
+            WHERE migration_id = ?
+            """,
+            (now, json.dumps(details, sort_keys=True), _GOVERNANCE_MIGRATION_ID),
+        )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        conn.execute(
+            """
+            UPDATE schema_migrations
+            SET status = 'failed', error = ?
+            WHERE migration_id = ?
+            """,
+            (f"{type(exc).__name__}:{exc}", _GOVERNANCE_MIGRATION_ID),
+        )
+        conn.commit()
+        raise
 
 
 def _ensure_generation_lineage_guards(conn: sqlite3.Connection) -> None:
@@ -130,6 +399,7 @@ def _migrate_source_assets_hash_scope(conn: sqlite3.Connection) -> None:
           stored_path TEXT NOT NULL,
           filename TEXT NOT NULL,
           media_type TEXT NOT NULL DEFAULT 'video',
+          content_surface TEXT NOT NULL DEFAULT 'reel',
           platform TEXT NOT NULL DEFAULT 'instagram',
           source_prompt TEXT,
           higgsfield_job_id TEXT,
@@ -154,6 +424,7 @@ def _migrate_source_assets_hash_scope(conn: sqlite3.Connection) -> None:
         "stored_path",
         "filename",
         "media_type",
+        "content_surface",
         "platform",
         "source_prompt",
         "higgsfield_job_id",
@@ -207,6 +478,8 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
           output_path TEXT NOT NULL,
           campaign_path TEXT NOT NULL,
           filename TEXT NOT NULL,
+          media_type TEXT NOT NULL DEFAULT 'video',
+          content_surface TEXT NOT NULL DEFAULT 'reel',
           caption TEXT,
           caption_hash TEXT,
           caption_bank TEXT,
@@ -244,6 +517,8 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
         "output_path",
         "campaign_path",
         "filename",
+        "media_type",
+        "content_surface",
         "caption",
         "caption_hash",
         "caption_bank",

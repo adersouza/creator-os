@@ -29,6 +29,7 @@ from campaign_factory.motion_generation_stage import (
     _record_paid_motion_execution_receipt,
     _verify_paid_authorization_at_call,
 )
+from campaign_test_support import authorize_campaign_export
 from creator_os_core.evidence_attestation import sign_evidence_attestation
 from creator_os_core.provider_spend import (
     AUTHORIZATION_SCHEMA_V2,
@@ -684,6 +685,12 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
     cf = make_factory(tmp_path)
     try:
         asset = _register_motion_fixture(cf, tmp_path)
+        authorize_campaign_export(
+            cf,
+            tmp_path,
+            creator="model",
+            campaign="may",
+        )
         fixture_dir = tmp_path / "admission-fixture"
         fixture_dir.mkdir()
         _fixture_approval, fixture_asset, _fixture_draft = _v2_fixture(fixture_dir)

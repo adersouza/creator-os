@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS {EXECUTION_RECEIPT_TABLE} (
     authorization_id TEXT PRIMARY KEY,
     reservation_id TEXT NOT NULL UNIQUE,
     request_fingerprint TEXT NOT NULL UNIQUE,
+    governance_fingerprint TEXT,
     provider TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('consumed')),
     consumed_at TEXT NOT NULL
@@ -65,6 +66,11 @@ def require_campaign_spend_authorization(
         secret=secret or os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", ""),
         now=now,
     )
+    governance = verified.get("governanceContext")
+    if not isinstance(governance, dict):
+        raise SpendAuthorizationError(
+            "legacy spend authorization is not executable in production"
+        )
     db_path = (
         Path(receipt_db_path).expanduser().resolve()
         if receipt_db_path is not None
@@ -78,17 +84,35 @@ def require_campaign_spend_authorization(
         with connect_sqlite(db_path, wal=False) as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(EXECUTION_RECEIPT_SQL)
+            columns = {
+                str(row[1])
+                for row in conn.execute(
+                    f"PRAGMA table_info({EXECUTION_RECEIPT_TABLE})"
+                ).fetchall()
+            }
+            if "governance_fingerprint" not in columns:
+                conn.execute(
+                    f"ALTER TABLE {EXECUTION_RECEIPT_TABLE} "
+                    "ADD COLUMN governance_fingerprint TEXT"
+                )
             conn.execute(
                 f"""
                 INSERT INTO {EXECUTION_RECEIPT_TABLE}
                     (authorization_id, reservation_id, request_fingerprint,
-                     provider, status, consumed_at)
-                VALUES (?, ?, ?, 'higgsfield', 'consumed', ?)
+                     governance_fingerprint, provider, status, consumed_at)
+                VALUES (?, ?, ?, ?, 'higgsfield', 'consumed', ?)
                 """,
                 (
                     verified["authorizationId"],
                     verified["reservationId"],
                     verified["scope"]["requestFingerprint"],
+                    (
+                        verified.get("governanceContext", {}).get(
+                            "governanceFingerprint"
+                        )
+                        if isinstance(verified.get("governanceContext"), dict)
+                        else None
+                    ),
                     consumed_at,
                 ),
             )

@@ -798,6 +798,12 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
         cf = make_factory(tmp_path / status)
         try:
             source, _ = add_rendered_asset(cf, tmp_path / status)
+            cf.domains.models.upsert_model_account_profile(
+                "model", allowed_instagram_account_ids=["ig_1"]
+            )
+            cf.domains.distribution.create_distribution_plan(
+                "asset_1", instagram_account_id="ig_1"
+            )
             cf.domains.finished_video.review_rendered_asset(
                 "asset_1", decision="approved"
             )
@@ -884,7 +890,7 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
                 supabase_service_role_key="service-role",
             )
 
-            assert readiness["liveExportAllowed"] is True
+            assert readiness["liveExportAllowed"] is True, readiness["blockingReasons"]
             assert not any(
                 "campaign_audio_unresolved" in reason
                 for reason in readiness["blockingReasons"]

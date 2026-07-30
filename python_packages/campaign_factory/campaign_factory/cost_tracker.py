@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS ai_cost_events (
     provider_quote_json TEXT,
     cohort_id       TEXT,
     estimated_cost_usd REAL NOT NULL,
+    cost_state      TEXT NOT NULL DEFAULT 'estimated'
+        CHECK(cost_state IN ('actual', 'estimated', 'unknown')),
+    usd_cost_state  TEXT NOT NULL DEFAULT 'known'
+        CHECK(usd_cost_state IN ('known', 'unknown')),
+    unknown_reason  TEXT,
     metadata_json   TEXT,
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 )
@@ -87,11 +92,50 @@ def ensure_cost_table(conn: sqlite3.Connection) -> None:
         ("unit", "TEXT"),
         ("provider_quote_json", "TEXT"),
         ("cohort_id", "TEXT"),
+        (
+            "cost_state",
+            "TEXT NOT NULL DEFAULT 'estimated' "
+            "CHECK(cost_state IN ('actual', 'estimated', 'unknown'))",
+        ),
+        (
+            "usd_cost_state",
+            "TEXT NOT NULL DEFAULT 'known' "
+            "CHECK(usd_cost_state IN ('known', 'unknown'))",
+        ),
+        ("unknown_reason", "TEXT"),
     ):
         if column not in columns:
             conn.execute(
                 f"ALTER TABLE ai_cost_events ADD COLUMN {column} {column_type}"
             )
+    conn.execute(
+        """
+        UPDATE ai_cost_events
+        SET cost_state = 'actual',
+            usd_cost_state = 'unknown',
+            unknown_reason = COALESCE(
+                unknown_reason, 'provider_cost_not_attributable'
+            )
+        WHERE estimated_cost_usd = 0
+          AND amount IS NOT NULL
+          AND upper(COALESCE(unit, '')) <> 'USD'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE ai_cost_events
+        SET cost_state = 'unknown',
+            usd_cost_state = 'unknown',
+            unknown_reason = COALESCE(
+                unknown_reason, 'provider_cost_not_attributable'
+            )
+        WHERE estimated_cost_usd = 0
+          AND amount IS NULL
+          AND input_tokens IS NULL
+          AND output_tokens IS NULL
+          AND generations IS NULL
+        """
+    )
     conn.execute(CREATE_SOURCE_KEY_INDEX_SQL)
 
 
@@ -168,18 +212,38 @@ def record_ai_cost(
     elif unit is not None:
         raise ValueError("amount is required when unit is provided")
 
+    cost_state = "actual" if amount is not None else "estimated"
+    usd_cost_state = "known"
+    unknown_reason: str | None = None
     if estimated_cost_usd is None:
         if input_tokens is not None or output_tokens is not None:
-            estimated_cost_usd = estimate_token_cost(
-                provider,
-                input_tokens=input_tokens or 0,
-                output_tokens=output_tokens or 0,
-            )
+            pricing = PROVIDER_PRICING.get(provider, {})
+            if "input_per_1m" in pricing or "output_per_1m" in pricing:
+                estimated_cost_usd = estimate_token_cost(
+                    provider,
+                    input_tokens=input_tokens or 0,
+                    output_tokens=output_tokens or 0,
+                )
+            else:
+                cost_state = "unknown"
+                usd_cost_state = "unknown"
+                unknown_reason = "provider_pricing_unavailable"
         elif generations is not None:
-            estimated_cost_usd = estimate_generation_cost(provider, generations)
+            if "per_generation" in PROVIDER_PRICING.get(provider, {}):
+                estimated_cost_usd = estimate_generation_cost(provider, generations)
+            else:
+                cost_state = "unknown"
+                usd_cost_state = "unknown"
+                unknown_reason = "provider_pricing_unavailable"
         elif amount is not None and unit == "USD":
             estimated_cost_usd = amount
         else:
+            cost_state = "actual" if amount is not None else "unknown"
+            usd_cost_state = "unknown"
+            unknown_reason = "provider_cost_not_attributable"
+        # Compatibility: historical schemas require a numeric sentinel. Reports
+        # must consult cost_state and never present this as a known zero cost.
+        if estimated_cost_usd is None:
             estimated_cost_usd = 0.0
     if (
         isinstance(estimated_cost_usd, bool)
@@ -202,8 +266,9 @@ def record_ai_cost(
             (id, source_event_key, reservation_id, campaign_id, provider, operation,
              input_tokens, output_tokens, generations,
              amount, unit, provider_quote_json, cohort_id,
-             estimated_cost_usd, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             estimated_cost_usd, cost_state, usd_cost_state, unknown_reason,
+             metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
@@ -220,6 +285,9 @@ def record_ai_cost(
             json.dumps(provider_quote, sort_keys=True) if provider_quote else None,
             cohort_id,
             estimated_cost_usd,
+            cost_state,
+            usd_cost_state,
+            unknown_reason,
             json.dumps(metadata) if metadata else None,
             created_at,
         ),
@@ -264,11 +332,19 @@ def cost_summary(
             SUM(input_tokens) as total_input_tokens,
             SUM(output_tokens) as total_output_tokens,
             SUM(generations) as total_generations,
-            SUM(estimated_cost_usd) as total_cost_usd
+            SUM(CASE WHEN usd_cost_state = 'known'
+                THEN estimated_cost_usd ELSE 0 END)
+                as known_cost_usd,
+            SUM(CASE WHEN usd_cost_state = 'unknown' THEN 1 ELSE 0 END)
+                as unknown_calls,
+            SUM(CASE WHEN cost_state = 'actual' THEN 1 ELSE 0 END)
+                as actual_calls,
+            SUM(CASE WHEN cost_state = 'estimated' THEN 1 ELSE 0 END)
+                as estimated_calls
         FROM ai_cost_events
         {where}
         GROUP BY provider, operation
-        ORDER BY total_cost_usd DESC
+        ORDER BY known_cost_usd DESC
         """,
         params,
     ).fetchall()
@@ -278,26 +354,55 @@ def cost_summary(
 
     for row in rows:
         provider = row[0]
+        known_cost = round(float(row[6] or 0.0), 4)
+        unknown_calls = int(row[7] or 0)
+        state = (
+            "unknown"
+            if unknown_calls == int(row[2])
+            else ("partial_unknown" if unknown_calls else "known")
+        )
         entry = {
             "operation": row[1],
             "calls": row[2],
             "input_tokens": row[3],
             "output_tokens": row[4],
             "generations": row[5],
-            "cost_usd": round(row[6], 4),
+            "cost_usd": None if unknown_calls else known_cost,
+            "known_cost_usd": known_cost,
+            "unknown_calls": unknown_calls,
+            "cost_state": state,
+            "actual_calls": int(row[8] or 0),
+            "estimated_calls": int(row[9] or 0),
         }
-        total_cost += row[6]
+        total_cost += known_cost
         by_provider.setdefault(provider, []).append(entry)
 
     # Grand total
     grand = conn.execute(
-        f"SELECT COUNT(*), SUM(estimated_cost_usd) FROM ai_cost_events {where}",
+        f"""SELECT COUNT(*),
+                   SUM(CASE WHEN usd_cost_state = 'known'
+                       THEN estimated_cost_usd ELSE 0 END),
+                   SUM(CASE WHEN usd_cost_state = 'unknown' THEN 1 ELSE 0 END)
+            FROM ai_cost_events {where}""",
         params,
     ).fetchone()
+    unknown_calls = int(grand[2] or 0)
+    known_cost = round(float(grand[1] or 0.0), 4)
 
     return {
+        "schema": "campaign_factory.cost_summary.v1",
         "total_calls": grand[0] or 0,
-        "total_cost_usd": round(grand[1] or 0.0, 4),
+        "total_cost_usd": None if unknown_calls else known_cost,
+        "known_cost_usd": known_cost,
+        "unknown_calls": unknown_calls,
+        "cost": {
+            "amount": None if unknown_calls else known_cost,
+            "currency": "USD" if not unknown_calls else None,
+            "state": "unknown" if unknown_calls else "known",
+            "reason": (
+                "one_or_more_provider_costs_not_attributable" if unknown_calls else None
+            ),
+        },
         "by_provider": by_provider,
         "filters": {
             "campaign_id": campaign_id,

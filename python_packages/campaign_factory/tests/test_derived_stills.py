@@ -23,7 +23,7 @@ from campaign_generation_test_support import (
     fake_static_mp4_render,
     write_fake_static_mp4_outputs,
 )
-from campaign_test_support import make_factory
+from campaign_test_support import authorize_campaign_governance, make_factory
 from PIL import Image
 from reel_factory import derived_stills as reel_derived_stills
 from reel_factory.derived_stills import (
@@ -139,6 +139,12 @@ def test_enrollment_exact_approval_and_static_source_selection(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         source = _approved_source(cf, tmp_path)
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            provider="higgsfield",
+            soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        )
         result = enroll_still(
             cf,
             campaign_slug="may",
@@ -260,6 +266,7 @@ def test_edit_registers_review_candidates_cache_and_blocks_recursive_edit(
     adapter = FakeEditProvider()
     try:
         source = _approved_source(cf, tmp_path)
+        authorize_campaign_governance(cf, tmp_path, provider="openai")
         enroll_still(
             cf,
             campaign_slug="may",
@@ -348,11 +355,14 @@ def test_edit_registers_review_candidates_cache_and_blocks_recursive_edit(
         cf.close()
 
 
-def test_provider_failure_cancels_spend_without_fallback(tmp_path: Path):
+def test_provider_failure_preserves_consumed_attempt_for_reconciliation(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     adapter = FakeEditProvider(fail=True)
     try:
         source = _approved_source(cf, tmp_path)
+        authorize_campaign_governance(cf, tmp_path, provider="openai")
         enroll_still(
             cf,
             campaign_slug="may",
@@ -380,7 +390,16 @@ def test_provider_failure_cancels_spend_without_fallback(tmp_path: Path):
         status = cf.conn.execute(
             "SELECT status FROM provider_spend_authorizations"
         ).fetchone()[0]
-        assert status == "cancelled"
+        assert status == "consumed"
+        assert (
+            cf.conn.execute(
+                """
+                SELECT COUNT(*) FROM activity_events
+                WHERE event_type = 'derived_still_provider_outcome_ambiguous'
+                """
+            ).fetchone()[0]
+            == 1
+        )
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
         )

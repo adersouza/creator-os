@@ -45,6 +45,25 @@ def setup_learning_databases(
     )
     campaign_conn.execute(
         """
+        INSERT INTO creator_lifecycle_state
+        (model_id,status,status_reason,effective_at,changed_by,version,
+         retention_state,updated_at)
+        VALUES ('model_1','active','fixture',?,'test',1,'retain_audit',?)
+        """,
+        (now, now),
+    )
+    campaign_conn.execute(
+        """
+        INSERT INTO campaign_governance
+        (campaign_id,model_id,lifecycle_status,blocker_codes_json,status_reason,
+         changed_by,effective_at,version,updated_at)
+        VALUES ('campaign_1','model_1','production_ready','[]','fixture',
+                'test',?,1,?)
+        """,
+        (now, now),
+    )
+    campaign_conn.execute(
+        """
         INSERT INTO source_assets (
           id, campaign_id, model_id, content_hash, original_path, stored_path,
           filename, source_prompt, created_at, updated_at

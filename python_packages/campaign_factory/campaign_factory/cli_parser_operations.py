@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+from .creator_governance import CAMPAIGN_TRANSITIONS, CREATOR_TRANSITIONS
+
 
 def register_operations_commands(sub) -> None:
     def add_creative_kb_args(command):
@@ -679,3 +681,64 @@ def register_operations_commands(sub) -> None:
     surface_gap = sub.add_parser("creator-surface-gap-report")
     surface_gap.add_argument("--creator", required=True)
     surface_gap.add_argument("--date")
+
+    creator_status = sub.add_parser("creator-governance-status")
+    creator_status.add_argument("--creator", required=True)
+    creator_transition = sub.add_parser("creator-governance-transition")
+    creator_transition.add_argument("--creator", required=True)
+    creator_transition.add_argument(
+        "--status", choices=sorted(CREATOR_TRANSITIONS), required=True
+    )
+    creator_transition.add_argument("--actor", required=True)
+    creator_transition.add_argument("--reason", required=True)
+    creator_transition.add_argument("--evidence-json")
+    creator_transition.add_argument("--apply", action="store_true")
+    creator_rename = sub.add_parser("creator-governance-rename")
+    creator_rename.add_argument("--creator", required=True)
+    creator_rename.add_argument("--new-slug", required=True)
+    creator_rename.add_argument("--actor", required=True)
+    creator_rename.add_argument("--reason", required=True)
+    creator_rename.add_argument("--apply", action="store_true")
+    identity_enroll = sub.add_parser("creator-identity-enroll")
+    identity_enroll.add_argument("--creator", required=True)
+    identity_enroll.add_argument("--provider", required=True)
+    identity_enroll.add_argument("--provider-identity-id", required=True)
+    identity_enroll.add_argument("--profile-json", required=True)
+    identity_enroll.add_argument("--canonical-source-asset-id", required=True)
+    identity_enroll.add_argument("--operator", required=True)
+    identity_enroll.add_argument("--apply", action="store_true")
+    authorization_grant = sub.add_parser("creator-authorization-grant")
+    authorization_grant.add_argument("--creator", required=True)
+    authorization_grant.add_argument("--scope", required=True)
+    authorization_grant.add_argument("--provider", required=True)
+    authorization_grant.add_argument("--evidence", required=True)
+    authorization_grant.add_argument("--actor", required=True)
+    authorization_grant.add_argument("--reason", required=True)
+    authorization_grant.add_argument("--effective-at")
+    authorization_grant.add_argument("--expires-at")
+    authorization_grant.add_argument("--territory", action="append", default=[])
+    authorization_grant.add_argument("--account-id", action="append", default=[])
+    authorization_grant.add_argument("--reference-video-use", action="store_true")
+    authorization_grant.add_argument("--training-reference-use", action="store_true")
+    authorization_grant.add_argument("--voice-authorized", action="store_true")
+    authorization_grant.add_argument("--legal-hold", action="store_true")
+    authorization_grant.add_argument("--apply", action="store_true")
+    authorization_revoke = sub.add_parser("creator-authorization-revoke")
+    authorization_revoke.add_argument("--authorization-id", required=True)
+    authorization_revoke.add_argument("--evidence", required=True)
+    authorization_revoke.add_argument("--actor", required=True)
+    authorization_revoke.add_argument("--reason", required=True)
+    authorization_revoke.add_argument("--apply", action="store_true")
+    campaign_status = sub.add_parser("campaign-governance-status")
+    campaign_status.add_argument("--campaign", required=True)
+    campaign_transition = sub.add_parser("campaign-governance-transition")
+    campaign_transition.add_argument("--campaign", required=True)
+    campaign_transition.add_argument(
+        "--status", choices=sorted(CAMPAIGN_TRANSITIONS), required=True
+    )
+    campaign_transition.add_argument("--actor", required=True)
+    campaign_transition.add_argument("--reason", required=True)
+    campaign_transition.add_argument("--blocker-code", action="append", default=[])
+    campaign_transition.add_argument("--evidence-json")
+    campaign_transition.add_argument("--related-id", action="append", default=[])
+    campaign_transition.add_argument("--apply", action="store_true")

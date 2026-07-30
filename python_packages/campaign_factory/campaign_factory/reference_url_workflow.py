@@ -20,6 +20,7 @@ from reel_factory.worker_api import (
 
 from pipeline_contracts import validate_reference_video_motion_analysis
 
+from .production_source_selection import resolve_reference_analysis_governance
 from .recreation_lifecycle import generate_recreation_anchor
 from .recreation_modes import plan_recreation
 from .recreation_prompting import build_openai_prompt_pack
@@ -55,6 +56,7 @@ def run_reference_analysis(
         raise ValueError("reference cannot be both talking and non-talking")
     if bool(reference_url) == bool(reference_video_path):
         raise ValueError("provide exactly one of --reference-url or --reference-video")
+    governance_context = resolve_reference_analysis_governance(factory, creator)
     with tempfile.TemporaryDirectory(prefix="creator-os-url-intake-") as raw_tmp:
         staging = Path(raw_tmp)
         os.chmod(staging, 0o700)
@@ -178,6 +180,7 @@ def run_reference_analysis(
             "ok": True,
             "schema": "campaign_factory.reference_url_analysis.v1",
             "creator": creator,
+            "creatorGovernance": governance_context,
             "intent": "recreate_reel",
             "through": through or "plan",
             "apply": apply,
@@ -227,6 +230,7 @@ def run_reference_analysis(
                 audio_policy=audio_policy,
                 through=through,
                 max_credits=max_credits,
+                creator_governance=governance_context,
                 prompt_pack=prompt_pack,
             )
             result["providerQuoteCalls"] = int(

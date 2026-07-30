@@ -189,6 +189,7 @@ class LifecycleReportingRepository:
             "metricsImported": 0,
             "quarantined": 0,
             "failed": 0,
+            "unknown": 0,
         }
         rows = []
         for row in report.get("rows") or []:
@@ -258,7 +259,9 @@ class LifecycleReportingRepository:
             return "quarantined"
         if state == "failed":
             return "failed"
-        return "approved"
+        if state == "needs_reconciliation":
+            return "unknown"
+        return "unknown"
 
     def lifecycle_snapshots_by_asset(
         self, campaign_id: str
@@ -495,6 +498,12 @@ class LifecycleReportingRepository:
                     "awaiting_publish",
                     "wait_for_publish_or_verify_scheduler",
                 )
+            if status not in {"draft", "accepted", "ready", "exported"}:
+                return (
+                    "needs_reconciliation",
+                    f"unmapped_threadsdash_post_status:{status or 'missing'}",
+                    "reconcile_threadsdashboard_post_status",
+                )
             meta = self.lifecycle_post_meta(post)
             if (
                 str(meta.get("platform_state") or "").lower()
@@ -508,7 +517,11 @@ class LifecycleReportingRepository:
                     None,
                     "schedule_or_publish_from_threadsdashboard",
                 )
-            return "exported", None, "schedule_or_publish_from_threadsdashboard"
+            return (
+                "needs_reconciliation",
+                "threadsdash_handoff_evidence_missing",
+                "reconcile_threadsdashboard_handoff",
+            )
         if snapshot and str(snapshot.get("status") or "").lower() == "published":
             return (
                 "published",
@@ -516,7 +529,11 @@ class LifecycleReportingRepository:
                 "sync_performance_after_metrics_available",
             )
         if snapshot and snapshot.get("postId"):
-            return "exported", None, "verify_threadsdashboard_post_status"
+            return (
+                "needs_reconciliation",
+                "threadsdashboard_post_status_missing",
+                "verify_threadsdashboard_post_status",
+            )
         review_state = str(asset.get("review_state") or "").lower()
         if review_state in {"failed", "rejected"}:
             return (

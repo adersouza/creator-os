@@ -11657,6 +11657,23 @@ export const generatedPipelineContractSchemas = {
 	  "title": "Campaign Factory Provider Spend Authorization",
 	  "type": "object",
 	  "additionalProperties": false,
+	  "oneOf": [
+	    {
+	      "required": [
+	        "governanceContext"
+	      ]
+	    },
+	    {
+	      "required": [
+	        "legacyCompatibility"
+	      ],
+	      "properties": {
+	        "legacyCompatibility": {
+	          "const": true
+	        }
+	      }
+	    }
+	  ],
 	  "required": [
 	    "schema",
 	    "authorizationId",
@@ -11729,6 +11746,116 @@ export const generatedPipelineContractSchemas = {
 	        }
 	      }
 	    },
+	    "legacyCompatibility": {
+	      "const": true
+	    },
+	    "governanceContext": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "schema",
+	        "creatorId",
+	        "creatorSlug",
+	        "creatorLifecycleVersion",
+	        "campaignId",
+	        "campaignLifecycleVersion",
+	        "campaignStatus",
+	        "operation",
+	        "provider",
+	        "identityProfileId",
+	        "identityProfileVersion",
+	        "identityProfileFingerprint",
+	        "providerIdentityId",
+	        "authorizationEventIds",
+	        "authorizationIds",
+	        "governanceFingerprint"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "campaign_factory.creator_operation_context.v1"
+	        },
+	        "creatorId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "creatorSlug": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "creatorLifecycleVersion": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "campaignId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "campaignLifecycleVersion": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "campaignStatus": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "operation": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "provider": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "accountId": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "territory": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "identityProfileId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "identityProfileVersion": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "identityProfileFingerprint": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "providerIdentityId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "authorizationEventIds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "authorizationIds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "governanceFingerprint": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        }
+	      }
+	    },
 	    "signature": {
 	      "type": "string",
 	      "pattern": "^[0-9a-f]{64}$"
@@ -11777,6 +11904,9 @@ export const generatedPipelineContractSchemas = {
 	          "const": "higgsfield"
 	        },
 	        "campaign": {
+	          "type": "string"
+	        },
+	        "creator": {
 	          "type": "string"
 	        },
 	        "cohortId": {
@@ -11856,6 +11986,14 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "videoSound": {
 	          "type": "string"
+	        },
+	        "accountId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "territory": {
+	          "type": "string",
+	          "minLength": 1
 	        },
 	        "requestFingerprint": {
 	          "$ref": "#/$defs/sha256"
@@ -11989,6 +12127,14 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "parameters": {
 	          "type": "object"
+	        },
+	        "accountId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "territory": {
+	          "type": "string",
+	          "minLength": 1
 	        },
 	        "providerCommandFingerprint": {
 	          "$ref": "#/$defs/sha256"
@@ -12141,6 +12287,14 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "parameters": {
 	          "type": "object"
+	        },
+	        "accountId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "territory": {
+	          "type": "string",
+	          "minLength": 1
 	        },
 	        "providerCommandFingerprint": {
 	          "$ref": "#/$defs/sha256"

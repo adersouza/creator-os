@@ -32,6 +32,7 @@ from campaign_factory.production_lane import (
     plan_production_batch,
     run_production_batch,
 )
+from campaign_factory.production_prompts import CREATOR_SOUL_IDS
 from campaign_factory.production_quality_policy import production_quality_policy
 from PIL import Image
 
@@ -118,7 +119,28 @@ def _production_factory(
             "'image', 'approved', ?)",
             (f"source-{index}", digest, str(path), f"2026-{index}"),
         )
-    return SimpleNamespace(conn=conn)
+    soul_id = CREATOR_SOUL_IDS[creator]
+
+    def active_identity(requested: str, provider: str) -> dict:
+        if requested != creator:
+            raise ValueError(f"unknown creator: {requested}")
+        return {
+            "creator_slug": creator,
+            "provider": provider,
+            "provider_identity_id": soul_id,
+        }
+
+    governance = SimpleNamespace(
+        active_identity_profile=active_identity,
+        resolve_operation=lambda **_kwargs: {
+            "providerIdentityId": soul_id,
+            "governanceFingerprint": "g" * 64,
+        },
+    )
+    return SimpleNamespace(
+        conn=conn,
+        domains=SimpleNamespace(creator_governance=governance),
+    )
 
 
 def _fixture_media(tmp_path: Path) -> tuple[Path, Path]:
@@ -598,7 +620,7 @@ def test_supported_cloud_intents_bind_each_creator_soul(
 def test_unknown_creator_fails_before_provider_planning(tmp_path: Path) -> None:
     with pytest.raises(
         ValueError,
-        match="no pinned authenticated Higgsfield Soul identity",
+        match="unknown creator",
     ):
         plan_production_batch(
             _production_factory(tmp_path),

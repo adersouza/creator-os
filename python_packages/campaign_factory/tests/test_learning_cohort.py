@@ -205,6 +205,7 @@ def test_real_artifact_draft_approval_and_publish_transitions(tmp_path: Path) ->
             ).fetchone()
         )
         model = cf.domains.models.upsert_model("stacey")
+        cf.domains.models.upsert_campaign(COHORT_ID, "stacey")
         campaign_id = cf.conn.execute(
             "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
         ).fetchone()["id"]

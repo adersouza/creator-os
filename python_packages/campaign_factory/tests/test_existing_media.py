@@ -73,6 +73,24 @@ def _fixture(tmp_path: Path) -> tuple[sqlite3.Connection, Path, dict[str, Path]]
     )
     conn.execute(
         """
+        INSERT INTO creator_lifecycle_state
+        (model_id,status,status_reason,effective_at,changed_by,version,
+         retention_state,updated_at)
+        VALUES ('model','active','fixture',?,'test',1,'retain_audit',?)
+        """,
+        (now, now),
+    )
+    conn.execute(
+        """
+        INSERT INTO campaign_governance
+        (campaign_id,model_id,lifecycle_status,blocker_codes_json,status_reason,
+         changed_by,effective_at,version,updated_at)
+        VALUES ('campaign','model','production_ready','[]','fixture','test',?,1,?)
+        """,
+        (now, now),
+    )
+    conn.execute(
+        """
         INSERT INTO source_assets (
           id,campaign_id,model_id,content_hash,original_path,stored_path,
           filename,media_type,status,created_at,updated_at

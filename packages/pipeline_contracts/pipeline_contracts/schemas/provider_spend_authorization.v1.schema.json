@@ -4,6 +4,13 @@
   "title": "Campaign Factory Provider Spend Authorization",
   "type": "object",
   "additionalProperties": false,
+  "oneOf": [
+    {"required": ["governanceContext"]},
+    {
+      "required": ["legacyCompatibility"],
+      "properties": {"legacyCompatibility": {"const": true}}
+    }
+  ],
   "required": [
     "schema",
     "authorizationId",
@@ -41,6 +48,63 @@
         "unit": {"const": "higgsfield_credits"}
       }
     },
+    "legacyCompatibility": {"const": true},
+    "governanceContext": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schema",
+        "creatorId",
+        "creatorSlug",
+        "creatorLifecycleVersion",
+        "campaignId",
+        "campaignLifecycleVersion",
+        "campaignStatus",
+        "operation",
+        "provider",
+        "identityProfileId",
+        "identityProfileVersion",
+        "identityProfileFingerprint",
+        "providerIdentityId",
+        "authorizationEventIds",
+        "authorizationIds",
+        "governanceFingerprint"
+      ],
+      "properties": {
+        "schema": {"const": "campaign_factory.creator_operation_context.v1"},
+        "creatorId": {"type": "string", "minLength": 1},
+        "creatorSlug": {"type": "string", "minLength": 1},
+        "creatorLifecycleVersion": {"type": "integer", "minimum": 1},
+        "campaignId": {"type": "string", "minLength": 1},
+        "campaignLifecycleVersion": {"type": "integer", "minimum": 1},
+        "campaignStatus": {"type": "string", "minLength": 1},
+        "operation": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "minLength": 1},
+        "accountId": {"type": ["string", "null"]},
+        "territory": {"type": ["string", "null"]},
+        "identityProfileId": {"type": "string", "minLength": 1},
+        "identityProfileVersion": {"type": "integer", "minimum": 1},
+        "identityProfileFingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "providerIdentityId": {"type": "string", "minLength": 1},
+        "authorizationEventIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "authorizationIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "governanceFingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
     "signature": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   },
   "$defs": {
@@ -53,6 +117,7 @@
         "mode": {"enum": ["create", "image", "reference-image", "video"]},
         "provider": {"const": "higgsfield"},
         "campaign": {"type": "string"},
+        "creator": {"type": "string"},
         "cohortId": {"type": "string", "minLength": 1},
         "stem": {"type": "string", "minLength": 1},
         "soulId": {"type": "string", "minLength": 1},
@@ -69,6 +134,8 @@
         "videoDuration": {"type": "integer", "minimum": 1},
         "videoMode": {"type": "string"},
         "videoSound": {"type": "string"},
+        "accountId": {"type": "string", "minLength": 1},
+        "territory": {"type": "string", "minLength": 1},
         "requestFingerprint": {"$ref": "#/$defs/sha256"}
       }
     },
@@ -99,6 +166,8 @@
         "providerCallCount": {"const": 1},
         "seed": {"type": ["integer", "null"]},
         "parameters": {"type": "object"},
+        "accountId": {"type": "string", "minLength": 1},
+        "territory": {"type": "string", "minLength": 1},
         "providerCommandFingerprint": {"$ref": "#/$defs/sha256"},
         "requestFingerprint": {"$ref": "#/$defs/sha256"}
       }
@@ -133,6 +202,8 @@
         "providerCallCount": {"const": 1},
         "seed": {"type": ["integer", "null"]},
         "parameters": {"type": "object"},
+        "accountId": {"type": "string", "minLength": 1},
+        "territory": {"type": "string", "minLength": 1},
         "providerCommandFingerprint": {"$ref": "#/$defs/sha256"},
         "requestFingerprint": {"$ref": "#/$defs/sha256"},
         "quoteFingerprint": {"$ref": "#/$defs/sha256"}

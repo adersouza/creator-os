@@ -147,14 +147,53 @@ def recovery_status(conn: sqlite3.Connection) -> dict[str, Any]:
         "preEffectJobs": [row for row in jobs if row["effect_state"] == "PRE_EFFECT"],
         "failedCappedLearning": failed_capped,
     }
+    mapping_blockers = _recovery_mapping_blockers(jobs)
     return {
         "schema": "creator_os.recovery_status.v1",
         "scope": "recovery",
-        "mappingBlockers": [],
-        "mappingBlockersSummary": "Mapping blockers: none.",
+        "mappingBlockers": mapping_blockers,
+        "mappingBlockersSummary": (
+            "Mapping blockers: none."
+            if not mapping_blockers
+            else f"Mapping blockers: {len(mapping_blockers)}."
+        ),
         "operationalRecoveryGaps": categories,
         "operationalRecoveryGapCount": sum(len(items) for items in categories.values()),
     }
+
+
+def _recovery_mapping_blockers(
+    jobs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    for job in jobs:
+        required = ["work_item_id", "attempt_id"]
+        effect_state = str(job.get("effect_state") or "")
+        job_type = str(job.get("job_type") or "").lower()
+        if effect_state in {"AMBIGUOUS", "EXTERNAL_ID_KNOWN"} and any(
+            marker in job_type
+            for marker in (
+                "provider",
+                "higgsfield",
+                "generation",
+                "derived_still",
+            )
+        ):
+            required.append("authorization_id")
+        if effect_state == "EXTERNAL_ID_KNOWN":
+            required.append("external_operation_id")
+        missing = [field for field in required if not str(job.get(field) or "").strip()]
+        if missing:
+            blockers.append(
+                {
+                    "recordType": "pipeline_job",
+                    "recordId": job["id"],
+                    "effectState": effect_state,
+                    "missingFields": missing,
+                    "repairAction": "reconcile_pipeline_job_mapping",
+                }
+            )
+    return blockers
 
 
 def draft_freshness_status(

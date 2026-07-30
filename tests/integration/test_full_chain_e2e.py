@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,11 @@ from campaign_factory.adapters.threadsdash_handoff_evidence import (
 )
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+
+sys.path.insert(
+    0, str(Path(__file__).parents[2] / "python_packages/campaign_factory/tests")
+)
+from campaign_test_support import authorize_campaign_governance  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -621,7 +627,26 @@ def drive_real_render_and_sync(
     source = cf.domains.asset_import.assets_for_campaign(
         cf.domains.campaign_by_slug(campaign_slug)["id"]
     )[0]
+    model = cf.domains.models.upsert_model("model")
+    cf.domains.models.upsert_account("ig_1", external_id="ig_1", model_id=model["id"])
+    cf.domains.models.upsert_model_account_profile(
+        "model", allowed_instagram_account_ids=["ig_1"]
+    )
     set_source_prompt(cf, source["id"], prompt_id=prompt_id, reference_id=reference_id)
+    authorize_campaign_governance(
+        cf,
+        tmp_path,
+        creator="model",
+        campaign=campaign_slug,
+        provider="openai",
+        soul_id="soul_model_e2e",
+    )
+    cf.domains.creator_governance.transition_campaign(
+        campaign_slug,
+        new_status="producing",
+        actor="test",
+        reason="full-chain fixture producing",
+    )
 
     job = cf.domains.reel_execution.prepare_reel_inputs(
         campaign_slug=campaign_slug, hooks=[caption], recipes=["v01_original"]
@@ -670,6 +695,19 @@ def export_real_asset(
     )
     final_context = json.loads(final_asset["caption_outcome_context_json"])
     cf.domains.finished_video.review_rendered_asset(asset["id"], decision="approved")
+    cf.domains.creator_governance.transition_campaign(
+        "may",
+        new_status="reviewing",
+        actor="test",
+        reason="full-chain fixture reviewing",
+    )
+    cf.domains.creator_governance.transition_campaign(
+        "may",
+        new_status="approved",
+        actor="test",
+        reason="full-chain fixture approved",
+        evidence={"approvedAssetIds": [asset["id"]]},
+    )
     cf.domains.distribution.create_distribution_plan(
         asset["id"],
         instagram_account_id="ig_1",

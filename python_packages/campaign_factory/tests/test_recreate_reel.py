@@ -43,6 +43,16 @@ from reel_factory.higgsfield_production import (
 from pipeline_contracts import validate_provider_spend_authorization
 
 
+def _governed(job: dict) -> dict:
+    return {
+        **job,
+        "_creatorGovernance": {
+            "creatorSlug": str(job["creator"]),
+            "providerIdentityId": CREATOR_SOUL_IDS[str(job["creator"])],
+        },
+    }
+
+
 def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -50,6 +60,9 @@ def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
         """
         CREATE TABLE campaigns (id TEXT PRIMARY KEY, slug TEXT, updated_at TEXT);
         CREATE TABLE models (id TEXT PRIMARY KEY, slug TEXT);
+        CREATE TABLE campaign_governance (
+          campaign_id TEXT PRIMARY KEY, model_id TEXT, lifecycle_status TEXT
+        );
         CREATE TABLE source_assets (
           id TEXT PRIMARY KEY, campaign_id TEXT, model_id TEXT, content_hash TEXT,
           stored_path TEXT, media_type TEXT, status TEXT, created_at TEXT,
@@ -59,6 +72,10 @@ def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
     )
     conn.execute("INSERT INTO campaigns VALUES ('campaign-1','stacey-main','2026')")
     conn.execute("INSERT INTO models VALUES ('model-1','stacey')")
+    conn.execute(
+        "INSERT INTO campaign_governance VALUES "
+        "('campaign-1','model-1','production_ready')"
+    )
     source = tmp_path / "stacey-approved.png"
     Image.new("RGB", (360, 640), "#8f5a69").save(source)
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -67,7 +84,31 @@ def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
         "('source-stacey','campaign-1','model-1',?,?,'image',?,'2026','{}')",
         (digest, str(source), status),
     )
-    return SimpleNamespace(conn=conn)
+    governance = SimpleNamespace(
+        active_identity_profile=lambda _creator, provider: {
+            "creator_id": "model-1",
+            "creator_slug": "stacey",
+            "provider": provider,
+            "provider_identity_id": CREATOR_SOUL_IDS["stacey"],
+        },
+        resolve_operation=lambda **_kwargs: {
+            "creatorId": "model-1",
+            "creatorSlug": "stacey",
+            "creatorLifecycleVersion": 1,
+            "campaignId": "campaign-1",
+            "campaignLifecycleVersion": 1,
+            "identityProfileId": "identity-1",
+            "identityProfileVersion": 1,
+            "identityProfileFingerprint": "i" * 64,
+            "providerIdentityId": CREATOR_SOUL_IDS["stacey"],
+            "authorizationEventIds": ["authorization-reference-1"],
+            "governanceFingerprint": "g" * 64,
+        },
+    )
+    return SimpleNamespace(
+        conn=conn,
+        domains=SimpleNamespace(creator_governance=governance),
+    )
 
 
 def _reference(tmp_path: Path, *, audio: bool = True) -> Path:
@@ -537,7 +578,7 @@ def test_paid_request_requires_and_uses_exact_approved_anchor(tmp_path: Path) ->
     job = batch["jobs"][0]
     job["providerOutputPath"] = str(tmp_path / "provider-output.mp4")
     job["providerReviewRoot"] = str(tmp_path / "provider-review")
-    request = higgsfield_request(job, max_credits=20)
+    request = higgsfield_request(_governed(job), max_credits=20)
 
     retained_anchor = Path(approval["anchorFilePath"])
     assert Path(request.source_image_path) == retained_anchor
@@ -550,7 +591,7 @@ def test_paid_request_requires_and_uses_exact_approved_anchor(tmp_path: Path) ->
 
     retained_anchor.write_bytes(b"changed after approval")
     with pytest.raises(PermissionError, match="sha_mismatch"):
-        higgsfield_request(job, max_credits=20)
+        higgsfield_request(_governed(job), max_credits=20)
 
 
 def test_paid_request_without_anchor_approval_fails_before_quote(
@@ -561,7 +602,7 @@ def test_paid_request_without_anchor_approval_fails_before_quote(
         PermissionError,
         match="recreation_anchor_approval_required_before_quote",
     ):
-        higgsfield_request(job, max_credits=20)
+        higgsfield_request(_governed(job), max_credits=20)
 
 
 def test_recreation_review_keeps_fidelity_dimensions_separate(tmp_path: Path) -> None:
@@ -622,13 +663,13 @@ def test_passive_paid_request_requires_exact_source_approval_fingerprint(
         PermissionError,
         match="exact_source_approval_fingerprint_required",
     ):
-        higgsfield_request(job, max_credits=20)
+        higgsfield_request(_governed(job), max_credits=20)
 
     job["sourceApproval"] = {
         "approvalEventId": "approval-event-1",
         "approvalFingerprint": "a" * 64,
     }
-    request = higgsfield_request(job, max_credits=20)
+    request = higgsfield_request(_governed(job), max_credits=20)
     assert request.source_approval == "a" * 64
     assert request.balance_delta_attribution_allowed is False
 
@@ -665,7 +706,9 @@ def test_recovery_request_reuses_exact_authorization_and_quote(tmp_path: Path) -
         }
     )
 
-    request = higgsfield_request(job, max_credits=20, attempt_id="pipeline-1:1")
+    request = higgsfield_request(
+        _governed(job), max_credits=20, attempt_id="pipeline-1:1"
+    )
 
     assert request.authorization_id == "authorization-1"
     assert (
@@ -916,6 +959,7 @@ def test_spend_scope_binds_approved_anchor_and_reference_bytes(tmp_path: Path) -
             "reservationId": "reservation-1",
             "issuer": "campaign_factory",
             "status": "authorized",
+            "legacyCompatibility": True,
             "issuedAt": "2026-07-29T12:00:00Z",
             "expiresAt": "2026-07-29T12:05:00Z",
             "scope": scope,

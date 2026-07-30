@@ -17,7 +17,6 @@ from creator_os_core.recreation_anchor_approval import (
 )
 
 from .cost_tracker import ensure_cost_table
-from .production_prompts import CREATOR_SOUL_IDS
 from .provider_spend import (
     HiggsfieldCliBalanceProvider,
     cancel_provider_spend_authorization,
@@ -55,14 +54,23 @@ def higgsfield_request(
     from reel_factory.worker_api import HiggsfieldProductionRequest
 
     creator = str(job["creator"])
-    try:
-        soul_id = CREATOR_SOUL_IDS[creator]
-    except KeyError as exc:
-        raise ValueError(
-            f"no pinned authenticated Higgsfield Soul identity for creator {creator}"
-        ) from exc
-    stage = list(job["productionRecipe"].get("stages") or [])[0]
     authorization = job.get("_higgsfieldAuthorization")
+    governance_context = (
+        authorization.get("governanceContext")
+        if isinstance(authorization, Mapping)
+        and isinstance(authorization.get("governanceContext"), Mapping)
+        else (
+            job.get("_creatorGovernance")
+            if isinstance(job.get("_creatorGovernance"), Mapping)
+            else None
+        )
+    )
+    if governance_context is None:
+        raise PermissionError("creator_governance_required_before_provider_request")
+    if governance_context.get("creatorSlug") != creator:
+        raise PermissionError("provider_authorization_creator_mismatch")
+    soul_id = str(governance_context["providerIdentityId"])
+    stage = list(job["productionRecipe"].get("stages") or [])[0]
     recovery = job.get("_higgsfieldRecovery")
     authorization_id = (
         str(authorization["authorizationId"])
@@ -275,6 +283,13 @@ def prepare_higgsfield_job_quotes(
     total = 0.0
     for job in jobs:
         campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
+        governance_context = factory.domains.creator_governance.resolve_operation(
+            creator=str(job["creator"]),
+            campaign=str(campaign["id"]),
+            operation="provider_spend",
+            provider="higgsfield",
+            source_asset_id=str(job["sourceAssetId"]),
+        )
         model_slug = factory.domains.reel_execution.model_slug_for_campaign(
             campaign["id"]
         )
@@ -287,6 +302,7 @@ def prepare_higgsfield_job_quotes(
             **job,
             "providerOutputPath": str(output),
             "providerReviewRoot": str(review_root),
+            "_creatorGovernance": governance_context,
         }
         recovery = _completed_higgsfield_recovery(candidate)
         if recovery is not None:
@@ -522,6 +538,7 @@ def _authorize_prepared_higgsfield_jobs(
                     "provider": "higgsfield",
                     "model": provider_plan["selectedModel"],
                     "batchBalanceSnapshot": balance_snapshot,
+                    "creatorGovernance": authorization.get("governanceContext"),
                 },
             )
             authorized.append(
@@ -537,6 +554,7 @@ def _authorize_prepared_higgsfield_jobs(
                     "providerQuoteContract": provider_plan["quoteCommand"],
                     "_higgsfieldSpendScope": scope,
                     "_higgsfieldAuthorization": authorization,
+                    "_creatorGovernance": authorization.get("governanceContext"),
                 }
             )
     except Exception:

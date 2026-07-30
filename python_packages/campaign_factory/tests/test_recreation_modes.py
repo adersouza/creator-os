@@ -5,7 +5,6 @@ from typing import Any
 
 import pytest
 from campaign_factory import recreation_modes
-from campaign_factory.production_prompts import CREATOR_SOUL_IDS
 from campaign_factory.recreation_prompting import SCHEMA as PROMPT_SCHEMA
 
 
@@ -102,6 +101,7 @@ def _plan(
     prompts: bool = True,
 ) -> dict[str, Any]:
     monkeypatch.setattr(recreation_modes, "_coarse_motion_energy", lambda _: motion)
+    provider_identity_id = f"registry-soul-{creator}"
     return recreation_modes.plan_recreation(
         creator=creator,
         source_video=Path("/private/reference.mp4"),
@@ -110,6 +110,19 @@ def _plan(
         audio_policy="auto",
         through=None,
         max_credits=100,
+        creator_governance={
+            "creatorId": f"model-{creator}",
+            "creatorSlug": creator,
+            "creatorLifecycleVersion": 3,
+            "campaignId": f"campaign-{creator}",
+            "campaignLifecycleVersion": 4,
+            "identityProfileId": f"identity-{creator}",
+            "identityProfileVersion": 2,
+            "identityProfileFingerprint": "f" * 64,
+            "providerIdentityId": provider_identity_id,
+            "authorizationEventIds": ["authorization-event-1"],
+            "governanceFingerprint": "g" * 64,
+        },
         prompt_pack=_prompt_pack() if prompts else None,
         quote_provider=_quote,
     )
@@ -129,7 +142,8 @@ def test_calm_uses_openai_kling_turbo_prompt(
     assert "video_references" not in request
     assert "start_image" not in plan["videoPlan"]["quoteParameters"]
     assert plan["videoPlan"]["referenceEvidence"]["sentToProvider"] is False
-    assert CREATOR_SOUL_IDS[creator] not in str(plan)
+    assert f"registry-soul-{creator}" not in str(plan)
+    assert plan["creatorGovernance"]["identityProfileFingerprint"] == "f" * 64
 
 
 def test_reel_motion_uses_prompt_only_seedance_fast(
@@ -217,3 +231,33 @@ def test_secondary_person_warning_keeps_manual_review(
 
     assert plan["selectedMode"] == "structural"
     assert plan["productionReadiness"] == "MANUAL_REVIEW_REQUIRED"
+
+
+def test_recreation_requires_matching_registry_governance_before_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = 0
+
+    def quote(_model: str, _params: dict[str, Any]) -> dict[str, Any]:
+        nonlocal called
+        called += 1
+        return {}
+
+    with pytest.raises(PermissionError, match="recreation_creator_governance_mismatch"):
+        recreation_modes.plan_recreation(
+            creator="stacey",
+            source_video=Path("/private/reference.mp4"),
+            intake=_intake(),
+            requested_mode="auto",
+            audio_policy="auto",
+            through=None,
+            max_credits=100,
+            creator_governance={
+                "creatorSlug": "larissa",
+                "identityProfileFingerprint": "f" * 64,
+                "governanceFingerprint": "g" * 64,
+            },
+            prompt_pack=_prompt_pack(),
+            quote_provider=quote,
+        )
+    assert called == 0

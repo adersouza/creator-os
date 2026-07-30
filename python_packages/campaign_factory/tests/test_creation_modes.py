@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from campaign_factory import creation_modes
-from campaign_test_support import make_factory
+from campaign_test_support import authorize_campaign_governance, make_factory
 
 
 @pytest.fixture(autouse=True)
@@ -110,6 +110,14 @@ def _seed_stacey_source(cf, tmp_path: Path) -> None:
         campaign_slug="stacey-library",
         model_slug="stacey",
     )
+    authorize_campaign_governance(
+        cf,
+        tmp_path,
+        creator="stacey",
+        campaign="stacey-library",
+        provider="higgsfield",
+        soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+    )
 
 
 def test_calm_animation_reuses_exact_approved_asset_before_prompt_or_provider(
@@ -124,6 +132,14 @@ def test_calm_animation_reuses_exact_approved_asset_before_prompt_or_provider(
             source_dir,
             campaign_slug="stacey-library",
             model_slug="stacey",
+        )
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="stacey-library",
+            provider="higgsfield",
+            soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
         )
         campaign = cf.domains.campaign_by_slug("stacey-library")
         source = cf.domains.asset_import.assets_for_campaign(campaign["id"])[0]
@@ -350,8 +366,9 @@ def test_reuse_skips_conflicting_reservation_and_reserves_next_candidate(
             recipe="higgsfield_kling3_turbo_i2v",
             updated_at="2026-07-29T13:00:00Z",
         )
-        destination = cf.domains.models.upsert_account("destination")
-        other = cf.domains.models.upsert_account("other")
+        model_id = cf.domains.models.upsert_model("stacey")["id"]
+        destination = cf.domains.models.upsert_account("destination", model_id=model_id)
+        other = cf.domains.models.upsert_account("other", model_id=model_id)
         cf.domains.inventory_reservations.reserve_inventory_asset(
             "approved-conflicting",
             account_id=other["id"],
@@ -408,7 +425,8 @@ def test_destination_reuse_generates_only_the_exact_shortfall(
             recipe="higgsfield_kling3_turbo_i2v",
             updated_at="2026-07-29T12:00:00Z",
         )
-        cf.domains.models.upsert_account("destination")
+        model_id = cf.domains.models.upsert_model("stacey")["id"]
+        cf.domains.models.upsert_account("destination", model_id=model_id)
         fresh_counts: list[int] = []
 
         def fresh(_factory, **kwargs):
@@ -469,7 +487,8 @@ def test_partial_reuse_releases_new_reservations_when_fresh_fill_aborts(
             recipe="higgsfield_kling3_turbo_i2v",
             updated_at="2026-07-29T12:00:00Z",
         )
-        cf.domains.models.upsert_account("destination")
+        model_id = cf.domains.models.upsert_model("stacey")["id"]
+        cf.domains.models.upsert_account("destination", model_id=model_id)
         monkeypatch.setattr(
             creation_modes,
             "run_production_batch",

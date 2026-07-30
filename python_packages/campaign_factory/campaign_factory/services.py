@@ -26,6 +26,7 @@ from .core_complexity import CoreComplexityRepository
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
+from .creator_governance import CreatorGovernanceRepository
 from .creator_os_drafts import CreatorOSDraftRepository
 from .creator_os_recommendations import CreatorOSRecommendationRepository
 from .daily_plan import DailyPlanRepository
@@ -658,6 +659,13 @@ class CampaignDomainServices:
             ensure_rendered_asset_perceptual_metadata=self.inventory_perceptual.ensure_rendered_asset_perceptual_metadata,
             asset_uniqueness_values=self.inventory_perceptual.asset_uniqueness_values,
             default_reservation_ttl_days=7,
+        )
+        self.creator_governance = CreatorGovernanceRepository(
+            conn,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            managed_root=settings.root,
         )
         self.exceptions = ExceptionRepository(
             conn,

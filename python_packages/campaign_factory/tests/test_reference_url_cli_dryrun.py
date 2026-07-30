@@ -7,7 +7,9 @@ from types import SimpleNamespace
 
 import campaign_factory.cli as cli
 import campaign_factory.reference_url_workflow as workflow
+import pytest
 from campaign_factory.config import Settings
+from campaign_test_support import authorize_campaign_governance, make_factory
 
 
 def test_analysis_dry_run_bypasses_mutating_factory(
@@ -212,3 +214,42 @@ def test_gemini_structure_analysis_is_contract_valid_and_read_only(
     assert "--approval-mode" in observed["command"]
     assert "plan" in observed["command"]
     assert observed["kwargs"]["cwd"] == tmp_path
+
+
+def test_reference_rights_block_before_download_or_analysis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="may",
+            provider="higgsfield",
+            reference_video_use=False,
+        )
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError("reference media must not be touched before rights")
+
+        monkeypatch.setattr(workflow, "canonicalize_reel_url", forbidden)
+        monkeypatch.setattr(workflow, "download_reel_url", forbidden)
+        monkeypatch.setattr(workflow, "_run_reference_factory", forbidden)
+        monkeypatch.setattr(workflow, "_analyze_reference_structure", forbidden)
+
+        with pytest.raises(
+            PermissionError, match="creator_authorization_missing:reference_video_use"
+        ):
+            workflow.run_reference_analysis(
+                cf,
+                creator="stacey",
+                reference_url="https://www.instagram.com/reel/example/",
+                reference_video_path=None,
+                reference_platform="instagram",
+                reference_authorized=True,
+                declared_talking=False,
+                apply=False,
+            )
+    finally:
+        cf.close()

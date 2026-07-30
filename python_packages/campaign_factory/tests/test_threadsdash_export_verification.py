@@ -184,7 +184,7 @@ def test_generated_motion_without_draft_marker_blocks_before_every_external_boun
     cf = make_factory(tmp_path)
     calls = {"handshake": 0, "upload": 0, "ingest": 0}
     try:
-        add_rendered_asset(cf, tmp_path)
+        source, _ = add_rendered_asset(cf, tmp_path)
         cf.conn.execute(
             "UPDATE rendered_assets SET frame_type = 'generated_motion' WHERE id = 'asset_1'"
         )
@@ -195,6 +195,7 @@ def test_generated_motion_without_draft_marker_blocks_before_every_external_boun
             "drafts": [
                 {
                     "renderedAssetId": "asset_1",
+                    "sourceAssetId": source["id"],
                     # Deliberately omit the old, untrusted creativeApprovalRequired
                     # marker. Canonical stored generation lineage must still gate it.
                 }
@@ -524,6 +525,17 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
     )
     try:
         add_rendered_asset(cf, tmp_path)
+        model = cf.domains.models.upsert_model("model")
+        cf.domains.models.upsert_account(
+            "first",
+            external_id="ig_1",
+            model_id=model["id"],
+        )
+        cf.domains.models.upsert_account(
+            "second",
+            external_id="ig_2",
+            model_id=model["id"],
+        )
         result = export_threadsdash(
             cf,
             campaign_slug="may",
@@ -1532,6 +1544,7 @@ def test_export_readiness_warns_on_already_drafted_render(tmp_path: Path, monkey
         )
         cf.conn.commit()
         add_audit_report(cf, overall_verdict="warn", warnings=["compression"])
+        ensure_exportable_distribution_plan(cf)
         readiness = evaluate_export_readiness(
             cf,
             campaign_slug="may",

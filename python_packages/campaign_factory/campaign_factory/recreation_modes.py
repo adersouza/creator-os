@@ -12,11 +12,10 @@ import json
 import math
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Final
 
-from .production_prompts import CREATOR_SOUL_IDS
 from .recreation_prompting import validate_prompt_pack
 
 SCHEMA: Final = "campaign_factory.recreation_plan.v1"
@@ -57,14 +56,25 @@ def plan_recreation(
     audio_policy: str,
     through: str | None,
     max_credits: float | None,
+    creator_governance: Mapping[str, Any],
     prompt_pack: dict[str, Any] | None = None,
     quote_provider: QuoteProvider | None = None,
 ) -> dict[str, Any]:
     """Build one stable public plan without exposing private Soul identifiers."""
 
     creator_key = str(creator or "").strip().lower()
-    if creator_key not in CREATOR_SOUL_IDS:
-        raise ValueError("recreation_creator_has_no_configured_soul_identity")
+    governance = dict(creator_governance)
+    if (
+        not creator_key
+        or str(governance.get("creatorSlug") or "").strip().lower() != creator_key
+    ):
+        raise PermissionError("recreation_creator_governance_mismatch")
+    identity_fingerprint = str(
+        governance.get("identityProfileFingerprint") or ""
+    ).strip()
+    governance_fingerprint = str(governance.get("governanceFingerprint") or "").strip()
+    if len(identity_fingerprint) != 64 or len(governance_fingerprint) != 64:
+        raise PermissionError("recreation_creator_governance_incomplete")
     if requested_mode not in MODES:
         raise ValueError("unsupported_recreate_mode")
     reference = _mapping(intake.get("reference"))
@@ -104,9 +114,6 @@ def plan_recreation(
         if prompts is not None
         else _scene_prompt(reference, classification)
     )
-    identity_fingerprint = hashlib.sha256(
-        CREATOR_SOUL_IDS[creator_key].encode()
-    ).hexdigest()
     run_id = (
         "recreate_"
         + _fingerprint(
@@ -191,6 +198,19 @@ def plan_recreation(
         "schema": SCHEMA,
         "runId": run_id,
         "creator": creator_key,
+        "creatorGovernance": {
+            "creatorId": governance.get("creatorId"),
+            "creatorLifecycleVersion": governance.get("creatorLifecycleVersion"),
+            "campaignId": governance.get("campaignId"),
+            "campaignLifecycleVersion": governance.get("campaignLifecycleVersion"),
+            "identityProfileId": governance.get("identityProfileId"),
+            "identityProfileVersion": governance.get("identityProfileVersion"),
+            "identityProfileFingerprint": identity_fingerprint,
+            "authorizationEventIds": list(
+                governance.get("authorizationEventIds") or []
+            ),
+            "governanceFingerprint": governance_fingerprint,
+        },
         "referenceId": reference_id,
         "referenceVideoSha256": _mapping(reference.get("source")).get("sha256"),
         "requestedMode": requested_mode,
