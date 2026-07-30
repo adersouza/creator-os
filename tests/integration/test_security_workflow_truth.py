@@ -63,9 +63,7 @@ def test_secret_scan_allows_trufflehog_container_registry() -> None:
     workflow = (ROOT / ".github" / "workflows" / "security.yml").read_text(
         encoding="utf-8"
     )
-    secret_scan_job = workflow.split("\n  secrets:\n", 1)[1].split(
-        "\n  trivy:\n", 1
-    )[0]
+    secret_scan_job = workflow.split("\n  secrets:\n", 1)[1].split("\n  trivy:\n", 1)[0]
 
     assert "ghcr.io:443" in secret_scan_job
     assert "pkg-containers.githubusercontent.com:443" in secret_scan_job
