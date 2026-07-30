@@ -37,6 +37,10 @@ if _TESTS_DIR not in sys.path:
 def allow_insecure_local_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ALLOW_INSECURE_LOCAL", "1")
     monkeypatch.delenv("CREATOR_OS_API_TOKEN", raising=False)
+    monkeypatch.setenv(
+        "CREATOR_OS_EVIDENCE_AUTH_SECRET",
+        "campaign-factory-test-evidence-secret-000000000000",
+    )
 
 
 @pytest.fixture(autouse=True)

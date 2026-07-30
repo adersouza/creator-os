@@ -61,6 +61,33 @@ def test_unknown_and_known_legacy_writers_fail_closed_as_mutations() -> None:
         assert preview is False
 
 
+def test_known_report_commands_are_read_only_without_signing_material(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CREATOR_OS_EVIDENCE_AUTH_SECRET")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for command in (
+        "caption-quality-repair-plan",
+        "daily-plan",
+        "multi-surface-inventory-audit",
+        "parent-factory-post-gate-fresh-batch-proof",
+    ):
+        decision = authorize_cli_operation(Namespace(cmd=command))
+        assert decision.effect_class == READ
+        assert decision.preview is True
+
+
+def test_mutating_command_without_signing_material_fails_closed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CREATOR_OS_EVIDENCE_AUTH_SECRET")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with pytest.raises(ValueError, match="evidence_attestation_key_file_missing"):
+        authorize_cli_operation(
+            Namespace(cmd="capture-publishability-rejection-evidence")
+        )
+
+
 def test_insecure_loopback_cannot_mutate_but_token_operator_can(
     monkeypatch, tmp_path: Path
 ) -> None:
