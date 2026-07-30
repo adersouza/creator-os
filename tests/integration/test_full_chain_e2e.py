@@ -628,9 +628,7 @@ def drive_real_render_and_sync(
         cf.domains.campaign_by_slug(campaign_slug)["id"]
     )[0]
     model = cf.domains.models.upsert_model("model")
-    cf.domains.models.upsert_account(
-        "ig_1", external_id="ig_1", model_id=model["id"]
-    )
+    cf.domains.models.upsert_account("ig_1", external_id="ig_1", model_id=model["id"])
     cf.domains.models.upsert_model_account_profile(
         "model", allowed_instagram_account_ids=["ig_1"]
     )
