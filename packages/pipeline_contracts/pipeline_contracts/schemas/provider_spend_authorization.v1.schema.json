@@ -27,7 +27,8 @@
     "scope": {
       "oneOf": [
         {"$ref": "#/$defs/legacyScope"},
-        {"$ref": "#/$defs/exactHiggsfieldVideoScope"}
+        {"$ref": "#/$defs/exactHiggsfieldVideoScope"},
+        {"$ref": "#/$defs/exactHiggsfieldVideoScopeV2"}
       ]
     },
     "providerQuote": {
@@ -100,6 +101,41 @@
         "parameters": {"type": "object"},
         "providerCommandFingerprint": {"$ref": "#/$defs/sha256"},
         "requestFingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "exactHiggsfieldVideoScopeV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicMode", "provider", "campaign", "cohortId", "workItemId", "attemptId", "batchBalanceSnapshotFingerprint", "recipeId", "providerJobType", "creator", "soulId", "campaignSourceAssetId", "source", "sourceApprovalFingerprint", "recreationAnchorApproval", "drivingVideo", "speechAudio", "referenceElement", "resolvedPromptSha256", "promptCardFingerprint", "promptBuilderFingerprint", "providerModels", "providerCallCount", "seed", "parameters", "providerCommandFingerprint", "requestFingerprint", "quoteFingerprint"],
+      "properties": {
+        "publicMode": {"enum": ["calm_animation", "recreate_reel"]},
+        "provider": {"const": "higgsfield"},
+        "campaign": {"type": "string", "minLength": 1},
+        "cohortId": {"type": "string", "minLength": 1},
+        "workItemId": {"type": "string", "minLength": 1},
+        "attemptId": {"type": "string", "minLength": 1},
+        "batchBalanceSnapshotFingerprint": {"$ref": "#/$defs/sha256"},
+        "recipeId": {"type": "string", "minLength": 1},
+        "providerJobType": {"type": "string", "minLength": 1},
+        "creator": {"type": "string", "minLength": 1},
+        "soulId": {"type": "string", "minLength": 1},
+        "campaignSourceAssetId": {"type": "string", "minLength": 1},
+        "source": {"type": "object"},
+        "sourceApprovalFingerprint": {"type": "string", "minLength": 1},
+        "recreationAnchorApproval": {"type": ["object", "null"]},
+        "drivingVideo": {"type": ["object", "null"]},
+        "speechAudio": {"type": ["object", "null"]},
+        "referenceElement": {"type": ["object", "null"]},
+        "resolvedPromptSha256": {"$ref": "#/$defs/sha256"},
+        "promptCardFingerprint": {"type": "string", "minLength": 1},
+        "promptBuilderFingerprint": {"type": "string"},
+        "providerModels": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string", "minLength": 1}},
+        "providerCallCount": {"const": 1},
+        "seed": {"type": ["integer", "null"]},
+        "parameters": {"type": "object"},
+        "providerCommandFingerprint": {"$ref": "#/$defs/sha256"},
+        "requestFingerprint": {"$ref": "#/$defs/sha256"},
+        "quoteFingerprint": {"$ref": "#/$defs/sha256"}
       }
     }
   }

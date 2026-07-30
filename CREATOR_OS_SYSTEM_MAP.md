@@ -350,7 +350,7 @@ The Higgsfield adapter:
 
 1. discovers the authenticated contract;
 2. constructs the exact provider request;
-3. gets a quote when exposed;
+3. assigns the durable attempt, then quotes that exact plan;
 4. checks the full prepared batch against one authenticated balance snapshot,
    retained minimum, active reservations, and the batch credit ceiling;
 5. creates a signed one-time spend authorization;
@@ -371,8 +371,10 @@ authorization fails closed. Actual cost above the authorization is still
 recorded, but creates an overspend incident and blocks asset progression.
 `providerRequestFingerprint` excludes the local output destination;
 `executionFingerprint` adds the output/review destination and runtime plan
-version. Exact completed local receipts recover without another provider quote
-or balance read.
+version. The remote fingerprint uses exact media and approval identities plus a
+path-independent normalized command; balance evidence and timestamps are not
+remote-request inputs. Exact completed local receipts recover without another
+provider quote or balance read.
 
 ### 5. Generate visual media
 

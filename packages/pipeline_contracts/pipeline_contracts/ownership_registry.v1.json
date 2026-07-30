@@ -3,7 +3,7 @@
   "version": 1,
   "contractPackage": {
     "name": "@creator-os/pipeline-contracts",
-    "version": "4.1.0"
+    "version": "4.2.0"
   },
   "systems": {
     "creator_os": {

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +20,7 @@ from campaign_factory.provider_spend import (
     consume_provider_spend_authorization,
     issue_provider_spend_authorization,
     record_provider_execution,
+    validate_provider_spend_batch_capacity,
 )
 from creator_os_core.provider_spend import build_generate_assets_spend_scope
 
@@ -289,6 +292,143 @@ def test_campaign_fails_before_quote_when_secret_is_missing(tmp_path: Path) -> N
             balance_provider=Balance(),
         )
     assert quote.calls == 0
+
+
+def test_active_reservations_reduce_provider_balance_capacity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "1")
+    conn = sqlite3.connect(":memory:")
+    first = _scope(tmp_path)
+    second = {**first, "requestFingerprint": "b" * 64}
+
+    issue_provider_spend_authorization(
+        conn,
+        scope=first,
+        campaign_id="campaign-1",
+        max_credits=5,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=SimpleNamespace(balance=lambda: 10.0),
+    )
+    with pytest.raises(
+        PermissionError,
+        match="provider_balance_capacity_already_reserved",
+    ):
+        issue_provider_spend_authorization(
+            conn,
+            scope=second,
+            campaign_id="campaign-1",
+            max_credits=5,
+            secret=SECRET,
+            quote_provider=Quote(),
+            balance_provider=SimpleNamespace(balance=lambda: 10.0),
+        )
+
+
+def test_expired_reservations_release_provider_balance_capacity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "1")
+    conn = sqlite3.connect(":memory:")
+    first = _scope(tmp_path)
+    second = {**first, "requestFingerprint": "b" * 64}
+    issue_provider_spend_authorization(
+        conn,
+        scope=first,
+        campaign_id="campaign-1",
+        max_credits=5,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=SimpleNamespace(balance=lambda: 10.0),
+    )
+    conn.execute(
+        "UPDATE provider_spend_authorizations SET expires_at = ?",
+        ("2020-01-01T00:00:00Z",),
+    )
+    conn.commit()
+
+    authorization = issue_provider_spend_authorization(
+        conn,
+        scope=second,
+        campaign_id="campaign-1",
+        max_credits=5,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=SimpleNamespace(balance=lambda: 10.0),
+    )
+
+    assert authorization["scope"]["requestFingerprint"] == "b" * 64
+
+
+def test_concurrent_authorizations_cannot_overreserve_provider_balance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "1")
+    database = tmp_path / "provider-spend.sqlite"
+    bootstrap = sqlite3.connect(database)
+    first = _scope(tmp_path)
+    bootstrap.close()
+    barrier = threading.Barrier(2)
+
+    def authorize(fingerprint: str) -> str:
+        conn = sqlite3.connect(database, timeout=10)
+        try:
+            barrier.wait()
+            issue_provider_spend_authorization(
+                conn,
+                scope={**first, "requestFingerprint": fingerprint},
+                campaign_id="campaign-1",
+                max_credits=5,
+                secret=SECRET,
+                quote_provider=Quote(),
+                balance_provider=SimpleNamespace(balance=lambda: 10.0),
+            )
+            return "authorized"
+        except PermissionError:
+            return "blocked"
+        finally:
+            conn.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(authorize, ("a" * 64, "b" * 64)))
+
+    assert sorted(outcomes) == ["authorized", "blocked"]
+    check = sqlite3.connect(database)
+    assert (
+        check.execute(
+            "SELECT COUNT(*) FROM provider_spend_authorizations "
+            "WHERE status = 'authorized'"
+        ).fetchone()[0]
+        == 1
+    )
+    check.close()
+
+
+def test_batch_policy_failure_issues_zero_authorizations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_CREDITS", "9")
+    conn = sqlite3.connect(":memory:")
+    scope = _scope(tmp_path)
+
+    with pytest.raises(PermissionError, match="projected_daily_credits_exceeded"):
+        validate_provider_spend_batch_capacity(
+            conn,
+            [
+                (scope, 5.0),
+                ({**scope, "requestFingerprint": "b" * 64}, 5.0),
+            ],
+        )
+
+    assert (
+        conn.execute("SELECT COUNT(*) FROM provider_spend_authorizations").fetchone()[0]
+        == 0
+    )
 
 
 def test_campaign_wrapper_authorizes_before_fake_worker(

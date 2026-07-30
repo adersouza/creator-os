@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,9 @@ def _request(tmp_path: Path, **overrides: Any) -> subject.HiggsfieldProductionRe
         "creator": "stacey",
         "soul_id": "soul_stacey",
         "source_approval": "approved-source-1",
+        "source_asset_id": "source-asset-1",
+        "campaign_source_asset_id": "source-asset-1",
+        "source_approval_id": "source-approval-1",
         "source_image_path": source,
         "output_path": tmp_path / "review" / "output.mp4",
         "review_root": tmp_path / "review",
@@ -85,6 +89,8 @@ def _request(tmp_path: Path, **overrides: Any) -> subject.HiggsfieldProductionRe
         "model": "kling3_0",
         "duration_seconds": 5,
         "max_credits": 20.0,
+        "prompt_card_fingerprint": "d" * 64,
+        "prompt_builder_fingerprint": "e" * 64,
     }
     values.update(overrides)
     if (
@@ -127,6 +133,7 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
                     }
                 ]
             },
+            {"credits": 91.25},
             {
                 "items": [
                     {"job_type": value, "display_name": value}
@@ -255,6 +262,67 @@ def test_provider_request_fingerprint_excludes_local_output_destination(
 
     assert first["providerRequestFingerprint"] == second["providerRequestFingerprint"]
     assert first["executionFingerprint"] != second["executionFingerprint"]
+
+
+def test_provider_request_uses_content_identity_not_local_media_path(
+    tmp_path: Path,
+) -> None:
+    first_source = tmp_path / "first-source.png"
+    second_source = tmp_path / "moved-source.png"
+    first_source.write_bytes(b"same-approved-source")
+    second_source.write_bytes(first_source.read_bytes())
+
+    first = subject.build_higgsfield_production_plan(
+        _request(tmp_path, source_image_path=first_source),
+        capabilities=_capabilities(),
+    )
+    second = subject.build_higgsfield_production_plan(
+        _request(tmp_path, source_image_path=second_source),
+        capabilities=_capabilities(),
+    )
+
+    assert first["providerRequestFingerprint"] == second["providerRequestFingerprint"]
+    assert first["normalizedCommand"] == second["normalizedCommand"]
+    assert first["command"] != second["command"]
+
+
+def test_provider_request_binds_source_asset_and_attempt_ids(tmp_path: Path) -> None:
+    base = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            source_asset_id="source-1",
+            campaign_source_asset_id="source-1",
+            attempt_id="attempt-1",
+        ),
+        capabilities=_capabilities(),
+    )
+    changed_asset = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            source_asset_id="source-2",
+            campaign_source_asset_id="source-2",
+            attempt_id="attempt-1",
+        ),
+        capabilities=_capabilities(),
+    )
+    changed_attempt = subject.build_higgsfield_production_plan(
+        _request(
+            tmp_path,
+            source_asset_id="source-1",
+            campaign_source_asset_id="source-1",
+            attempt_id="attempt-2",
+        ),
+        capabilities=_capabilities(),
+    )
+
+    assert (
+        base["providerRequestFingerprint"]
+        != changed_asset["providerRequestFingerprint"]
+    )
+    assert (
+        base["providerRequestFingerprint"]
+        != changed_attempt["providerRequestFingerprint"]
+    )
 
 
 def test_prompt_and_seed_changes_require_a_new_provider_request(
@@ -663,6 +731,16 @@ def test_success_hashes_registers_and_preserves_review_fields(
     receipts = list((tmp_path / "review" / "receipts").glob("*.json"))
     assert len(receipts) == 1
     assert "secret" not in receipts[0].read_text(encoding="utf-8")
+    expected_plan = subject.build_higgsfield_production_plan(
+        request,
+        capabilities=_capabilities(),
+    )
+    submitted = next(
+        command
+        for command in adapter.commands
+        if command[:3] == ["higgsfield", "generate", "create"]
+    )
+    assert submitted == expected_plan["command"]
 
     recovered = subject.execute_higgsfield_production(
         request,
@@ -722,6 +800,199 @@ def test_concurrent_balance_delta_is_not_attributed_to_one_generation(
 
     assert receipt["creditsConsumed"] is None
     assert receipt["creditsConsumedSource"] == "unknown_concurrent_provider_operations"
+    assert receipt["actualCreditsState"] == "unknown"
+    assert receipt["actualCreditsReason"] == "concurrent_balance_delta_not_attributable"
+
+
+def test_silent_recipe_quarantines_returned_provider_audio(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = FakeAdapter(
+        [
+            {"credits": 8.75},
+            {"credits": 100.0},
+            {"items": ["generation-with-audio"]},
+            {
+                "items": [
+                    {
+                        "id": "generation-with-audio",
+                        "status": "completed",
+                        "result_url": "https://cdn.example/video.mp4",
+                    }
+                ]
+            },
+            {"credits": 91.25},
+        ]
+    )
+
+    def fake_download(_url: str, output: Path) -> Path:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"provider-video-with-audio")
+        return output
+
+    monkeypatch.setattr(subject, "download_result", fake_download)
+    monkeypatch.setattr(subject, "_probe_video", lambda _path: {"audioStreams": 1})
+
+    result = subject.execute_higgsfield_production(
+        _request(tmp_path),
+        capabilities=_capabilities(),
+        adapter=adapter,  # type: ignore[arg-type]
+        confirm_paid=True,
+    )
+
+    assert not (tmp_path / "review" / "output.mp4").exists()
+    quarantined = list((tmp_path / "review").glob("output.mp4.quarantine.*"))
+    assert len(quarantined) == 1
+    receipt_path = next((tmp_path / "review" / "receipts").glob("*.json"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "rejected_unexpected_provider_audio"
+    assert result["status"] == "rejected_unexpected_provider_audio"
+    assert receipt["technicalRejection"] == "unexpected_provider_audio"
+    assert receipt["actualCreditsState"] == "known"
+    assert receipt["creditsConsumed"] == 8.75
+    assert receipt["quarantinedOutput"]["path"] == str(quarantined[0])
+
+
+def test_balance_snapshot_does_not_change_authorized_provider_request(
+    tmp_path: Path,
+) -> None:
+    quoted_request = _request(
+        tmp_path,
+        work_item_id="work-1",
+        attempt_id="attempt-1",
+        campaign="campaign-1",
+        cohort_id="cohort-1",
+    )
+    quoted_plan = subject.build_higgsfield_production_plan(
+        quoted_request,
+        capabilities=_capabilities(),
+    )
+    execution_plan = subject.build_higgsfield_production_plan(
+        replace(
+            quoted_request,
+            batch_balance_snapshot_fingerprint="9" * 64,
+        ),
+        capabilities=_capabilities(),
+    )
+
+    assert (
+        execution_plan["providerRequestFingerprint"]
+        == quoted_plan["providerRequestFingerprint"]
+    )
+    assert (
+        execution_plan["authorizationScope"]["batchBalanceSnapshotFingerprint"]
+        == "9" * 64
+    )
+
+
+@pytest.mark.parametrize("recovery_state", ["temporary", "final", "symlink"])
+def test_downloaded_receipt_resumes_without_any_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    recovery_state: str,
+) -> None:
+    base_request = _request(
+        tmp_path,
+        work_item_id="work-1",
+        attempt_id="pipeline-1:1",
+        authorization_id="authorization-1",
+        campaign="campaign-1",
+        cohort_id="cohort-1",
+    )
+    plan = subject.build_higgsfield_production_plan(
+        base_request,
+        capabilities=_capabilities(),
+    )
+    quote = {"provider": "higgsfield", "amount": 8.75, "unit": "higgsfield_credits"}
+    request = replace(
+        base_request,
+        authorized_request_fingerprint=plan["providerRequestFingerprint"],
+        authorized_quote_fingerprint=subject.higgsfield_quote_fingerprint(quote),
+    )
+    output = Path(request.output_path)
+    temporary = output.with_name(
+        f".{output.name}.{plan['executionFingerprint'][:16]}.download"
+    )
+    recovered_bytes = b"downloaded-before-crash"
+    recovered_path = output if recovery_state == "final" else temporary
+    recovered_path.parent.mkdir(parents=True)
+    if recovery_state == "symlink":
+        symlink_target = tmp_path / "symlink-target.mp4"
+        symlink_target.write_bytes(recovered_bytes)
+        recovered_path.symlink_to(symlink_target)
+    else:
+        recovered_path.write_bytes(recovered_bytes)
+    digest = hashlib.sha256(recovered_bytes).hexdigest()
+    receipt_path = Path(request.review_root) / "receipts" / "attempt.json"
+    receipt_path.parent.mkdir(parents=True)
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "schema": subject.SCHEMA,
+                "status": "downloaded_output",
+                "requestFingerprint": plan["requestFingerprint"],
+                "providerRequestFingerprint": plan["providerRequestFingerprint"],
+                "executionFingerprint": plan["executionFingerprint"],
+                "providerCommandFingerprint": plan["authorizationScope"][
+                    "providerCommandFingerprint"
+                ],
+                "workItemId": request.work_item_id,
+                "attemptId": request.attempt_id,
+                "authorizationId": request.authorization_id,
+                "generationId": "generation-1",
+                "model": request.model,
+                "seed": request.seed,
+                "prompt": plan["prompt"],
+                "source": plan["source"],
+                "creditQuote": quote,
+                "balanceBefore": 100.0,
+                "downloadedOutput": {
+                    "generationId": "generation-1",
+                    "temporaryPath": str(temporary),
+                    "finalPath": str(output),
+                    "sha256": digest,
+                },
+                "review": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(subject, "_probe_video", lambda _path: {"audioStreams": 0})
+    monkeypatch.setattr(
+        subject.HiggsfieldCliAdapter,
+        "run_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("local recovery must not call the provider")
+        ),
+    )
+    monkeypatch.setattr(
+        subject,
+        "record_asset_generation",
+        lambda *_args, **_kwargs: {"ok": True, "asset_generation_id": "asset-1"},
+    )
+
+    if recovery_state == "symlink":
+        with pytest.raises(
+            PermissionError, match="higgsfield_local_download_binding_mismatch"
+        ):
+            subject.resume_higgsfield_local_output(
+                request,
+                receipt_path=receipt_path,
+            )
+        assert not output.exists()
+        return
+
+    recovered = subject.resume_higgsfield_local_output(
+        request, receipt_path=receipt_path
+    )
+
+    assert recovered["status"] == "completed"
+    assert recovered["actualCreditsState"] == "unknown"
+    assert recovered["actualCreditsReason"] == (
+        "local_recovery_without_provider_credit_evidence"
+    )
+    assert output.read_bytes() == recovered_bytes
 
 
 def test_downloaded_receipt_recovers_by_atomic_finalization(
@@ -740,9 +1011,7 @@ def test_downloaded_receipt_recovers_by_atomic_finalization(
             "sha256": digest,
         }
     }
-    expected_temporary = output.with_name(
-        f".{output.name}.{hashlib.sha256(b'generation-1').hexdigest()[:16]}.download"
-    )
+    expected_temporary = output.with_name(f".{output.name}.{'e' * 16}.download")
     temporary.replace(expected_temporary)
     monkeypatch.setattr(
         subject,
@@ -761,6 +1030,7 @@ def test_downloaded_receipt_recovers_by_atomic_finalization(
         result_url="https://cdn.example/video.mp4",
         output=output,
         generation_id="generation-1",
+        execution_fingerprint="e" * 64,
         receipt=receipt,
         receipt_path=receipt_path,
     )
@@ -768,6 +1038,28 @@ def test_downloaded_receipt_recovers_by_atomic_finalization(
     assert retained == output
     assert retained_sha == digest
     assert output.read_bytes() == b"downloaded-before-crash"
+
+
+def test_mismatched_final_output_is_quarantined_not_overwritten(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "output.mp4"
+    output.write_bytes(b"unrelated-existing-output")
+    receipt_path = tmp_path / "receipt.json"
+
+    with pytest.raises(FileExistsError, match="output_collision_quarantined"):
+        subject._retain_downloaded_output(
+            result_url="https://cdn.example/video.mp4",
+            output=output,
+            generation_id="generation-1",
+            execution_fingerprint="e" * 64,
+            receipt={"downloadedOutput": {"sha256": "f" * 64}},
+            receipt_path=receipt_path,
+        )
+
+    quarantined = list(tmp_path.glob("output.mp4.quarantine.*"))
+    assert len(quarantined) == 1
+    assert quarantined[0].read_bytes() == b"unrelated-existing-output"
 
 
 def test_motion_copy_missing_driving_video_never_submits(
@@ -887,3 +1179,40 @@ def test_ambiguous_submission_reconciles_one_exact_history_match(
             "--json",
         ]
     ]
+
+
+def test_submission_started_after_process_death_reconciles_without_resubmit(
+    tmp_path: Path,
+) -> None:
+    request = _request(
+        tmp_path,
+        work_item_id="work-1",
+        authorization_id="auth-1",
+        attempt_id="attempt-1",
+        client_request_correlation_id="creator-os:work-1:attempt-1",
+    )
+    plan = subject.build_higgsfield_production_plan(
+        request,
+        capabilities=_capabilities(),
+    )
+    adapter = FakeAdapter([{"items": []}])
+    receipt_path = tmp_path / "submission-started.json"
+
+    with pytest.raises(subject.HiggsfieldSubmissionNeedsReconciliation):
+        subject._recover_higgsfield_generation(
+            request,
+            plan=plan,
+            receipt={
+                "status": "submission_started",
+                "requestFingerprint": plan["requestFingerprint"],
+                "generationId": None,
+                "submittedAt": "2026-07-29T12:00:00Z",
+            },
+            receipt_path=receipt_path,
+            adapter=adapter,  # type: ignore[arg-type]
+        )
+
+    assert all(
+        command[:3] != ["higgsfield", "generate", "create"]
+        for command in adapter.commands
+    )

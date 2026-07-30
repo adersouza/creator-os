@@ -45,6 +45,15 @@ from .higgsfield_production import (
     execute_higgsfield_production,
     quote_higgsfield_production_plan,
 )
+from .higgsfield_production import (
+    higgsfield_execution_fingerprint as higgsfield_execution_fingerprint,
+)
+from .higgsfield_production import (
+    higgsfield_quote_fingerprint as higgsfield_quote_fingerprint,
+)
+from .higgsfield_production import (
+    resume_higgsfield_local_output as resume_higgsfield_local_output,
+)
 from .human_media_review import HumanMediaReviewStore
 from .identity_verification import verify_identity as verify_identity
 from .local_generation_queue import (
