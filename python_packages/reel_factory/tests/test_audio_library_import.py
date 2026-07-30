@@ -58,3 +58,18 @@ def test_import_audio_track_rejects_unsupported_or_ambiguous_sources(
         import_audio_track(**common)
     with pytest.raises(ValueError, match="audio source"):
         import_audio_track(**common, file=source)
+
+
+def test_import_audio_track_rejects_private_download_hosts(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="private_host"):
+        import_audio_track(
+            root=tmp_path,
+            url="https://127.0.0.1/private.mp3",
+            title="Track",
+            artist="Artist",
+            source="library",
+            license_name="License",
+            license_url="https://example.com/license",
+            page_url="https://example.com/track",
+            tags=[],
+        )

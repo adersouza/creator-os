@@ -1213,6 +1213,29 @@ class CreatorGovernanceRepository:
         ).fetchone()
         if creator_state is None or creator_state["status"] != "active":
             raise PermissionError("creator_inactive")
+        has_future_use_registry = self.conn.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'creator_future_use_blocks'
+            """
+        ).fetchone()
+        if has_future_use_registry is not None:
+            future_use_block = self.conn.execute(
+                """
+                SELECT id, request_id, block_reason, effective_at
+                FROM creator_future_use_blocks
+                WHERE model_id = ? AND effective_at <= ?
+                ORDER BY effective_at DESC, id DESC
+                LIMIT 1
+                """,
+                (model["id"], at or self._utc_now()),
+            ).fetchone()
+            if future_use_block is not None:
+                raise PermissionError(
+                    "creator_future_use_blocked:"
+                    f"{future_use_block['block_reason']}:"
+                    f"{future_use_block['request_id']}"
+                )
         allowed_states = _OPERATION_CAMPAIGN_STATES.get(operation)
         if allowed_states is None:
             raise PermissionError(f"unknown_creator_operation:{operation}")

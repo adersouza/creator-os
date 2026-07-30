@@ -50,28 +50,6 @@ def _workflow(path: str) -> dict:
     return yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
 
 
-def _action_major(uses: str, action: str) -> int | None:
-    prefix = f"{action}@v"
-    if not uses.startswith(prefix):
-        return None
-    version = uses.removeprefix(prefix).split(".", maxsplit=1)[0]
-    return int(version) if version.isdigit() else None
-
-
-def _assert_action_major_allowed(
-    steps: list[dict], action: str, allowed: set[int]
-) -> None:
-    majors = [
-        major
-        for step in steps
-        if (major := _action_major(step.get("uses", ""), action)) is not None
-    ]
-    assert majors, f"{action} must be present"
-    assert set(majors).issubset(allowed), (
-        f"{action} majors {majors} must be in {sorted(allowed)}"
-    )
-
-
 def _assert_action_pinned(uses: str, action: str) -> None:
     assert re.fullmatch(rf"{re.escape(action)}@[0-9a-f]{{40}}", uses), (
         f"{action} must use an immutable 40-character commit SHA"
@@ -82,11 +60,10 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
 
-    assert "dependency-review" not in jobs
-
+    assert jobs["dependency-review"]["if"] == "github.event_name == 'pull_request'"
     assert "trivy" in jobs
-    assert jobs["trivy"]["if"] == "github.event_name != 'pull_request'"
-    assert jobs["codeql"]["if"] == "github.event_name != 'pull_request'"
+    assert "if" not in jobs["trivy"]
+    assert "if" not in jobs["codeql"]
     assert workflow["permissions"] == {"contents": "read"}
     trivy_steps = jobs["trivy"]["steps"]
     trivy_step = next(step for step in trivy_steps if step.get("name") == "Trivy scan")
@@ -126,7 +103,12 @@ def test_monorepo_ci_uses_affected_pr_and_release_main_tiers() -> None:
     jobs = workflow["jobs"]
 
     for job_name in ("affected", "release", "sbom"):
-        _assert_action_major_allowed(jobs[job_name]["steps"], "pnpm/action-setup", {6})
+        setup = next(
+            step
+            for step in jobs[job_name]["steps"]
+            if str(step.get("uses", "")).startswith("pnpm/action-setup@")
+        )
+        _assert_action_pinned(setup["uses"], "pnpm/action-setup")
     assert "visual-regression" not in jobs
     assert "dashboard-build-provenance" not in jobs
 
@@ -139,19 +121,27 @@ def test_monorepo_ci_uses_affected_pr_and_release_main_tiers() -> None:
 
     assert "sbom" in jobs
     sbom_runs = "\n".join(step.get("run", "") for step in jobs["sbom"]["steps"])
-    assert "@cyclonedx/cdxgen" in sbom_runs
-    assert "-t js" in sbom_runs
-    assert "uv export" in sbom_runs
-    assert "--all-extras" not in sbom_runs
-    _assert_action_major_allowed(
-        jobs["sbom"]["steps"], "actions/upload-artifact", {4, 7}
+    assert "scripts/security/generate-sbom.sh" in sbom_runs
+    sbom_script = (ROOT / "scripts/security/generate-sbom.sh").read_text(
+        encoding="utf-8"
     )
+    assert "@cyclonedx/cdxgen@" in sbom_script
+    assert "-t js" in sbom_script
+    assert "uv export" in sbom_script
+    upload = next(
+        step
+        for step in jobs["sbom"]["steps"]
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    _assert_action_pinned(upload["uses"], "actions/upload-artifact")
     assert jobs["sbom"]["permissions"]["attestations"] == "write"
     assert jobs["sbom"]["permissions"]["id-token"] == "write"
-    assert any(
-        step.get("uses") == "actions/attest-build-provenance@v4.1.1"
+    attestation = next(
+        step
         for step in jobs["sbom"]["steps"]
+        if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
     )
+    _assert_action_pinned(attestation["uses"], "actions/attest-build-provenance")
 
 
 def test_github_workflows_have_one_monorepo_owner() -> None:
@@ -305,7 +295,7 @@ def test_scorecard_workflow_is_report_mode() -> None:
         for step in scorecard_steps
         if str(step.get("uses", "")).startswith("ossf/scorecard-action@")
     )
-    assert scorecard_step["continue-on-error"] is True
+    assert "continue-on-error" not in scorecard_step
     assert scorecard_step["with"]["results_format"] == "sarif"
     assert scorecard_step["with"]["publish_results"] is False
     scorecard_artifact_steps = [
@@ -313,19 +303,16 @@ def test_scorecard_workflow_is_report_mode() -> None:
         for step in scorecard_steps
         if step.get("name") == "Upload Scorecard report artifact"
     ]
-    _assert_action_major_allowed(
-        scorecard_artifact_steps, "actions/upload-artifact", {4, 7}
+    _assert_action_pinned(
+        scorecard_artifact_steps[0]["uses"], "actions/upload-artifact"
     )
     sarif_upload = next(
         step
         for step in scorecard_steps
-        if step.get("uses") == "github/codeql-action/upload-sarif@v4"
+        if str(step.get("uses", "")).startswith("github/codeql-action/upload-sarif@")
     )
+    _assert_action_pinned(sarif_upload["uses"], "github/codeql-action/upload-sarif")
     assert "github.event_name != 'pull_request'" in sarif_upload["if"]
-    assert any(
-        step.get("uses") == "github/codeql-action/upload-sarif@v4"
-        for step in scorecard_steps
-    )
 
 
 def test_dependabot_no_longer_excludes_deleted_dashboard_mirror() -> None:

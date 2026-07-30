@@ -13,6 +13,8 @@ from .config import get_settings
 from .core import CampaignFactory, new_id, slugify, utc_now
 from .creator_governance import CreatorGovernanceRepository
 from .db import init_db
+from .incident_privacy import CreatorPrivacyRepository, IncidentRepository
+from .operational_observability import OperationalObservabilityRepository
 from .operator_authority import (
     authorize_cli_operation,
     claim_cli_authority_event,
@@ -113,6 +115,14 @@ def main() -> int:
         "creator-authorization-revoke",
         "campaign-governance-status",
         "campaign-governance-transition",
+        "incident-report",
+        "incident-create",
+        "incident-transition",
+        "operational-observability",
+        "creator-privacy-report",
+        "creator-privacy-request",
+        "creator-privacy-transition",
+        "creator-privacy-verify",
     }
     if getattr(args, "cmd", None) in governance_commands and not getattr(
         args, "apply", False
@@ -130,10 +140,20 @@ def main() -> int:
             utc_now=utc_now,
             managed_root=settings.root,
         )
+        incidents = IncidentRepository(conn, new_id=new_id, utc_now=utc_now)
+        creator_privacy = CreatorPrivacyRepository(conn, new_id=new_id, utc_now=utc_now)
+        operational_observability = OperationalObservabilityRepository(
+            conn, utc_now=utc_now
+        )
         factory = SimpleNamespace(
             settings=settings,
             conn=conn,
-            domains=SimpleNamespace(creator_governance=repository),
+            domains=SimpleNamespace(
+                creator_governance=repository,
+                incidents=incidents,
+                creator_privacy=creator_privacy,
+                operational_observability=operational_observability,
+            ),
         )
         try:
             result = dispatch_operations_commands(args, factory, settings)

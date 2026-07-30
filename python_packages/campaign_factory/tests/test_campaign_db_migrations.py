@@ -7,6 +7,7 @@ from pathlib import Path
 import campaign_factory.db as campaign_db
 import pytest
 from campaign_factory.campaign_schema_v5 import postcondition as v5_postcondition
+from campaign_factory.campaign_schema_v6 import postcondition as v6_postcondition
 from campaign_factory.db import (
     _campaign_schema_checksum,
     _ensure_campaign_schema_ledger,
@@ -41,7 +42,7 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             ORDER BY migration_id
             """
         ).fetchall()
-        assert len(rows) == 5
+        assert len(rows) == 6
         assert {row["status"] for row in rows} == {"applied"}
         assert all(len(row["checksum"]) == 64 for row in rows)
         assert all(row["source_version"] for row in rows)
@@ -51,12 +52,13 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             3,
             4,
             5,
+            6,
         }
         assert (
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 5
+            == 6
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -158,7 +160,7 @@ def test_campaign_schema_blocks_newer_database(tmp_path: Path):
         )
         conn.commit()
         with pytest.raises(
-            RuntimeError, match="campaign_schema_newer_than_runtime:999>5"
+            RuntimeError, match="campaign_schema_newer_than_runtime:999>6"
         ):
             init_db(conn)
     finally:
@@ -216,7 +218,7 @@ def test_interrupted_campaign_migration_is_retried(tmp_path: Path):
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 5
+            == 6
         )
         assert (
             conn.execute(
@@ -252,7 +254,7 @@ def test_campaign_checksum_excludes_future_dispatch_changes(
     assert _campaign_schema_checksum(1, migration_id) == before
 
 
-def test_applied_v4_checksum_is_frozen_and_upgrades_forward_to_v5(
+def test_applied_v4_checksum_is_frozen_and_upgrades_forward_to_v6(
     tmp_path: Path,
 ) -> None:
     conn = connect(tmp_path / "campaign-v4.db")
@@ -275,7 +277,7 @@ def test_applied_v4_checksum_is_frozen_and_upgrades_forward_to_v5(
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 5
+            == 6
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -346,6 +348,30 @@ def test_v5_postcondition_requires_every_guard_and_index(tmp_path: Path) -> None
             "operator_authority_events_immutable_delete",
         ):
             v5_postcondition(conn)
+    finally:
+        conn.close()
+
+
+def test_applied_v6_checksum_is_frozen() -> None:
+    assert (
+        _campaign_schema_checksum(6, "20260730_incident_privacy_observability_v1")
+        == "cc7fe98a416fd74cb5f9f9df8286ef602e797473966d71fbc8d7dc5de51f6a97"
+    )
+
+
+def test_v6_postcondition_requires_incident_and_privacy_guards(
+    tmp_path: Path,
+) -> None:
+    conn = _db(tmp_path)
+    try:
+        conn.execute("DROP TRIGGER incident_records_transition_guard")
+        conn.commit()
+        with pytest.raises(
+            RuntimeError,
+            match="campaign_schema_v6_triggers_missing:"
+            "incident_records_transition_guard",
+        ):
+            v6_postcondition(conn)
     finally:
         conn.close()
 

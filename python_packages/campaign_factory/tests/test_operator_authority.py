@@ -70,6 +70,7 @@ def test_known_report_commands_are_read_only_without_signing_material(
         "caption-quality-repair-plan",
         "daily-plan",
         "multi-surface-inventory-audit",
+        "operational-observability",
         "parent-factory-post-gate-fresh-batch-proof",
     ):
         decision = authorize_cli_operation(Namespace(cmd=command))

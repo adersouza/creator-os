@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_local_trust_boundary_and_ci_security_guard_passes() -> None:
+    completed = subprocess.run(
+        ["python3", "scripts/check-local-trust-boundaries.py"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_secret_scan_can_be_required_by_ci_without_lying() -> None:
+    script = (ROOT / "scripts" / "security" / "secret-scan.sh").read_text(
+        encoding="utf-8"
+    )
+    installer = (ROOT / "scripts" / "security" / "install-gitleaks.sh").read_text(
+        encoding="utf-8"
+    )
+    workflow = (ROOT / ".github" / "workflows" / "security.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "REQUIRE_SECRET_SCANNER" in script
+    assert 'REQUIRE_SECRET_SCANNER: "1"' in workflow
+    assert "allowed-endpoints: |" not in workflow
+    assert "allowed-endpoints: >" in workflow
+    assert "expected_sha256=" in installer
+    assert "sha256sum --check" in installer

@@ -16,7 +16,6 @@ concurrency:
 
 jobs:
   codeql:
-    if: github.event_name != 'pull_request'
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -31,10 +30,19 @@ jobs:
           - language: javascript-typescript
           - language: python
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
         with:
-          egress-policy: audit
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            uploads.github.com:443
+            results-receiver.actions.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         with:
           languages: ${{ matrix.language }}
@@ -49,15 +57,23 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
-        with:
-          egress-policy: audit
+      - name: Install pinned gitleaks
+        run: bash scripts/security/install-gitleaks.sh "$RUNNER_TEMP/bin"
       - name: Current tree secret hygiene
         run: bash scripts/security/secret-scan.sh
+        env:
+          REQUIRE_SECRET_SCANNER: "1"
       - name: TruffleHog full-history secret scan
         if: github.event_name != 'pull_request'
         uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11 # v3.96.0
@@ -66,7 +82,6 @@ jobs:
           extra_args: --only-verified
 
   trivy:
-    if: github.event_name != 'pull_request'
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -74,12 +89,19 @@ jobs:
       contents: read
       security-events: write
     steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            uploads.github.com:443
+            results-receiver.actions.githubusercontent.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
-        with:
-          egress-policy: audit
       - name: Trivy scan
         id: trivy-sarif
         continue-on-error: true
@@ -105,3 +127,26 @@ jobs:
         run: |
           echo "Trivy found HIGH/CRITICAL findings. Review trivy-results.sarif and add explicit ignores only for accepted false positives."
           exit 1
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          license-check: true
