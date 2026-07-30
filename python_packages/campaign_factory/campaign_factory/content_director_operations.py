@@ -22,6 +22,7 @@ from .content_director import (
 from .content_director import (
     _fingerprint as plan_fingerprint,
 )
+from .learning_governance import register_experiment_design
 from .observed_experiment_reporting import OBSERVED_MEASUREMENT_PLAN
 from .production_lane import plan_production_batch, run_production_batch
 
@@ -298,6 +299,7 @@ def design_experiment(
                     assignment["planItemId"],
                 ),
             )
+        register_experiment_design(conn, receipt)
         conn.commit()
     return {**receipt, "dryRun": not apply}
 

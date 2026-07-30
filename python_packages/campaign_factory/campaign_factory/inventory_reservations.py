@@ -24,6 +24,7 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     persist_assignment_origin,
 )
+from .learning_governance import register_experiment_assignment
 from .observed_experiment_reporting import OBSERVED_MEASUREMENT_PLAN
 
 DEFAULT_REUSE_COOLDOWN_DAYS = 14
@@ -589,6 +590,12 @@ class InventoryReservationRepository:
                 WHERE id = ?
                 """,
                 (now, experiment_id),
+            )
+            register_experiment_assignment(
+                self.conn,
+                experiment_id=experiment_id,
+                pair_id=pair_id,
+                assignments=receipts,
             )
         except Exception:
             self.conn.rollback()

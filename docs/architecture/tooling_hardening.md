@@ -22,7 +22,8 @@ publishing, QStash, metrics sync, account health, or production inventory.
   findings. It is not a pull-request gate. Accepted false positives require a
   narrowly documented ignore.
 - GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
-  snapshots.
+  snapshots plus the secret-free equivalent-runtime input manifest documented
+  in `runtime_reproducibility_and_legacy_reachability.md`.
 - GitHub Actions creates artifact attestations for SBOM artifacts. Dashboard
   build provenance belongs upstream in ThreadsDashboard.
 - GitHub Actions configuration lives only in the repository-root
@@ -126,6 +127,9 @@ supply-chain reports:
   then it should block direct high/critical vulnerable dependency changes and
   denied licenses.
 - SBOM artifacts are generated for review; they are not committed.
+- The runtime manifest fingerprints exact dependency, native-tool, workflow,
+  contract, font, and model inputs. It never claims byte-identical host-native
+  media output, runtime health, or promotion approval.
 - Artifact attestations are generated for SBOMs and Dashboard build outputs;
   they are provenance evidence, not deployment approval.
 - OpenSSF Scorecard findings are kept as PR artifacts and uploaded to code

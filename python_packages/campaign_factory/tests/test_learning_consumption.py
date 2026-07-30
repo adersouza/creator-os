@@ -19,6 +19,10 @@ from campaign_factory.learning_consumption import (
     recommendation_fingerprint,
     recommendation_state,
 )
+from campaign_factory.learning_governance import (
+    authorize_learning_policy,
+    rollback_learning_policy,
+)
 from campaign_factory.production_lane import plan_production_batch
 from PIL import Image
 
@@ -251,6 +255,24 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
         "UPDATE recommendation_items SET status = 'accepted' WHERE id = ?",
         (row["id"],),
     )
+    still_unchanged, _, accepted_only = apply_learning_to_production_plan(
+        conn,
+        creator="stacey",
+        creator_identity_profile="soul_stacey",
+        account="stacey-main",
+        intent="passive_selfie",
+        sources=sources,
+        base_prompt="Base prompt.",
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )
+    assert [item["id"] for item in still_unchanged] == ["source_1", "source_2"]
+    assert accepted_only["fallbackReason"] == "production_policy_not_authorized"
+    authorize_learning_policy(
+        conn,
+        recommendation_item_id=str(row["id"]),
+        operator="test_operator",
+        reason="focused production policy test",
+    )
     selected, prompt, decision = apply_learning_to_production_plan(
         conn,
         creator="stacey",
@@ -267,6 +289,24 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
     assert decision["learningEligible"] is True
     assert decision["learningApplied"] is True
     assert decision["finalChoiceChanged"] is True
+    rollback_learning_policy(
+        conn,
+        recommendation_item_id=str(row["id"]),
+        operator="test_operator",
+        reason="end focused production policy test",
+    )
+    rolled_back, _, rollback_decision = apply_learning_to_production_plan(
+        conn,
+        creator="stacey",
+        creator_identity_profile="soul_stacey",
+        account="stacey-main",
+        intent="passive_selfie",
+        sources=sources,
+        base_prompt="Base prompt.",
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )
+    assert [item["id"] for item in rolled_back] == ["source_1", "source_2"]
+    assert rollback_decision["fallbackReason"] == "production_policy_not_authorized"
     for creator in ("larissa", "lola"):
         other, _, other_decision = apply_learning_to_production_plan(
             conn,
@@ -332,6 +372,15 @@ def test_wrong_account_intent_and_revocation_prevent_consumption() -> None:
     )
     persist_measured_recommendations(conn, [rec], pack=pack)
     conn.execute("UPDATE recommendation_items SET status = 'accepted'")
+    recommendation_id = str(
+        conn.execute("SELECT id FROM recommendation_items").fetchone()["id"]
+    )
+    authorize_learning_policy(
+        conn,
+        recommendation_item_id=recommendation_id,
+        operator="test_operator",
+        reason="scope isolation test",
+    )
     sources = [
         {"id": "source_1", "content_hash": "a" * 64, "status": "approved"},
         {"id": "source_2", "content_hash": "b" * 64, "status": "approved"},
@@ -483,6 +532,15 @@ def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
     assert scores == {}
     assert ids == []
     conn.execute("UPDATE recommendation_items SET status = 'accepted'")
+    recommendation_id = str(
+        conn.execute("SELECT id FROM recommendation_items").fetchone()["id"]
+    )
+    authorize_learning_policy(
+        conn,
+        recommendation_item_id=recommendation_id,
+        operator="test_operator",
+        reason="audio learning test",
+    )
     scores, ids = approved_audio_performance(
         conn,
         creator="stacey",
@@ -632,6 +690,15 @@ def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) ->
     )
     persist_measured_recommendations(conn, recommendations, pack=pack)
     conn.execute("UPDATE recommendation_items SET status = 'accepted'")
+    recommendation_id = str(
+        conn.execute("SELECT id FROM recommendation_items").fetchone()["id"]
+    )
+    authorize_learning_policy(
+        conn,
+        recommendation_item_id=recommendation_id,
+        operator="test_operator",
+        reason="production plan fixture",
+    )
     governance = SimpleNamespace(
         active_identity_profile=lambda _creator, provider: {
             "creator_slug": "stacey",

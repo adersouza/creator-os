@@ -7,6 +7,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from campaign_factory.campaign_schema_v7 import (
+    apply as apply_learning_governance_schema,
+)
 from campaign_factory.content_director import (
     PlanningRequest,
     build_plan,
@@ -22,6 +25,7 @@ def _conn(tmp_path: Path, *, approved_sources: int = 3) -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    apply_learning_governance_schema(conn)
     now = "2026-07-27T00:00:00Z"
     conn.execute(
         "INSERT INTO models VALUES ('model_1', 'stacey', 'Stacey', NULL, ?, ?)",

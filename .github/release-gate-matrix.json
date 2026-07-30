@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "creator_os.release_gate_matrix.v1",
+  "claims": [
+    "implemented",
+    "focused_verified",
+    "affected_verified",
+    "source_merged",
+    "runtime_promoted",
+    "operationally_proven"
+  ],
+  "pullRequestForbiddenClaims": [
+    "source_merged",
+    "runtime_promoted",
+    "operationally_proven"
+  ],
+  "releaseClasses": {
+    "documentation_only": {
+      "patterns": [],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests"],
+        "main": ["make_release"],
+        "promotion": [],
+        "controlled_live": []
+      }
+    },
+    "local_logic": {
+      "patterns": [],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "make_affected"],
+        "main": ["pnpm_check_all", "make_release"],
+        "promotion": [],
+        "controlled_live": []
+      }
+    },
+    "schema_change": {
+      "patterns": [
+        "packages/pipeline_contracts/**",
+        "**/*schema*.json",
+        "**/*schema*.py"
+      ],
+      "mandatoryGates": {
+        "pull_request": [
+          "focused_tests",
+          "contract_sync",
+          "contract_check",
+          "make_affected"
+        ],
+        "main": ["make_verify", "make_release"],
+        "promotion": ["backup", "migration_fixtures", "restore"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    },
+    "migration": {
+      "patterns": [
+        "**/migrations/**",
+        "**/*migration*.py",
+        "**/campaign_schema_v*.py"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "migration_fixtures", "make_affected"],
+        "main": ["make_verify", "make_release"],
+        "promotion": ["backup", "restore"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    },
+    "provider_adapter": {
+      "patterns": [
+        "**/providers/**",
+        "**/provider_adapters/**",
+        "**/*provider_adapter*.py"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "make_affected", "security_scans"],
+        "main": ["make_verify", "make_release"],
+        "promotion": ["runtime_verification"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    },
+    "paid_provider_route": {
+      "patterns": [
+        "**/*provider_spend*.py",
+        "**/*paid_provider*.py",
+        "**/*spend_authorization*.py"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "make_affected", "security_scans"],
+        "main": ["make_verify", "make_exhaustive"],
+        "promotion": ["runtime_verification", "backup"],
+        "controlled_live": ["controlled_paid_pilot"]
+      }
+    },
+    "creator_identity_change": {
+      "patterns": [
+        "**/*creator_governance*.py",
+        "**/*identity_governance*.py",
+        "**/*soul_registry*.py"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "make_affected", "security_scans"],
+        "main": ["make_verify", "make_exhaustive"],
+        "promotion": ["runtime_verification", "backup", "restore"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    },
+    "consent_privacy_change": {
+      "patterns": [
+        "**/*consent*.py",
+        "**/*privacy*.py",
+        "docs/**/*privacy*.md",
+        "docs/**/*consent*.md"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "make_affected", "security_scans"],
+        "main": ["make_verify", "make_exhaustive"],
+        "promotion": ["runtime_verification", "backup", "restore"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    },
+    "runtime_promotion": {
+      "patterns": [
+        ".github/workflows/**",
+        "scripts/runtime_promotion.py",
+        "scripts/ensure_runtime_dependencies.py",
+        "Makefile"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "make_affected", "security_scans"],
+        "main": ["make_verify", "make_exhaustive"],
+        "promotion": ["runtime_verification", "backup", "restore"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    },
+    "historical_data_repair": {
+      "patterns": [
+        "**/*historical_repair*.py",
+        "**/*data_repair*.py",
+        "**/repair_*.py"
+      ],
+      "mandatoryGates": {
+        "pull_request": ["focused_tests", "migration_fixtures", "make_affected"],
+        "main": ["make_verify", "make_exhaustive"],
+        "promotion": ["backup", "restore", "runtime_verification"],
+        "controlled_live": ["live_read_only_checks"]
+      }
+    }
+  }
+}

@@ -10,6 +10,7 @@ from campaign_factory.learning_consumption import (
     build_measured_recommendations,
     persist_measured_recommendations,
 )
+from campaign_factory.learning_governance import authorize_learning_policy
 from campaign_factory.production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from test_content_director import _conn, _request
 from test_learning_consumption import _outcome, _pack
@@ -195,6 +196,15 @@ def test_fixture_master_proof_consumes_one_supervised_active_recommendation(
     assert evidence["accountId"] == "stacey-main"
     assert evidence["contentIntent"] == "passive_selfie"
     assert evidence["classification"] == "ADVISORY"
+    recommendation_id = str(
+        conn.execute("SELECT id FROM recommendation_items").fetchone()["id"]
+    )
+    authorize_learning_policy(
+        conn,
+        recommendation_item_id=recommendation_id,
+        operator="fixture_operator",
+        reason="fixture exact-scope production policy",
+    )
     plan = build_plan(conn, _request())
     first = plan["items"][0]
     assert first["sourceAssetId"] == "src_2", json.dumps(

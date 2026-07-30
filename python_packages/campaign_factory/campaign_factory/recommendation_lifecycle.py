@@ -9,6 +9,7 @@ from campaign_factory.learning_score import (
     learning_loop_cutover_iso,
 )
 
+from .learning_governance import resolve_active_learning_policy
 from .persistence import json_load
 from .recommendation_constants import (
     AUTONOMY_LEVELS,
@@ -823,6 +824,44 @@ class RecommendationLifecycleMixin:
             raise ValueError(
                 f"recommendation must be accepted before execute: {exception['id']}"
             )
+        learning_evidence = json_load(row.get("evidence_json"), {})
+        recommendation_fingerprint = str(
+            learning_evidence.get("recommendationFingerprint") or ""
+        )
+        if recommendation_fingerprint:
+            policy = resolve_active_learning_policy(
+                self.conn,
+                recommendation_item_id=recommendation_item_id,
+                recommendation_fingerprint=recommendation_fingerprint,
+                creator=str(learning_evidence.get("creatorId") or campaign["creator"]),
+                creator_identity_profile=str(
+                    learning_evidence.get("creatorIdentityProfile") or ""
+                ),
+                account_id=learning_evidence.get("accountId")
+                or row.get("target_account"),
+                content_intent=str(
+                    learning_evidence.get("contentIntent")
+                    or campaign.get("content_intent")
+                    or ""
+                ),
+            )
+            if policy is None:
+                exception = self.create_exception(
+                    reason_code="learning_policy_not_authorized",
+                    severity="high",
+                    campaign_id=campaign["id"],
+                    account_id=row.get("target_account"),
+                    entity_graph_id=row.get("recommendation_graph_id"),
+                    recommendation_item_id=recommendation_item_id,
+                    payload={
+                        "recommendationFingerprint": recommendation_fingerprint,
+                        "status": row.get("status"),
+                    },
+                )
+                raise ValueError(
+                    "learning recommendation has no active exact-scope production "
+                    f"policy: {exception['id']}"
+                )
         pipeline_job = self.create_pipeline_job(
             "execute_recommendation",
             campaign["id"],
