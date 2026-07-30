@@ -64,6 +64,13 @@ pnpm pack:contracts
 - Consumers pin the release URL plus package-lock integrity instead of trusting
   an unversioned sibling checkout or copying source files.
 
+### 4.1.0 durable recovery and evidence contracts
+
+Package 4.1.0 adds the state-ownership registry and durable recovery, exact
+media/audio evidence, provider authorization, and handoff contract updates. It
+preserves legacy `pipeline.audio_intent.v1` embedded-audio receipts while
+requiring full lineage when `EXACT_BYTE_VERIFIED` is declared.
+
 ### 4.0.0 observed-profile experiment receipts
 
 Package 4.0.0 adds `creator_os.visual_derivative_receipt.v1`,
