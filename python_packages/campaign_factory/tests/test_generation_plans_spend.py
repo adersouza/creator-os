@@ -159,6 +159,140 @@ def test_daily_library_plan_is_deterministic_and_zero_cost(
         cf.close()
 
 
+def test_daily_hooks_prefer_approved_timed_and_fall_back_to_static(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+
+    class Store:
+        def resolve_mix(self, *_args, **_kwargs):
+            return [
+                {
+                    "caption_hash": "timed_text",
+                    "static_text_hash": "timed_text",
+                    "caption_payload_hash": "timed_payload",
+                    "variant_type": "timed",
+                    "text": "wife material\nor heartbreak material?",
+                    "segments": [
+                        {"text": "wife material"},
+                        {"text": "or heartbreak material?"},
+                    ],
+                    "approval_id": "approval_1",
+                    "banks": ["shared_girl_next_door"],
+                    "selected_banks": ["shared_girl_next_door"],
+                },
+                {
+                    "caption_hash": "static_text",
+                    "static_text_hash": "static_text",
+                    "caption_payload_hash": "static_payload",
+                    "variant_type": "static",
+                    "text": "pick one",
+                    "line_count": 1,
+                    "word_count": 2,
+                    "char_count": 8,
+                    "banks": ["choice_poll"],
+                    "selected_banks": ["choice_poll"],
+                },
+            ]
+
+        def lineage_for(self, item, **_kwargs):
+            return {
+                "captionHash": item["caption_hash"],
+                "variantType": item["variant_type"],
+            }
+
+    import reel_factory.worker_api as worker_api
+
+    monkeypatch.setattr(
+        worker_api, "load_or_build_caption_bank_store", lambda _root: Store()
+    )
+    monkeypatch.setattr(
+        daily_library_module, "_recent_used_caption_keys", lambda _conn: set()
+    )
+    monkeypatch.setattr(
+        cf.domains.reference,
+        "reference_hook_is_schedule_safe",
+        lambda _text: True,
+    )
+    try:
+        hooks = daily_library_module._daily_hooks(cf, count=2, seed_key="test")
+
+        assert hooks[0]["variantType"] == "timed"
+        assert hooks[0]["segments"][1]["text"] == "or heartbreak material?"
+        assert hooks[0]["captionLineage"]["eligibilityDecision"] == (
+            "approved_timed_passive_library"
+        )
+        assert hooks[1]["variantType"] == "static"
+        assert hooks[1]["captionLineage"]["eligibilityDecision"] == "static_fallback"
+        render_hooks, hook_metadata = cf.domains.reel_execution.reel_sidecar_hooks(
+            hooks
+        )
+        assert render_hooks[0]["segments"] == hooks[0]["segments"]
+        assert render_hooks[1] == "pick one"
+        assert hook_metadata[0]["captionLineage"]["captionHash"] == "timed_text"
+    finally:
+        cf.close()
+
+
+def test_daily_hooks_exclude_recent_text_and_payload_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+
+    class Store:
+        def resolve_mix(self, *_args, **_kwargs):
+            return [
+                {
+                    "caption_hash": "used_text",
+                    "static_text_hash": "used_text",
+                    "caption_payload_hash": "used_payload",
+                    "variant_type": "timed",
+                    "text": "used first\nused payoff",
+                    "segments": [{"text": "used first"}, {"text": "used payoff"}],
+                    "approval_id": "approval_used",
+                    "banks": ["comment_bait"],
+                    "selected_banks": ["comment_bait"],
+                },
+                {
+                    "caption_hash": "fresh_text",
+                    "static_text_hash": "fresh_text",
+                    "caption_payload_hash": "fresh_payload",
+                    "variant_type": "static",
+                    "text": "pick one",
+                    "line_count": 1,
+                    "word_count": 2,
+                    "char_count": 8,
+                    "banks": ["choice_poll"],
+                    "selected_banks": ["choice_poll"],
+                },
+            ]
+
+        def lineage_for(self, item, **_kwargs):
+            return {"captionHash": item["caption_hash"]}
+
+    import reel_factory.worker_api as worker_api
+
+    monkeypatch.setattr(
+        worker_api, "load_or_build_caption_bank_store", lambda _root: Store()
+    )
+    monkeypatch.setattr(
+        daily_library_module,
+        "_recent_used_caption_keys",
+        lambda _conn: {"used_text", "used_payload"},
+    )
+    monkeypatch.setattr(
+        cf.domains.reference,
+        "reference_hook_is_schedule_safe",
+        lambda _text: True,
+    )
+    try:
+        hooks = daily_library_module._daily_hooks(cf, count=1, seed_key="test")
+
+        assert hooks[0]["captionPayloadHash"] == "fresh_payload"
+    finally:
+        cf.close()
+
+
 def test_daily_library_apply_stops_at_review_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -420,12 +420,12 @@ def build_draft_payloads(
                 "campaignFactoryDraftKey": draft_key,
                 "campaignFactoryMediaKey": media_key,
                 "campaignFactoryPostKey": post_key,
-                "inventoryReservationId": (
-                    inventory_reservation or {}
-                ).get("reservation_id"),
-                "inventoryReservationStatus": (
-                    inventory_reservation or {}
-                ).get("status"),
+                "inventoryReservationId": (inventory_reservation or {}).get(
+                    "reservation_id"
+                ),
+                "inventoryReservationStatus": (inventory_reservation or {}).get(
+                    "status"
+                ),
                 "auditStatus": asset.get("auditStatus"),
                 "publishability": publishability,
                 "handoffManifest": publishability.get("handoff_manifest"),

@@ -328,35 +328,45 @@ def test_account_and_creator_audio_cooldowns_with_winner_override(
     conn.row_factory = sqlite3.Row
     conn.executescript(
         """
-        CREATE TABLE rendered_assets (metadata_json TEXT, updated_at TEXT);
+        CREATE TABLE audio_selections (
+          id TEXT, rendered_asset_id TEXT, status TEXT,
+          selected_at TEXT, payload_json TEXT
+        );
+        CREATE TABLE performance_snapshots (
+          id TEXT, rendered_asset_id TEXT, published_at TEXT
+        );
         CREATE TABLE audio_performance_rollups (
           audio_catalog_id TEXT, score REAL
         );
         """
     )
     conn.execute(
-        "INSERT INTO rendered_assets VALUES (?, ?)",
+        "INSERT INTO audio_selections VALUES (?, ?, 'verified', ?, ?)",
         (
+            "selection-1",
+            "asset-1",
+            "2026-07-20T12:00:00Z",
             json.dumps(
                 {
-                    "audioEmbeddingReceipt": {
-                        "creativeContext": {
-                            "creator": "stacey",
-                            "account": "stacey-main",
-                        },
-                        "selection": {
-                            "canonicalTrackId": "legacy-normalized-track",
-                            "advisoryLabels": {"audioCatalogId": "audio-1"},
-                            "platformSoundIds": [
-                                {"platform": "tiktok", "soundId": "sound-1"}
-                            ],
-                        },
-                        "selectedSegment": {"start_offset_seconds": 12.5},
-                    }
+                    "creativeContext": {
+                        "creator": "stacey",
+                        "account": "stacey-main",
+                    },
+                    "selection": {
+                        "canonicalTrackId": "legacy-normalized-track",
+                        "advisoryLabels": {"audioCatalogId": "audio-1"},
+                        "platformSoundIds": [
+                            {"platform": "tiktok", "soundId": "sound-1"}
+                        ],
+                    },
+                    "selectedSegment": {"start_offset_seconds": 12.5},
                 }
             ),
-            "2026-07-26T12:00:00Z",
         ),
+    )
+    conn.execute(
+        "INSERT INTO performance_snapshots VALUES (?, ?, ?)",
+        ("snapshot-1", "asset-1", "2026-07-26T12:00:00Z"),
     )
     candidates = [
         replace(
@@ -379,20 +389,63 @@ def test_account_and_creator_audio_cooldowns_with_winner_override(
     assert [candidate.canonical_track_id for candidate in cooled] == ["track-2"]
 
     conn.execute("INSERT INTO audio_performance_rollups VALUES ('audio-1', 2.0)")
-    overridden = apply_audio_usage_policy(
+    still_cooled = apply_audio_usage_policy(
         conn,
         candidates,
         creator="stacey",
         account="stacey-main",
         now="2026-07-27T12:00:00Z",
     )
+    assert [candidate.canonical_track_id for candidate in still_cooled] == ["track-2"]
+
+    overridden = apply_audio_usage_policy(
+        conn,
+        candidates,
+        creator="stacey",
+        account="stacey-main",
+        now="2026-07-30T12:00:00Z",
+    )
     winner = next(
         candidate
         for candidate in overridden
         if candidate.canonical_track_id == "track-1"
     )
-    assert winner.advisory_labels["measuredWinnerCooldownOverride"] is True
-    assert "excludedSegmentOffsetsSeconds" not in winner.advisory_labels
+    assert (
+        winner.advisory_labels["cooldownOverrideApplied"] == "measured_winner_bounded"
+    )
+    assert winner.advisory_labels["excludedSegmentOffsetsSeconds"] == [12.5]
+
+    conn.execute(
+        "INSERT INTO audio_selections VALUES (?, ?, 'verified', ?, ?)",
+        (
+            "selection-2",
+            "asset-2",
+            "2026-07-30T11:00:00Z",
+            json.dumps(
+                {
+                    "creativeContext": {
+                        "creator": "stacey",
+                        "account": "stacey-main",
+                    },
+                    "selection": {
+                        "canonicalTrackId": "track-2",
+                        "advisoryLabels": {"audioCatalogId": "audio-2"},
+                    },
+                    "selectedSegment": {"start_offset_seconds": 4.0},
+                }
+            ),
+        ),
+    )
+    pending_blocked = apply_audio_usage_policy(
+        conn,
+        candidates,
+        creator="stacey",
+        account="stacey-main",
+        now="2026-07-30T12:00:00Z",
+    )
+    assert [candidate.canonical_track_id for candidate in pending_blocked] == [
+        "track-1"
+    ]
 
 
 def test_golden_approved_source_to_generated_image_capability() -> None:

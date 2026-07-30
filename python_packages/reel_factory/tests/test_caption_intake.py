@@ -319,6 +319,26 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(Path(report["sidecar"]).name[:16], "approved_intake_")
         self.assertIn("comment_bait", promoted["banks"])
 
+    def test_promote_accepts_external_caption_source(self):
+        root = self._root()
+        approved = root / "external.json"
+        approved.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.external_caption_source.v1",
+                    "captions": [{"text": "would you answer honestly?"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = promote(root, approved)
+        store = CaptionBankStore.from_root(root)
+        texts = {item["text"] for item in store.all_items()}
+
+        self.assertEqual(report["promoted"], 1)
+        self.assertIn("would you answer honestly?", texts)
+
     def test_promote_accepts_reviewed_swipe_decisions(self):
         root = self._root()
         approved = root / "caption_static_swipe_decisions.reviewed.json"
@@ -350,6 +370,60 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(report["promoted"], 1)
         self.assertIn("approved static hook", texts)
         self.assertNotIn("rejected static hook", texts)
+
+    def test_promote_preserves_exact_timed_segments_and_approval_binding(self):
+        root = self._root()
+        approved = root / "caption_timed_swipe_decisions.reviewed.json"
+        segments = [
+            {"text": "wife material", "start": 0.0, "end": 1.5},
+            {"text": "or heartbreak material?", "start": 1.5, "end": 4.0},
+        ]
+        approved.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_swipe_decisions.v1",
+                    "items": [
+                        {
+                            "id": "candidate_timed_1",
+                            "text": "wife material\nor heartbreak material?",
+                            "status": "approved",
+                            "approvedUse": ["static", "timed"],
+                            "placementIntent": {
+                                "timedPlacementMode": "segment",
+                                "finalPlacement": "placement.py",
+                            },
+                            "hookVariants": {"timed": {"segments": segments}},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = promote(root, approved)
+        store = CaptionBankStore.from_root(root)
+        variants = [
+            item
+            for item in store.all_items()
+            if item["text"] == "wife material\nor heartbreak material?"
+        ]
+
+        self.assertEqual(report["promoted"], 2)
+        self.assertEqual(
+            {item["variant_type"] for item in variants}, {"static", "timed"}
+        )
+        self.assertEqual(
+            next(item for item in variants if item["variant_type"] == "timed")[
+                "segments"
+            ],
+            segments,
+        )
+        self.assertEqual(
+            len({item["caption_payload_hash"] for item in variants}),
+            2,
+        )
+        self.assertTrue(all(item["approval_id"] for item in variants))
+        self.assertTrue(all(item["approval_file_sha"] for item in variants))
 
     def test_plan_placement_adds_timed_hooks_without_explicit_bands(self):
         root = self._root()

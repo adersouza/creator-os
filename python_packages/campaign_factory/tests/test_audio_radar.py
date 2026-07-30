@@ -14,7 +14,10 @@ from campaign_factory.adapters.threadsdash_draft_payload import (
 )
 from campaign_factory.audio_policy import build_embedded_trending_audio_intent
 from campaign_factory.audio_radar.acquisition import AcquiredAudio, AudioCache
-from campaign_factory.audio_radar.binding import bind_embedding_receipt
+from campaign_factory.audio_radar.binding import (
+    AudioBindingError,
+    bind_embedding_receipt,
+)
 from campaign_factory.audio_radar.embedding import (
     AudioEmbeddingError,
     embed_selected_audio,
@@ -405,7 +408,9 @@ def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
         },
         "selectedSegment": {
             "start_offset_seconds": 2.5,
+            "end_seconds": 7.5,
             "duration_seconds": 5.0,
+            "processed_segment_sha256": "d" * 64,
             "segment_score": 0.91,
             "beat_evidence": "pcm_energy_onset_proxy",
             "hook_evidence": "energy_and_onset_window",
@@ -438,12 +443,20 @@ def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
     assert intent["status"] == "verified"
     assert intent["fulfillment"]["output_sha256"] == "a" * 64
     assert intent["fulfillment"]["embedded_audio_fingerprint"] == "b" * 64
+    assert intent["fulfillment"]["evidence_class"] == "EXACT_BYTE_VERIFIED"
+    assert intent["lineage"]["processedSegmentSha256"] == "d" * 64
+    assert intent["lineage"]["segmentStartSeconds"] == 2.5
+    assert intent["lineage"]["segmentEndSeconds"] == 7.5
+    assert len(intent["lineage"]["embeddingReceiptSha256"]) == 64
     assert intent["operator_selection"]["platform_sound_ids"] == [
         {"platform": "instagram", "sound_id": "ig-1"}
     ]
     assert intent["gates"]["allow_publish"] is True
     validate_audio_intent(intent)
     assert _audio_intent_allows_live(intent) is True
+    missing_segment_lineage = json.loads(json.dumps(intent))
+    missing_segment_lineage["lineage"].pop("processedSegmentSha256")
+    assert _audio_intent_allows_live(missing_segment_lineage) is False
     intent["fulfillment"].pop("embedded_audio_fingerprint")
     assert _audio_intent_allows_live(intent) is False
 
@@ -476,7 +489,9 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
         },
         "selectedSegment": {
             "start_offset_seconds": 2.5,
+            "end_seconds": 7.5,
             "duration_seconds": 5.0,
+            "processed_segment_sha256": "d" * 64,
             "segment_score": 0.91,
             "beat_evidence": "pcm_energy_onset_proxy",
             "hook_evidence": "energy_and_onset_window",
@@ -576,6 +591,16 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
         "INSERT INTO generation_attempts VALUES ('attempt-1', 'asset-1', ?)",
         ("2026-07-24T11:00:00Z",),
     )
+
+    receipt["selectedTrack"]["provider"] = "tampered"
+    with pytest.raises(AudioBindingError, match="not bound to this embedding receipt"):
+        bind_embedding_receipt(
+            conn,
+            rendered_asset_id="asset-1",
+            embedding_receipt=receipt,
+            bound_at="2026-07-24T12:05:00Z",
+        )
+    receipt["selectedTrack"]["provider"] = "operator"
 
     result = bind_embedding_receipt(
         conn,

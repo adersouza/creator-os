@@ -193,7 +193,7 @@ def inventory_report(
         SELECT r.*
         FROM rendered_assets r
         JOIN campaigns c ON c.id = r.campaign_id
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY r.created_at
         """,
         params,

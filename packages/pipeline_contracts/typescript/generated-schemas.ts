@@ -833,6 +833,7 @@ export const generatedPipelineContractSchemas = {
 	              "output_sha256",
 	              "acquired_audio_sha256",
 	              "embedded_audio_fingerprint",
+	              "evidence_class",
 	              "proof_type",
 	              "verification_receipt"
 	            ],
@@ -842,12 +843,28 @@ export const generatedPipelineContractSchemas = {
 	              },
 	              "proof_type": {
 	                "const": "embedded_output_audio_stream"
+	              },
+	              "evidence_class": {
+	                "const": "EXACT_BYTE_VERIFIED"
 	              }
 	            }
+	          },
+	          "lineage": {
+	            "type": "object",
+	            "required": [
+	              "embeddingReceiptSha256",
+	              "processedSegmentSha256",
+	              "segmentStartSeconds",
+	              "segmentEndSeconds",
+	              "acquiredAudioSha256",
+	              "finalMediaSha256",
+	              "finalAudioFingerprint"
+	            ]
 	          }
 	        },
 	        "required": [
-	          "fulfillment"
+	          "fulfillment",
+	          "lineage"
 	        ]
 	      }
 	    }
@@ -1370,6 +1387,18 @@ export const generatedPipelineContractSchemas = {
 	            "null"
 	          ]
 	        },
+	        "evidence_class": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "enum": [
+	            "EXACT_BYTE_VERIFIED",
+	            "REQUEST_BOUND_AND_TYPE_CONFIRMED",
+	            "OPERATOR_CONFIRMED",
+	            null
+	          ]
+	        },
 	        "proof_note": {
 	          "type": [
 	            "string",
@@ -1458,6 +1487,43 @@ export const generatedPipelineContractSchemas = {
 	            "string",
 	            "null"
 	          ]
+	        }
+	      }
+	    },
+	    "lineage": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": false,
+	      "properties": {
+	        "embeddingReceiptSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "processedSegmentSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "segmentStartSeconds": {
+	          "type": "number",
+	          "minimum": 0
+	        },
+	        "segmentEndSeconds": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "acquiredAudioSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "finalMediaSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "finalAudioFingerprint": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
 	        }
 	      }
 	    },

@@ -1811,8 +1811,9 @@ def test_pending_inventory_reservation_is_carried_in_draft_handoff(
 
         assert draft["inventoryReservationId"] == reservation["reservation_id"]
         assert draft["inventoryReservationStatus"] == "pending"
-        assert draft["metadata"]["campaign_factory"][
-            "inventory_reservation_id"
-        ] == reservation["reservation_id"]
+        assert (
+            draft["metadata"]["campaign_factory"]["inventory_reservation_id"]
+            == reservation["reservation_id"]
+        )
     finally:
         cf.close()

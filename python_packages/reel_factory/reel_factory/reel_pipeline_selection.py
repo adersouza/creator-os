@@ -8,7 +8,11 @@ import random
 import time
 from pathlib import Path
 
-from .caption_bank import caption_static_metadata, load_or_build_caption_bank_store
+from .caption_bank import (
+    caption_hook_payload,
+    caption_static_metadata,
+    load_or_build_caption_bank_store,
+)
 from .caption_render import CAPTION_LEGIBILITY_SHRINK_FLOOR
 from .caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
@@ -85,7 +89,7 @@ def caption_set_from_bank_selection(
             f"source={item.get('source_file')} terms={','.join(contract['blockedTerms'])}: "
             f"{item.get('text')}"
         )
-    hooks = [item["text"] for item in selected]
+    hooks = [caption_hook_payload(item) for item in selected]
     lineage = {
         idx: {
             **store.lineage_for(

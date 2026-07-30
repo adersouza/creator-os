@@ -25,6 +25,12 @@ from .control import operator_control_check
 from .creation_modes import run_creation_batch
 from .creative_approval import build_and_record_creative_approval_v2
 from .daily_library_production import run_daily_library_production
+from .derived_stills import (
+    derived_still_report,
+    edit_still,
+    enroll_still,
+    harvest_stills,
+)
 from .learning_cohort import (
     assign_learning_cohort_references,
     audit_learning_cohort,
@@ -173,10 +179,44 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 max_concurrency=args.concurrency,
                 prompt_pack_provider=build_openai_prompt_pack,
                 reuse_policy=args.reuse_policy,
+                source_asset_ids=tuple(args.source_asset_id) or None,
                 recreation_anchor_approval_path=args.recreation_anchor_approval,
                 recreation_attempt_id=args.recreation_attempt_id,
             )
         )
+        return 0
+    if args.cmd == "stills":
+        if args.stills_cmd == "enroll":
+            result = enroll_still(
+                cf,
+                campaign_slug=args.campaign,
+                source_asset_id=args.source_asset_id,
+                tier=args.tier,
+                apply=args.apply,
+            )
+        elif args.stills_cmd == "harvest":
+            result = harvest_stills(
+                cf,
+                campaign_slug=args.campaign,
+                rendered_asset_id=args.rendered_asset_id,
+                count=args.count,
+                apply=args.apply,
+            )
+        elif args.stills_cmd == "edit":
+            result = edit_still(
+                cf,
+                campaign_slug=args.campaign,
+                image_asset_id=args.image_asset_id,
+                operation=args.operation,
+                provider=args.provider,
+                output_format=args.output_format,
+                count=args.count,
+                max_usd=args.max_usd,
+                apply=args.apply,
+            )
+        else:
+            result = derived_still_report(cf, campaign_slug=args.campaign)
+        print_json(result)
         return 0
     if args.cmd == "creative-approval-build":
         print_json(

@@ -11,6 +11,7 @@ from reel_factory.caption_bank import (
     ACTIVE_BANKS,
     CaptionBankStore,
     caption_hash,
+    caption_hook_payload,
     caption_static_metadata,
     default_mixes,
     load_or_build_caption_bank_store,
@@ -84,6 +85,54 @@ class CaptionBankTests(unittest.TestCase):
         self.assertEqual(store.bank_items("winner_bank"), [])
         for bank in ACTIVE_BANKS:
             self.assertIn(bank, store.banks)
+
+    def test_timed_items_keep_segments_and_separate_payload_hash(self):
+        root = self._root_with_sources()
+        store = CaptionBankStore.build(root)
+        timed = next(
+            item for item in store.all_items() if item["variant_type"] == "timed"
+        )
+
+        self.assertEqual(timed["static_text_hash"], timed["caption_hash"])
+        self.assertNotEqual(timed["caption_payload_hash"], timed["static_text_hash"])
+        self.assertEqual(
+            caption_hook_payload(timed),
+            {"segments": [{"text": "read this backwards", "end": 2.0}]},
+        )
+
+    def test_default_mix_excludes_timed_items(self):
+        root = self._root_with_sources()
+        store = CaptionBankStore.build(root)
+
+        selected = store.resolve_mix("Stacey", limit=None, seed=7)
+
+        self.assertTrue(selected)
+        self.assertTrue(all(item["variant_type"] == "static" for item in selected))
+
+    def test_rebuild_preserves_existing_winner_bank(self):
+        root = self._root_with_sources()
+        base = root / "caption_banks"
+        base.mkdir()
+        winner = {
+            "caption_hash": caption_hash("proven winner"),
+            "text": "proven winner",
+            "banks": ["winner_bank"],
+            "source_type": "operator_approved",
+            "source_file": "approved.json",
+            "source_clip": None,
+            "source_index": 0,
+        }
+        (base / "banks.json").write_text(
+            json.dumps({"banks": {"winner_bank": [winner]}}),
+            encoding="utf-8",
+        )
+
+        store = CaptionBankStore.build(root)
+
+        self.assertEqual(
+            [item["text"] for item in store.bank_items("winner_bank")],
+            ["proven winner"],
+        )
 
     def test_creator_mixes_resolve_weighted_caption_pools(self):
         root = self._root_with_sources()

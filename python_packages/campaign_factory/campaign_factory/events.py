@@ -1,12 +1,63 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from .persistence import json_load
+
+_PIPELINE_SAFE_REPLAY_CLASSES = {
+    "contentforge_audit": "LOCAL",
+    "static_mp4": "LOCAL",
+    "sync_performance": "IDEMPOTENT_EXTERNAL",
+}
+
+
+def _pipeline_recovery_state(row: dict[str, Any]) -> dict[str, Any]:
+    input_payload = json_load(row.get("input_json"), {})
+    result_payload = json_load(row.get("result_json"), {})
+    safe_replay_class = _PIPELINE_SAFE_REPLAY_CLASSES.get(
+        str(row.get("job_type")), "NEVER_AUTOMATIC"
+    )
+    if row.get("status") == "queued":
+        effect_state = "PRE_EFFECT"
+        reconciliation_required = False
+    elif safe_replay_class in {"LOCAL", "IDEMPOTENT_EXTERNAL"}:
+        effect_state = "SUBMISSION_STARTED"
+        reconciliation_required = False
+    else:
+        effect_state = "AMBIGUOUS"
+        reconciliation_required = True
+
+    def first_string(*values: Any) -> str | None:
+        return next(
+            (value for value in values if isinstance(value, str) and value.strip()),
+            None,
+        )
+
+    return {
+        "workItemId": str(row["id"]),
+        "authorizationId": first_string(
+            input_payload.get("authorizationId"),
+            result_payload.get("authorizationId"),
+        ),
+        "attemptId": f"{row['id']}:{int(row.get('attempt_count') or 0)}",
+        "externalOperationId": first_string(
+            result_payload.get("externalOperationId"),
+            result_payload.get("generationId"),
+            result_payload.get("containerId"),
+            input_payload.get("externalOperationId"),
+            input_payload.get("generationId"),
+            input_payload.get("containerId"),
+        ),
+        "effectState": effect_state,
+        "reconciliationRequired": reconciliation_required,
+        "safeReplayClass": safe_replay_class,
+    }
 
 
 class EventRepository:
@@ -121,6 +172,96 @@ class EventRepository:
             (rendered_asset_id, max(1, min(limit, 1000))),
         ).fetchall()
         return [self.event_payload(dict(row)) for row in rows]
+
+    def mark_asset_operator_removed(
+        self,
+        rendered_asset_id: str,
+        *,
+        operator: str,
+        reason: str,
+        relocated_output_path: str | None = None,
+        post_ids: list[str] | None = None,
+        cancellation_evidence: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        row = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"rendered asset not found: {rendered_asset_id}")
+        asset = dict(row)
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        relocated_sha = None
+        if relocated_output_path:
+            relocated = Path(relocated_output_path)
+            if relocated.is_file():
+                relocated_sha = hashlib.sha256(relocated.read_bytes()).hexdigest()
+        receipt = {
+            "schema": "creator_os.operator_media_removal_receipt.v1",
+            "assetId": rendered_asset_id,
+            "postIds": post_ids or [],
+            "operator": operator,
+            "reason": reason,
+            "generationStatus": "completed",
+            "creativeDecision": "rejected",
+            "lifecycleStatus": "operator_removed",
+            "technicalFailure": False,
+            "providerFailure": False,
+            "qcFailure": False,
+            "learningEligible": False,
+            "originalOutputPath": asset.get("output_path"),
+            "relocatedOutputPath": relocated_output_path,
+            "originalContentSha": asset.get("content_hash"),
+            "relocatedContentSha": relocated_sha,
+            "cancellationEvidence": cancellation_evidence or [],
+            "recordedAt": self._utc_now(),
+        }
+        metadata.update(
+            {
+                "generationStatus": "completed",
+                "creativeDecision": "rejected",
+                "lifecycleStatus": "operator_removed",
+                "technicalFailure": False,
+                "providerFailure": False,
+                "qcFailure": False,
+                "learningEligible": False,
+                "operatorRemoval": receipt,
+            }
+        )
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE rendered_assets
+                SET review_state = 'rejected', metadata_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(
+                        self._sanitize_for_storage(metadata),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    receipt["recordedAt"],
+                    rendered_asset_id,
+                ),
+            )
+            event = self.record_event(
+                "operator_media_removed",
+                campaign_id=asset.get("campaign_id"),
+                source_asset_id=asset.get("source_asset_id"),
+                rendered_asset_id=rendered_asset_id,
+                status="warning",
+                message="Operator removed scheduled derivative",
+                metadata=receipt,
+                commit=False,
+            )
+        return {
+            "assetId": rendered_asset_id,
+            "reviewState": "rejected",
+            "receipt": receipt,
+            "activityEventId": event["id"],
+        }
 
     def jobs_for_campaign(
         self,
@@ -311,9 +452,10 @@ class EventRepository:
     ) -> dict[str, Any]:
         """Recover pipeline jobs stranded in 'queued'/'running' by a crashed worker.
 
-        action='fail' marks stale jobs failed; action='requeue' returns them to
-        'queued' (unless max_attempts is set and already reached, in which case
-        the job is failed instead). Returns a summary with the touched jobs.
+        action='fail' marks stale jobs failed. action='requeue' is allowed only
+        for jobs proven pre-effect or registered as safely replayable; unknown
+        running work is put in a terminal manual hold. Returns a summary with
+        the touched jobs.
         """
         if stuck_hours <= 0:
             raise ValueError("stuck_hours must be positive")
@@ -331,8 +473,14 @@ class EventRepository:
                 if not stuck:
                     continue
                 attempts = int(row.get("attempt_count") or 0)
-                requeue = action == "requeue" and (
-                    max_attempts is None or attempts < max_attempts
+                recovery = _pipeline_recovery_state(row)
+                replay_allowed = recovery["effectState"] == "PRE_EFFECT" or recovery[
+                    "safeReplayClass"
+                ] in {"LOCAL", "IDEMPOTENT_EXTERNAL"}
+                requeue = (
+                    action == "requeue"
+                    and replay_allowed
+                    and (max_attempts is None or attempts < max_attempts)
                 )
                 expected_status = str(row["status"])
                 expected_updated_at = str(row["updated_at"])
@@ -348,7 +496,14 @@ class EventRepository:
                     )
                     outcome = "requeued"
                 else:
-                    if age_hours is None:
+                    manual_hold = action == "requeue" and not replay_allowed
+                    if manual_hold:
+                        error = (
+                            "manual_hold_unknown_external_effect: stale running job "
+                            "has no typed safe-replay policy; reconcile before a new "
+                            "authorized attempt"
+                        )
+                    elif age_hours is None:
                         error = (
                             "reclaimed as stale: unparseable updated_at/created_at "
                             f"timestamps (threshold {stuck_hours}h)"
@@ -373,7 +528,7 @@ class EventRepository:
                             expected_updated_at,
                         ),
                     )
-                    outcome = "failed"
+                    outcome = "manual_hold" if manual_hold else "failed"
                 if cursor.rowcount != 1:
                     continue
                 reclaimed.append(
@@ -387,6 +542,7 @@ class EventRepository:
                             round(age_hours, 3) if age_hours is not None else None
                         ),
                         "outcome": outcome,
+                        **recovery,
                     }
                 )
         return {

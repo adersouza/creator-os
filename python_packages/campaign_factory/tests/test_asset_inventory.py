@@ -144,21 +144,18 @@ def test_reconciliation_reports_and_expires_stranded_reservations(
             expires_at="2026-07-28T00:00:00+00:00",
         )
 
-        preview = (
-            cf.domains.inventory_reservations.reservation_reconciliation_report(
-                now="2026-07-29T00:00:00+00:00"
-            )
+        preview = cf.domains.inventory_reservations.reservation_reconciliation_report(
+            now="2026-07-29T00:00:00+00:00"
         )
-        applied = (
-            cf.domains.inventory_reservations.reservation_reconciliation_report(
-                now="2026-07-29T00:00:00+00:00",
-                apply=True,
-            )
+        applied = cf.domains.inventory_reservations.reservation_reconciliation_report(
+            now="2026-07-29T00:00:00+00:00",
+            apply=True,
         )
 
         assert preview["strandedCount"] == 1
-        assert preview["strandedReservations"][0]["reservation_id"] == (
-            reservation["reservation_id"]
+        assert (
+            preview["strandedReservations"][0]["reservation_id"]
+            == (reservation["reservation_id"])
         )
         assert applied["expiredNow"] == 1
         assert applied["expiredReservations"][0]["status"] == "expired"
@@ -179,9 +176,7 @@ def test_missing_variant_cooldown_evidence_fails_closed(tmp_path: Path) -> None:
         )
         assert reason == "variantCooldownBlocked"
         assert (
-            cf.domains.creator_os_drafts.creator_os_gap_blocking_reason(
-                reason, [], {}
-            )
+            cf.domains.creator_os_drafts.creator_os_gap_blocking_reason(reason, [], {})
             == "unproven"
         )
     finally:

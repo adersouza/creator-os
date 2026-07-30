@@ -35,6 +35,12 @@ def register_core_commands(sub) -> None:
     create.add_argument("--concurrency", type=int, default=2)
     create.add_argument("--accounts")
     create.add_argument(
+        "--source-asset-id",
+        action="append",
+        default=[],
+        help="exact approved tiered still to use for static_reel; repeatable",
+    )
+    create.add_argument(
         "--reuse-policy",
         choices=["prefer_exact", "require_fresh"],
         default="prefer_exact",
@@ -158,6 +164,43 @@ def register_core_commands(sub) -> None:
     reservation_reconcile.add_argument("--apply", action="store_true")
     reservation_cancel = reservation_sub.add_parser("cancel")
     reservation_cancel.add_argument("--reservation", required=True)
+    stills = sub.add_parser(
+        "stills",
+        help="enroll, harvest, edit, and report reusable derived still inventory",
+    )
+    stills_sub = stills.add_subparsers(dest="stills_cmd", required=True)
+    stills_enroll = stills_sub.add_parser("enroll")
+    stills_enroll.add_argument("--campaign", required=True)
+    stills_enroll.add_argument("--source-asset-id", required=True)
+    stills_enroll.add_argument(
+        "--tier",
+        required=True,
+        choices=["canonical_identity_source", "approved_generated_still"],
+    )
+    stills_enroll.add_argument("--apply", action="store_true")
+    stills_harvest = stills_sub.add_parser("harvest")
+    stills_harvest.add_argument("--campaign", required=True)
+    stills_harvest.add_argument("--rendered-asset-id", required=True)
+    stills_harvest.add_argument("--count", type=int, default=6)
+    stills_harvest.add_argument("--apply", action="store_true")
+    stills_edit = stills_sub.add_parser("edit")
+    stills_edit.add_argument("--campaign", required=True)
+    stills_edit.add_argument("--image-asset-id", required=True)
+    stills_edit.add_argument(
+        "--operation", required=True, choices=["colorway", "outfit_swap"]
+    )
+    stills_edit.add_argument("--provider", required=True, choices=["gemini", "openai"])
+    stills_edit.add_argument(
+        "--format",
+        dest="output_format",
+        required=True,
+        choices=["individual", "grid_2x3"],
+    )
+    stills_edit.add_argument("--count", type=int, default=6)
+    stills_edit.add_argument("--max-usd", type=float, required=True)
+    stills_edit.add_argument("--apply", action="store_true")
+    stills_report = stills_sub.add_parser("report")
+    stills_report.add_argument("--campaign", required=True)
     sub.add_parser(
         "control-check",
         help="check Campaign Factory's local component/tooling dependencies",

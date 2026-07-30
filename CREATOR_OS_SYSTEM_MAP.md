@@ -646,8 +646,12 @@ possible, cross-platform matches, and local usage/performance.
 
 Production selection uses:
 
-- track cooldown per account;
-- segment cooldown per creator;
+- actual publication time for account-track fatigue;
+- active `audio_selections.selected_at` records to exclude unpublished draft and
+  scheduled inventory;
+- bounded 7-day normal, 3-day measured-winner, and 2-day pinned account
+  cooldowns with an absolute 24-hour floor;
+- a 14-day segment cooldown per creator, including winners and pinned tracks;
 - within-batch track and segment uniqueness where practical;
 - duration compatibility;
 - cached playable bytes;
@@ -657,6 +661,28 @@ Production selection uses:
 
 Audio trend strength and internal performance are separate signals. A trending
 track is not automatically an internal winner.
+
+The full Campaign receipt binds the cached track bytes, exact decoded PCM
+segment, embedding operation, and final MP4. Its compact downstream audio intent
+retains `embeddingReceiptSha256`, `processedSegmentSha256`, exact segment bounds,
+`acquiredAudioSha256`, `finalMediaSha256`, and `finalAudioFingerprint`.
+Embedded fulfillment is `EXACT_BYTE_VERIFIED`. Native attachment is
+`REQUEST_BOUND_AND_TYPE_CONFIRMED`; manual native handoff is
+`OPERATOR_CONFIRMED`. Those evidence classes are not interchangeable.
+
+ThreadsDashboard submits the exact approved MP4 source bytes without replacing
+embedded audio. Meta may transcode them; the local final SHA proves the outbound
+source, while the Instagram media ID proves platform publication.
+
+Successful acquisition and byte lineage do not prove usage rights. Rights
+status, source, territory, account scope, commercial-use permission, expiry,
+and evidence remain a separate fail-closed gate wherever the campaign requires
+them.
+
+For non-speaking visuals, embedding replaces existing audio. The worker also
+has a speaking mix primitive that preserves source speech and lowers music to
+`speech_music_volume`; this is not proof of a supported talking or lip-sync
+product workflow.
 
 ## Media Quality Evidence
 
@@ -781,6 +807,64 @@ sequenceDiagram
 Publication closure requires the real Instagram media ID and exact media
 identity. Upload success, route success, schedule insertion, notification, or
 QStash dispatch alone is insufficient.
+
+## Failure Recovery
+
+The recovery boundary is not whether an operation is external. It is whether
+replay could create a duplicate paid, published, or otherwise non-idempotent
+effect.
+
+```mermaid
+flowchart TD
+    A["Recovery requested"] --> B{"Could replay duplicate a paid, published, or non-idempotent effect?"}
+    B -->|No: local or same durable idempotency key| C["Validate current state and replay with CAS"]
+    B -->|Yes, definitely pre-effect| D["Retry the same authorized attempt"]
+    B -->|Yes, effect may exist| E["Reconcile the existing external operation"]
+    E -->|Effect confirmed| F["Finalize locally; do not resubmit"]
+    E -->|No effect confirmed| G["A new attempt requires valid authority"]
+    E -->|Still ambiguous| H["Manual hold; no replay"]
+```
+
+Every side-effecting receipt separates:
+
+- `workItemId`: the logical task;
+- `authorizationId`: the approval or spend authority;
+- `attemptId`: one concrete execution;
+- `externalOperationId`: the provider generation, container, message, or media
+  identity.
+
+Safe recovery points:
+
+| Failure | Safe retry point | Replay rule |
+| --- | --- | --- |
+| Stale queued pipeline job | `PRE_EFFECT` | Requeue with the same work item. |
+| Stale running local or registered idempotent job | Typed safe-replay policy | Replay with CAS and the same durable identity. |
+| Stale running job with unknown effect state | None | Terminal manual hold; reconcile before any new authorized attempt. |
+| Higgsfield generation ID known | Existing provider generation | Poll/download the same generation; never submit again. |
+| Higgsfield submission ambiguous without an ID | None | Safely blocked; automatic provider-history reconciliation is not proven, so investigate the provider account manually. |
+| Instagram/Threads publish response lost | Existing container plus account/provider history | Persist `unknown_external_effect`, keep `publishing`, and exclude from automatic retry and stale cleanup. |
+| Provider proves no publication | `resolved_no_effect` | Retry only under still-valid publication authority. |
+| Missing metric while its window is open | Exact post/platform/window ledger row | Redispatch with a new dispatch-attempt identity; upsert the same observation identity. |
+| Metric window expired without a durable observation | None | Persist `MISSED_EXPIRED`; never substitute later counters. |
+| Retracted learning projection | Immutable raw snapshot | Retract the projection. Current-pack matching immediately makes recommendations from the previous pack unusable. |
+
+Higgsfield pre-submission evidence includes the request fingerprint, work,
+authorization and attempt IDs when supplied, quoted amount, scrubbed provider
+account/balance snapshot, submission time, model, source hash, seed, and client
+correlation ID. A missing generation ID remains a manual reconciliation gap,
+not permission to resubmit.
+
+QStash uses three distinct identities:
+
+```text
+schedule identity     = post ID + scheduled timestamp
+dispatch attempt      = unique message/delivery attempt
+publication identity  = the single canonical post claim
+```
+
+A new QStash dispatch attempt may target the same schedule identity; the
+receiver's state check and atomic publication claim ensure only one publication
+identity wins. Reusing a prior QStash deduplication ID may suppress redispatch.
 
 ## Performance And Learning
 
