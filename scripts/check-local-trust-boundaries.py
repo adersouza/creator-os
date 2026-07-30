@@ -125,6 +125,10 @@ def workflow_violations(root: Path) -> list[str]:
                 violations.append(
                     f"{relative}: harden-runner may not use audit-only egress"
                 )
+            if "allowed-endpoints: |" in text:
+                violations.append(
+                    f"{relative}: harden-runner endpoints must use folded YAML so ports parse correctly"
+                )
             blocks = text.split("step-security/harden-runner@")[1:]
             if any("egress-policy: block" not in block[:800] for block in blocks):
                 violations.append(

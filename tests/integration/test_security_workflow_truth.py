@@ -31,5 +31,7 @@ def test_secret_scan_can_be_required_by_ci_without_lying() -> None:
 
     assert "REQUIRE_SECRET_SCANNER" in script
     assert 'REQUIRE_SECRET_SCANNER: "1"' in workflow
+    assert "allowed-endpoints: |" not in workflow
+    assert "allowed-endpoints: >" in workflow
     assert "expected_sha256=" in installer
     assert "sha256sum --check" in installer
