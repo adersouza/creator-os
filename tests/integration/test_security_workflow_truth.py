@@ -3,7 +3,23 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _workflow_job(path: str, job_name: str) -> dict:
+    workflow = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+    return workflow["jobs"][job_name]
+
+
+def _allowed_endpoints(job: dict) -> set[str]:
+    harden_runner = next(
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("step-security/harden-runner@")
+    )
+    return set(harden_runner["with"]["allowed-endpoints"].split())
 
 
 def test_local_trust_boundary_and_ci_security_guard_passes() -> None:
@@ -38,32 +54,31 @@ def test_secret_scan_can_be_required_by_ci_without_lying() -> None:
 
 
 def test_sbom_job_allows_setup_uv_download_endpoint() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "monorepo-ci.yml").read_text(
-        encoding="utf-8"
-    )
-    sbom_job = workflow.split("\n  sbom:\n", 1)[1]
-
-    assert "raw.githubusercontent.com:443" in sbom_job
-    assert "azure.archive.ubuntu.com:80" in sbom_job
-    assert "security.ubuntu.com:80" in sbom_job
-    assert (
-        "sudo apt-get install -y --no-install-recommends ffmpeg tesseract-ocr"
-        in sbom_job
-    )
-    for endpoint in (
+    sbom_job = _workflow_job(".github/workflows/monorepo-ci.yml", "sbom")
+    endpoints = _allowed_endpoints(sbom_job)
+    assert {
+        "raw.githubusercontent.com:443",
+        "azure.archive.ubuntu.com:80",
+        "security.ubuntu.com:80",
         "fulcio.sigstore.dev:443",
         "rekor.sigstore.dev:443",
         "timestamp.sigstore.dev:443",
         "tuf-repo-cdn.sigstore.dev:443",
-    ):
-        assert endpoint in sbom_job
+    } <= endpoints
+    media_install = next(
+        step
+        for step in sbom_job["steps"]
+        if step.get("name") == "Install media tooling"
+    )
+    assert (
+        media_install["run"]
+        == "sudo apt-get install -y --no-install-recommends ffmpeg tesseract-ocr"
+    )
 
 
 def test_secret_scan_allows_trufflehog_container_registry() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "security.yml").read_text(
-        encoding="utf-8"
-    )
-    secret_scan_job = workflow.split("\n  secrets:\n", 1)[1].split("\n  trivy:\n", 1)[0]
-
-    assert "ghcr.io:443" in secret_scan_job
-    assert "pkg-containers.githubusercontent.com:443" in secret_scan_job
+    secret_scan_job = _workflow_job(".github/workflows/security.yml", "secrets")
+    assert {
+        "ghcr.io:443",
+        "pkg-containers.githubusercontent.com:443",
+    } <= _allowed_endpoints(secret_scan_job)
