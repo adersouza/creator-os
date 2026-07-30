@@ -276,6 +276,7 @@
         "performance_snapshots",
         "performance_snapshot_observations",
         "learning_fanout_ledger",
+        "learning_governance_registry",
         "recommendation_runs",
         "recommendation_items",
         "account_memory",
@@ -342,7 +343,7 @@
     "schema": "creator_os.persistence_ownership_registry.v1",
     "inventoryCommand": "uv run python scripts/inventory-persistence.py",
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
-    "directSqlWriterInventorySha256": "8642ccc3791e60cfd45d0269b187640ec124f488dd8f4c3de11f03d3649cdcbf",
+    "directSqlWriterInventorySha256": "0887452a978e41657f783b15fc936a2403ed49d4e9549de67bb612f77173a739",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
     "persistentJsonWriterInventorySha256": "476349cbb246b98ebec2dad64d4c519207a04a3762f86b9d52bcc4026fd2be1c",
     "policyInheritance": [

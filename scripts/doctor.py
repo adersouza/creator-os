@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -1523,8 +1524,9 @@ def scaling_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             warnings.append(
                 f"{scenario['creators']} creators: analytics lag above threshold"
             )
-        if scenario["assumption_confidence"] < 0.75 or not scenario.get(
-            "measured_inputs"
+        if (
+            scenario["assumption_confidence"] < 0.75
+            or not projection["measured_inputs"]
         ):
             warnings.append(f"{scenario['creators']} creators: weak assumptions")
     status = "FAIL" if release and blockers else ("WARN" if warnings else "PASS")
@@ -2139,8 +2141,76 @@ def scale_projection(scenario: dict[str, Any]) -> dict[str, Any]:
         "max_utilization": round(max(utilizations.values()), 3),
         "analytics_lag_minutes": scenario["analytics_lag_minutes"],
         "assumption_confidence": scenario["assumption_confidence"],
-        "measured_inputs": scenario.get("measured_inputs", False),
+        "measured_inputs": _scenario_capacity_receipt_valid(scenario),
     }
+
+
+def _scenario_capacity_receipt_valid(scenario: dict[str, Any]) -> bool:
+    """Reject bare measurement claims that are not bound to an exact receipt."""
+
+    receipt = scenario.get("capacity_receipt")
+    if not isinstance(receipt, dict):
+        return False
+    tier = receipt.get("tier") if isinstance(receipt.get("tier"), dict) else {}
+    fixture = receipt.get("fixture") if isinstance(receipt.get("fixture"), dict) else {}
+    counts = (
+        fixture.get("actualCounts")
+        if isinstance(fixture.get("actualCounts"), dict)
+        else {}
+    )
+    support = (
+        receipt.get("supportClaim")
+        if isinstance(receipt.get("supportClaim"), dict)
+        else {}
+    )
+    lanes = receipt.get("lanes") if isinstance(receipt.get("lanes"), dict) else {}
+    mandatory = (
+        "database_fixture",
+        "query_latency_index_use",
+        "sqlite_contention",
+        "filesystem_traversal",
+        "sha_probe",
+        "ffmpeg_throughput",
+        "contentforge_throughput",
+        "render_queue_throughput",
+        "provider_queue_admission",
+        "report_latency",
+        "backup_restore",
+        "failure_recovery",
+    )
+    fingerprint = str(receipt.get("receiptFingerprint") or "")
+    expected_fingerprint = hashlib.sha256(
+        json.dumps(
+            {
+                key: value
+                for key, value in receipt.items()
+                if key != "receiptFingerprint"
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    return bool(
+        scenario.get("measured_inputs") is True
+        and receipt.get("schema") == "creator_os.capacity_envelope.v1"
+        and tier.get("claimEligible") is True
+        and int(tier.get("creators") or 0) == int(scenario.get("creators") or 0)
+        and counts.get("creators") == tier.get("creators")
+        and counts.get("assets") == tier.get("assets")
+        and counts.get("assetFiles") == tier.get("assetFiles")
+        and fixture.get("exact") is True
+        and support.get("supported") is True
+        and support.get("inferred") is False
+        and receipt.get("thresholdEvaluation", {}).get("passed") is True
+        and len(fingerprint) == 64
+        and all(character in "0123456789abcdef" for character in fingerprint)
+        and fingerprint == expected_fingerprint
+        and all(
+            isinstance(lanes.get(name), dict) and lanes[name].get("status") == "passed"
+            for name in mandatory
+        )
+    )
 
 
 def docs_risk_findings() -> list[str]:

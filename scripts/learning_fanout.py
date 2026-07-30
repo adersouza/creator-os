@@ -13,6 +13,7 @@ from typing import Any
 from campaign_factory.db import connect as connect_campaign_db
 from campaign_factory.db import init_db as init_campaign_db
 from campaign_factory.learning_consumption import observation_bucket
+from campaign_factory.learning_governance import canonical_learning_eligibility
 from campaign_factory.learning_readiness import closed_loop_learning_status
 from campaign_factory.learning_score import (
     DEFAULT_REWARD_BASELINE,
@@ -20,7 +21,6 @@ from campaign_factory.learning_score import (
     account_reward_baseline_provenance,
     account_reward_baselines,
     learning_eligible,
-    learning_ineligibility_reasons,
     learning_loop_cutover_iso,
     snapshot_normalized_reward,
 )
@@ -51,8 +51,17 @@ def fanout_learning_snapshots(
     try:
         snapshots = _load_snapshots(campaign_conn, campaign)
         public_snapshots = [_public_snapshot(row) for row in snapshots]
+        governance_by_key = {
+            _snapshot_key(row): canonical_learning_eligibility(campaign_conn, row)
+            for row in snapshots
+        }
+        for row in snapshots:
+            row["_learning_governance"] = governance_by_key[_snapshot_key(row)]
         eligible_by_key = {
-            _snapshot_key(row): learning_eligible(public)
+            _snapshot_key(row): (
+                learning_eligible(public)
+                and governance_by_key[_snapshot_key(row)]["eligible"]
+            )
             for row, public in zip(snapshots, public_snapshots, strict=True)
         }
         eligible_public = [
@@ -70,7 +79,7 @@ def fanout_learning_snapshots(
             Counter(
                 reason
                 for row in snapshots
-                for reason in learning_ineligibility_reasons(row)
+                for reason in governance_by_key[_snapshot_key(row)]["reasons"]
                 if not eligible_by_key[_snapshot_key(row)]
             )
         )
@@ -452,6 +461,9 @@ def _source_hash(row: dict[str, Any], destination: str, *, eligible: bool) -> st
         "productionLearningEligibility": _production_learning_outcome(
             row, _public_snapshot(row)
         ),
+        "learningGovernanceFingerprint": (row.get("_learning_governance") or {}).get(
+            "fingerprint"
+        ),
         "eligible": eligible,
     }
     payload = json.dumps(
@@ -789,6 +801,7 @@ def _production_learning_outcome(
         "metricsEligible": bool(row.get("metrics_eligible")),
         "lineageV2Valid": bool(row.get("lineage_v2_valid")),
         "fixture": bool(raw.get("fixture") or raw.get("is_fixture")),
+        "governanceEligibility": row.get("_learning_governance") or None,
         "metrics": public.get("metrics"),
         "promptId": source.get("promptId"),
         "referenceId": source.get("referenceId"),

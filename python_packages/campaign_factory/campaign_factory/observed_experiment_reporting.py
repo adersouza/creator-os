@@ -11,6 +11,12 @@ from datetime import UTC, datetime
 from statistics import median
 from typing import Any
 
+from .learning_governance import (
+    canonical_learning_eligibility,
+    register_experiment_interpretation,
+    register_experiment_measurement,
+)
+
 OBSERVED_MEASUREMENT_PLAN = {
     "schema": "creator_os.observed_profile_measurement_plan.v1",
     "primary": "72h reach; views only when reach is unavailable on both arms",
@@ -157,6 +163,11 @@ def observed_experiment_report(
                 experiment_id,
             ),
         )
+        register_experiment_measurement(
+            conn,
+            experiment_id=experiment_id,
+            report=report,
+        )
         conn.commit()
     return report
 
@@ -206,6 +217,11 @@ def record_observed_experiment_decision(
             experiment_id,
         ),
     )
+    register_experiment_interpretation(
+        conn,
+        experiment_id=experiment_id,
+        decision=receipt,
+    )
     conn.commit()
     return receipt
 
@@ -243,7 +259,7 @@ def _matched_pair(
             reasons.append(f"{role}_snapshot_missing")
             continue
         snapshot = dict(snapshot)
-        snapshot_reasons = _snapshot_exclusion_reasons(snapshot, receipt)
+        snapshot_reasons = _snapshot_exclusion_reasons(conn, snapshot, receipt)
         reasons.extend(f"{role}_{reason}" for reason in snapshot_reasons)
         observations[role] = {
             "planItemId": plan_item_id,
@@ -379,22 +395,36 @@ def _matched_pair(
 
 
 def _snapshot_exclusion_reasons(
-    snapshot: dict[str, Any], receipt: dict[str, Any]
+    conn: sqlite3.Connection | dict[str, Any],
+    snapshot: dict[str, Any],
+    receipt: dict[str, Any] | None = None,
 ) -> list[str]:
+    if receipt is None:
+        if not isinstance(conn, dict):
+            raise TypeError("legacy exclusion check requires a snapshot dictionary")
+        snapshot_row = conn
+        receipt_row = snapshot
+        governance_conn: sqlite3.Connection | None = None
+    else:
+        if not isinstance(conn, sqlite3.Connection):
+            raise TypeError("governed exclusion check requires a SQLite connection")
+        snapshot_row = snapshot
+        receipt_row = receipt
+        governance_conn = conn
     reasons: list[str] = []
-    if snapshot.get("metrics_eligible") != 1:
+    if snapshot_row.get("metrics_eligible") != 1:
         reasons.append("metrics_ineligible")
-    if snapshot.get("history_source") != "metric_history":
+    if snapshot_row.get("history_source") != "metric_history":
         reasons.append("fallback_history")
-    if snapshot.get("lineage_v2_valid") != 1:
+    if snapshot_row.get("lineage_v2_valid") != 1:
         reasons.append("lineage_invalid")
-    if snapshot.get("rendered_asset_id") != receipt["assignedAssetId"]:
+    if snapshot_row.get("rendered_asset_id") != receipt_row["assignedAssetId"]:
         reasons.append("assigned_asset_mismatch")
-    if snapshot.get("content_hash") != receipt["assignedAssetSha256"]:
+    if snapshot_row.get("content_hash") != receipt_row["assignedAssetSha256"]:
         reasons.append("assigned_sha_mismatch")
-    if not snapshot.get("published_at") or not snapshot.get("post_id"):
+    if not snapshot_row.get("published_at") or not snapshot_row.get("post_id"):
         reasons.append("publication_ambiguity")
-    raw = _json_object(snapshot.get("raw_json"))
+    raw = _json_object(snapshot_row.get("raw_json"))
     if _recursive_truthy(raw, "fixture", "is_fixture", "fallback_used"):
         reasons.append("fixture_or_fallback")
     revision = _recursive_value(raw, "revision_status", "metric_revision_status")
@@ -402,6 +432,14 @@ def _snapshot_exclusion_reasons(
         reasons.append("metric_revision_unreconciled")
     if _recursive_truthy(raw, "publication_ambiguity", "ambiguous_publication"):
         reasons.append("publication_ambiguity")
+    if governance_conn is not None:
+        governance = canonical_learning_eligibility(
+            governance_conn,
+            snapshot_row,
+            include_base_learning=False,
+            required_observation_bucket="approximately_72h",
+        )
+        reasons.extend(str(reason) for reason in governance["reasons"])
     return sorted(set(reasons))
 
 

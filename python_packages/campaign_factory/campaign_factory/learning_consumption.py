@@ -7,6 +7,10 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from .learning_governance import (
+    register_recommendation,
+    resolve_active_learning_policy,
+)
 from .learning_score import (
     SUPPORTED_OBJECTIVES,
     account_reward_baselines,
@@ -318,6 +322,14 @@ def production_outcome_ineligibility_reasons(
         reasons.append("failed_or_unpublished")
     if outcome.get("fixture") is True:
         reasons.append("fixture")
+    governance = outcome.get("governanceEligibility")
+    if isinstance(governance, Mapping):
+        if governance.get("eligible") is not True:
+            reasons.extend(
+                f"governance_{reason}" for reason in governance.get("reasons") or []
+            )
+        if not str(governance.get("fingerprint") or "").strip():
+            reasons.append("missing_governance_fingerprint")
     objective = str(outcome.get("learningObjective") or "").strip()
     if objective and objective not in SUPPORTED_OBJECTIVES:
         reasons.append("unsupported_learning_objective")
@@ -510,6 +522,11 @@ def persist_measured_recommendations(
                         now,
                     ),
                 )
+                register_recommendation(
+                    conn,
+                    recommendation_item_id=item_id,
+                    evidence=evidence,
+                )
                 if existing_item is None:
                     inserted_items += 1
                 else:
@@ -640,6 +657,22 @@ def apply_learning_to_production_plan(
         if stored["status"] != "accepted":
             mismatch_reasons.add("advisory_only")
             continue
+        policy = resolve_active_learning_policy(
+            conn,
+            recommendation_item_id=str(stored["id"]),
+            recommendation_fingerprint=str(
+                evidence.get("recommendationFingerprint") or ""
+            ),
+            creator=creator,
+            creator_identity_profile=creator_identity_profile,
+            account_id=account,
+            content_intent=intent,
+            now=reference_now,
+        )
+        if policy is None:
+            mismatch_reasons.add("production_policy_not_authorized")
+            continue
+        evidence["productionPolicyRevision"] = policy
         matched.append((dict(stored), evidence))
     if not matched:
         priority = (
@@ -647,6 +680,7 @@ def apply_learning_to_production_plan(
             "no_account_match",
             "no_intent_match",
             "advisory_only",
+            "production_policy_not_authorized",
             "expired_evidence",
             "operator_not_approved",
             "no_eligible_recommendation",
@@ -700,9 +734,9 @@ def apply_learning_to_production_plan(
             "finalSelectedPattern": evidence.get("referencePatternId"),
             "learningInfluenced": influenced,
             "reason": (
-                "operator_approved_measured_recommendation"
+                "operator_authorized_learning_policy"
                 if influenced
-                else "approved_recommendation_left_choice_unchanged"
+                else "authorized_policy_left_choice_unchanged"
             ),
             "fallbackReason": None if influenced else "final_choice_unchanged",
         }
@@ -776,6 +810,18 @@ def approved_audio_performance(
         evidence = json_load(row["evidence_json"], {})
         if evidence.get("recommendationKind") != "audio":
             continue
+        policy = resolve_active_learning_policy(
+            conn,
+            recommendation_item_id=str(row["id"]),
+            recommendation_fingerprint=str(
+                evidence.get("recommendationFingerprint") or ""
+            ),
+            creator=creator,
+            creator_identity_profile=creator_identity_profile,
+            account_id=account,
+            content_intent=intent,
+            now=now,
+        )
         if (
             evidence.get("creatorId") != creator
             or evidence.get("creatorIdentityProfile") != creator_identity_profile
@@ -788,6 +834,7 @@ def approved_audio_performance(
                 now=now,
             )
             != "SUPERVISED_ACTIVE"
+            or policy is None
         ):
             continue
         catalog_id = str(evidence.get("preferredAudioCatalogId") or "")

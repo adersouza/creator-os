@@ -102,6 +102,13 @@ def test_monorepo_ci_uses_affected_pr_and_release_main_tiers() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
     jobs = workflow["jobs"]
 
+    assert jobs["release-class"]["if"] == "github.event_name == 'pull_request'"
+    release_class_runs = [
+        step.get("run", "") for step in jobs["release-class"]["steps"]
+    ]
+    assert any(
+        "scripts/release_gate.py validate-pr" in run for run in release_class_runs
+    )
     for job_name in ("affected", "release", "sbom"):
         setup = next(
             step

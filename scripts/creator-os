@@ -30,6 +30,16 @@ def _doctor_command(*args: str) -> list[str]:
     ]
 
 
+def _capacity_command(*args: str) -> list[str]:
+    """Run the isolated capacity harness through the project environment."""
+
+    return [
+        str(ROOT / ".venv" / "bin" / "python"),
+        str(ROOT / "scripts" / "capacity_envelope.py"),
+        *args,
+    ]
+
+
 def _campaign_command(*args: str) -> list[str]:
     return ["uv", "run", "--package", "campaign-factory", "campaign-factory", *args]
 
@@ -442,6 +452,28 @@ def _parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
 
+    capacity = sub.add_parser(
+        "capacity",
+        help="measure isolated local capacity without touching production state",
+    )
+    capacity_sub = capacity.add_subparsers(dest="capacity_command", required=True)
+    capacity_benchmark = capacity_sub.add_parser(
+        "benchmark",
+        help="run one exact fixture tier and emit an evidence receipt",
+    )
+    capacity_benchmark.add_argument(
+        "--tier",
+        required=True,
+        choices=[
+            "smoke",
+            "10-creators-10k-assets",
+            "100-creators-100k-assets",
+            "1000-creators-1m-assets",
+        ],
+    )
+    capacity_benchmark.add_argument("--workspace", type=Path, required=True)
+    capacity_benchmark.add_argument("--receipt", type=Path)
+
     sync = sub.add_parser(
         "performance-sync",
         help="preview or apply the pinned ThreadsDashboard metrics/learning sync",
@@ -837,6 +869,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         doctor_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_doctor_command(*doctor_args))
+    if args.command == "capacity":
+        command = _capacity_command(
+            "--tier",
+            args.tier,
+            "--workspace",
+            str(args.workspace),
+        )
+        if args.receipt:
+            command.extend(["--receipt", str(args.receipt)])
+        return _run(command)
     if args.command == "sources":
         command = _source_command(args.source_command, "--creator", args.creator)
         if args.source_command != "list":

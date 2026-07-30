@@ -372,7 +372,7 @@
       "failure_retry_rate": 0.08,
       "warn_utilization": 0.85,
       "assumption_confidence": 0.82,
-      "measured_inputs": true
+      "measured_inputs": false
     },
     {
       "creators": 5000,
@@ -388,7 +388,7 @@
       "failure_retry_rate": 0.1,
       "warn_utilization": 0.85,
       "assumption_confidence": 0.78,
-      "measured_inputs": true
+      "measured_inputs": false
     },
     {
       "creators": 10000,

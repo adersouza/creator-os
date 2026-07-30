@@ -23,6 +23,11 @@ from .closed_loop_proof import (
     build_account_routing_audit,
     run_stacey_closed_loop_proof,
 )
+from .learning_governance import (
+    authorize_learning_policy,
+    learning_policy_status,
+    rollback_learning_policy,
+)
 from .learning_readiness import closed_loop_learning_status
 from .quality_calibration import track_q_calibration_status
 
@@ -759,6 +764,31 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 dry_run_render=args.dry_run_render,
                 run_audit=not args.no_audit,
                 contentforge_base_url=args.contentforge_base_url,
+            )
+        )
+        return 0
+    if args.cmd == "learning-policy-status":
+        print_json(learning_policy_status(cf.conn, recommendation_item_id=args.id))
+        return 0
+    if args.cmd == "learning-policy-authorize":
+        print_json(
+            authorize_learning_policy(
+                cf.conn,
+                recommendation_item_id=args.id,
+                operator=args.operator,
+                reason=args.reason,
+                expected_recommendation_fingerprint=args.recommendation_fingerprint,
+                expires_at=args.expires_at,
+            )
+        )
+        return 0
+    if args.cmd == "learning-policy-rollback":
+        print_json(
+            rollback_learning_policy(
+                cf.conn,
+                recommendation_item_id=args.id,
+                operator=args.operator,
+                reason=args.reason,
             )
         )
         return 0
