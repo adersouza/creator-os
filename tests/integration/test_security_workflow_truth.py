@@ -35,3 +35,12 @@ def test_secret_scan_can_be_required_by_ci_without_lying() -> None:
     assert "allowed-endpoints: >" in workflow
     assert "expected_sha256=" in installer
     assert "sha256sum --check" in installer
+
+
+def test_sbom_job_allows_setup_uv_download_endpoint() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "monorepo-ci.yml").read_text(
+        encoding="utf-8"
+    )
+    sbom_job = workflow.split("\n  sbom:\n", 1)[1]
+
+    assert "raw.githubusercontent.com:443" in sbom_job
