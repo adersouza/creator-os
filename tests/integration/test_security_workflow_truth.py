@@ -44,6 +44,12 @@ def test_sbom_job_allows_setup_uv_download_endpoint() -> None:
     sbom_job = workflow.split("\n  sbom:\n", 1)[1]
 
     assert "raw.githubusercontent.com:443" in sbom_job
+    assert "azure.archive.ubuntu.com:80" in sbom_job
+    assert "security.ubuntu.com:80" in sbom_job
+    assert (
+        "sudo apt-get install -y --no-install-recommends ffmpeg tesseract-ocr"
+        in sbom_job
+    )
 
 
 def test_secret_scan_allows_trufflehog_container_registry() -> None:
