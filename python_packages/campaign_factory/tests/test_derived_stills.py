@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from campaign_asset_test_support import add_audit_report
 from campaign_factory.creation_modes import run_creation_batch
 from campaign_factory.derived_still_reporting import derived_still_report
 from campaign_factory.derived_stills import (
@@ -290,6 +291,11 @@ def test_edit_registers_review_candidates_cache_and_blocks_recursive_edit(
         first = result["registeredAssets"][0]
         with pytest.raises(PermissionError, match="not an exact approved"):
             validate_static_source_assets(cf, (first["source_asset_id"],))
+        add_audit_report(
+            cf,
+            rendered_asset_id=first["id"],
+            audit_id="audit_derived_edit",
+        )
         cf.domains.finished_video.review_rendered_asset(
             first["id"], decision="approved", require_safe_audit=True
         )
@@ -545,6 +551,11 @@ def test_campaign_harvest_registers_individual_review_assets(tmp_path: Path):
             (campaign["id"], source["id"], source["content_hash"], str(final), now),
         )
         cf.conn.commit()
+        add_audit_report(
+            cf,
+            rendered_asset_id="motion_1",
+            audit_id="audit_motion_1",
+        )
         cf.domains.finished_video.review_rendered_asset(
             "motion_1", decision="approved", require_safe_audit=True
         )

@@ -173,6 +173,43 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(decision.checks.audio_assigned).toBe(true);
 	});
 
+	it("preserves legacy v1 embedded proof while exact-byte proof requires lineage", () => {
+		const sha = "a".repeat(64);
+		const legacy = {
+			schema: "pipeline.audio_intent.v1",
+			policy: "embedded_trending_required",
+			mode: "embedded_trending_audio",
+			required: true,
+			status: "verified",
+			platform: "instagram",
+			recommendations: [],
+			fulfillment: {
+				audio_present: true,
+				output_sha256: sha,
+				acquired_audio_sha256: sha,
+				embedded_audio_fingerprint: sha,
+				proof_type: "embedded_output_audio_stream",
+				verification_receipt: {
+					status: "verified",
+					audioPresent: true,
+					audioCodec: "aac",
+				},
+			},
+			gates: { allow_draft_export: true, allow_publish: true },
+		};
+
+		expect(validateAudioIntentContract(legacy)).toEqual([]);
+		expect(
+			validateAudioIntentContract({
+				...legacy,
+				fulfillment: {
+					...legacy.fulfillment,
+					evidence_class: "EXACT_BYTE_VERIFIED",
+				},
+			}),
+		).toEqual(expect.arrayContaining([expect.stringContaining("lineage")]));
+	});
+
 	it("blocks exhausted embedded audio and legacy licensed-music mappings", () => {
 		for (const audio_intent of [
 			{

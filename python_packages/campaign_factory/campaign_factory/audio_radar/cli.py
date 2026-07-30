@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.sqlite import connect_sqlite
 
 from ..audio_policy import build_embedded_trending_audio_intent
 from ..db import connect
@@ -55,6 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     bind.add_argument("--database", type=Path, required=True)
     bind.add_argument("--rendered-asset-id", required=True)
     bind.add_argument("--receipt", type=Path, required=True)
+
+    explain = commands.add_parser("explain")
+    explain.add_argument("--final-sha", required=True)
+    explain.add_argument("--database", type=Path)
 
     embed = commands.add_parser("embed-local")
     embed.add_argument("--video", type=Path, required=True)
@@ -132,6 +137,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 embedding_receipt=receipt,
                 bound_at=_now(),
             )
+    if args.command == "explain":
+        database = (args.database or RefreshPaths.defaults().database).expanduser()
+        return _explain_audio(database, args.final_sha)
 
     now = _now()
     candidate = TrendCandidate(
@@ -211,6 +219,122 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "audioFingerprint": receipt["finalVideo"]["audioFingerprint"],
         "verification": receipt["verification"],
     }
+
+
+def _explain_audio(database: Path, final_sha: str) -> dict[str, Any]:
+    digest = str(final_sha or "").strip().lower()
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise ValueError("--final-sha must be a lowercase SHA-256")
+    if database.is_symlink() or not database.resolve().is_file():
+        raise ValueError("Campaign Factory database is missing or unsafe")
+    conn = connect_sqlite(database, readonly=True, wal=False)
+    try:
+        assets = conn.execute(
+            """
+            SELECT id, campaign_id, content_hash, output_path, audit_status,
+                   review_state, metadata_json, updated_at
+            FROM rendered_assets
+            WHERE lower(content_hash) = ?
+            ORDER BY updated_at DESC, id
+            """,
+            (digest,),
+        ).fetchall()
+        if not assets:
+            raise ValueError(f"no rendered asset found for final SHA: {digest}")
+        matches = []
+        for asset in assets:
+            metadata = _json_object(asset["metadata_json"])
+            receipt = _json_object(metadata.get("audioEmbeddingReceipt"))
+            selection = _json_object(receipt.get("selection"))
+            labels = _json_object(selection.get("advisoryLabels"))
+            selected_track = _json_object(receipt.get("selectedTrack"))
+            final_video = _json_object(receipt.get("finalVideo"))
+            intent = _json_object(receipt.get("audioIntent"))
+            lineage = _json_object(intent.get("lineage"))
+            approval = conn.execute(
+                """
+                SELECT id, decision, notes, created_at
+                FROM approval_decisions
+                WHERE rendered_asset_id = ?
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """,
+                (asset["id"],),
+            ).fetchone()
+            publications = conn.execute(
+                """
+                SELECT DISTINCT post_id, platform, status, account_id,
+                       instagram_account_id, permalink, published_at
+                FROM performance_snapshots
+                WHERE rendered_asset_id = ? OR lower(content_hash) = ?
+                ORDER BY published_at DESC, post_id
+                """,
+                (asset["id"], digest),
+            ).fetchall()
+            matches.append(
+                {
+                    "renderedAssetId": asset["id"],
+                    "campaignId": asset["campaign_id"],
+                    "outputPath": asset["output_path"],
+                    "track": {
+                        "canonicalTrackId": selection.get("canonicalTrackId"),
+                        "title": selection.get("canonicalTitle"),
+                        "artists": selection.get("canonicalArtists"),
+                        "platformSoundIds": selection.get("platformSoundIds"),
+                        "provider": selected_track.get("provider"),
+                    },
+                    "cachedAudioSha256": selected_track.get("acquiredAudioSha256"),
+                    "selectedSegment": receipt.get("selectedSegment"),
+                    "finalAudioFingerprint": final_video.get("audioFingerprint"),
+                    "embeddingReceiptSha256": lineage.get("embeddingReceiptSha256"),
+                    "cooldownEvidence": {
+                        key: labels.get(key)
+                        for key in (
+                            "accountTrackCooldownDays",
+                            "absoluteMinimumGapHours",
+                            "creatorSegmentCooldownDays",
+                            "excludedSegmentOffsetsSeconds",
+                            "cooldownOverrideApplied",
+                        )
+                        if labels.get(key) is not None
+                    },
+                    "rankingExplanation": {
+                        **(
+                            selection.get("rankingComponents")
+                            if isinstance(selection.get("rankingComponents"), dict)
+                            else {}
+                        ),
+                        "overrideApplied": labels.get("cooldownOverrideApplied"),
+                        "finalRank": selection.get("finalRank"),
+                        "rankedScore": selection.get("rankedScore"),
+                        "bucket": selection.get("bucket"),
+                        "selectedReason": selection.get("selectedReason"),
+                    },
+                    "rights": intent.get("rights"),
+                    "approval": {
+                        "auditStatus": asset["audit_status"],
+                        "reviewState": asset["review_state"],
+                        "latestDecision": dict(approval) if approval else None,
+                    },
+                    "publicationLinkage": [dict(row) for row in publications],
+                }
+            )
+        return {
+            "schema": "creator_os.audio_explanation.v1",
+            "finalMediaSha256": digest,
+            "matches": matches,
+        }
+    finally:
+        conn.close()
+
+
+def _json_object(value: object) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
 
 
 def main() -> int:

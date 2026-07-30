@@ -56,6 +56,7 @@ class ReferenceRepository:
         bank_path = Path(bank_path).expanduser().resolve()
         if not bank_path.exists():
             raise FileNotFoundError(f"reference bank not found: {bank_path}")
+        source_database_identity = hashlib.sha256(bank_path.read_bytes()).hexdigest()
         bank = json_load(bank_path.read_text(encoding="utf-8"), {})
         knowledge_pack = (
             bank
@@ -79,6 +80,7 @@ class ReferenceRepository:
         linked = 0
         unlinked = 0
         imported_pattern_ids: set[str] = set()
+        promotion_receipts = 0
         missing_paths: list[str] = []
         for idx, cluster in enumerate(clusters, 1):
             cluster_key = str(
@@ -190,6 +192,44 @@ class ReferenceRepository:
                         now,
                     ),
                 )
+            if not dry_run:
+                receipt_id = (
+                    "refpromo_"
+                    + hashlib.sha256(
+                        f"{source_hash}:{pattern_id}".encode()
+                    ).hexdigest()[:24]
+                )
+                receipt = self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO reference_promotion_receipts
+                    (id, source_system, source_record_id, source_fingerprint,
+                     source_database_identity, source_database_version,
+                     promotion_policy, destination_table, destination_record_id,
+                     promoted_at)
+                    VALUES (?, 'reference_factory', ?, ?, ?, ?, ?,
+                            'reference_patterns', ?, ?)
+                    """,
+                    (
+                        receipt_id,
+                        cluster_key,
+                        source_hash,
+                        source_database_identity,
+                        str(
+                            (knowledge_pack or {}).get("sourceFingerprint")
+                            or bank.get("runId")
+                            or bank.get("run_id")
+                            or source_database_identity
+                        ),
+                        (
+                            "validated_knowledge_pack_v1"
+                            if knowledge_pack is not None
+                            else "reference_bank_import_v1"
+                        ),
+                        pattern_id,
+                        now,
+                    ),
+                )
+                promotion_receipts += max(receipt.rowcount, 0)
             if campaign:
                 plan = self.conn.execute(
                     """
@@ -281,6 +321,7 @@ class ReferenceRepository:
             "patternsCreated": created,
             "patternsUpdated": updated,
             "patternsUnchanged": unchanged,
+            "promotionReceiptsCreated": promotion_receipts,
             "campaignLinksCreated": linked,
             "campaignLinksRemoved": unlinked,
             "campaign": campaign_slug,

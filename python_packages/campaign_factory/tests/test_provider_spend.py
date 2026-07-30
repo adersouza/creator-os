@@ -9,8 +9,12 @@ from unittest.mock import Mock
 
 import pytest
 from campaign_factory import front_generation_stage
+from campaign_factory.production_higgsfield_authorization import (
+    recovered_higgsfield_cost_binding,
+)
 from campaign_factory.provider_spend import (
     AUTHORIZATION_TABLE,
+    ProviderOverspendError,
     consume_provider_spend_authorization,
     issue_provider_spend_authorization,
     record_provider_execution,
@@ -146,6 +150,129 @@ def test_campaign_issues_consumes_and_records_authoritative_cost(
         ).fetchone()[0]
         == "consumed"
     )
+
+
+def test_provider_overspend_is_recorded_then_blocks_progression(
+    tmp_path: Path,
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    authorization = issue_provider_spend_authorization(
+        conn,
+        scope=_scope(tmp_path),
+        campaign_id="campaign_db_id",
+        max_credits=10,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=Balance(),
+    )
+    consume_provider_spend_authorization(conn, authorization["authorizationId"])
+
+    with pytest.raises(ProviderOverspendError) as raised:
+        record_provider_execution(
+            conn,
+            authorization=authorization,
+            execution={
+                "events": [
+                    {
+                        "provider": "higgsfield",
+                        "operation": "image_create",
+                        "model": "text2image_soul_v2",
+                        "jobId": "job_overspend",
+                        "actualCredits": 7,
+                    }
+                ]
+            },
+        )
+
+    assert raised.value.authorized_maximum == 5
+    assert raised.value.actual == 7
+    row = conn.execute("SELECT amount, metadata_json FROM ai_cost_events").fetchone()
+    assert row[0] == 7
+    assert json.loads(row[1])["overspend"] is True
+
+
+def test_unknown_actual_cost_remains_unknown(tmp_path: Path) -> None:
+    conn = sqlite3.connect(":memory:")
+    authorization = issue_provider_spend_authorization(
+        conn,
+        scope=_scope(tmp_path),
+        campaign_id="campaign_db_id",
+        max_credits=10,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=Balance(),
+    )
+    consume_provider_spend_authorization(conn, authorization["authorizationId"])
+
+    event_ids = record_provider_execution(
+        conn,
+        authorization=authorization,
+        execution={
+            "events": [
+                {
+                    "provider": "higgsfield",
+                    "operation": "image_create",
+                    "model": "text2image_soul_v2",
+                    "jobId": "job_unknown",
+                    "actualCredits": None,
+                }
+            ]
+        },
+    )
+
+    assert len(event_ids) == 1
+    assert conn.execute("SELECT amount, unit FROM ai_cost_events").fetchone() == (
+        None,
+        None,
+    )
+
+
+@pytest.mark.parametrize("actual", [4.0, None])
+def test_completed_recovery_accepts_actual_below_quote_or_unknown(
+    tmp_path: Path,
+    actual: float | None,
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    scope = _scope(tmp_path)
+    authorization = issue_provider_spend_authorization(
+        conn,
+        scope=scope,
+        campaign_id="campaign_db_id",
+        max_credits=10,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=Balance(),
+    )
+    consume_provider_spend_authorization(conn, authorization["authorizationId"])
+    event_ids = record_provider_execution(
+        conn,
+        authorization=authorization,
+        execution={
+            "events": [
+                {
+                    "provider": "higgsfield",
+                    "operation": "video_generation",
+                    "model": "kling3_0",
+                    "jobId": "generation-1",
+                    "actualCredits": actual,
+                }
+            ]
+        },
+    )
+
+    binding = recovered_higgsfield_cost_binding(
+        SimpleNamespace(conn=conn),
+        job={"quotedProviderCredits": 5.0},
+        receipt={
+            "generationId": "generation-1",
+            "creditsConsumed": actual,
+        },
+        spend_scope=scope,
+    )
+
+    assert binding["authorizationId"] == authorization["authorizationId"]
+    assert binding["costEventIds"] == event_ids
 
 
 def test_campaign_fails_before_quote_when_secret_is_missing(tmp_path: Path) -> None:

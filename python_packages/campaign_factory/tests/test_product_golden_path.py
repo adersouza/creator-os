@@ -69,6 +69,16 @@ def _production_factory(
           review_state TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
+        CREATE TABLE audio_selections (
+          id TEXT PRIMARY KEY,
+          payload_json TEXT NOT NULL,
+          selected_at TEXT,
+          status TEXT NOT NULL
+        );
+        CREATE TABLE audio_publication_history (
+          audio_selection_id TEXT NOT NULL,
+          published_at TEXT NOT NULL
+        );
         CREATE TABLE generation_output_blobs (
           id TEXT PRIMARY KEY,
           content_sha256 TEXT NOT NULL UNIQUE,
@@ -328,35 +338,44 @@ def test_account_and_creator_audio_cooldowns_with_winner_override(
     conn.row_factory = sqlite3.Row
     conn.executescript(
         """
-        CREATE TABLE rendered_assets (metadata_json TEXT, updated_at TEXT);
+        CREATE TABLE audio_selections (
+          id TEXT, payload_json TEXT, selected_at TEXT, status TEXT
+        );
+        CREATE TABLE audio_publication_history (
+          audio_selection_id TEXT, published_at TEXT
+        );
         CREATE TABLE audio_performance_rollups (
           audio_catalog_id TEXT, score REAL
         );
         """
     )
     conn.execute(
-        "INSERT INTO rendered_assets VALUES (?, ?)",
+        "INSERT INTO audio_selections VALUES (?, ?, ?, ?)",
         (
+            "selection-1",
             json.dumps(
                 {
-                    "audioEmbeddingReceipt": {
-                        "creativeContext": {
-                            "creator": "stacey",
-                            "account": "stacey-main",
-                        },
-                        "selection": {
-                            "canonicalTrackId": "legacy-normalized-track",
-                            "advisoryLabels": {"audioCatalogId": "audio-1"},
-                            "platformSoundIds": [
-                                {"platform": "tiktok", "soundId": "sound-1"}
-                            ],
-                        },
-                        "selectedSegment": {"start_offset_seconds": 12.5},
-                    }
+                    "creativeContext": {
+                        "creator": "stacey",
+                        "account": "stacey-main",
+                    },
+                    "selection": {
+                        "canonicalTrackId": "track-1",
+                        "advisoryLabels": {"audioCatalogId": "audio-1"},
+                        "platformSoundIds": [
+                            {"platform": "tiktok", "soundId": "sound-1"}
+                        ],
+                    },
+                    "selectedSegment": {"start_offset_seconds": 12.5},
                 }
             ),
             "2026-07-26T12:00:00Z",
+            "verified",
         ),
+    )
+    conn.execute(
+        "INSERT INTO audio_publication_history VALUES (?, ?)",
+        ("selection-1", "2026-07-26T12:00:00Z"),
     )
     candidates = [
         replace(
@@ -384,15 +403,70 @@ def test_account_and_creator_audio_cooldowns_with_winner_override(
         candidates,
         creator="stacey",
         account="stacey-main",
-        now="2026-07-27T12:00:00Z",
+        now="2026-07-29T12:00:00Z",
     )
     winner = next(
         candidate
         for candidate in overridden
         if candidate.canonical_track_id == "track-1"
     )
-    assert winner.advisory_labels["measuredWinnerCooldownOverride"] is True
-    assert "excludedSegmentOffsetsSeconds" not in winner.advisory_labels
+    assert (
+        winner.advisory_labels["cooldownOverrideApplied"] == "measured_winner_bounded"
+    )
+    assert winner.advisory_labels["excludedSegmentOffsetsSeconds"] == [12.5]
+
+
+def test_audio_usage_policy_does_not_infer_publication_from_asset_update_time(
+    tmp_path: Path,
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE rendered_assets (metadata_json TEXT, updated_at TEXT);
+        CREATE TABLE audio_performance_rollups (
+          audio_catalog_id TEXT, score REAL
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO rendered_assets VALUES (?, ?)",
+        (
+            json.dumps(
+                {
+                    "audioEmbeddingReceipt": {
+                        "creativeContext": {
+                            "creator": "stacey",
+                            "account": "stacey-main",
+                        },
+                        "selection": {"canonicalTrackId": "track-1"},
+                        "selectedSegment": {"start_offset_seconds": 12.5},
+                    }
+                }
+            ),
+            "2026-07-26T12:00:00Z",
+        ),
+    )
+    candidates = [
+        replace(
+            _fixture_candidate(tmp_path / f"audio-{index}.bin"),
+            candidate_id=f"candidate-{index}",
+            canonical_track_id=f"track-{index}",
+            advisory_labels={"audioCatalogId": f"audio-{index}"},
+        )
+        for index in range(1, 3)
+    ]
+
+    assert (
+        apply_audio_usage_policy(
+            conn,
+            candidates,
+            creator="stacey",
+            account="stacey-main",
+            now="2026-07-27T12:00:00Z",
+        )
+        == []
+    )
 
 
 def test_golden_approved_source_to_generated_image_capability() -> None:
@@ -460,7 +534,7 @@ def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) ->
             "seedancePrompt": "Seedance calm motion.",
             "klingPrompt": "Kling calm motion.",
             "promptPlanning": {
-                "builderVersion": "creator_os_openai_prompt_builder.v2",
+                "builderVersion": "creator_os_openai_prompt_builder.v3",
                 "requestFingerprint": str(kwargs["creator_image"]),
                 "cost": {"status": "not_exposed", "usd": None},
             },

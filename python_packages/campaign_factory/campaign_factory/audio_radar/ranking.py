@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .models import TrendCandidate
 
@@ -30,6 +30,8 @@ class RankedCandidate:
     score: float
     bucket: str
     reasons: tuple[str, ...]
+    components: dict[str, float]
+    final_rank: int | None = None
     excluded: bool = False
 
     def as_dict(self) -> dict[str, object]:
@@ -38,6 +40,8 @@ class RankedCandidate:
             "score": self.score,
             "bucket": self.bucket,
             "reasons": list(self.reasons),
+            "components": self.components,
+            "finalRank": self.final_rank,
             "excluded": self.excluded,
         }
 
@@ -60,7 +64,7 @@ def rank_candidates(
     for candidate in candidates:
         canonical_id = str(candidate.canonical_track_id or candidate.candidate_id)
         excluded = canonical_id in disallowed
-        score, reasons = _candidate_score(
+        score, reasons, components = _candidate_score(
             candidate,
             context,
             segment_quality.get(canonical_id),
@@ -71,6 +75,7 @@ def rank_candidates(
                 score=round(score, 6),
                 bucket=_bucket(candidate),
                 reasons=tuple(reasons),
+                components=components,
                 excluded=excluded,
             )
         )
@@ -82,14 +87,17 @@ def rank_candidates(
             str(value.candidate.canonical_track_id),
         )
     )
-    return eligible[: max(1, limit)]
+    return [
+        replace(value, final_rank=index)
+        for index, value in enumerate(eligible[: max(1, limit)], start=1)
+    ]
 
 
 def _candidate_score(
     candidate: TrendCandidate,
     context: AudioMatchContext,
     segment_quality: float | None,
-) -> tuple[float, list[str]]:
+) -> tuple[float, list[str], dict[str, float]]:
     reasons: list[str] = []
     rank_component = (
         26.0 / math.sqrt(max(1, int(candidate.current_rank)))
@@ -204,7 +212,7 @@ def _candidate_score(
         reasons.append("creative_tag_match")
     if segment_component > 0:
         reasons.append("segment_quality")
-    score = (
+    trend_score = (
         rank_component
         + velocity_component
         + usage_component
@@ -212,17 +220,21 @@ def _candidate_score(
         + sample_component
         + engagement_component
         + freshness_component
-        + fit_component
-        + prior_component
-        + segment_component
         + chart_component
         + new_component
         + movement_component
-        + quality_component
-        - saturation_penalty
-        - overuse_penalty
     )
-    return score, reasons
+    creative_fit_score = fit_component + segment_component + quality_component
+    fatigue_penalty = saturation_penalty + overuse_penalty
+    score = trend_score + prior_component + creative_fit_score - fatigue_penalty
+    components = {
+        "trendScore": round(trend_score, 6),
+        "performanceAdjustment": round(prior_component, 6),
+        "creativeFitScore": round(creative_fit_score, 6),
+        "fatiguePenalty": round(fatigue_penalty, 6),
+        "finalScore": round(score, 6),
+    }
+    return score, reasons, components
 
 
 def _bucket(candidate: TrendCandidate) -> str:

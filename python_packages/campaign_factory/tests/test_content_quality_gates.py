@@ -35,12 +35,29 @@ from campaign_factory.contracts import (
     validate_audio_intent,
     validate_threadsdash_draft_payload_strict,
 )
+from campaign_factory.qc_explain import explain_asset_qc
 from campaign_learning_test_support import _draft_item, _manager_report_fixture
 from campaign_test_support import (
     add_rendered_asset,
     make_factory,
     set_test_source_prompt,
 )
+
+
+def _stub_final_artifact_integrity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.asset_evidence.verify_final_artifact_integrity",
+        lambda asset: {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": True,
+            "failures": [],
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+    )
 
 
 def test_contentforge_staging_is_run_isolated_and_preserves_shared_final(
@@ -1112,6 +1129,7 @@ def test_publishability_allows_styled_burned_caption_when_placement_passes(
 
 
 def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1144,7 +1162,7 @@ def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch)
                 "blockingCodes": [],
                 "warningCodes": [],
                 "topWarnings": [],
-                "recommendedAction": "approve_candidate",
+                "recommendedAction": "review_candidate",
             },
             "filesAnalyzed": 1,
         }
@@ -1177,6 +1195,7 @@ def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch)
 def test_contentforge_cli_audit_preserves_explicit_legacy_temporal_layer(
     tmp_path: Path, monkeypatch
 ):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
     seen_layers: list[str] = []
 
@@ -1271,9 +1290,13 @@ def test_contentforge_audit_can_target_explicit_rendered_assets(
                 "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
             ).fetchone()
         )
+        second_path = tmp_path / "second.mp4"
+        second_path.write_bytes(b"second-rendered")
         original.update(
             id="asset_2",
-            content_hash="hash_2",
+            content_hash=hashlib.sha256(second_path.read_bytes()).hexdigest(),
+            output_path=str(second_path),
+            campaign_path=str(second_path),
             filename="second.mp4",
         )
         columns = list(original)
@@ -1293,6 +1316,11 @@ def test_contentforge_audit_can_target_explicit_rendered_assets(
         assert [report["renderedAssetId"] for report in result["reports"]] == [
             "asset_2"
         ]
+        assert result["reports"][0]["subjectSha256"] == original["content_hash"]
+        stored_subject = cf.conn.execute(
+            "SELECT subject_sha256 FROM audit_reports WHERE rendered_asset_id = 'asset_2'"
+        ).fetchone()
+        assert stored_subject["subject_sha256"] == original["content_hash"]
         untouched = cf.conn.execute(
             "SELECT COUNT(*) AS count FROM audit_reports WHERE rendered_asset_id = 'asset_1'"
         ).fetchone()
@@ -1355,6 +1383,7 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(
 def test_contentforge_cli_audit_records_warn_and_fail_results(
     tmp_path: Path, monkeypatch
 ):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1397,6 +1426,7 @@ def test_contentforge_cli_audit_records_warn_and_fail_results(
 def test_contentforge_cli_audit_keeps_review_only_layer_failures_nonblocking(
     tmp_path: Path, monkeypatch
 ):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1443,6 +1473,7 @@ def test_contentforge_cli_audit_keeps_review_only_layer_failures_nonblocking(
 
 
 def test_contentforge_cli_audit_handles_malformed_response(tmp_path: Path, monkeypatch):
+    _stub_final_artifact_integrity(monkeypatch)
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1525,18 +1556,52 @@ def test_review_decision_supports_reject_and_approve(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
+        asset = cf.domains.rendered_asset("asset_1")
+        now = "2026-01-01T00:00:00+00:00"
+        cf.conn.execute(
+            """
+            INSERT INTO asset_inventory_reservations
+            (id, asset_id, campaign_id, surface, reservation_id, reserved_by,
+             reserved_at, status, created_at, updated_at)
+            VALUES ('reservation-reject', 'asset_1', ?, 'reel', 'reservation-1',
+                    'test', ?, 'pending', ?, ?)
+            """,
+            (asset["campaign_id"], now, now, now),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO performance_snapshots
+            (id, campaign_id, rendered_asset_id, content_hash, post_id, snapshot_at,
+             metrics_eligible, created_at)
+            VALUES ('snapshot-reject', ?, 'asset_1', ?, 'post-reject', ?, 1, ?)
+            """,
+            (asset["campaign_id"], asset["content_hash"], now, now),
+        )
+        cf.conn.commit()
         rejected = cf.domains.finished_video.review_rendered_asset(
             "asset_1", decision="rejected", notes="no"
         )
         assert rejected["review_state"] == "rejected"
-        approved = cf.domains.finished_video.review_rendered_asset(
-            "asset_1", decision="approved", notes="ok"
+        assert (
+            cf.conn.execute(
+                "SELECT status FROM asset_inventory_reservations WHERE id = 'reservation-reject'"
+            ).fetchone()["status"]
+            == "expired"
         )
-        assert approved["review_state"] == "approved"
+        assert (
+            cf.conn.execute(
+                "SELECT metrics_eligible FROM performance_snapshots WHERE id = 'snapshot-reject'"
+            ).fetchone()["metrics_eligible"]
+            == 0
+        )
+        with pytest.raises(ValueError, match="operator_rejected_current_sha"):
+            cf.domains.finished_video.review_rendered_asset(
+                "asset_1", decision="approved", notes="ok"
+            )
         decisions = cf.conn.execute(
             "SELECT decision FROM approval_decisions ORDER BY created_at"
         ).fetchall()
-        assert [row["decision"] for row in decisions] == ["rejected", "approved"]
+        assert [row["decision"] for row in decisions] == ["rejected"]
     finally:
         cf.close()
 
@@ -1553,6 +1618,7 @@ def test_operator_approval_requires_safe_audit_when_guard_enabled(tmp_path: Path
         cf.conn.execute(
             "UPDATE rendered_assets SET audit_status = 'approved_candidate' WHERE id = 'asset_1'"
         )
+        add_audit_report(cf)
         cf.conn.commit()
         approved = cf.domains.finished_video.review_rendered_asset(
             "asset_1", decision="approved", require_safe_audit=True
@@ -1621,8 +1687,6 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(
                 campaign_slug="may",
                 user_id="user_1",
                 dry_run=False,
-                supabase_url="https://example.supabase.co",
-                supabase_service_role_key="service-role",
             )
     finally:
         cf.close()
@@ -1858,6 +1922,101 @@ def test_publishability_blocks_caption_safe_zone_audit_warning(tmp_path: Path):
             "caption_placement_qc_failed"
             in explanation["publishability_failure_reasons"]
         )
+    finally:
+        cf.close()
+
+
+def test_publishability_accepts_explicit_clean_caption_fallback_semantics(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        row = cf.conn.execute(
+            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+        ).fetchone()
+        context = json.loads(row[0])
+        context.update(
+            {
+                "captionBurnedIn": False,
+                "captionPlacementDecision": {
+                    "status": "failed",
+                    "decisionClass": "failed_no_safe_lane",
+                    "reasonCode": "no_safe_caption_lane",
+                    "selectedLane": None,
+                    "renderPolicy": "clean_without_overlay",
+                },
+                "captionFallback": {
+                    "reasonCode": "no_safe_caption_lane",
+                    "renderPolicy": "clean_without_overlay",
+                    "burnedCaptionText": None,
+                    "instagramPostCaptionSourceText": "caption",
+                },
+                "instagram_post_caption": "caption",
+                "instagram_post_caption_hash": threadsdash_client_adapter._text_hash(
+                    "caption"
+                ),
+                "burned_caption_text": None,
+                "burned_caption_hash": None,
+            }
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_outcome_context_json = ? WHERE id = 'asset_1'",
+            (json.dumps(context, sort_keys=True),),
+        )
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        explanation = cf.domains.publishability.explain_publishability("asset_1")
+
+        assert explanation["checks"]["caption_placement_qc_passed"] is True
+        assert "missing_burned_captions" not in explanation["failureReasons"]
+        assert explanation["captionPlacementDecision"]["selectedLane"] is None
+    finally:
+        cf.close()
+
+
+def test_borderline_caption_warning_is_operator_overridable_not_hard_blocker(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf, warning_codes=["caption_low_confidence"])
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        explanation = cf.domains.publishability.explain_publishability("asset_1")
+
+        assert "caption_low_confidence" in explanation["warnings"]
+        assert "caption_placement_qc_failed" not in explanation["failureReasons"]
+    finally:
+        cf.close()
+
+
+def test_qc_explain_reports_current_and_superseded_sha_evidence(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        asset = cf.domains.rendered_asset("asset_1")
+        cf.conn.execute(
+            """
+            INSERT INTO audit_reports
+            (id, campaign_id, rendered_asset_id, subject_sha256, contentforge_run_id,
+             report_path, score, status, overall_verdict, created_at)
+            VALUES ('audit-old-sha', ?, 'asset_1', ?, 'old', '', 0, 'needs_review',
+                    'fail', '2025-01-01T00:00:00Z')
+            """,
+            (asset["campaign_id"], "0" * 64),
+        )
+        cf.conn.commit()
+
+        explanation = explain_asset_qc(cf, "asset_1")
+
+        assert explanation["currentFileShaVerification"]["passed"] is True
+        assert explanation["contentForgeSubjectMatchesCurrentSha"] is True
+        assert explanation["supersededEvidence"][0]["subject_sha256"] == "0" * 64
     finally:
         cf.close()
 
@@ -2109,12 +2268,13 @@ def test_caption_quality_repair_plan_classifies_hashtag_and_cta_repairs(tmp_path
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
              caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
              caption_generation_json, created_at, updated_at)
-            VALUES ('asset_2', ?, ?, 'hash_2', ?, ?, 'asset_2.mp4', 'caption', 'caption_hash_2',
+                VALUES ('asset_2', ?, ?, ?, ?, ?, 'asset_2.mp4', 'caption', 'caption_hash_2',
                     ?, 'v01_original', 'passed', 'approved', '{}', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
             """,
             (
                 source["campaign_id"],
                 source["id"],
+                hashlib.sha256(rendered_path.read_bytes()).hexdigest(),
                 str(rendered_path),
                 str(rendered_path),
                 json.dumps(
@@ -3268,8 +3428,6 @@ def test_campaign_factory_has_no_legacy_supabase_or_preview_write_surface(
                     user_id="user_1",
                     dry_run=False,
                     schedule_mode=mode,
-                    supabase_url="https://example.supabase.co",
-                    supabase_service_role_key="service-role",
                 )
 
         assert not hasattr(threadsdash_delivery_adapter, "_write_supabase")

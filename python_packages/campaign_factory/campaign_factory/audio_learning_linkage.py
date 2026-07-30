@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Callable
@@ -139,6 +140,7 @@ def exact_embedded_audio_selection(
         "creatorIdentityProfile",
         "account",
         "intent",
+        "publishedAt",
         "observationBucket",
     )
     if any(
@@ -159,6 +161,46 @@ def exact_embedded_audio_selection(
                 dict(item) for item in prior if isinstance(item, dict)
             )
     updated_payload = {**payload, "publicationLinkage": linkage}
+    history_linkage = {
+        key: value
+        for key, value in linkage.items()
+        if key not in {"metricSnapshotIds", "snapshotAt", "observationBucket"}
+    }
+    history_json = json.dumps(
+        history_linkage,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    history_sha256 = hashlib.sha256(history_json.encode()).hexdigest()
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO audio_publication_history
+        (id, audio_selection_id, campaign_id, rendered_asset_id, post_id,
+         instagram_media_id, account_id, published_at, final_media_sha256,
+         track_sha256, processed_segment_sha256, segment_start_seconds,
+         segment_end_seconds, linkage_json, linkage_sha256, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            f"audpub_{history_sha256[:24]}",
+            row["id"],
+            row["campaign_id"],
+            rendered_asset_id,
+            snapshot.get("post_id"),
+            media_id,
+            str(linkage["account"]),
+            str(linkage["publishedAt"]),
+            final_sha,
+            str(linkage["trackSha256"]),
+            str(linkage["processedSegmentSha256"]),
+            float(linkage["segmentStartSeconds"]),
+            float(linkage["segmentEndSeconds"]),
+            history_json,
+            history_sha256,
+            utc_now(),
+        ),
+    )
     conn.execute(
         """
         UPDATE audio_selections

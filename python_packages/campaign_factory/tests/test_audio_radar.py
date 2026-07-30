@@ -14,7 +14,10 @@ from campaign_factory.adapters.threadsdash_draft_payload import (
 )
 from campaign_factory.audio_policy import build_embedded_trending_audio_intent
 from campaign_factory.audio_radar.acquisition import AcquiredAudio, AudioCache
-from campaign_factory.audio_radar.binding import bind_embedding_receipt
+from campaign_factory.audio_radar.binding import (
+    AudioBindingError,
+    bind_embedding_receipt,
+)
 from campaign_factory.audio_radar.embedding import (
     AudioEmbeddingError,
     embed_selected_audio,
@@ -121,6 +124,16 @@ def test_ranking_blocks_recent_and_scheduled_track_reuse() -> None:
 
     assert len(ranked) == 1
     assert ranked[0].candidate.canonical_track_id != first_id
+    assert ranked[0].final_rank == 1
+    assert set(ranked[0].components) == {
+        "trendScore",
+        "performanceAdjustment",
+        "creativeFitScore",
+        "fatiguePenalty",
+        "finalScore",
+    }
+    assert ranked[0].components["finalScore"] == ranked[0].score
+    assert ranked[0].as_dict()["reasons"] == list(ranked[0].reasons)
 
 
 def test_mainstream_platform_discovery_and_rights_labels_do_not_gate_candidates(
@@ -405,7 +418,9 @@ def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
         },
         "selectedSegment": {
             "start_offset_seconds": 2.5,
+            "end_seconds": 7.5,
             "duration_seconds": 5.0,
+            "processed_segment_sha256": "d" * 64,
             "segment_score": 0.91,
             "beat_evidence": "pcm_energy_onset_proxy",
             "hook_evidence": "energy_and_onset_window",
@@ -418,7 +433,17 @@ def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
             "platformSoundIds": [{"platform": "instagram", "soundId": "ig-1"}],
             "trendRank": 4,
             "trendVelocity": 4200,
-            "advisoryLabels": {"audioCatalogId": "audio-1"},
+            "advisoryLabels": {
+                "audioCatalogId": "audio-1",
+                "usageRightsRequired": True,
+                "usageRightsStatus": "licensed",
+                "rightsSource": "license-receipt",
+                "territory": "US",
+                "accountScope": "stacey-main",
+                "commercialUseAllowed": True,
+                "expiresAt": "2099-01-01T00:00:00Z",
+                "evidenceReceipt": {"id": "rights-1", "sha256": "e" * 64},
+            },
         },
         "mixSettings": {"volume": 0.82},
         "creativeContext": {
@@ -438,12 +463,24 @@ def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
     assert intent["status"] == "verified"
     assert intent["fulfillment"]["output_sha256"] == "a" * 64
     assert intent["fulfillment"]["embedded_audio_fingerprint"] == "b" * 64
+    assert intent["fulfillment"]["evidence_class"] == "EXACT_BYTE_VERIFIED"
+    assert intent["lineage"]["processedSegmentSha256"] == "d" * 64
+    assert intent["lineage"]["segmentStartSeconds"] == 2.5
+    assert intent["lineage"]["segmentEndSeconds"] == 7.5
+    assert len(intent["lineage"]["embeddingReceiptSha256"]) == 64
     assert intent["operator_selection"]["platform_sound_ids"] == [
         {"platform": "instagram", "sound_id": "ig-1"}
     ]
     assert intent["gates"]["allow_publish"] is True
+    assert intent["rights"]["usageRightsStatus"] == "licensed"
     validate_audio_intent(intent)
     assert _audio_intent_allows_live(intent) is True
+    blocked_rights = json.loads(json.dumps(intent))
+    blocked_rights["rights"]["usageRightsStatus"] = "rights_unknown"
+    assert _audio_intent_allows_live(blocked_rights) is False
+    missing_segment_lineage = json.loads(json.dumps(intent))
+    missing_segment_lineage["lineage"].pop("processedSegmentSha256")
+    assert _audio_intent_allows_live(missing_segment_lineage) is False
     intent["fulfillment"].pop("embedded_audio_fingerprint")
     assert _audio_intent_allows_live(intent) is False
 
@@ -476,7 +513,9 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
         },
         "selectedSegment": {
             "start_offset_seconds": 2.5,
+            "end_seconds": 7.5,
             "duration_seconds": 5.0,
+            "processed_segment_sha256": "d" * 64,
             "segment_score": 0.91,
             "beat_evidence": "pcm_energy_onset_proxy",
             "hook_evidence": "energy_and_onset_window",
@@ -577,6 +616,16 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
         ("2026-07-24T11:00:00Z",),
     )
 
+    receipt["selectedTrack"]["provider"] = "tampered"
+    with pytest.raises(AudioBindingError, match="not bound to this embedding receipt"):
+        bind_embedding_receipt(
+            conn,
+            rendered_asset_id="asset-1",
+            embedding_receipt=receipt,
+            bound_at="2026-07-24T12:05:00Z",
+        )
+    receipt["selectedTrack"]["provider"] = "operator"
+
     result = bind_embedding_receipt(
         conn,
         rendered_asset_id="asset-1",
@@ -586,7 +635,8 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
 
     row = conn.execute(
         """
-        SELECT content_hash, output_path, caption_generation_json, metadata_json
+        SELECT content_hash, output_path, caption_generation_json, metadata_json,
+               audit_status, review_state
         FROM rendered_assets
         WHERE id = 'asset-1'
         """
@@ -596,8 +646,11 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
     metadata = json.loads(row[3])
     assert row[0] == final_sha
     assert row[1] == str(final_path)
+    assert row[4:] == ("pending", "review_ready")
     assert caption_generation["audioIntent"]["policy"] == ("embedded_trending_required")
     assert metadata["audioBurned"] is True
+    assert metadata["evidenceInvalidations"][0]["previousSha256"] == original_sha
+    assert metadata["evidenceInvalidations"][0]["newSha256"] == final_sha
     assert metadata["publishability"]["blockingIssues"] == [
         "audio_creative_approval_required"
     ]

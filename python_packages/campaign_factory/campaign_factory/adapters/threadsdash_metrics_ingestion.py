@@ -34,6 +34,15 @@ from ..learning_score import (
 from ..lineage_v2 import (
     lineage_v2_is_learning_traceable,
 )
+from .threadsdash_metric_observations import (
+    record_immutable_performance_observation as _record_immutable_performance_observation,
+)
+from .threadsdash_metric_values import (
+    int_metric as _int_metric,
+)
+from .threadsdash_metric_values import (
+    watch_time_seconds as _watch_time_seconds,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -274,6 +283,7 @@ def sync_performance_snapshots(
                 if ineligible_reasons:
                     learning_ineligible_snapshot_count += 1
                     learning_ineligible_post_ids.add(str(snapshot["post_id"]))
+                _record_immutable_performance_observation(factory.conn, snapshot)
                 existing = factory.conn.execute(
                     "SELECT id FROM performance_snapshots WHERE post_id = ? AND snapshot_at = ?",
                     (snapshot["post_id"], snapshot["snapshot_at"]),
@@ -289,8 +299,11 @@ def sync_performance_snapshots(
                      suitability_reason, source_clip, caption_outcome_context_json, recipe,
                      post_id, platform, content_surface, status, account_id, instagram_account_id,
                      permalink, published_at, snapshot_at, views, likes, comments, shares, saves, impressions,
-                     reach, watch_time_seconds, metrics_eligible, history_source, lineage_v2_valid, raw_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     reach, watch_time_seconds, metrics_eligible, history_source, lineage_v2_valid,
+                     source_metric_history_id, source_platform_post_id,
+                     source_observation_fingerprint, metric_window, imported_at,
+                     raw_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(post_id, snapshot_at) DO UPDATE SET
                       campaign_id = excluded.campaign_id,
                       rendered_asset_id = excluded.rendered_asset_id,
@@ -339,6 +352,10 @@ def sync_performance_snapshots(
                       metrics_eligible = excluded.metrics_eligible,
                       history_source = excluded.history_source,
                       lineage_v2_valid = excluded.lineage_v2_valid,
+                      source_metric_history_id = excluded.source_metric_history_id,
+                      source_platform_post_id = excluded.source_platform_post_id,
+                      source_observation_fingerprint = excluded.source_observation_fingerprint,
+                      metric_window = excluded.metric_window,
                       raw_json = excluded.raw_json
                     """,
                     (
@@ -392,6 +409,11 @@ def sync_performance_snapshots(
                         snapshot["metrics_eligible"],
                         snapshot["history_source"],
                         snapshot["lineage_v2_valid"],
+                        snapshot["source_metric_history_id"],
+                        snapshot["source_platform_post_id"],
+                        snapshot["source_observation_fingerprint"],
+                        snapshot["metric_window"],
+                        snapshot["imported_at"],
                         snapshot["raw_json"],
                         snapshot["created_at"],
                     ),
@@ -730,6 +752,15 @@ def _threadsdash_post_with_metric_history(
         "postId": history_row.get("post_id"),
         "snapshotAt": history_row.get("snapshot_at"),
         "hoursSincePublish": history_row.get("hours_since_publish"),
+        "captureWindow": history_row.get("capture_window"),
+        "sourcePayloadFingerprint": hashlib.sha256(
+            json.dumps(
+                history_row,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
     }
     merged["metadata"] = metadata
     return merged
@@ -790,6 +821,12 @@ def _dead_letter_performance_sync_row(
 def _performance_snapshot_from_row(
     *, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]
 ) -> dict[str, Any]:
+    row_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    history_binding = (
+        row_metadata.get("threadsdash_metric_history")
+        if isinstance(row_metadata.get("threadsdash_metric_history"), dict)
+        else {}
+    )
     metrics_meta = _merged_metric_metadata(row.get("metadata"))
     if row.get("history_source") == "metric_history":
         snapshot_at = row.get("metrics_updated_at")
@@ -840,6 +877,7 @@ def _performance_snapshot_from_row(
     )
     raw_row = dict(row)
     raw_row["metric_contract"] = metric_contract
+    imported_at = utc_now()
     return {
         "id": new_id("perf"),
         "campaign_id": campaign_id,
@@ -944,6 +982,20 @@ def _performance_snapshot_from_row(
         "watch_time_seconds": _watch_time_seconds(row, metrics_meta),
         "metrics_eligible": 1 if meta.get("metrics_eligible") else 0,
         "history_source": row.get("history_source") or "post_row_fallback",
+        "source_metric_history_id": history_binding.get("id"),
+        "source_platform_post_id": row.get("platform_post_id")
+        or row.get("instagram_media_id")
+        or row.get("threads_post_id"),
+        "source_observation_fingerprint": history_binding.get(
+            "sourcePayloadFingerprint"
+        ),
+        "metric_window": history_binding.get("captureWindow")
+        or (
+            f"{history_binding['hoursSincePublish']}h"
+            if history_binding.get("hoursSincePublish") is not None
+            else None
+        ),
+        "imported_at": imported_at,
         "lineage_v2_valid": 1
         if not meta.get("learning_lineage_blocking_reasons")
         and lineage_v2_is_learning_traceable(
@@ -960,7 +1012,7 @@ def _performance_snapshot_from_row(
         )
         or [],
         "raw_json": json.dumps(raw_row, ensure_ascii=False, sort_keys=True),
-        "created_at": utc_now(),
+        "created_at": imported_at,
     }
 
 
@@ -1039,7 +1091,10 @@ def _repair_learning_lineage_from_local_asset(
     stored_lineage_path = str(stored_source.get("sourceLineagePath") or "").strip()
     incoming_lineage_path = str(incoming_source.get("sourceLineagePath") or "").strip()
     if stored_lineage_path and incoming_lineage_path != stored_lineage_path:
-        if incoming_lineage_path:
+        if (
+            incoming_lineage_path
+            and Path(incoming_lineage_path).name != Path(stored_lineage_path).name
+        ):
             blockers.append("sourceLineagePath_conflict")
         else:
             incoming_source["sourceLineagePath"] = stored_lineage_path
@@ -1225,6 +1280,8 @@ def _metrics_eligibility_for_threadsdash_row(
         ):
             blockers.append("quarantined_asset")
         if asset:
+            if asset.get("review_state") == "rejected":
+                blockers.append("operator_rejected_asset")
             local_content_hash = asset.get("content_hash")
             if (
                 local_content_hash
@@ -1437,63 +1494,4 @@ def _default_metric_names_for_surface(surface: str) -> list[str]:
 def _nested_dict(value: Any, key: str) -> dict[str, Any] | None:
     if isinstance(value, dict) and isinstance(value.get(key), dict):
         return value[key]
-    return None
-
-
-def _int_metric(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> int | None:
-    value = _metric_value(row, meta, *keys)
-    if value is None or value == "":
-        return None
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _float_metric(
-    row: dict[str, Any], meta: dict[str, Any], *keys: str
-) -> float | None:
-    value = _metric_value(row, meta, *keys)
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _watch_time_seconds(row: dict[str, Any], meta: dict[str, Any]) -> float | None:
-    """Normalize ThreadsDashboard watch-time fields to total seconds.
-
-    Creator OS stores total watch time in ``performance_snapshots``. Explicit
-    normalized fields already use seconds. Meta's Reel insight fields are raw
-    milliseconds: prefer total view time, or derive it from average watch time
-    and views when the total is unavailable.
-    """
-    normalized = _float_metric(
-        row, meta, "watch_time_seconds", "watchTimeSeconds", "watch_time"
-    )
-    if normalized is not None:
-        return normalized
-
-    total_ms = _float_metric(row, meta, "ig_reels_video_view_total_time")
-    if total_ms is not None:
-        return total_ms / 1000.0
-
-    average_ms = _float_metric(row, meta, "ig_reels_avg_watch_time")
-    if average_ms is None:
-        return None
-    views = _int_metric(row, meta, "views", "view_count", "views_count", "ig_views")
-    if views is None:
-        return None
-    return average_ms * views / 1000.0
-
-
-def _metric_value(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if row.get(key) is not None:
-            return row.get(key)
-    for key in keys:
-        if meta.get(key) is not None:
-            return meta.get(key)
     return None

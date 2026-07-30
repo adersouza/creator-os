@@ -3,6 +3,8 @@ from __future__ import annotations
 from .audio_cache_schema import AUDIO_CACHE_SCHEMA
 from .content_director_schema import CONTENT_DIRECTOR_SCHEMA
 from .existing_media_schema import EXISTING_MEDIA_SCHEMA
+from .ownership_schema import OWNERSHIP_SCHEMA
+from .recovery_schema import RECOVERY_SCHEMA
 from .reference_audio_schema import REFERENCE_AUDIO_SCHEMA
 
 BASE_SCHEMA = """
@@ -482,6 +484,7 @@ CREATE TABLE IF NOT EXISTS audit_reports (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
   rendered_asset_id TEXT NOT NULL,
+  subject_sha256 TEXT,
   contentforge_run_id TEXT,
   report_path TEXT NOT NULL,
   score INTEGER NOT NULL,
@@ -540,6 +543,7 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
   rendered_asset_id TEXT NOT NULL,
+  subject_sha256 TEXT,
   decision TEXT NOT NULL,
   notes TEXT,
   created_at TEXT NOT NULL,
@@ -627,6 +631,11 @@ CREATE TABLE IF NOT EXISTS performance_snapshots (
   metrics_eligible INTEGER NOT NULL DEFAULT 0,
   history_source TEXT,
   lineage_v2_valid INTEGER NOT NULL DEFAULT 0,
+  source_metric_history_id TEXT,
+  source_platform_post_id TEXT,
+  source_observation_fingerprint TEXT,
+  metric_window TEXT,
+  imported_at TEXT,
   raw_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   UNIQUE(post_id, snapshot_at),
@@ -719,6 +728,14 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
   job_type TEXT NOT NULL,
   campaign_id TEXT,
   status TEXT NOT NULL DEFAULT 'queued',
+  effect_state TEXT NOT NULL DEFAULT 'PRE_EFFECT',
+  recovery_policy TEXT NOT NULL DEFAULT 'NEVER_AUTOMATIC',
+  work_item_id TEXT,
+  authorization_id TEXT,
+  attempt_id TEXT,
+  external_operation_id TEXT,
+  reconciliation_classification TEXT,
+  reconciliation_json TEXT NOT NULL DEFAULT '{}',
   input_json TEXT NOT NULL DEFAULT '{}',
   result_json TEXT NOT NULL DEFAULT '{}',
   error TEXT,
@@ -1476,4 +1493,6 @@ SCHEMA = (
     + CONTENT_DIRECTOR_SCHEMA
     + EXISTING_MEDIA_SCHEMA
     + REFERENCE_AUDIO_SCHEMA
+    + RECOVERY_SCHEMA
+    + OWNERSHIP_SCHEMA
 )

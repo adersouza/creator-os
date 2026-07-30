@@ -25,6 +25,56 @@ def prepare_source_creative_evidence(source: dict[str, Any]) -> dict[str, Any]:
     return source
 
 
+def source_approval_binding(
+    factory: Any,
+    source: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    if (
+        factory.conn.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'activity_events'
+            """
+        ).fetchone()
+        is None
+    ):
+        return None
+    row = factory.conn.execute(
+        """
+        SELECT id, metadata_json, created_at
+        FROM activity_events
+        WHERE source_asset_id = ?
+          AND event_type = 'source_approval_decided'
+          AND status = 'success'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (source["id"],),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        metadata = json.loads(str(row["metadata_json"]))
+    except json.JSONDecodeError:
+        return None
+    if (
+        not isinstance(metadata, dict)
+        or str(metadata.get("decision") or "").lower() != "approved"
+        or metadata.get("sourceAssetId") != source["id"]
+        or str(metadata.get("sha256") or "").lower()
+        != str(source["content_hash"]).lower()
+    ):
+        return None
+    material = {
+        "approvalEventId": str(row["id"]),
+        "sourceAssetId": str(source["id"]),
+        "sourceSha256": str(source["content_hash"]).lower(),
+        "decidedAt": str(row["created_at"]),
+        "metadata": metadata,
+    }
+    return {**material, "approvalFingerprint": _fingerprint(material)}
+
+
 def build_job_creative_evidence(
     *,
     creator: str,
@@ -63,6 +113,7 @@ def persist_asset_creative_evidence(
             **(
                 {
                     "referenceVideo": job["referenceVideo"],
+                    "recreationAnchorApproval": job.get("recreationAnchorApproval"),
                     "recreationCharacterCompatibility": job.get(
                         "recreationCharacterCompatibility"
                     ),
@@ -72,6 +123,33 @@ def persist_asset_creative_evidence(
             ),
         }
     )
+    if job.get("referenceVideo"):
+        approval = job.get("recreationAnchorApproval")
+        approval = approval if isinstance(approval, Mapping) else {}
+        metadata["recreationReview"] = {
+            "schema": "campaign_factory.recreate_reel_review.v1",
+            "finalSha256": registered["content_hash"],
+            "referenceVideoSha256": job["referenceVideoSha256"],
+            "approvedAnchorSha256": approval.get("anchorFileSha256"),
+            "canonicalCreatorReferences": [
+                {
+                    "sourceAssetId": job["sourceAssetId"],
+                    "sha256": job["sourceSha256"],
+                }
+            ],
+            "identityComparisonRequired": {
+                "approvedAnchor": True,
+                "canonicalCreatorReferences": True,
+            },
+            "identityComparisonStatus": "operator_review_required",
+            "providerExecutionStatus": "completed",
+            "technicalArtifactStatus": "completed",
+            "creativeDecision": "pending",
+            "publishability": "blocked_pending_explicit_final_approval",
+            "learningEligible": False,
+            "wouldPost": None,
+            "operatorReviewRequired": True,
+        }
     conn.execute(
         "UPDATE rendered_assets SET metadata_json = ? WHERE id = ?",
         (json.dumps(metadata, sort_keys=True, separators=(",", ":")), registered["id"]),

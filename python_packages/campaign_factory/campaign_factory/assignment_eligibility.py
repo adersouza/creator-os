@@ -105,6 +105,8 @@ def evaluate_assignment_eligibility(
     when = _parse_time(planned_at) or datetime.now(UTC)
     reason_codes: list[str] = []
     matches: list[dict[str, Any]] = []
+    if asset.get("review_state") == "rejected":
+        reason_codes.append("operator_rejected")
 
     if destination and not (
         identity["sourceFamilyId"] or identity["perceptualFingerprint"]
@@ -130,6 +132,7 @@ def evaluate_assignment_eligibility(
         "schema": SCHEMA,
         "allowed": not reason_codes,
         "reasonCodes": reason_codes,
+        "variantCooldownCheck": reason_codes[0] if reason_codes else "clear",
         "inputs": {
             "renderedAssetId": rendered_asset_id,
             "campaignId": asset["campaign_id"],

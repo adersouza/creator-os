@@ -12,20 +12,29 @@ from typing import Any
 import campaign_factory.production_lane as production_lane
 import pytest
 from campaign_factory.production_higgsfield_authorization import (
+    _authorize_batch_balance,
     _completed_higgsfield_recovery,
+    higgsfield_request,
     higgsfield_spend_scope,
 )
 from campaign_factory.production_lane import plan_production_batch
+from campaign_factory.production_prompts import CREATOR_SOUL_IDS
 from campaign_factory.recreate_reel import (
     RECREATION_REVIEW_FIELDS,
     analyze_reference_reel,
     build_recreation_review,
+)
+from creator_os_core.provider_spend import sign_authorization
+from creator_os_core.recreation_anchor_approval import (
+    write_recreation_anchor_approval,
 )
 from PIL import Image
 from reel_factory.higgsfield_production import (
     HiggsfieldProductionRequest,
     build_higgsfield_production_plan,
 )
+
+from pipeline_contracts import validate_provider_spend_authorization
 
 
 def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
@@ -115,6 +124,29 @@ def _reference_elements(tmp_path: Path, creator: str = "stacey") -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _anchor_approval(
+    tmp_path: Path,
+    *,
+    source: Path,
+    reference: Path,
+    soul_id: str = "soul-stacey",
+) -> dict[str, Any]:
+    return write_recreation_anchor_approval(
+        output_dir=tmp_path / "anchor-approvals",
+        creator="stacey",
+        soul_id=soul_id,
+        anchor_generation_id="anchor-generation-1",
+        anchor_file=source,
+        prompt_pack_id="prompt-pack-1",
+        prompt_pack_fingerprint="a" * 64,
+        anchor_prompt_fingerprint="b" * 64,
+        creator_image_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+        reference_video_sha256=hashlib.sha256(reference.read_bytes()).hexdigest(),
+        selected_composition_frame_sha256="c" * 64,
+        approved_by="operator@test",
+    )
 
 
 def _capabilities() -> dict[str, Any]:
@@ -214,12 +246,13 @@ def test_seedance_request_uses_verified_video_and_image_reference_roles(
     source = tmp_path / "source.png"
     Image.new("RGB", (360, 640), "purple").save(source)
     reference = _reference(tmp_path)
+    approval = _anchor_approval(tmp_path, source=source, reference=reference)
     request = HiggsfieldProductionRequest(
         recipe_id="higgsfield_recreate_reel",
         creator="stacey",
         soul_id="soul-stacey",
-        source_approval="source-approved",
-        source_image_path=source,
+        source_approval=approval["approvalFingerprint"],
+        source_image_path=Path(approval["anchorFilePath"]),
         driving_video_path=reference,
         output_path=tmp_path / "output.mp4",
         review_root=tmp_path / "review",
@@ -231,17 +264,30 @@ def test_seedance_request_uses_verified_video_and_image_reference_roles(
         duration_seconds=5,
         max_credits=30,
         reference_elements_path=_reference_elements(tmp_path),
+        recreation_anchor_approval=approval,
     )
     plan = build_higgsfield_production_plan(
         request,
         capabilities=_capabilities(),
     )
     command = plan["command"]
-    assert command[command.index("--image-references") + 1] == str(source)
+    assert (
+        command[command.index("--image-references") + 1] == approval["anchorFilePath"]
+    )
     assert command[command.index("--video-references") + 1] == str(reference)
     assert command[command.index("--generate_audio") + 1] == "false"
     assert command[3] == "seedance_2_0"
     assert "kling3_0_motion_control" not in command
+    assert plan["source"]["kind"] == "approved_recreation_anchor"
+    assert (
+        plan["recreationAnchorApproval"]["approvalFingerprint"]
+        == approval["approvalFingerprint"]
+    )
+    assert plan["referenceElement"]["deliveryMethod"] == "prompt_token"
+    assert (
+        plan["referenceElement"]["fileSha256"]
+        == hashlib.sha256(_reference_elements(tmp_path).read_bytes()).hexdigest()
+    )
 
 
 def test_talking_reference_fails_before_provider_planning(tmp_path: Path) -> None:
@@ -284,7 +330,19 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
             {
                 "status": "completed",
                 "requestFingerprint": fingerprint,
+                "providerRequestFingerprint": fingerprint,
+                "executionFingerprint": "e" * 64,
+                "workItemId": "job-1",
+                "attemptId": "pipeline-1:1",
+                "authorizationId": "authorization-1",
                 "generationId": "generation-1",
+                "model": "seedance_2_0",
+                "seed": 42,
+                "creditQuote": {
+                    "provider": "higgsfield",
+                    "amount": 8.0,
+                    "unit": "higgsfield_credits",
+                },
                 "source": {"sha256": source_sha},
                 "drivingVideo": {"sha256": reference_sha},
                 "finalOutput": {"path": str(output), "sha256": output_sha},
@@ -295,12 +353,12 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
     recovery = _completed_higgsfield_recovery(
         {
             "providerOutputPath": str(output),
+            "providerReviewRoot": str(review_root),
+            "jobId": "job-1",
             "sourceSha256": source_sha,
             "referenceVideoSha256": reference_sha,
-        },
-        provider_plan={
-            "reviewRoot": str(review_root),
-            "requestFingerprint": fingerprint,
+            "seed": 42,
+            "productionRecipe": {"stages": [{"providerModel": "seedance_2_0"}]},
         },
     )
 
@@ -310,6 +368,15 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
         "generationId": "generation-1",
         "outputPath": str(output),
         "outputSha256": output_sha,
+        "authorizationId": "authorization-1",
+        "attemptId": "pipeline-1:1",
+        "providerRequestFingerprint": fingerprint,
+        "executionFingerprint": "e" * 64,
+        "creditQuote": {
+            "provider": "higgsfield",
+            "amount": 8.0,
+            "unit": "higgsfield_credits",
+        },
     }
 
 
@@ -327,7 +394,18 @@ def test_completed_receipt_recovery_rejects_wrong_source(tmp_path: Path) -> None
             {
                 "status": "completed",
                 "requestFingerprint": fingerprint,
+                "providerRequestFingerprint": fingerprint,
+                "workItemId": "job-1",
+                "attemptId": "pipeline-1:1",
+                "authorizationId": "authorization-1",
                 "generationId": "generation-1",
+                "model": "seedance_2_0",
+                "seed": 42,
+                "creditQuote": {
+                    "provider": "higgsfield",
+                    "amount": 8.0,
+                    "unit": "higgsfield_credits",
+                },
                 "source": {"sha256": "b" * 64},
                 "drivingVideo": {"sha256": "c" * 64},
                 "finalOutput": {
@@ -343,12 +421,12 @@ def test_completed_receipt_recovery_rejects_wrong_source(tmp_path: Path) -> None
         _completed_higgsfield_recovery(
             {
                 "providerOutputPath": str(output),
+                "providerReviewRoot": str(review_root),
+                "jobId": "job-1",
                 "sourceSha256": "d" * 64,
                 "referenceVideoSha256": "c" * 64,
-            },
-            provider_plan={
-                "reviewRoot": str(review_root),
-                "requestFingerprint": fingerprint,
+                "seed": 42,
+                "productionRecipe": {"stages": [{"providerModel": "seedance_2_0"}]},
             },
         )
 
@@ -370,6 +448,77 @@ def test_recreate_reel_rejects_unapproved_creator_source(tmp_path: Path) -> None
 def test_recreate_reel_is_single_request_only(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="exactly one output"):
         _plan(tmp_path, count=2)
+
+
+def test_paid_request_requires_and_uses_exact_approved_anchor(tmp_path: Path) -> None:
+    factory = _factory(tmp_path)
+    reference = _reference(tmp_path)
+    source_row = factory.conn.execute(
+        "SELECT * FROM source_assets WHERE id = 'source-stacey'"
+    ).fetchone()
+    assert source_row is not None
+    source = Path(source_row["stored_path"])
+    anchor = tmp_path / "scene-matched-anchor.png"
+    Image.new("RGB", (360, 640), "gold").save(anchor)
+    prompt_pack = {
+        "promptPackFingerprint": "a" * 64,
+        "seedancePrompt": (
+            "Use the approved anchor as the exact person and follow the reference "
+            "motion with stable identity."
+        ),
+        "klingPrompt": "Use the approved anchor as the exact person.",
+        "promptPlanning": {},
+        "cache": {"providerCallMade": False},
+    }
+    approval = write_recreation_anchor_approval(
+        output_dir=tmp_path / "anchor-approvals",
+        creator="stacey",
+        soul_id=CREATOR_SOUL_IDS["stacey"],
+        anchor_generation_id="anchor-generation-1",
+        anchor_file=anchor,
+        prompt_pack_id="prompt-pack-1",
+        prompt_pack_fingerprint=prompt_pack["promptPackFingerprint"],
+        anchor_prompt_fingerprint="b" * 64,
+        creator_image_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+        reference_video_sha256=hashlib.sha256(reference.read_bytes()).hexdigest(),
+        selected_composition_frame_sha256="c" * 64,
+        approved_by="operator@test",
+    )
+    batch = _plan(
+        tmp_path,
+        factory=factory,
+        reference_video_path=reference,
+        prompt_pack_provider=lambda **_kwargs: prompt_pack,
+        recreation_anchor_approval_path=Path(approval["receiptPath"]),
+    )
+    job = batch["jobs"][0]
+    job["providerOutputPath"] = str(tmp_path / "provider-output.mp4")
+    job["providerReviewRoot"] = str(tmp_path / "provider-review")
+    request = higgsfield_request(job, max_credits=20)
+
+    retained_anchor = Path(approval["anchorFilePath"])
+    assert Path(request.source_image_path) == retained_anchor
+    assert retained_anchor != anchor.resolve()
+    assert request.source_approval == approval["approvalFingerprint"]
+    assert job["sourcePath"] == str(source)
+    assert (
+        job["recreationAnchorSha256"] == hashlib.sha256(anchor.read_bytes()).hexdigest()
+    )
+
+    retained_anchor.write_bytes(b"changed after approval")
+    with pytest.raises(PermissionError, match="sha_mismatch"):
+        higgsfield_request(job, max_credits=20)
+
+
+def test_paid_request_without_anchor_approval_fails_before_quote(
+    tmp_path: Path,
+) -> None:
+    job = _plan(tmp_path)["jobs"][0]
+    with pytest.raises(
+        PermissionError,
+        match="recreation_anchor_approval_required_before_quote",
+    ):
+        higgsfield_request(job, max_credits=20)
 
 
 def test_recreation_review_keeps_fidelity_dimensions_separate(tmp_path: Path) -> None:
@@ -409,6 +558,32 @@ def test_passive_selfie_remains_kling_default(tmp_path: Path) -> None:
     assert (
         batch["jobs"][0]["productionRecipe"]["modelId"] == "higgsfield_kling3_turbo_i2v"
     )
+
+
+def test_passive_paid_request_requires_exact_source_approval_fingerprint(
+    tmp_path: Path,
+) -> None:
+    job = plan_production_batch(
+        _factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+    )["jobs"][0]
+    job["providerOutputPath"] = str(tmp_path / "output.mp4")
+    job["providerReviewRoot"] = str(tmp_path / "review")
+
+    with pytest.raises(
+        PermissionError,
+        match="exact_source_approval_fingerprint_required",
+    ):
+        higgsfield_request(job, max_credits=20)
+
+    job["sourceApproval"] = {"approvalFingerprint": "a" * 64}
+    request = higgsfield_request(job, max_credits=20)
+    assert request.source_approval == "a" * 64
 
 
 def test_reference_analysis_is_bounded_and_retains_private_identity(
@@ -497,13 +672,15 @@ def test_wrong_creator_inventory_cannot_be_selected(tmp_path: Path) -> None:
 def test_soul_identity_remains_bound_in_provider_plan(tmp_path: Path) -> None:
     source = tmp_path / "source.png"
     Image.new("RGB", (360, 640), "purple").save(source)
+    reference = _reference(tmp_path)
+    approval = _anchor_approval(tmp_path, source=source, reference=reference)
     request = HiggsfieldProductionRequest(
         recipe_id="higgsfield_recreate_reel",
         creator="stacey",
         soul_id="soul-stacey",
-        source_approval="source-approved",
-        source_image_path=source,
-        driving_video_path=_reference(tmp_path),
+        source_approval=approval["approvalFingerprint"],
+        source_image_path=Path(approval["anchorFilePath"]),
+        driving_video_path=reference,
         output_path=tmp_path / "output.mp4",
         review_root=tmp_path / "review",
         prompt="Closely follow broad structure with stable creator identity.",
@@ -511,6 +688,7 @@ def test_soul_identity_remains_bound_in_provider_plan(tmp_path: Path) -> None:
         duration_seconds=5,
         max_credits=30,
         reference_elements_path=_reference_elements(tmp_path),
+        recreation_anchor_approval=approval,
     )
     plan = build_higgsfield_production_plan(request, capabilities=_capabilities())
     assert plan["soul"]["id"] == "soul-stacey"
@@ -523,12 +701,13 @@ def test_quote_contract_uses_same_reference_roles_as_submission(
     source = tmp_path / "source.png"
     Image.new("RGB", (360, 640), "purple").save(source)
     reference = _reference(tmp_path)
+    approval = _anchor_approval(tmp_path, source=source, reference=reference)
     request = HiggsfieldProductionRequest(
         recipe_id="higgsfield_recreate_reel",
         creator="stacey",
         soul_id="soul-stacey",
-        source_approval="source-approved",
-        source_image_path=source,
+        source_approval=approval["approvalFingerprint"],
+        source_image_path=Path(approval["anchorFilePath"]),
         driving_video_path=reference,
         output_path=tmp_path / "output.mp4",
         review_root=tmp_path / "review",
@@ -537,22 +716,108 @@ def test_quote_contract_uses_same_reference_roles_as_submission(
         duration_seconds=5,
         max_credits=30,
         reference_elements_path=_reference_elements(tmp_path),
+        recreation_anchor_approval=approval,
     )
     plan = build_higgsfield_production_plan(request, capabilities=_capabilities())
     assert plan["quoteCommand"][2:4] == ["cost", "seedance_2_0"]
     quote = plan["quoteCommand"]
-    assert quote[quote.index("--image-references") + 1] == str(source)
+    assert quote[quote.index("--image-references") + 1] == approval["anchorFilePath"]
     assert quote[quote.index("--video-references") + 1] == str(reference)
 
 
-def test_spend_scope_binds_both_creator_and_reference_bytes(tmp_path: Path) -> None:
+def test_spend_scope_binds_approved_anchor_and_reference_bytes(tmp_path: Path) -> None:
     job = _plan(tmp_path)["jobs"][0]
-    scope = higgsfield_spend_scope(job)
+    anchor = tmp_path / "approved-anchor.png"
+    Image.new("RGB", (360, 640), "gold").save(anchor)
+    approval = write_recreation_anchor_approval(
+        output_dir=tmp_path / "anchor-approvals",
+        creator="stacey",
+        soul_id=CREATOR_SOUL_IDS["stacey"],
+        anchor_generation_id="anchor-generation-1",
+        anchor_file=anchor,
+        prompt_pack_id="prompt-pack-1",
+        prompt_pack_fingerprint="a" * 64,
+        anchor_prompt_fingerprint="b" * 64,
+        creator_image_sha256=job["sourceSha256"],
+        reference_video_sha256=job["referenceVideoSha256"],
+        selected_composition_frame_sha256="c" * 64,
+        approved_by="operator@test",
+    )
+    job["promptCard"]["openaiPromptPackFingerprint"] = "a" * 64
+    job["recreationAnchorApprovalPath"] = approval["receiptPath"]
+    job["recreationAnchorApprovalFingerprint"] = approval["approvalFingerprint"]
+    job["recreationAnchorPath"] = approval["anchorFilePath"]
+    job["recreationAnchorSha256"] = approval["anchorFileSha256"]
+    stage = job["productionRecipe"]["stages"][0]
+    reference_elements = _reference_elements(tmp_path)
+    request = HiggsfieldProductionRequest(
+        recipe_id="higgsfield_recreate_reel",
+        creator="stacey",
+        soul_id=CREATOR_SOUL_IDS["stacey"],
+        source_approval=approval["approvalFingerprint"],
+        source_image_path=Path(approval["anchorFilePath"]),
+        driving_video_path=Path(job["referenceVideoPath"]),
+        output_path=tmp_path / "output.mp4",
+        review_root=tmp_path / "review",
+        prompt=job["prompt"],
+        model=stage["providerModel"],
+        duration_seconds=stage["durationSeconds"],
+        max_credits=30,
+        seed=job["seed"],
+        reference_elements_path=reference_elements,
+        work_item_id=job["jobId"],
+        attempt_id="pipeline-1:1",
+        recreation_anchor_approval=approval,
+        public_mode="recreate_reel",
+        campaign=job["campaign"],
+        cohort_id=job["jobId"],
+        prompt_builder_fingerprint="f" * 64,
+        batch_balance_snapshot_fingerprint="9" * 64,
+    )
+    capabilities = _capabilities()
+    capabilities["souls"][0]["id"] = CREATOR_SOUL_IDS["stacey"]
+    provider_plan = build_higgsfield_production_plan(request, capabilities=capabilities)
+    scope = higgsfield_spend_scope(job, provider_plan=provider_plan)
     assert scope["provider"] == "higgsfield"
     assert scope["providerModels"] == ["seedance_2_0"]
-    assert scope["startImageSha256"] == job["sourceSha256"]
-    assert scope["videoReferenceSha256"] == job["referenceVideoSha256"]
+    assert scope["source"]["sha256"] == approval["anchorFileSha256"]
+    assert scope["drivingVideo"]["sha256"] == job["referenceVideoSha256"]
+    assert (
+        scope["recreationAnchorApproval"]["approvalFingerprint"]
+        == approval["approvalFingerprint"]
+    )
+    assert scope["referenceElement"]["fileSha256"]
+    assert scope["resolvedPromptSha256"]
+    assert scope["providerCommandFingerprint"]
     assert scope["providerCallCount"] == 1
+    assert scope["requestFingerprint"] == provider_plan["providerRequestFingerprint"]
+    changed_elements = json.loads(reference_elements.read_text(encoding="utf-8"))
+    changed_elements[0]["revision"] = 2
+    reference_elements.write_text(json.dumps(changed_elements), encoding="utf-8")
+    changed_plan = build_higgsfield_production_plan(request, capabilities=capabilities)
+    assert (
+        changed_plan["providerRequestFingerprint"]
+        != provider_plan["providerRequestFingerprint"]
+    )
+    authorization = sign_authorization(
+        {
+            "schema": "campaign_factory.provider_spend_authorization.v1",
+            "authorizationId": "authorization-1",
+            "reservationId": "reservation-1",
+            "issuer": "campaign_factory",
+            "status": "authorized",
+            "issuedAt": "2026-07-29T12:00:00Z",
+            "expiresAt": "2026-07-29T12:05:00Z",
+            "scope": scope,
+            "providerQuote": {
+                "provider": "higgsfield",
+                "amount": 8.0,
+                "unit": "higgsfield_credits",
+            },
+        },
+        secret="test-only-provider-secret-at-least-32-bytes",
+    )
+    validate_provider_spend_authorization(authorization)
 
 
 def test_dry_run_quotes_but_never_authorizes_or_submits(
@@ -587,6 +852,37 @@ def test_dry_run_quotes_but_never_authorizes_or_submits(
     assert result["paidGenerationAuthorized"] is False
     assert result["providerQuoteStatus"] == "quoted_not_authorized"
     assert result["quotedProviderCredits"] == 12.5
+
+
+def test_complete_batch_must_fit_one_balance_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    factory = _factory(tmp_path)
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "1")
+    jobs = [
+        {
+            "jobId": f"job-{index}",
+            "quotedProviderCredits": 15.0,
+            "_higgsfieldCapabilities": {
+                "observedAt": "2026-07-29T12:00:00Z",
+                "authentication": {"credits": 20.0},
+            },
+        }
+        for index in range(2)
+    ]
+
+    with pytest.raises(
+        PermissionError,
+        match="complete_batch_exceeds_available_balance",
+    ):
+        _authorize_batch_balance(factory, jobs)
+
+    assert (
+        factory.conn.execute(
+            "SELECT COUNT(*) FROM provider_spend_authorizations"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_apply_requires_reference_authorization_before_spend(

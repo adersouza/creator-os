@@ -98,6 +98,8 @@ def fulfill_embedded_trending(
                 "trendRank": candidate.current_rank,
                 "trendVelocity": candidate.usage_velocity,
                 "rankedScore": ranked.score,
+                "rankingComponents": ranked.components,
+                "finalRank": ranked.final_rank,
                 "bucket": ranked.bucket,
                 "selectedReason": list(ranked.reasons),
                 "advisoryLabels": candidate.advisory_labels,

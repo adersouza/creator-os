@@ -32,6 +32,10 @@ from .threadsdash_draft_integrity import (
     verify_rendered_media_asset,
     with_content_fingerprint,
 )
+from .threadsdash_handoff_evidence import attach_handoff_evidence
+from .threadsdash_inventory_reservations import (
+    active_inventory_reservation as _active_inventory_reservation,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -326,6 +330,11 @@ def build_draft_payloads(
                 destination_content_hash,
             )
             post_key = _stable_export_key("post", draft_key)
+            inventory_reservation = _active_inventory_reservation(
+                factory,
+                rendered_asset_id=asset["renderedAssetId"],
+                account_id=account_id,
+            )
             draft = {
                 "userId": user_id,
                 "workspaceId": os.environ.get("THREADSDASH_WORKSPACE_ID"),
@@ -415,6 +424,12 @@ def build_draft_payloads(
                 "campaignFactoryDraftKey": draft_key,
                 "campaignFactoryMediaKey": media_key,
                 "campaignFactoryPostKey": post_key,
+                "inventoryReservationId": (inventory_reservation or {}).get(
+                    "reservation_id"
+                ),
+                "inventoryReservationStatus": (inventory_reservation or {}).get(
+                    "status"
+                ),
                 "auditStatus": asset.get("auditStatus"),
                 "publishability": publishability,
                 "handoffManifest": publishability.get("handoff_manifest"),
@@ -435,10 +450,17 @@ def build_draft_payloads(
                 draft,
                 account_eligibility=destination.get("accountEligibility"),
             )
+            attach_handoff_evidence(
+                draft,
+                schema=normalized_draft_payload_schema,
+                campaign_id=manifest["campaignId"],
+                source_asset_id=asset["sourceAssetId"],
+            )
             drafts.append(draft)
     return {
         "schema": normalized_draft_payload_schema,
         "campaign": campaign_slug,
+        "exportId": export_id,
         "handoffMode": "review_only" if review_only else "publishable_draft",
         "manifest": manifest,
         "drafts": drafts,
@@ -1252,6 +1274,8 @@ def _draft_metadata(
             "asset_id": draft["renderedAssetId"],
             "source_asset_id": draft["sourceAssetId"],
             "rendered_asset_id": draft["renderedAssetId"],
+            "inventory_reservation_id": draft.get("inventoryReservationId"),
+            "inventory_reservation_status": draft.get("inventoryReservationStatus"),
             "content_hash": draft.get("contentHash"),
             "content_fingerprint": publishability.get("content_fingerprint")
             or publishability.get("contentFingerprint")

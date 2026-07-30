@@ -853,6 +853,9 @@ def build_caption_outcome_context(
         else None,
         "resolvedCaptionRenderPlan": resolved_render_plan,
         "captionBurnedIn": lineage.get("captionBurnedIn") is True,
+        "captionFallback": lineage.get("captionFallback")
+        if isinstance(lineage.get("captionFallback"), dict)
+        else None,
         "captionPixelRenderEvidence": lineage.get("captionPixelRenderEvidence")
         if isinstance(lineage.get("captionPixelRenderEvidence"), dict)
         else None,

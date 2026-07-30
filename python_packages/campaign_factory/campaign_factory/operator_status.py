@@ -6,6 +6,7 @@ import argparse
 import json
 import sqlite3
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 from creator_os_core.sqlite import connect_sqlite
@@ -102,6 +103,107 @@ def learning_status(conn: sqlite3.Connection) -> dict[str, Any]:
         "audioPerformanceRollups": conn.execute(
             "SELECT count(*) FROM audio_performance_rollups"
         ).fetchone()[0],
+    }
+
+
+def recovery_status(conn: sqlite3.Connection) -> dict[str, Any]:
+    jobs = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, job_type, status, effect_state, recovery_policy,
+                   work_item_id, authorization_id, attempt_id,
+                   external_operation_id, reconciliation_classification,
+                   error, updated_at
+            FROM pipeline_jobs
+            WHERE status IN ('queued', 'running')
+              AND (
+                effect_state IN ('AMBIGUOUS', 'EXTERNAL_ID_KNOWN')
+                OR (status = 'queued' AND effect_state = 'PRE_EFFECT')
+              )
+            ORDER BY updated_at, id
+            """
+        ).fetchall()
+    ]
+    failed_capped = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT post_id, snapshot_at, destination, attempt_count,
+                   source_hash, last_error, updated_at
+            FROM learning_fanout_ledger
+            WHERE status = 'failed_capped'
+            ORDER BY updated_at, post_id, destination
+            """
+        ).fetchall()
+    ]
+    categories = {
+        "ambiguousExternalEffects": [
+            row for row in jobs if row["effect_state"] == "AMBIGUOUS"
+        ],
+        "knownProviderIdsAwaitingPolling": [
+            row for row in jobs if row["effect_state"] == "EXTERNAL_ID_KNOWN"
+        ],
+        "preEffectJobs": [row for row in jobs if row["effect_state"] == "PRE_EFFECT"],
+        "failedCappedLearning": failed_capped,
+    }
+    return {
+        "schema": "creator_os.recovery_status.v1",
+        "scope": "recovery",
+        "mappingBlockers": [],
+        "mappingBlockersSummary": "Mapping blockers: none.",
+        "operationalRecoveryGaps": categories,
+        "operationalRecoveryGapCount": sum(len(items) for items in categories.values()),
+    }
+
+
+def draft_freshness_status(
+    conn: sqlite3.Connection, *, max_age_hours: float = 24
+) -> dict[str, Any]:
+    if max_age_hours <= 0:
+        raise ValueError("max draft age must be positive")
+    now = datetime.now(UTC)
+    rows = conn.execute(
+        """
+        SELECT id, campaign_id, manifest_path, user_id, dry_run, status, created_at
+        FROM threadsdash_exports
+        ORDER BY created_at DESC, id DESC
+        """
+    ).fetchall()
+    exports = []
+    for raw in rows:
+        row = dict(raw)
+        try:
+            created = datetime.fromisoformat(
+                str(row["created_at"]).replace("Z", "+00:00")
+            )
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            age_hours = max(
+                0.0,
+                (now - created.astimezone(UTC)).total_seconds() / 3600,
+            )
+        except (TypeError, ValueError):
+            age_hours = None
+        stale = age_hours is None or age_hours > max_age_hours
+        exports.append(
+            {
+                **row,
+                "ageHours": round(age_hours, 3) if age_hours is not None else None,
+                "freshness": "stale" if stale else "fresh",
+                "schedulingAllowedByFreshness": not stale,
+                "requiredAction": "reexport_and_reapprove" if stale else None,
+            }
+        )
+    return {
+        "schema": "creator_os.draft_freshness_report.v1",
+        "policy": {
+            "maxAgeHours": max_age_hours,
+            "invalidTimestampIsStale": True,
+            "staleDraftRequiresReexportAndReapproval": True,
+        },
+        "staleCount": sum(row["freshness"] == "stale" for row in exports),
+        "exports": exports,
     }
 
 
@@ -254,6 +356,9 @@ def _parser() -> argparse.ArgumentParser:
     scope.add_argument("--publication")
     scope.add_argument("--learning", action="store_true")
     scope.add_argument("--audio", action="store_true")
+    scope.add_argument("--drafts", action="store_true")
+    scope.add_argument("--recovery", action="store_true")
+    parser.add_argument("--max-draft-age-hours", type=float, default=24)
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -272,6 +377,12 @@ def main(argv: list[str] | None = None) -> int:
             payload = publication_status(conn, args.publication)
         elif args.learning:
             payload = learning_status(conn)
+        elif args.drafts:
+            payload = draft_freshness_status(
+                conn, max_age_hours=args.max_draft_age_hours
+            )
+        elif args.recovery:
+            payload = recovery_status(conn)
         else:
             payload = audio_status(conn)
     finally:

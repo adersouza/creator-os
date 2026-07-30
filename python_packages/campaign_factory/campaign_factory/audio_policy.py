@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -295,6 +299,25 @@ def build_embedded_trending_audio_intent(
         selected_track.get("acquiredAudioSha256"),
         "acquired audio",
     )
+    processed_segment_sha = _sha256_value(
+        segment.get("processed_segment_sha256"),
+        "processed segment",
+    )
+    segment_start = _nonnegative_float(
+        segment.get("start_offset_seconds"),
+        "segment start",
+    )
+    segment_end = _positive_float(segment.get("end_seconds"), "segment end")
+    segment_duration = _positive_float(
+        segment.get("duration_seconds"),
+        "segment duration",
+    )
+    if segment_end <= segment_start or not math.isclose(
+        segment_end - segment_start,
+        segment_duration,
+        abs_tol=0.01,
+    ):
+        raise ValueError("embedded trending segment bounds are inconsistent")
     if (
         verification.get("status") != "verified"
         or verification.get("audioPresent") is not True
@@ -325,6 +348,7 @@ def build_embedded_trending_audio_intent(
             }
         )
     canonical_artists = selection.get("canonicalArtists")
+    rights = _audio_rights(selection)
     artist_name = (
         ", ".join(str(value) for value in canonical_artists)
         if isinstance(canonical_artists, list)
@@ -359,6 +383,7 @@ def build_embedded_trending_audio_intent(
     operator_selection = {
         key: value for key, value in operator_selection.items() if value is not None
     }
+    rights_allowed = _audio_rights_allow_live(rights)
     return {
         "schema": "pipeline.audio_intent.v1",
         "policy": "embedded_trending_required",
@@ -374,6 +399,7 @@ def build_embedded_trending_audio_intent(
             "owner": "creator_os",
             "proof_required": True,
             "proof_type": "embedded_output_audio_stream",
+            "evidence_class": "EXACT_BYTE_VERIFIED",
             "audio_present": True,
             "output_sha256": output_sha,
             "acquired_audio_sha256": acquired_sha,
@@ -381,6 +407,16 @@ def build_embedded_trending_audio_intent(
             "verification_receipt": verification,
             "verified_at": selected_at,
         },
+        "lineage": {
+            "embeddingReceiptSha256": embedding_receipt_sha256(embedding_receipt),
+            "processedSegmentSha256": processed_segment_sha,
+            "segmentStartSeconds": segment_start,
+            "segmentEndSeconds": segment_end,
+            "acquiredAudioSha256": acquired_sha,
+            "finalMediaSha256": output_sha,
+            "finalAudioFingerprint": audio_fingerprint,
+        },
+        "rights": rights,
         "performance_learning": {
             "canonical_track_id": canonical_track_id,
             "platform_sound_ids": platform_sound_ids,
@@ -392,10 +428,73 @@ def build_embedded_trending_audio_intent(
         "gates": {
             "allow_draft_export": True,
             "allow_preview_schedule": True,
-            "allow_live_schedule": True,
-            "allow_publish": True,
+            "allow_live_schedule": rights_allowed,
+            "allow_publish": rights_allowed,
         },
     }
+
+
+def embedding_receipt_sha256(embedding_receipt: dict[str, Any]) -> str:
+    """Hash the immutable embedding receipt core, excluding its audio-intent view."""
+
+    core = {
+        key: value for key, value in embedding_receipt.items() if key != "audioIntent"
+    }
+    encoded = json.dumps(
+        core,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _audio_rights(selection: dict[str, Any]) -> dict[str, Any]:
+    labels = selection.get("advisoryLabels")
+    source = labels if isinstance(labels, dict) else {}
+    return {
+        "required": source.get("usageRightsRequired") is True,
+        "usageRightsStatus": _clean(source.get("usageRightsStatus"))
+        or "rights_unknown",
+        "rightsSource": _clean(source.get("rightsSource")),
+        "territory": _clean(source.get("territory")),
+        "accountScope": _clean(source.get("accountScope")),
+        "commercialUseAllowed": (
+            source.get("commercialUseAllowed")
+            if isinstance(source.get("commercialUseAllowed"), bool)
+            else None
+        ),
+        "expiresAt": _clean(source.get("expiresAt")),
+        "evidenceReceipt": source.get("evidenceReceipt"),
+    }
+
+
+def _audio_rights_allow_live(rights: dict[str, Any]) -> bool:
+    if rights.get("required") is not True:
+        return True
+    if rights.get("usageRightsStatus") not in {
+        "platform_native_authorized",
+        "operator_supplied_authorized",
+        "licensed",
+    }:
+        return False
+    if rights.get("commercialUseAllowed") is not True:
+        return False
+    if not all(
+        rights.get(key)
+        for key in ("rightsSource", "territory", "accountScope", "evidenceReceipt")
+    ):
+        return False
+    expires_at = rights.get("expiresAt")
+    if not expires_at:
+        return True
+    try:
+        parsed = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC) > datetime.now(UTC)
 
 
 def _sha256_value(value: object, label: str) -> str:
@@ -407,6 +506,30 @@ def _sha256_value(value: object, label: str) -> str:
     ):
         raise ValueError(f"{label} SHA-256 is invalid")
     return cleaned
+
+
+def _nonnegative_float(value: object, label: str) -> float:
+    result = _finite_float(value, label)
+    if result < 0:
+        raise ValueError(f"{label} must be non-negative")
+    return result
+
+
+def _positive_float(value: object, label: str) -> float:
+    result = _finite_float(value, label)
+    if result <= 0:
+        raise ValueError(f"{label} must be positive")
+    return result
+
+
+def _finite_float(value: object, label: str) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} is invalid") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{label} is invalid")
+    return result
 
 
 def _clean(value: object) -> str | None:

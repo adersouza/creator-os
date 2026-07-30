@@ -379,6 +379,7 @@ export const generatedPipelineContractSchemas = {
 	    "schema",
 	    "allowed",
 	    "reasonCodes",
+	    "variantCooldownCheck",
 	    "inputs",
 	    "matches",
 	    "policy",
@@ -396,6 +397,7 @@ export const generatedPipelineContractSchemas = {
 	      "items": {
 	        "type": "string",
 	        "enum": [
+	          "operator_rejected",
 	          "missing_identity_metadata",
 	          "exact_content_reuse_window",
 	          "source_family_reuse_window",
@@ -403,6 +405,17 @@ export const generatedPipelineContractSchemas = {
 	        ]
 	      },
 	      "uniqueItems": true
+	    },
+	    "variantCooldownCheck": {
+	      "type": "string",
+	      "enum": [
+	        "clear",
+	        "operator_rejected",
+	        "missing_identity_metadata",
+	        "exact_content_reuse_window",
+	        "source_family_reuse_window",
+	        "perceptual_reuse_window"
+	      ]
 	    },
 	    "inputs": {
 	      "type": "object",
@@ -557,6 +570,31 @@ export const generatedPipelineContractSchemas = {
 	        "properties": {
 	          "reasonCodes": {
 	            "minItems": 1
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "allowed": {
+	            "const": true
+	          }
+	        }
+	      },
+	      "then": {
+	        "properties": {
+	          "variantCooldownCheck": {
+	            "const": "clear"
+	          }
+	        }
+	      },
+	      "else": {
+	        "not": {
+	          "properties": {
+	            "variantCooldownCheck": {
+	              "const": "clear"
+	            }
 	          }
 	        }
 	      }
@@ -842,13 +880,115 @@ export const generatedPipelineContractSchemas = {
 	              },
 	              "proof_type": {
 	                "const": "embedded_output_audio_stream"
+	              },
+	              "evidence_class": {
+	                "const": "EXACT_BYTE_VERIFIED"
 	              }
 	            }
+	          },
+	          "lineage": {
+	            "type": "object",
+	            "required": [
+	              "embeddingReceiptSha256",
+	              "processedSegmentSha256",
+	              "segmentStartSeconds",
+	              "segmentEndSeconds",
+	              "acquiredAudioSha256",
+	              "finalMediaSha256",
+	              "finalAudioFingerprint"
+	            ]
 	          }
 	        },
 	        "required": [
 	          "fulfillment"
 	        ]
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "fulfillment": {
+	            "properties": {
+	              "evidence_class": {
+	                "const": "EXACT_BYTE_VERIFIED"
+	              }
+	            },
+	            "required": [
+	              "evidence_class"
+	            ]
+	          }
+	        },
+	        "required": [
+	          "fulfillment"
+	        ]
+	      },
+	      "then": {
+	        "required": [
+	          "lineage"
+	        ]
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "rights": {
+	            "properties": {
+	              "required": {
+	                "const": true
+	              }
+	            },
+	            "required": [
+	              "required"
+	            ]
+	          }
+	        },
+	        "required": [
+	          "rights"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "rights": {
+	            "required": [
+	              "usageRightsStatus",
+	              "rightsSource",
+	              "territory",
+	              "accountScope",
+	              "commercialUseAllowed",
+	              "evidenceReceipt"
+	            ],
+	            "properties": {
+	              "usageRightsStatus": {
+	                "enum": [
+	                  "platform_native_authorized",
+	                  "operator_supplied_authorized",
+	                  "licensed"
+	                ]
+	              },
+	              "rightsSource": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "territory": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "accountScope": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "commercialUseAllowed": {
+	                "const": true
+	              },
+	              "evidenceReceipt": {
+	                "type": [
+	                  "string",
+	                  "object"
+	                ]
+	              }
+	            }
+	          }
+	        }
 	      }
 	    }
 	  ],
@@ -1370,6 +1510,18 @@ export const generatedPipelineContractSchemas = {
 	            "null"
 	          ]
 	        },
+	        "evidence_class": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "enum": [
+	            "EXACT_BYTE_VERIFIED",
+	            "REQUEST_BOUND_AND_TYPE_CONFIRMED",
+	            "OPERATOR_CONFIRMED",
+	            null
+	          ]
+	        },
 	        "proof_note": {
 	          "type": [
 	            "string",
@@ -1456,6 +1608,107 @@ export const generatedPipelineContractSchemas = {
 	        "verified_at": {
 	          "type": [
 	            "string",
+	            "null"
+	          ]
+	        }
+	      }
+	    },
+	    "lineage": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": false,
+	      "properties": {
+	        "embeddingReceiptSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "processedSegmentSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "segmentStartSeconds": {
+	          "type": "number",
+	          "minimum": 0
+	        },
+	        "segmentEndSeconds": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "acquiredAudioSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "finalMediaSha256": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "finalAudioFingerprint": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        }
+	      }
+	    },
+	    "rights": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": false,
+	      "required": [
+	        "required",
+	        "usageRightsStatus"
+	      ],
+	      "properties": {
+	        "required": {
+	          "type": "boolean"
+	        },
+	        "usageRightsStatus": {
+	          "type": "string",
+	          "enum": [
+	            "platform_native_authorized",
+	            "operator_supplied_authorized",
+	            "licensed",
+	            "rights_unknown",
+	            "blocked"
+	          ]
+	        },
+	        "rightsSource": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "territory": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "accountScope": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "commercialUseAllowed": {
+	          "type": [
+	            "boolean",
+	            "null"
+	          ]
+	        },
+	        "expiresAt": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "format": "date-time"
+	        },
+	        "evidenceReceipt": {
+	          "type": [
+	            "string",
+	            "object",
 	            "null"
 	          ]
 	        }
@@ -3417,7 +3670,7 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "recommendedAction": {
 	          "enum": [
-	            "approve_candidate",
+	            "review_candidate",
 	            "review",
 	            "reject"
 	          ]
@@ -3621,6 +3874,7 @@ export const generatedPipelineContractSchemas = {
 	    "output",
 	    "qcEvidence",
 	    "reviewManifest",
+	    "operatorReview",
 	    "exportProjection",
 	    "contentSemantics",
 	    "operatorAttestation",
@@ -3687,6 +3941,9 @@ export const generatedPipelineContractSchemas = {
 	      }
 	    },
 	    "reviewManifest": {
+	      "$ref": "#/$defs/file"
+	    },
+	    "operatorReview": {
 	      "$ref": "#/$defs/file"
 	    },
 	    "exportProjection": {
@@ -3878,6 +4135,7 @@ export const generatedPipelineContractSchemas = {
 	        "instagramPostCaptionHash",
 	        "burnedCaptionText",
 	        "burnedCaptionHash",
+	        "captionFallbackReason",
 	        "overlaySemanticQcFingerprint",
 	        "captionTimingQcFingerprint",
 	        "publishMode",
@@ -3985,6 +4243,12 @@ export const generatedPipelineContractSchemas = {
 	            {
 	              "type": "null"
 	            }
+	          ]
+	        },
+	        "captionFallbackReason": {
+	          "type": [
+	            "string",
+	            "null"
 	          ]
 	        },
 	        "overlaySemanticQcFingerprint": {
@@ -11432,6 +11696,47 @@ export const generatedPipelineContractSchemas = {
 	      "format": "date-time"
 	    },
 	    "scope": {
+	      "oneOf": [
+	        {
+	          "$ref": "#/$defs/legacyScope"
+	        },
+	        {
+	          "$ref": "#/$defs/exactHiggsfieldVideoScope"
+	        }
+	      ]
+	    },
+	    "providerQuote": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "provider",
+	        "amount",
+	        "unit"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "amount": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "unit": {
+	          "const": "higgsfield_credits"
+	        }
+	      }
+	    },
+	    "signature": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    },
+	    "legacyScope": {
 	      "type": "object",
 	      "additionalProperties": false,
 	      "required": [
@@ -11550,35 +11855,145 @@ export const generatedPipelineContractSchemas = {
 	          "type": "string"
 	        },
 	        "requestFingerprint": {
-	          "type": "string",
-	          "pattern": "^[0-9a-f]{64}$"
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
 	    },
-	    "providerQuote": {
+	    "exactHiggsfieldVideoScope": {
 	      "type": "object",
-	      "additionalProperties": true,
+	      "additionalProperties": false,
 	      "required": [
+	        "publicMode",
 	        "provider",
-	        "amount",
-	        "unit"
+	        "campaign",
+	        "cohortId",
+	        "workItemId",
+	        "attemptId",
+	        "batchBalanceSnapshotFingerprint",
+	        "recipeId",
+	        "creator",
+	        "soulId",
+	        "source",
+	        "sourceApprovalFingerprint",
+	        "recreationAnchorApproval",
+	        "drivingVideo",
+	        "speechAudio",
+	        "referenceElement",
+	        "resolvedPromptSha256",
+	        "promptBuilderFingerprint",
+	        "providerModels",
+	        "providerCallCount",
+	        "seed",
+	        "parameters",
+	        "providerCommandFingerprint",
+	        "requestFingerprint"
 	      ],
 	      "properties": {
+	        "publicMode": {
+	          "enum": [
+	            "calm_animation",
+	            "recreate_reel"
+	          ]
+	        },
 	        "provider": {
 	          "const": "higgsfield"
 	        },
-	        "amount": {
-	          "type": "number",
-	          "exclusiveMinimum": 0
+	        "campaign": {
+	          "type": "string",
+	          "minLength": 1
 	        },
-	        "unit": {
-	          "const": "higgsfield_credits"
+	        "cohortId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "workItemId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "attemptId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "batchBalanceSnapshotFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "recipeId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "creator": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "soulId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "source": {
+	          "type": "object"
+	        },
+	        "sourceApprovalFingerprint": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "recreationAnchorApproval": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "drivingVideo": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "speechAudio": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "referenceElement": {
+	          "type": [
+	            "object",
+	            "null"
+	          ]
+	        },
+	        "resolvedPromptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "promptBuilderFingerprint": {
+	          "type": "string"
+	        },
+	        "providerModels": {
+	          "type": "array",
+	          "minItems": 1,
+	          "maxItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "providerCallCount": {
+	          "const": 1
+	        },
+	        "seed": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ]
+	        },
+	        "parameters": {
+	          "type": "object"
+	        },
+	        "providerCommandFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "requestFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
-	    },
-	    "signature": {
-	      "type": "string",
-	      "pattern": "^[0-9a-f]{64}$"
 	    }
 	  }
 	} as const,

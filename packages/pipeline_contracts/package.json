@@ -6,6 +6,7 @@
   "files": [
     "dist",
     "contract-manifest.json",
+    "pipeline_contracts/ownership_registry.v1.json",
     "pipeline_contracts/schemas"
   ],
   "scripts": {
@@ -21,6 +22,7 @@
       "import": "./dist/index.js"
     },
     "./contract-manifest.json": "./contract-manifest.json",
+    "./ownership-registry": "./pipeline_contracts/ownership_registry.v1.json",
     "./schemas/*": "./pipeline_contracts/schemas/*"
   },
   "dependencies": {

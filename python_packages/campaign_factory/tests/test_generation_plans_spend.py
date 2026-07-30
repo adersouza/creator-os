@@ -1539,6 +1539,19 @@ def test_variation_stage_apply_propagates_bounded_renderer_exhaustion(
 def test_contentforge_static_mp4_audit_allows_expected_static_opening(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    monkeypatch.setattr(
+        "campaign_factory.asset_evidence.verify_final_artifact_integrity",
+        lambda asset: {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": True,
+            "failures": [],
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+    )
     cf = make_factory(tmp_path)
     captured: dict[str, Any] = {}
 

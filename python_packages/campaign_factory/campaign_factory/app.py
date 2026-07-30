@@ -1111,12 +1111,11 @@ def export_td(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             dry_run=body.get("dryRun", True),
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             supabase_storage_bucket=body.get("supabaseStorageBucket")
             or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
             allow_warnings=bool(body.get("allowWarnings")),
+            warning_override_reason=body.get("warningOverrideReason"),
+            warning_override_by=body.get("warningOverrideBy"),
             content_pillar=body.get("contentPillar"),
             cta_type=body.get("ctaType"),
             language=body.get("language"),

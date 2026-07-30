@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import os
-import subprocess
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
@@ -13,7 +12,10 @@ from pathlib import Path
 from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
-from creator_os_core.provider_spend import verify_authorization
+from creator_os_core.recreation_anchor_approval import (
+    inspect_recreation_anchor_approval,
+    load_recreation_anchor_approval,
+)
 
 from . import learning_consumption
 from .audio_policy import AUDIO_POLICIES, build_embedded_trending_audio_intent
@@ -46,17 +48,18 @@ from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
 from .production_batch_results import (
+    failed_provider_execution as _failed_provider_execution,
+)
+from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
 from .production_batch_results import probe_production_video as _probe_production_video
-from .production_batch_results import provider_execution as _provider_execution
-from .production_batch_results import (
-    provider_receipt_summary as _provider_receipt_summary,
-)
+from .production_batch_results import run_production_hard_qc
 from .production_creative_evidence import (
     build_job_creative_evidence,
     persist_asset_creative_evidence,
     prepare_source_creative_evidence,
+    source_approval_binding,
 )
 from .production_creative_evidence import (
     expand_production_job_prompt as _expand_production_job_prompt,
@@ -68,19 +71,22 @@ from .production_higgsfield_authorization import (
     higgsfield_request as _higgsfield_request,
 )
 from .production_higgsfield_authorization import (
+    prepare_authorized_higgsfield_execution as _prepare_authorized_higgsfield_execution,
+)
+from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
 )
 from .production_higgsfield_authorization import (
-    recovered_higgsfield_cost_binding as _recovered_higgsfield_cost_binding,
+    reconcile_recovered_higgsfield_attempt as _reconcile_recovered_higgsfield_attempt,
 )
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
 from .production_prompts import require_creator_soul_id as _require_creator_soul_id
 from .production_source_selection import select_requested_source_assets
 from .provider_spend import (
-    consume_provider_spend_authorization as consume_higgsfield_authorization,
+    ProviderOverspendError,
+    record_provider_execution,
 )
-from .provider_spend import record_provider_execution
 from .recreate_reel import (
     RECREATE_REEL_STAGE,
     analyze_reference_reel,
@@ -442,6 +448,8 @@ def plan_production_batch(
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
     prompt_call_authorized: bool = False,
+    recreation_anchor_approval_path: Path | None = None,
+    recreation_attempt_id: str | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
@@ -451,6 +459,10 @@ def plan_production_batch(
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     if intent in _RECREATE_INTENTS and int(count) != 1:
         raise ValueError("recreate_reel currently supports exactly one output")
+    if recreation_attempt_id is not None and (
+        not recreation_attempt_id.strip() or len(recreation_attempt_id.strip()) > 100
+    ):
+        raise ValueError("recreation attempt id must be 1 to 100 characters")
     creator_slug, _ = _require_creator_soul_id(creator)
     resolved_audio_policy = _audio_policy(audio_preference)
     _validate_intent_audio_policy(intent, resolved_audio_policy)
@@ -492,6 +504,20 @@ def plan_production_batch(
     motion_reference_sha = (
         _sha256_file(motion_reference) if motion_reference is not None else None
     )
+    planned_anchor = (
+        inspect_recreation_anchor_approval(recreation_anchor_approval_path)
+        if intent in _RECREATE_INTENTS and recreation_anchor_approval_path is not None
+        else None
+    )
+    if planned_anchor is not None:
+        assert reference_analysis is not None
+        if (
+            planned_anchor["creator"] != creator_slug
+            or planned_anchor["soulId"] != _CREATOR_SOUL_IDS[creator_slug]
+            or planned_anchor["referenceVideoSha256"]
+            != reference_analysis["originalLocalFile"]["sha256"]
+        ):
+            raise PermissionError("recreation_anchor_approval_binding_mismatch")
     rows = factory.conn.execute(
         """
         SELECT s.*, c.slug AS campaign_slug, m.slug AS creator_slug
@@ -516,6 +542,12 @@ def plan_production_batch(
             continue
         path = raw_path.resolve()
         recorded_sha = str(source["content_hash"])
+        if (
+            planned_anchor is not None
+            and recorded_sha != planned_anchor["creatorImageSha256"]
+        ):
+            incompatible_sources += 1
+            continue
         if not path.is_file() or _sha256_file(path) != recorded_sha:
             substituted_sources += 1
             continue
@@ -534,6 +566,7 @@ def plan_production_batch(
                 "aspectRatio": round(ratio, 6),
             }
         prepare_source_creative_evidence(source)
+        source["sourceApproval"] = source_approval_binding(factory, source)
         if source["compatibility"]["hardBlockers"]:
             incompatible_sources += 1
             continue
@@ -541,6 +574,10 @@ def plan_production_batch(
         seen_source_hashes.add(recorded_sha)
         sources.append(source)
     if not sources:
+        if planned_anchor is not None:
+            raise ValueError(
+                "approved anchor creator image is not exact approved inventory"
+            )
         if incompatible_sources:
             raise ValueError(
                 f"no portrait-reel approved image inventory for creator {creator}"
@@ -575,6 +612,7 @@ def plan_production_batch(
     for index in range(int(count)):
         source = sources[index % len(sources)]
         prompt_pack = None
+        anchor_approval = None
         source_sha = str(source["content_hash"])
         seed = _deterministic_seed(
             creator=creator_slug,
@@ -638,6 +676,30 @@ def plan_production_batch(
             prompt_card, compiled_prompt = compile_video_prompt(
                 prompt_pack, str(recipe["stages"][0]["providerModel"]), prompt_card
             )
+        if intent in _RECREATE_INTENTS and recreation_anchor_approval_path is not None:
+            if not isinstance(prompt_pack, dict):
+                raise PermissionError(
+                    "recreation_anchor_approval_requires_exact_prompt_pack"
+                )
+            assert reference_analysis is not None
+            anchor_approval = load_recreation_anchor_approval(
+                recreation_anchor_approval_path,
+                expected_creator=creator_slug,
+                expected_soul_id=_CREATOR_SOUL_IDS[creator_slug],
+                expected_creator_image_sha256=source_sha,
+                expected_reference_video_sha256=reference_analysis["originalLocalFile"][
+                    "sha256"
+                ],
+                expected_prompt_pack_fingerprint=str(
+                    prompt_pack["promptPackFingerprint"]
+                ),
+            )
+            recipe = build_production_motion_recipe(
+                creator=creator_slug,
+                intent=intent,
+                execution=execution,
+                source_sha256=str(anchor_approval["anchorFileSha256"]),
+            )
         prompt_planning = (
             {
                 **dict(prompt_pack.get("promptPlanning") or {}),
@@ -668,6 +730,21 @@ def plan_production_batch(
                     reference_analysis["originalLocalFile"]["sha256"]
                     if reference_analysis
                     else None
+                ),
+                "recreationAnchor": (
+                    anchor_approval["anchorFileSha256"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAnchorApproval": (
+                    anchor_approval["approvalFingerprint"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAttemptId": (
+                    str(recreation_attempt_id).strip()
+                    if recreation_attempt_id
+                    else "attempt_1"
                 ),
             }
         )
@@ -701,6 +778,7 @@ def plan_production_batch(
                 "sourcePath": source["stored_path"],
                 "sourceSha256": source_sha,
                 "sourceResolution": source.get("sourceResolution"),
+                "sourceApproval": source.get("sourceApproval"),
                 "creator": creator_slug,
                 "intent": intent,
                 "prompt": (
@@ -714,6 +792,32 @@ def plan_production_batch(
                 "compatibility": source["compatibility"],
                 "recreationCharacterCompatibility": source.get(
                     "recreationCharacterCompatibility"
+                ),
+                "recreationAnchorApproval": anchor_approval,
+                "recreationAnchorApprovalPath": (
+                    str(recreation_anchor_approval_path)
+                    if recreation_anchor_approval_path is not None
+                    else None
+                ),
+                "recreationAnchorApprovalFingerprint": (
+                    anchor_approval["approvalFingerprint"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAnchorPath": (
+                    anchor_approval["anchorFilePath"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAnchorSha256": (
+                    anchor_approval["anchorFileSha256"]
+                    if anchor_approval is not None
+                    else None
+                ),
+                "recreationAttemptId": (
+                    str(recreation_attempt_id).strip()
+                    if recreation_attempt_id
+                    else "attempt_1"
                 ),
                 "seed": seed,
                 "requestFingerprint": identity,
@@ -795,6 +899,8 @@ def run_production_batch(
     reference_talking: bool = False,
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
+    recreation_anchor_approval_path: Path | None = None,
+    recreation_attempt_id: str | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -813,6 +919,8 @@ def run_production_batch(
         selected_source_asset_ids=selected_source_asset_ids,
         prompt_pack_provider=prompt_pack_provider,
         prompt_call_authorized=apply,
+        recreation_anchor_approval_path=recreation_anchor_approval_path,
+        recreation_attempt_id=recreation_attempt_id,
     )
     results: list[dict[str, Any]] = []
     if (
@@ -902,6 +1010,9 @@ def run_production_batch(
         and _supports_isolated_factories(factory)
     )
     workers = min(plan["maxConcurrency"], len(prepared)) if concurrent else 1
+    prepared = [
+        {**job, "_providerBalanceDeltaExclusive": workers == 1} for job in prepared
+    ]
     if workers > 1:
         with ThreadPoolExecutor(
             max_workers=workers, thread_name_prefix="creator-os-higgsfield"
@@ -1009,6 +1120,11 @@ def _run_production_job(
                 **base,
                 "status": "blocked",
                 "error": "production_hard_qc_failed",
+                "providerExecutionStatus": "completed",
+                "technicalArtifactStatus": "rejected_by_qc",
+                "creativeDecision": "not_reached",
+                "publishability": "blocked",
+                "learningEligible": False,
                 "hardQc": hard_qc,
                 "provider": provider,
                 "providers": provider_rows,
@@ -1025,6 +1141,17 @@ def _run_production_job(
         return {
             **base,
             "status": "completed",
+            "providerExecutionStatus": "completed",
+            "technicalArtifactStatus": "completed",
+            "creativeDecision": (
+                "pending" if job["intent"] in _RECREATE_INTENTS else None
+            ),
+            "publishability": (
+                "blocked_pending_explicit_final_approval"
+                if job["intent"] in _RECREATE_INTENTS
+                else "subject_to_normal_approval"
+            ),
+            "learningEligible": False,
             "hardQc": hard_qc,
             "provider": provider,
             "providers": provider_rows,
@@ -1062,7 +1189,9 @@ def _execute_higgsfield_provider_job(
     job: Mapping[str, Any],
     max_credits: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    from reel_factory.worker_api import execute_higgsfield_production
+    from reel_factory.worker_api import (
+        execute_higgsfield_production,
+    )
 
     from .motion_generation_stage import _register_review_asset
 
@@ -1075,56 +1204,59 @@ def _execute_higgsfield_provider_job(
         raise PermissionError("higgsfield_spend_authorization_missing")
     if not isinstance(scope_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
-    if not isinstance(capabilities_value, dict):
+    if recovery is None and not isinstance(capabilities_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
     authorization = (
         authorization_value if isinstance(authorization_value, dict) else None
     )
     scope = scope_value
-    capabilities = capabilities_value
-    if authorization is not None:
-        secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
-        verify_authorization(
-            authorization,
-            expected_scope=scope,
-            secret=secret,
-            now=datetime.now(UTC),
-        )
-        consume_higgsfield_authorization(
-            factory.conn, str(authorization["authorizationId"])
-        )
+    capabilities = capabilities_value if isinstance(capabilities_value, dict) else None
     campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
-    pipeline_job = factory.domains.events.create_pipeline_job(
-        "higgsfield_motion_generation",
-        campaign["id"],
-        {
-            "jobId": job["jobId"],
-            "sourceAssetId": job["sourceAssetId"],
-            "sourceSha256": job["sourceSha256"],
-            "modelId": job["productionRecipe"]["modelId"],
-            "requestFingerprint": job["requestFingerprint"],
-            "providerPlanFingerprint": job["providerPlanFingerprint"],
-            "referenceVideo": job.get("referenceVideo"),
-        },
-    )
-    factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    pipeline_job_id = str(job.get("_providerPipelineJobId") or "")
+    attempt_id = str(job.get("_providerAttemptId") or "")
+    if not pipeline_job_id or not attempt_id:
+        raise PermissionError("higgsfield_provider_attempt_missing")
+    pipeline_job = factory.domains.events.pipeline_job(pipeline_job_id)
     try:
-        request = _higgsfield_request(job, max_credits=max_credits)
+        request = _higgsfield_request(
+            job,
+            max_credits=max_credits,
+            attempt_id=attempt_id,
+        )
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            cost_binding = _recovered_higgsfield_cost_binding(
+            cost_binding = _reconcile_recovered_higgsfield_attempt(
                 factory,
+                pipeline_job_id=pipeline_job_id,
                 job=job,
                 receipt=receipt,
+                receipt_path=receipt_path,
                 spend_scope=scope,
             )
         else:
+            assert authorization is not None
+            assert capabilities is not None
+            provider_plan, live_quote, record_effect = (
+                _prepare_authorized_higgsfield_execution(
+                    factory,
+                    pipeline_job_id=pipeline_job_id,
+                    job=job,
+                    request=request,
+                    authorization=authorization,
+                    spend_scope=scope,
+                    capabilities=capabilities,
+                )
+            )
+
             receipt = execute_higgsfield_production(
                 request,
                 capabilities=capabilities,
                 confirm_paid=True,
+                prepared_plan=provider_plan,
+                prepared_quote=live_quote,
+                effect_recorder=record_effect,
             )
             cost_binding = None
         output = receipt.get("finalOutput")
@@ -1149,23 +1281,54 @@ def _execute_higgsfield_provider_job(
             reservation_id = str(cost_binding["reservationId"])
         else:
             assert authorization is not None
-            cost_ids = record_provider_execution(
-                factory.conn,
-                authorization=authorization,
-                execution={
-                    "events": [
-                        {
-                            "provider": "higgsfield",
-                            "operation": "video_generation",
-                            "model": receipt["model"],
-                            "jobId": receipt["generationId"],
-                            "actualCredits": receipt.get("creditsConsumed"),
-                        }
-                    ]
-                },
-            )
+            try:
+                cost_ids = record_provider_execution(
+                    factory.conn,
+                    authorization=authorization,
+                    execution={
+                        "events": [
+                            {
+                                "provider": "higgsfield",
+                                "operation": "video_generation",
+                                "model": receipt["model"],
+                                "jobId": receipt["generationId"],
+                                "actualCredits": receipt.get("creditsConsumed"),
+                            }
+                        ]
+                    },
+                )
+            except ProviderOverspendError as exc:
+                factory.domains.events.record_event(
+                    "provider_overspend",
+                    campaign_id=str(campaign["id"]),
+                    pipeline_job_id=pipeline_job_id,
+                    status="failure",
+                    message="Provider charged more than the authorized maximum",
+                    metadata={
+                        "authorizationId": authorization["authorizationId"],
+                        "providerRequestFingerprint": job["providerPlanFingerprint"],
+                        "authorizedMaximumCredits": exc.authorized_maximum,
+                        "actualCredits": exc.actual,
+                        "costEventIds": exc.cost_event_ids,
+                        "assetProgression": "blocked",
+                    },
+                )
+                raise
             authorization_id = str(authorization["authorizationId"])
             reservation_id = str(authorization["reservationId"])
+            actual_credits = receipt.get("creditsConsumed")
+            factory.domains.events.mark_pipeline_effect_state(
+                pipeline_job_id,
+                "COST_RECONCILED",
+                authorization_id=authorization_id,
+                evidence={
+                    "costEventIds": cost_ids,
+                    "actualCredits": actual_credits,
+                    "actualCreditsStatus": (
+                        "known" if actual_credits is not None else "unknown"
+                    ),
+                },
+            )
         provider = {
             "requestId": receipt["generationId"],
             "model": receipt["model"],
@@ -1198,6 +1361,8 @@ def _execute_higgsfield_provider_job(
             "creditsConsumed": receipt.get("creditsConsumed"),
             "costEventIds": cost_ids,
             "source": receipt["source"],
+            "recreationAnchorApproval": receipt.get("recreationAnchorApproval"),
+            "referenceElement": receipt.get("referenceElement"),
             "output": {"path": str(output_path), "sha256": output_sha},
             "providerReceipt": {
                 "path": str(receipt_path),
@@ -1260,6 +1425,17 @@ def _execute_higgsfield_provider_job(
             "registeredAsset": registered,
             "pipelineJobId": pipeline_job["id"],
             "humanReviewRequired": job["intent"] in _RECREATE_INTENTS,
+            "providerExecutionStatus": "completed",
+            "technicalArtifactStatus": "completed",
+            "creativeDecision": (
+                "pending" if job["intent"] in _RECREATE_INTENTS else None
+            ),
+            "publishability": (
+                "blocked_pending_explicit_final_approval"
+                if job["intent"] in _RECREATE_INTENTS
+                else "subject_to_normal_approval"
+            ),
+            "learningEligible": False,
             "schedulingAllowed": False,
             "publishingAllowed": False,
         }
@@ -1272,90 +1448,6 @@ def _execute_higgsfield_provider_job(
             {"jobId": job["jobId"], "provider": "higgsfield"},
         )
         raise
-
-
-def _failed_provider_execution(
-    factory: Any, job: Mapping[str, Any]
-) -> dict[str, Any] | None:
-    try:
-        review_root_value = str(job.get("providerReviewRoot") or "").strip()
-        if review_root_value:
-            review_root = Path(review_root_value).expanduser()
-            receipt_dir = review_root.resolve() / "receipts"
-            higgsfield_matches: list[dict[str, Any]] = []
-            for path in receipt_dir.glob("*.higgsfield_submission.json"):
-                if path.is_symlink() or not path.is_file():
-                    continue
-                try:
-                    receipt = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if isinstance(receipt, dict) and receipt.get(
-                    "requestFingerprint"
-                ) == job.get("providerPlanFingerprint"):
-                    higgsfield_matches.append(receipt)
-            if len(higgsfield_matches) == 1:
-                receipt = higgsfield_matches[0]
-                final = receipt.get("finalOutput")
-                final = final if isinstance(final, dict) else {}
-                return {
-                    "requestId": receipt.get("generationId"),
-                    "model": receipt.get("model"),
-                    "status": receipt.get("status"),
-                    "submittedAt": receipt.get("submittedAt"),
-                    "completedAt": receipt.get("completedAt"),
-                    "outputSha256": final.get("sha256"),
-                    "generationDurationSeconds": receipt.get(
-                        "generationDurationSeconds"
-                    ),
-                    "providerCostCredits": receipt.get("creditsConsumed"),
-                    "requestFingerprint": receipt.get("requestFingerprint"),
-                    "evidencePath": receipt.get("evidencePath"),
-                }
-        campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
-        model_slug = factory.domains.reel_execution.model_slug_for_campaign(
-            campaign["id"]
-        )
-        evidence_dir = (
-            factory.domains.campaign_dirs(model_slug, campaign["slug"])["audits"]
-            / "motion_generation"
-        )
-        prompt_sha = hashlib.sha256(
-            " ".join(str(job["prompt"]).split()).encode("utf-8")
-        ).hexdigest()
-        stages = list(job["productionRecipe"].get("stages") or [])
-        expected_provider_model = (
-            str(stages[0].get("providerModel") or "") if stages else ""
-        )
-        wavespeed_matches: list[tuple[dict[str, Any], Path]] = []
-        for path in evidence_dir.glob("*.wavespeed_submission.json"):
-            if path.is_symlink() or not path.is_file():
-                continue
-            try:
-                receipt = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                continue
-            if not isinstance(receipt, dict):
-                continue
-            if (
-                receipt.get("creator") == job.get("creator")
-                and receipt.get("intent") == job.get("intent")
-                and receipt.get("sourceSha256") == job.get("sourceSha256")
-                and receipt.get("expandedPromptSha256") == prompt_sha
-                and receipt.get("providerModel") == expected_provider_model
-                and (
-                    receipt.get("requestIdentitySeed") == job.get("seed")
-                    or receipt.get("seed") == job.get("seed")
-                )
-                and receipt.get("predictionId")
-            ):
-                wavespeed_matches.append((receipt, path))
-        if len(wavespeed_matches) != 1:
-            return None
-        receipt, path = wavespeed_matches[0]
-        return _provider_receipt_summary(receipt, evidence_path=path)
-    except (AttributeError, KeyError, OSError, TypeError, ValueError):
-        return None
 
 
 def _optional_safe_media(path: Path | None, label: str) -> Path | None:
@@ -1381,89 +1473,3 @@ def _source_image_resolution(path: Path) -> tuple[int, int] | None:
     if width <= 0 or height <= 0:
         return None
     return int(width), int(height)
-
-
-def run_production_hard_qc(
-    *, job: Mapping[str, Any], generation_result: dict[str, Any]
-) -> dict[str, Any]:
-    blockers: list[str] = []
-    source_path = Path(str(job["sourcePath"])).expanduser().resolve()
-    if (
-        source_path.is_symlink()
-        or not source_path.is_file()
-        or _sha256_file(source_path) != job["sourceSha256"]
-    ):
-        blockers.append("source_substitution")
-    stage = _motion_stage_result(generation_result)
-    registered = stage.get("registeredAsset")
-    if not isinstance(registered, dict):
-        blockers.append("unreadable_or_corrupt_media")
-        return _hard_qc_receipt(job, blockers=blockers, output_sha256=None, probe=None)
-    output = Path(str(registered.get("output_path") or "")).expanduser()
-    output_sha: str | None = None
-    probe: dict[str, Any] | None = None
-    if output.is_symlink() or not output.resolve().is_file():
-        blockers.append("unreadable_or_corrupt_media")
-    else:
-        output = output.resolve()
-        try:
-            output_sha = _sha256_file(output)
-            if output_sha != str(registered.get("content_hash") or ""):
-                blockers.append("source_substitution")
-            probe = _probe_production_video(output)
-            if probe["durationSeconds"] <= 0 or probe["durationSeconds"] > 60:
-                blockers.append("invalid_duration_or_codec")
-            if probe["codec"] not in {"h264", "hevc", "av1", "vp9"}:
-                blockers.append("invalid_duration_or_codec")
-            ratio = probe["width"] / probe["height"]
-            if not 0.50 <= ratio <= 0.65:
-                blockers.append("invalid_duration_or_codec")
-        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-            blockers.append("unreadable_or_corrupt_media")
-    provider = _provider_execution(generation_result)
-    if provider is not None:
-        stages = list(job["productionRecipe"].get("stages") or [])
-        expected_model = str(stages[-1].get("providerModel") or "") if stages else None
-        if (
-            provider.get("model") != expected_model
-            or provider.get("outputSha256") != output_sha
-            or provider.get("requestFingerprint") is None
-        ):
-            blockers.append("source_substitution")
-    return _hard_qc_receipt(
-        job, blockers=blockers, output_sha256=output_sha, probe=probe
-    )
-
-
-def _hard_qc_receipt(
-    job: Mapping[str, Any],
-    *,
-    blockers: list[str],
-    output_sha256: str | None,
-    probe: dict[str, Any] | None,
-) -> dict[str, Any]:
-    unique_blockers = sorted(set(blockers))
-    receipt = {
-        "schema": "campaign_factory.production_hard_qc.v1",
-        "jobId": job["jobId"],
-        "sourceSha256": job["sourceSha256"],
-        "outputSha256": output_sha256,
-        "checks": {
-            "sourceBinding": "failed"
-            if "source_substitution" in unique_blockers
-            else "passed",
-            "mediaIntegrity": (
-                "failed"
-                if {
-                    "unreadable_or_corrupt_media",
-                    "invalid_duration_or_codec",
-                }.intersection(unique_blockers)
-                else "passed"
-            ),
-            "identityAndAnatomy": "not_reported_by_available_analyzers",
-        },
-        "probe": probe,
-        "blockers": unique_blockers,
-        "status": "blocked" if unique_blockers else "passed",
-    }
-    return {**receipt, "receiptFingerprint": _fingerprint(receipt)}

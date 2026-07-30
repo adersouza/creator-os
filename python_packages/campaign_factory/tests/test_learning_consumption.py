@@ -12,6 +12,7 @@ from campaign_factory.learning_consumption import (
     approved_audio_performance,
     build_audio_recommendations,
     build_measured_recommendations,
+    evidence_tier,
     observation_bucket,
     persist_learning_decision_receipt,
     persist_measured_recommendations,
@@ -30,6 +31,7 @@ def _outcome(index: int, *, bucket: str = "approximately_24h", **changes):
         "creatorId": "stacey",
         "creatorIdentityProfile": "soul_stacey",
         "accountId": "stacey-main",
+        "accountGroupId": "stacey-group",
         "contentIntent": "passive_selfie",
         "publishedAt": "2026-07-01T00:00:00Z",
         "snapshotAt": (
@@ -124,6 +126,42 @@ def test_equal_age_minimum_and_one_hour_policy() -> None:
     assert "one_hour_evidence_is_advisory_only" in one_hour[0]["risks"]
 
 
+def test_evidence_tiers_never_call_three_outcomes_a_winner() -> None:
+    assert evidence_tier(3) == "early_advisory"
+    assert evidence_tier(5) == "preliminary_direction"
+    assert evidence_tier(10) == "stronger_directional_evidence"
+    assert (
+        evidence_tier(3, controlled_matched_experiment=True)
+        == "causal_evidence_candidate"
+    )
+    recommendation = build_measured_recommendations(
+        _pack([_outcome(1), _outcome(2), _outcome(3)]),
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )[0]
+    assert recommendation["evidenceTier"] == "early_advisory"
+    assert [row["scope"] for row in recommendation["hierarchicalEvidence"]] == [
+        "account",
+        "account_group",
+        "creator",
+        "global",
+    ]
+    assert all(
+        row["activation"] == "advisory_only"
+        for row in recommendation["hierarchicalEvidence"][1:]
+    )
+    assert "winner" not in json.dumps(recommendation).lower()
+
+
+def test_explicit_learning_objective_selects_versioned_v2_score() -> None:
+    recommendation = build_measured_recommendations(
+        _pack([_outcome(index, learningObjective="engagement") for index in (1, 2, 3)]),
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )[0]
+
+    assert recommendation["learningObjective"] == "engagement"
+    assert recommendation["scoringVersion"] == "objective_weighted_outcome.v2"
+
+
 def test_missing_or_mixed_age_and_fixture_evidence_is_not_promoted() -> None:
     pack = _pack(
         [
@@ -184,6 +222,7 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
         "runsInserted": 0,
         "itemsInserted": 0,
         "itemsUnchanged": 1,
+        "itemsSuperseded": 0,
     }
     sources = [
         {"id": "source_1", "content_hash": "a" * 64, "status": "approved"},

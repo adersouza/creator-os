@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -301,6 +302,23 @@ def test_future_embedded_audio_selection_links_exact_publication(
             if "startSeconds" in selected_segment
             else selected_segment["start_offset_seconds"]
         )
+        history = cf.conn.execute(
+            "SELECT * FROM audio_publication_history WHERE audio_selection_id = ?",
+            ("audsel_exact",),
+        ).fetchone()
+        assert history is not None
+        assert history["instagram_media_id"] == "18000000000000001"
+        assert history["published_at"] == "2026-07-27T12:00:00Z"
+        assert history["final_media_sha256"] == final_sha
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            cf.conn.execute(
+                """
+                UPDATE audio_publication_history
+                SET published_at = '2026-07-28T12:00:00Z'
+                WHERE id = ?
+                """,
+                (history["id"],),
+            )
         rollup = cf.conn.execute(
             "SELECT stats_json FROM audio_performance_rollups"
         ).fetchone()
@@ -996,6 +1014,46 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
             "handoff_manifest_caption_hash_mismatch"
             not in eligibility["blockingReasons"]
         )
+    finally:
+        cf.close()
+
+
+def test_rejected_local_asset_remains_learning_ineligible_on_later_sync(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'rejected' WHERE id = 'asset_1'"
+        )
+        cf.conn.commit()
+        asset = cf.domains.rendered_asset("asset_1")
+        eligibility = (
+            threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+                cf,
+                row={
+                    "id": "post_rejected",
+                    "status": "published",
+                    "platform": "instagram",
+                    "instagram_post_id": "ig_rejected",
+                    "permalink": "https://instagram.test/reel/rejected",
+                    "published_at": "2026-01-02T01:00:00+00:00",
+                },
+                meta={
+                    "rendered_asset_id": "asset_1",
+                    "content_hash": asset["content_hash"],
+                },
+                metric_history_rows=[
+                    {
+                        "post_id": "post_rejected",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    }
+                ],
+            )
+        )
+        assert eligibility["eligible"] is False
+        assert "operator_rejected_asset" in eligibility["blockingReasons"]
     finally:
         cf.close()
 

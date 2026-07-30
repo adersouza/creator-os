@@ -9,10 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from .ai_disclosure import AI_DISCLOSURE_BLOCKER, AiDisclosurePublishabilityMixin
-from .caption_outcome import load_context_json
+from .asset_evidence import final_artifact_integrity_for_publishability
+from .caption_outcome import clean_without_overlay_fallback, load_context_json
 from .caption_policy import (
-    CAPTION_PLACEMENT_QC_WARNING_CODES,
     SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
+    WARNING_CLASS_HARD_BLOCKER,
+    WARNING_CLASS_OPERATOR_OVERRIDABLE,
+    warning_class,
 )
 from .creative_approval import (
     CreativeApprovalStore,
@@ -968,10 +971,11 @@ class PublishabilityRepository(
             or (caption_context or {}).get("caption_placement_policy")
         )
         placement_decision = (caption_context or {}).get("captionPlacementDecision")
+        clean_caption_fallback = clean_without_overlay_fallback(caption_context)
         placement_qc_passed = (
             placement_policy == "focal_safe_v1"
             and isinstance(placement_decision, dict)
-            and placement_decision.get("status") == "passed"
+            and (placement_decision.get("status") == "passed" or clean_caption_fallback)
         )
         render_recipe = (
             (caption_context or {}).get("render_recipe")
@@ -1017,6 +1021,9 @@ class PublishabilityRepository(
             or caption_hash
         )
         content_fingerprint = asset.get("content_hash") or asset.get("contentHash")
+        final_artifact_integrity = final_artifact_integrity_for_publishability(
+            asset, latest_audit
+        )
         readiness_blockers = list(
             ((latest_audit or {}).get("readinessSummary") or {}).get("blockingReasons")
             or []
@@ -1025,6 +1032,12 @@ class PublishabilityRepository(
             ((latest_audit or {}).get("readinessSummary") or {}).get("blockingCodes")
             or []
         )
+        if final_artifact_integrity["passed"] is not True:
+            readiness_blockers.extend(
+                final_artifact_integrity.get("failures") or ["exact_media_sha_mismatch"]
+            )
+        if (latest_audit or {}).get("subjectSha256") != content_fingerprint:
+            readiness_blockers.append("contentforge_subject_sha_mismatch")
         audit_warning_codes = set(
             ((latest_audit or {}).get("readinessSummary") or {}).get("warningCodes")
             or []
@@ -1032,11 +1045,19 @@ class PublishabilityRepository(
         audit_warning_codes.update(
             latest_audit.get("warnings") or [] if latest_audit else []
         )
-        placement_warning_codes = sorted(
-            audit_warning_codes & CAPTION_PLACEMENT_QC_WARNING_CODES
+        hard_warning_codes = sorted(
+            code
+            for code in audit_warning_codes
+            if warning_class(code) == WARNING_CLASS_HARD_BLOCKER
         )
-        if placement_warning_codes:
+        if hard_warning_codes:
             placement_qc_passed = False
+        overridable_warning_codes = sorted(
+            code
+            for code in audit_warning_codes
+            if warning_class(code) == WARNING_CLASS_OPERATOR_OVERRIDABLE
+        )
+        readiness_blockers.extend(hard_warning_codes)
         if (latest_audit or {}).get("overallVerdict") == "fail":
             readiness_blockers.append("contentforge_verdict_fail")
         embedded_audio_required = self._audio_intent_claims_embedded_media(audio_intent)
@@ -1046,7 +1067,10 @@ class PublishabilityRepository(
             else None
         )
         captioned_render_present = (
-            (bool(caption_text) and "passthrough" not in lower_hints)
+            (
+                (bool(caption_text) or clean_caption_fallback)
+                and "passthrough" not in lower_hints
+            )
             if is_reel_surface
             else bool(output_path)
         )
@@ -1072,7 +1096,8 @@ class PublishabilityRepository(
             list(discoverability_contract["blockedTerms"]) if is_reel_surface else []
         )
         burned_caption_quality_passed = (
-            self._reference_hook_is_schedule_safe(caption_text)
+            clean_caption_fallback
+            or self._reference_hook_is_schedule_safe(caption_text)
             if is_reel_surface
             else True
         )
@@ -1119,10 +1144,14 @@ class PublishabilityRepository(
             **motion_gate["checks"],
         }
         failures: list[str] = []
-        warnings: list[str] = []
+        warnings: list[str] = overridable_warning_codes + sorted(
+            audit_warning_codes
+            - set(hard_warning_codes)
+            - set(overridable_warning_codes)
+        )
         if not approved:
             failures.append("not_approved")
-        if not captioned_render_present:
+        if not captioned_render_present and not clean_caption_fallback:
             failures.append("missing_burned_captions")
         if (
             asset_content_surface == "feed_single"
@@ -1371,6 +1400,7 @@ class PublishabilityRepository(
             "captionLineageSidecarPresent": bool(sidecar),
             "contentFingerprint": content_fingerprint,
             "content_fingerprint": content_fingerprint,
+            "finalArtifactIntegrity": final_artifact_integrity,
             "captionHash": export_caption_hash,
             "caption_hash": export_caption_hash,
             "captionOutcomeContext": caption_context,

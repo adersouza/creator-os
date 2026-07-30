@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 from campaign_factory import recreation_prompting
+
+
+@pytest.fixture(autouse=True)
+def _prompt_spend_authorization_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CREATOR_OS_SPEND_AUTH_SECRET",
+        "test-only-openai-prompt-authorization-secret",
+    )
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_QUOTE_USD", "1.25")
 
 
 def test_openai_prompt_pack_binds_identity_and_provider_contracts(
@@ -68,17 +80,40 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert pack["providerPlans"]["seedance"]["resolution"] == "480p"
     assert pack["identityPolicy"]["hairColorInvented"] is False
     assert pack["identityPolicy"]["tattoosInvented"] is False
-    assert pack["promptPlanning"] == {
-        "builderVersion": "creator_os_openai_prompt_builder.v2",
-        "requestFingerprint": pack["promptPlanning"]["requestFingerprint"],
-        "responseId": "resp_test",
-        "usage": {
-            "input_tokens": 321,
-            "output_tokens": 123,
-            "total_tokens": 444,
-        },
-        "cost": {"status": "not_exposed", "usd": None},
+    planning = pack["promptPlanning"]
+    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v3"
+    assert planning["requestFingerprint"]
+    assert planning["responseId"] == "resp_test"
+    assert planning["usage"] == {
+        "input_tokens": 321,
+        "output_tokens": 123,
+        "total_tokens": 444,
     }
+    assert planning["cost"] == {"status": "not_exposed", "usd": None}
+    authorization = planning["authorization"]
+    assert authorization["status"] == "authorized"
+    assert authorization["maximumCalls"] == 1
+    assert authorization["requestFingerprint"] == planning["requestFingerprint"]
+    assert authorization["quote"] == {
+        "provider": "openai",
+        "model": "gpt-5",
+        "amount": 1.25,
+        "unit": "USD",
+        "quoteClass": "operator_configured_maximum",
+        "source": "CREATOR_OS_OPENAI_PROMPT_QUOTE_USD",
+    }
+    receipt_path = Path(authorization["receiptPath"])
+    assert receipt_path.is_file()
+    assert (
+        hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+        == authorization["receiptSha256"]
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    recreation_prompting._verify_openai_prompt_authorization(
+        receipt,
+        secret="test-only-openai-prompt-authorization-secret",
+        request_fingerprint=planning["requestFingerprint"],
+    )
     assert pack["cache"]["status"] == "miss"
     assert pack["cache"]["promptCallAuthorization"] == {
         "authorized": True,
@@ -109,6 +144,31 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert cached["cache"]["promptCallAuthorization"]["authorized"] is False
     assert cached["cache"]["promptCallAuthorization"]["currentRunCalls"] == 0
     assert cached["promptPackFingerprint"] == pack["promptPackFingerprint"]
+
+
+def test_openai_prompt_pack_requires_signed_quote_before_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    creator_image = tmp_path / "creator.png"
+    creator_image.write_bytes(b"approved creator")
+    monkeypatch.delenv("CREATOR_OS_OPENAI_PROMPT_QUOTE_USD")
+    monkeypatch.setattr(
+        recreation_prompting,
+        "_post_responses",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unquoted request must not call OpenAI")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="openai_prompt_spend_quote_missing"):
+        recreation_prompting.build_openai_prompt_pack(
+            creator="stacey",
+            creator_image=creator_image,
+            intent="passive_selfie",
+            api_key="test-key",
+            cache_root=tmp_path / "cache",
+            external_call_authorized=True,
+        )
 
 
 def test_openai_prompt_pack_cache_miss_requires_external_call_authorization(

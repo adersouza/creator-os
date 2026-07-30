@@ -10,6 +10,114 @@ from typing import Any
 
 from .persistence import json_load
 
+_PIPELINE_SAFE_REPLAY_CLASSES = {
+    "contentforge_audit": "LOCAL",
+    "static_mp4": "LOCAL",
+    "sync_performance": "IDEMPOTENT_EXTERNAL",
+}
+_EFFECT_STATES = {
+    "PRE_EFFECT",
+    "AUTHORIZATION_CONSUMED",
+    "SUBMISSION_STARTED",
+    "EXTERNAL_ID_KNOWN",
+    "AMBIGUOUS",
+    "PROVIDER_FAILED",
+    "PROVIDER_COMPLETED",
+    "OUTPUT_RETAINED",
+    "COST_RECONCILED",
+    "NO_EFFECT_CONFIRMED",
+    "EFFECT_CONFIRMED",
+    "FINALIZED",
+}
+_EFFECT_TRANSITIONS = {
+    "PRE_EFFECT": {
+        "AUTHORIZATION_CONSUMED",
+        "SUBMISSION_STARTED",
+        "NO_EFFECT_CONFIRMED",
+        "EXTERNAL_ID_KNOWN",
+        "FINALIZED",
+    },
+    "AUTHORIZATION_CONSUMED": {
+        "SUBMISSION_STARTED",
+        "EXTERNAL_ID_KNOWN",
+        "NO_EFFECT_CONFIRMED",
+        "FINALIZED",
+    },
+    "SUBMISSION_STARTED": {
+        "EXTERNAL_ID_KNOWN",
+        "AMBIGUOUS",
+        "PROVIDER_FAILED",
+        "NO_EFFECT_CONFIRMED",
+        "EFFECT_CONFIRMED",
+        "FINALIZED",
+    },
+    "EXTERNAL_ID_KNOWN": {
+        "AMBIGUOUS",
+        "PROVIDER_FAILED",
+        "PROVIDER_COMPLETED",
+        "EFFECT_CONFIRMED",
+        "FINALIZED",
+    },
+    "PROVIDER_FAILED": {"FINALIZED"},
+    "PROVIDER_COMPLETED": {"OUTPUT_RETAINED", "AMBIGUOUS", "FINALIZED"},
+    "OUTPUT_RETAINED": {"COST_RECONCILED", "AMBIGUOUS", "FINALIZED"},
+    "COST_RECONCILED": {"FINALIZED"},
+    "AMBIGUOUS": {
+        "EXTERNAL_ID_KNOWN",
+        "NO_EFFECT_CONFIRMED",
+        "EFFECT_CONFIRMED",
+    },
+    "NO_EFFECT_CONFIRMED": {"PRE_EFFECT", "FINALIZED"},
+    "EFFECT_CONFIRMED": {"FINALIZED"},
+    "FINALIZED": set(),
+}
+
+
+def _pipeline_recovery_state(row: dict[str, Any]) -> dict[str, Any]:
+    input_payload = json_load(row.get("input_json"), {})
+    result_payload = json_load(row.get("result_json"), {})
+    safe_replay_class = str(
+        row.get("recovery_policy")
+        or _PIPELINE_SAFE_REPLAY_CLASSES.get(
+            str(row.get("job_type")), "NEVER_AUTOMATIC"
+        )
+    )
+    effect_state = str(row.get("effect_state") or "PRE_EFFECT")
+    if effect_state not in _EFFECT_STATES:
+        effect_state = "AMBIGUOUS"
+    reconciliation_required = effect_state == "AMBIGUOUS"
+
+    def first_string(*values: Any) -> str | None:
+        return next(
+            (value for value in values if isinstance(value, str) and value.strip()),
+            None,
+        )
+
+    return {
+        "workItemId": first_string(row.get("work_item_id")) or str(row["id"]),
+        "authorizationId": first_string(
+            row.get("authorization_id"),
+            input_payload.get("authorizationId"),
+            result_payload.get("authorizationId"),
+        ),
+        "attemptId": first_string(row.get("attempt_id"))
+        or f"{row['id']}:{int(row.get('attempt_count') or 0)}",
+        "externalOperationId": first_string(
+            row.get("external_operation_id"),
+            result_payload.get("externalOperationId"),
+            result_payload.get("generationId"),
+            result_payload.get("containerId"),
+            input_payload.get("externalOperationId"),
+            input_payload.get("generationId"),
+            input_payload.get("containerId"),
+        ),
+        "effectState": effect_state,
+        "reconciliationRequired": reconciliation_required,
+        "safeReplayClass": safe_replay_class,
+        "reconciliationClassification": row.get("reconciliation_classification"),
+        "reconciliation": json_load(row.get("reconciliation_json"), {}),
+    }
+
 
 class EventRepository:
     def __init__(
@@ -270,19 +378,38 @@ class EventRepository:
     ) -> dict[str, Any]:
         job_id = self._new_id("job")
         now = self._utc_now()
+        payload = self._sanitize_for_storage(input_payload or {})
+        recovery_policy = _PIPELINE_SAFE_REPLAY_CLASSES.get(job_type, "NEVER_AUTOMATIC")
+        work_item_id = str(payload.get("workItemId") or job_id)
+        authorization_id = _optional_text(payload.get("authorizationId"))
+        external_operation_id = _first_optional_text(
+            payload.get("externalOperationId"),
+            payload.get("generationId"),
+            payload.get("containerId"),
+        )
+        effect_state = "EXTERNAL_ID_KNOWN" if external_operation_id else "PRE_EFFECT"
         self.conn.execute(
             """
             INSERT INTO pipeline_jobs
-            (id, job_type, campaign_id, status, input_json, result_json, error, attempt_count,
+            (id, job_type, campaign_id, status, effect_state, recovery_policy,
+             work_item_id, authorization_id, attempt_id, external_operation_id,
+             reconciliation_classification, reconciliation_json,
+             input_json, result_json, error, attempt_count,
              started_at, finished_at, created_at, updated_at)
-            VALUES (?, ?, ?, 'queued', ?, '{}', NULL, 0, NULL, NULL, ?, ?)
+            VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, NULL, ?, NULL, '{}',
+                    ?, '{}', NULL, 0, NULL, NULL, ?, ?)
             """,
             (
                 job_id,
                 job_type,
                 campaign_id,
+                effect_state,
+                recovery_policy,
+                work_item_id,
+                authorization_id,
+                external_operation_id,
                 json.dumps(
-                    self._sanitize_for_storage(input_payload or {}),
+                    payload,
                     ensure_ascii=False,
                     sort_keys=True,
                 ),
@@ -300,6 +427,7 @@ class EventRepository:
                 """
                 UPDATE pipeline_jobs
                 SET status = 'running', attempt_count = attempt_count + 1,
+                    attempt_id = id || ':' || (attempt_count + 1),
                     started_at = ?, finished_at = NULL, updated_at = ?
                 WHERE id = ? AND status = 'queued'
                 """,
@@ -319,6 +447,8 @@ class EventRepository:
                 """
                 UPDATE pipeline_jobs
                 SET status = 'succeeded', result_json = ?, error = NULL,
+                    effect_state = 'FINALIZED',
+                    external_operation_id = COALESCE(?, external_operation_id),
                     finished_at = ?, updated_at = ?
                 WHERE id = ? AND status = 'running'
                 """,
@@ -327,6 +457,11 @@ class EventRepository:
                         self._sanitize_for_storage(result_payload or {}),
                         ensure_ascii=False,
                         sort_keys=True,
+                    ),
+                    _first_optional_text(
+                        (result_payload or {}).get("externalOperationId"),
+                        (result_payload or {}).get("generationId"),
+                        (result_payload or {}).get("containerId"),
                     ),
                     now,
                     now,
@@ -342,11 +477,90 @@ class EventRepository:
         self, job_id: str, error: str, result_payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         now = self._utc_now()
+        row = self.conn.execute(
+            """
+            SELECT status, effect_state, external_operation_id
+            FROM pipeline_jobs WHERE id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"pipeline job not found: {job_id}")
+        if (
+            row["status"] == "running"
+            and row["effect_state"]
+            in {
+                "AUTHORIZATION_CONSUMED",
+                "SUBMISSION_STARTED",
+                "AMBIGUOUS",
+            }
+            and not row["external_operation_id"]
+        ):
+            target = (
+                "NO_EFFECT_CONFIRMED"
+                if row["effect_state"] == "AUTHORIZATION_CONSUMED"
+                else "AMBIGUOUS"
+            )
+            with self.conn:
+                self.conn.execute(
+                    """
+                    UPDATE pipeline_jobs
+                    SET effect_state = ?, result_json = ?, error = ?,
+                        reconciliation_classification = ?,
+                        updated_at = ?
+                    WHERE id = ? AND status = 'running'
+                    """,
+                    (
+                        target,
+                        json.dumps(
+                            self._sanitize_for_storage(result_payload or {}),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        error,
+                        (
+                            "PROVIDER_PROVED_NO_EFFECT"
+                            if target == "NO_EFFECT_CONFIRMED"
+                            else "HISTORY_REQUIRED"
+                        ),
+                        now,
+                        job_id,
+                    ),
+                )
+            return self.pipeline_job(job_id)
+        if row["status"] == "running" and row["effect_state"] in {
+            "EXTERNAL_ID_KNOWN",
+            "PROVIDER_COMPLETED",
+            "OUTPUT_RETAINED",
+            "COST_RECONCILED",
+        }:
+            with self.conn:
+                self.conn.execute(
+                    """
+                    UPDATE pipeline_jobs
+                    SET result_json = ?, error = ?,
+                        reconciliation_classification = 'EXACT_MATCH',
+                        updated_at = ?
+                    WHERE id = ? AND status = 'running'
+                    """,
+                    (
+                        json.dumps(
+                            self._sanitize_for_storage(result_payload or {}),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        error,
+                        now,
+                        job_id,
+                    ),
+                )
+            return self.pipeline_job(job_id)
         with self.conn:
             cursor = self.conn.execute(
                 """
                 UPDATE pipeline_jobs
                 SET status = 'failed', result_json = ?, error = ?,
+                    effect_state = 'FINALIZED',
                     finished_at = ?, updated_at = ?
                 WHERE id = ? AND status = 'running'
                 """,
@@ -364,6 +578,160 @@ class EventRepository:
             )
             self._require_pipeline_job_transition(
                 job_id, cursor, expected=("running",), target="failed"
+            )
+        return self.pipeline_job(job_id)
+
+    def mark_pipeline_effect_state(
+        self,
+        job_id: str,
+        effect_state: str,
+        *,
+        authorization_id: str | None = None,
+        external_operation_id: str | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        target = str(effect_state).strip().upper()
+        if target not in _EFFECT_STATES:
+            raise ValueError(f"unsupported effect state: {effect_state}")
+        row = self.conn.execute(
+            "SELECT * FROM pipeline_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"pipeline job not found: {job_id}")
+        current = str(row["effect_state"] or "PRE_EFFECT")
+        if target != current and target not in _EFFECT_TRANSITIONS.get(current, set()):
+            raise RuntimeError(
+                f"invalid_pipeline_effect_transition:{current}->{target}"
+            )
+        now = self._utc_now()
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET effect_state = ?,
+                    authorization_id = COALESCE(?, authorization_id),
+                    external_operation_id = COALESCE(?, external_operation_id),
+                    reconciliation_json = CASE
+                      WHEN ? IS NULL THEN reconciliation_json ELSE ? END,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    target,
+                    _optional_text(authorization_id),
+                    _optional_text(external_operation_id),
+                    (
+                        None
+                        if evidence is None
+                        else json.dumps(
+                            self._sanitize_for_storage(evidence),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    ),
+                    (
+                        None
+                        if evidence is None
+                        else json.dumps(
+                            self._sanitize_for_storage(evidence),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    ),
+                    now,
+                    job_id,
+                ),
+            )
+        return self.pipeline_job(job_id)
+
+    def reconcile_pipeline_external_effect(
+        self,
+        job_id: str,
+        *,
+        classification: str,
+        operator: str,
+        external_operation_id: str | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        normalized = str(classification).strip().upper()
+        target_by_classification = {
+            "EXACT_MATCH": "EXTERNAL_ID_KNOWN",
+            "PROVIDER_PROVED_NO_EFFECT": "NO_EFFECT_CONFIRMED",
+            "MULTIPLE_MATCHES": "AMBIGUOUS",
+            "HISTORY_UNAVAILABLE": "AMBIGUOUS",
+        }
+        target = target_by_classification.get(normalized)
+        if target is None:
+            raise ValueError(
+                f"unsupported reconciliation classification: {classification}"
+            )
+        if normalized == "EXACT_MATCH" and not _optional_text(external_operation_id):
+            raise ValueError("EXACT_MATCH requires external_operation_id")
+        receipt = {
+            "schema": "campaign_factory.pipeline_effect_reconciliation.v1",
+            "jobId": job_id,
+            "classification": normalized,
+            "operator": _required_text(operator, "operator"),
+            "externalOperationId": _optional_text(external_operation_id),
+            "evidence": self._sanitize_for_storage(evidence or {}),
+            "reconciledAt": self._utc_now(),
+        }
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET effect_state = ?, external_operation_id = COALESCE(?, external_operation_id),
+                    reconciliation_classification = ?, reconciliation_json = ?,
+                    error = CASE WHEN ? = 'AMBIGUOUS'
+                      THEN 'manual_hold_unknown_external_effect' ELSE error END,
+                    updated_at = ?
+                WHERE id = ? AND status = 'running'
+                  AND effect_state IN ('SUBMISSION_STARTED', 'AMBIGUOUS')
+                """,
+                (
+                    target,
+                    _optional_text(external_operation_id),
+                    normalized,
+                    json.dumps(receipt, ensure_ascii=False, sort_keys=True),
+                    target,
+                    receipt["reconciledAt"],
+                    job_id,
+                ),
+            )
+        return self.pipeline_job(job_id)
+
+    def authorize_pipeline_retry(
+        self, job_id: str, *, authorization_id: str, operator: str
+    ) -> dict[str, Any]:
+        now = self._utc_now()
+        authorization = _required_text(authorization_id, "authorization_id")
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET status = 'queued', effect_state = 'PRE_EFFECT',
+                    authorization_id = ?, attempt_id = NULL,
+                    external_operation_id = NULL, error = NULL,
+                    started_at = NULL, finished_at = NULL, updated_at = ?
+                WHERE id = ? AND status = 'running'
+                  AND effect_state = 'NO_EFFECT_CONFIRMED'
+                """,
+                (authorization, now, job_id),
+            )
+            self._require_pipeline_job_transition(
+                job_id, cursor, expected=("running",), target="queued"
+            )
+            self.record_event(
+                "pipeline_retry_authorized",
+                pipeline_job_id=job_id,
+                status="warning",
+                message="New provider attempt authorized after proven no effect",
+                metadata={
+                    "authorizationId": authorization,
+                    "operator": _required_text(operator, "operator"),
+                    "authorizedAt": now,
+                },
+                commit=False,
             )
         return self.pipeline_job(job_id)
 
@@ -408,9 +776,9 @@ class EventRepository:
     ) -> dict[str, Any]:
         """Recover pipeline jobs stranded in 'queued'/'running' by a crashed worker.
 
-        action='fail' marks stale jobs failed; action='requeue' returns them to
-        'queued' (unless max_attempts is set and already reached, in which case
-        the job is failed instead). Returns a summary with the touched jobs.
+        action='fail' marks stale jobs failed. action='requeue' is allowed only
+        for jobs proven pre-effect or registered as safely replayable; unknown
+        running work is put in a terminal manual hold.
         """
         if stuck_hours <= 0:
             raise ValueError("stuck_hours must be positive")
@@ -428,8 +796,15 @@ class EventRepository:
                 if not stuck:
                     continue
                 attempts = int(row.get("attempt_count") or 0)
-                requeue = action == "requeue" and (
-                    max_attempts is None or attempts < max_attempts
+                recovery = _pipeline_recovery_state(row)
+                requeue = (
+                    action == "requeue"
+                    and (max_attempts is None or attempts < max_attempts)
+                    and (
+                        recovery["effectState"] == "PRE_EFFECT"
+                        or recovery["safeReplayClass"]
+                        in {"LOCAL", "IDEMPOTENT_EXTERNAL"}
+                    )
                 )
                 expected_status = str(row["status"])
                 expected_updated_at = str(row["updated_at"])
@@ -437,7 +812,8 @@ class EventRepository:
                     cursor = self.conn.execute(
                         """
                         UPDATE pipeline_jobs
-                        SET status = 'queued', error = NULL, started_at = NULL,
+                        SET status = 'queued', effect_state = 'PRE_EFFECT',
+                            error = NULL, started_at = NULL,
                             finished_at = NULL, updated_at = ?
                         WHERE id = ? AND status = ? AND updated_at = ?
                         """,
@@ -445,7 +821,25 @@ class EventRepository:
                     )
                     outcome = "requeued"
                 else:
-                    if age_hours is None:
+                    manual_hold = recovery[
+                        "safeReplayClass"
+                    ] == "NEVER_AUTOMATIC" and recovery["effectState"] in {
+                        "AUTHORIZATION_CONSUMED",
+                        "SUBMISSION_STARTED",
+                        "EXTERNAL_ID_KNOWN",
+                        "AMBIGUOUS",
+                        "PROVIDER_COMPLETED",
+                        "OUTPUT_RETAINED",
+                        "COST_RECONCILED",
+                        "EFFECT_CONFIRMED",
+                    }
+                    if manual_hold:
+                        error = (
+                            "known_external_operation_awaiting_poll"
+                            if recovery["externalOperationId"]
+                            else "manual_hold_unknown_external_effect"
+                        )
+                    elif age_hours is None:
                         error = (
                             "reclaimed as stale: unparseable updated_at/created_at "
                             f"timestamps (threshold {stuck_hours}h)"
@@ -455,22 +849,75 @@ class EventRepository:
                             f"reclaimed as stale after {round(age_hours, 3)}h "
                             f"(threshold {stuck_hours}h)"
                         )
-                    cursor = self.conn.execute(
-                        """
-                        UPDATE pipeline_jobs
-                        SET status = 'failed', error = ?, finished_at = ?, updated_at = ?
-                        WHERE id = ? AND status = ? AND updated_at = ?
-                        """,
-                        (
-                            error,
-                            now,
-                            now,
-                            row["id"],
-                            expected_status,
-                            expected_updated_at,
-                        ),
-                    )
-                    outcome = "failed"
+                    if manual_hold:
+                        retained_effect_state = (
+                            recovery["effectState"]
+                            if recovery["effectState"]
+                            in {
+                                "PROVIDER_COMPLETED",
+                                "OUTPUT_RETAINED",
+                                "COST_RECONCILED",
+                                "EFFECT_CONFIRMED",
+                            }
+                            else (
+                                "EXTERNAL_ID_KNOWN"
+                                if recovery["externalOperationId"]
+                                else "AMBIGUOUS"
+                            )
+                        )
+                        cursor = self.conn.execute(
+                            """
+                            UPDATE pipeline_jobs
+                            SET effect_state = ?, error = ?,
+                                reconciliation_classification = ?,
+                                updated_at = ?
+                            WHERE id = ? AND status = ? AND updated_at = ?
+                            """,
+                            (
+                                retained_effect_state,
+                                error,
+                                (
+                                    "EXACT_MATCH"
+                                    if recovery["externalOperationId"]
+                                    else "HISTORY_REQUIRED"
+                                ),
+                                now,
+                                row["id"],
+                                expected_status,
+                                expected_updated_at,
+                            ),
+                        )
+                        outcome = "manual_hold"
+                        recovery = {
+                            **recovery,
+                            "effectState": retained_effect_state,
+                            "reconciliationRequired": not bool(
+                                recovery["externalOperationId"]
+                            ),
+                            "reconciliationClassification": (
+                                "EXACT_MATCH"
+                                if recovery["externalOperationId"]
+                                else "HISTORY_REQUIRED"
+                            ),
+                        }
+                    else:
+                        cursor = self.conn.execute(
+                            """
+                            UPDATE pipeline_jobs
+                            SET status = 'failed', effect_state = 'FINALIZED',
+                                error = ?, finished_at = ?, updated_at = ?
+                            WHERE id = ? AND status = ? AND updated_at = ?
+                            """,
+                            (
+                                error,
+                                now,
+                                now,
+                                row["id"],
+                                expected_status,
+                                expected_updated_at,
+                            ),
+                        )
+                        outcome = "failed"
                 if cursor.rowcount != 1:
                     continue
                 reclaimed.append(
@@ -484,6 +931,7 @@ class EventRepository:
                             round(age_hours, 3) if age_hours is not None else None
                         ),
                         "outcome": outcome,
+                        **recovery,
                     }
                 )
         return {
@@ -530,6 +978,7 @@ class EventRepository:
                 round(age_hours, 3) if age_hours is not None else None
             )
             payload["stuckThresholdHours"] = stuck_hours
+        payload["recovery"] = _pipeline_recovery_state(row)
         return payload
 
 
@@ -565,3 +1014,19 @@ def _pipeline_job_stuck_status(
         return True, None
     age_hours = max(0.0, (datetime.now(UTC) - timestamp).total_seconds() / 3600.0)
     return age_hours >= threshold_hours, age_hours
+
+
+def _optional_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _first_optional_text(*values: Any) -> str | None:
+    return next((text for value in values if (text := _optional_text(value))), None)
+
+
+def _required_text(value: Any, label: str) -> str:
+    text = _optional_text(value)
+    if text is None:
+        raise ValueError(f"{label} is required")
+    return text

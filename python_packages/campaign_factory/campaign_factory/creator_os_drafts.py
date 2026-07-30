@@ -269,7 +269,7 @@ class CreatorOSDraftRepository:
         if reason == "publishabilityFailed":
             return "publishability_failed"
         if reason == "variantCooldownBlocked":
-            return str(item.get("variantCooldownCheck") or "variant_cooldown_blocked")
+            return str(item.get("variantCooldownCheck") or "unproven")
         duplicate = str(item.get("duplicateCheck") or "clear")
         if duplicate and duplicate != "clear":
             return duplicate
@@ -535,7 +535,7 @@ class CreatorOSDraftRepository:
             "platform_draft_validated",
         }:
             return "publishabilityFailed"
-        cooldown_reason = str(draft.get("variantCooldownCheck") or "clear")
+        cooldown_reason = str(draft.get("variantCooldownCheck") or "unproven")
         if cooldown_reason and cooldown_reason != "clear":
             return "variantCooldownBlocked"
         return ""

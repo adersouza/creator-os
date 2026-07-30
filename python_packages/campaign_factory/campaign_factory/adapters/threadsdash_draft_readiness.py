@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
+from ..caption_policy import (
+    WARNING_CLASS_ADVISORY,
+    WARNING_CLASS_OPERATOR_OVERRIDABLE,
+    warning_class,
+)
 from ..contracts import (
     ContractValidationError,
     validate_threadsdash_draft_payload_strict,
@@ -210,6 +215,7 @@ def evaluate_export_readiness(
     review_only: bool = False,
     record_evidence: bool = True,
     draft_payload: dict[str, Any] | None = None,
+    owner_api_authoritative: bool = False,
 ) -> dict[str, Any]:
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
@@ -285,7 +291,7 @@ def evaluate_export_readiness(
             except Exception:
                 logger.exception("ThreadsDashboard usage check failed")
                 usage_error = "usage_check_unavailable"
-        else:
+        elif not owner_api_authoritative:
             usage_error = "supabase_url and supabase_service_role_key are required for live usage checks"
 
         usage_by_asset = {
@@ -388,6 +394,20 @@ def evaluate_export_readiness(
             if asset["id"] in draft_asset_ids and usage_error:
                 blocking.append("usage_check_unavailable")
             state = "blocked" if blocking else ("warning" if warnings else "ready")
+            advisory_warnings = sorted(
+                {
+                    warning
+                    for warning in warnings
+                    if warning_class(str(warning)) == WARNING_CLASS_ADVISORY
+                }
+            )
+            operator_overridable_warnings = sorted(
+                {
+                    warning
+                    for warning in warnings
+                    if warning_class(str(warning)) == WARNING_CLASS_OPERATOR_OVERRIDABLE
+                }
+            )
             asset_findings = readiness_finding_payloads(
                 [
                     *readiness_findings_from_codes(
@@ -459,6 +479,8 @@ def evaluate_export_readiness(
                     "willExport": asset["id"] in draft_asset_ids,
                     "blockingReasons": sorted(set(blocking)),
                     "warnings": sorted(set(warnings)),
+                    "advisoryWarnings": advisory_warnings,
+                    "operatorOverridableWarnings": operator_overridable_warnings,
                     "findings": asset_findings,
                 }
             )
@@ -531,6 +553,20 @@ def evaluate_export_readiness(
                     f"{row['renderedAssetId']}:{warning}"
                     for row in export_rows
                     for warning in row["warnings"]
+                )
+            ),
+            "advisoryWarnings": sorted(
+                set(
+                    f"{row['renderedAssetId']}:{warning}"
+                    for row in export_rows
+                    for warning in row["advisoryWarnings"]
+                )
+            ),
+            "operatorOverridableWarnings": sorted(
+                set(
+                    f"{row['renderedAssetId']}:{warning}"
+                    for row in export_rows
+                    for warning in row["operatorOverridableWarnings"]
                 )
             ),
             "findings": global_findings,

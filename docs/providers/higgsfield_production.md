@@ -24,11 +24,13 @@ or routed to WaveSpeed.
 It retains the private reference path and SHA, extracts clean frames for analysis,
 records source writing separately with timestamped OCR evidence, and obtains a
 contract-shaped motion-only timeline. OpenAI observes the approved creator
-image and chronological Reel frames, then writes the Soul anchor prompt and
-separate Seedance/Kling prompts. Seedance or Kling receives only the approved
-anchor plus its prompt. Soul generation is text-only so its prompt is not
-discarded by reference-image force enhancement. The inspiration Reel is retained as exact lineage and
-audio evidence but is not sent to the video provider.
+image and chronological Reel frames, then writes the Soul anchor prompt, the
+executable Seedance prompt, and a non-executable Kling planning prompt. The
+Seedance request receives the approved anchor as an image reference, the
+authorized inspiration Reel as a video reference for broad motion/structure
+conditioning, and the creator reference Element through its prompt token. It
+does not consume the Soul ID directly. Soul generation is text-only so its
+prompt is not discarded by reference-image force enhancement.
 
 The authenticated CLI contract exposes `seedance_2_0` with `mode=fast`; Fast is
 a mode of that model, not a separate model ID. Recreation is fixed to 9:16,

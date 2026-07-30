@@ -16,6 +16,7 @@ from campaign_factory.creative_approval import (
     APPROVAL_ATTESTATION_ISSUER,
     CreativeApprovalError,
     CreativeApprovalStore,
+    asset_requires_creative_approval,
     build_and_record_creative_approval_v2,
     canonical_asset_approval_bindings,
     creative_export_projection,
@@ -62,6 +63,82 @@ def _sha(path: Path) -> str:
 def _fingerprint(payload: dict) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _review_decision() -> dict:
+    return {
+        "identityAcceptable": True,
+        "faceStable": True,
+        "bodyConsistent": True,
+        "anatomyAcceptable": True,
+        "motionAcceptable": True,
+        "captionAcceptable": True,
+        "audioAcceptable": True,
+        "intentSatisfied": True,
+        "wouldPost": True,
+        "notes": None,
+    }
+
+
+def _operator_review_file(
+    tmp_path: Path,
+    *,
+    asset_id: str,
+    final_sha: str,
+    manifest_sha: str,
+    suffix: str = "",
+) -> dict:
+    core = {
+        "schema": "creator_os.operator_media_review.v1",
+        "reviewId": f"review{suffix or '-1'}",
+        "renderedAssetId": asset_id,
+        "finalSha256": final_sha,
+        "reviewManifestSha256": manifest_sha,
+        "reviewedBy": "operator",
+        "reviewedAt": "2026-07-22T20:02:00Z",
+        **_review_decision(),
+    }
+    payload = {**core, "reviewFingerprint": _fingerprint(core)}
+    path = tmp_path / f"operator-review{suffix}.json"
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    return {"path": str(path), "sha256": _sha(path)}
+
+
+def _final_artifact_qc_item(
+    tmp_path: Path, final_sha: str, *, suffix: str = ""
+) -> dict:
+    receipt = {
+        "subjectSha256": final_sha,
+        "overallVerdict": "pass",
+        "readinessSummary": {
+            "uploadReady": True,
+            "blockingReasons": [],
+            "blockingCodes": [],
+        },
+        "finalArtifactIntegrity": {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": final_sha,
+            "passed": True,
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+        "analyzerEvidence": {
+            "analyzerVersion": "test",
+            "implementationFingerprint": "f" * 64,
+            "implementationComponents": {"similarity.js": "e" * 64},
+        },
+    }
+    path = tmp_path / f"final-artifact-audit{suffix}.json"
+    path.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
+    return {
+        "checkId": "contentforge.final_artifact_audit",
+        "receiptPath": str(path),
+        "receiptSha256": _sha(path),
+        "subjectSha256": final_sha,
+        "passed": True,
+    }
 
 
 def _sign_v2(core: dict) -> dict:
@@ -229,6 +306,12 @@ def _v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
     }
     manifest_path = tmp_path / "review-manifest-v2.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    operator_review = _operator_review_file(
+        tmp_path,
+        asset_id=asset["id"],
+        final_sha=asset["content_hash"],
+        manifest_sha=_sha(manifest_path),
+    )
     core = {
         "schema": "campaign_factory.creative_approval.v2",
         "approvalId": "approval-v2-1",
@@ -243,12 +326,14 @@ def _v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
                 "receiptSha256": _sha(receipt),
                 "subjectSha256": _sha(output),
                 "passed": True,
-            }
+            },
+            _final_artifact_qc_item(tmp_path, _sha(output)),
         ],
         "reviewManifest": {
             "path": str(manifest_path),
             "sha256": _sha(manifest_path),
         },
+        "operatorReview": operator_review,
         "exportProjection": projection,
         "contentSemantics": {
             "burnedOverlayText": draft["burnedCaptionText"],
@@ -315,6 +400,13 @@ def _text_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict, Path]:
     }
     manifest_path = tmp_path / "text-review-manifest-v2.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    operator_review = _operator_review_file(
+        tmp_path,
+        asset_id=asset["id"],
+        final_sha=asset["content_hash"],
+        manifest_sha=_sha(manifest_path),
+        suffix="-text",
+    )
     core = {
         "schema": "campaign_factory.creative_approval.v2",
         "approvalId": "approval-v2-text-1",
@@ -329,12 +421,14 @@ def _text_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict, Path]:
                 "receiptSha256": _sha(receipt),
                 "subjectSha256": asset["content_hash"],
                 "passed": True,
-            }
+            },
+            _final_artifact_qc_item(tmp_path, asset["content_hash"], suffix="-text"),
         ],
         "reviewManifest": {
             "path": str(manifest_path),
             "sha256": _sha(manifest_path),
         },
+        "operatorReview": operator_review,
         "exportProjection": creative_export_projection(
             draft, campaign_slug="may", prompt_source=canonical["promptSource"]
         ),
@@ -350,8 +444,11 @@ def _text_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict, Path]:
 
 
 class _BuilderPublishability:
-    def __init__(self, asset: dict, receipt: dict) -> None:
+    def __init__(
+        self, asset: dict, receipt: dict, *, audit_path: Path | None = None
+    ) -> None:
         self.asset = asset
+        self.audit_path = audit_path
         canonical = json.dumps(receipt, separators=(",", ":"), sort_keys=True)
         self.row = {
             "receipt_json": canonical,
@@ -368,12 +465,20 @@ class _BuilderPublishability:
     def latest_motion_qc_receipt(self, _rendered_asset_id: str) -> dict:
         return self.row
 
+    def latest_audit_for_asset(self, _rendered_asset_id: str) -> dict:
+        return {
+            "subjectSha256": self.asset["content_hash"],
+            "reportPath": str(self.audit_path) if self.audit_path else None,
+        }
+
 
 class _BuilderFactory:
-    def __init__(self, asset: dict, receipt: dict) -> None:
+    def __init__(
+        self, asset: dict, receipt: dict, *, audit_path: Path | None = None
+    ) -> None:
         asset.setdefault("review_state", "approved")
         campaign = {"id": asset["campaign_id"], "slug": "may"}
-        publishability = _BuilderPublishability(asset, receipt)
+        publishability = _BuilderPublishability(asset, receipt, audit_path=audit_path)
 
         class _Domains:
             pass
@@ -383,12 +488,113 @@ class _BuilderFactory:
         self.domains.campaign_by_slug = lambda slug: campaign if slug == "may" else None
 
 
+def test_static_reel_requires_exact_v2_approval_and_builds_from_final_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "approved-still.jpg"
+    output = tmp_path / "static-reel.mp4"
+    still.write_bytes(b"approved-still")
+    output.write_bytes(b"static-reel")
+    asset = {
+        "id": "static-asset-1",
+        "campaign_id": "campaign-1",
+        "source_asset_id": "source-asset-1",
+        "content_hash": _sha(output),
+        "output_path": str(output),
+        "recipe": "static_mp4",
+        "creator_model": "Stacey",
+        "content_surface": "reel",
+        "metadata_json": json.dumps(
+            {
+                "humanReviewRequired": True,
+                "staticMp4Render": {"stillPath": str(still)},
+                "generatedAssetLineage": {
+                    "source": {
+                        "parentStillPath": str(still),
+                        "parentStillHash": _sha(still),
+                    },
+                    "generation": {"tool": "reel_factory.static_mp4"},
+                },
+            },
+            sort_keys=True,
+        ),
+    }
+    audit = {
+        "subjectSha256": asset["content_hash"],
+        "overallVerdict": "pass",
+        "readinessSummary": {
+            "uploadReady": True,
+            "blockingReasons": [],
+            "blockingCodes": [],
+        },
+        "finalArtifactIntegrity": {
+            "schema": "campaign_factory.final_artifact_integrity.v1",
+            "subjectSha256": asset["content_hash"],
+            "passed": True,
+            "decode": {"passed": True},
+            "probe": {"passed": True},
+            "captionBinding": {"passed": True},
+            "audioBinding": {"passed": True},
+        },
+        "analyzerEvidence": {
+            "analyzerVersion": "test",
+            "implementationFingerprint": "f" * 64,
+            "implementationComponents": {"similarity.js": "e" * 64},
+        },
+    }
+    audit_path = tmp_path / "static-final-audit.json"
+    audit_path.write_text(json.dumps(audit, sort_keys=True), encoding="utf-8")
+    draft = {
+        "campaignId": "campaign-1",
+        "renderedAssetId": asset["id"],
+        "sourceAssetId": asset["source_asset_id"],
+        "contentHash": asset["content_hash"],
+        "content": "A real post caption",
+        "instagramPostCaption": "A real post caption",
+        "burnedCaptionText": None,
+        "audioIntent": {},
+    }
+    factory = _BuilderFactory(asset, {}, audit_path=audit_path)
+    monkeypatch.setattr(
+        "campaign_factory.adapters.threadsdash_draft_delivery.export_threadsdash",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "schema": "campaign_factory.threadsdash_drafts.v3",
+                "drafts": [draft],
+            }
+        },
+    )
+
+    assert asset_requires_creative_approval(asset) is True
+    result = build_and_record_creative_approval_v2(
+        factory,
+        campaign_slug="may",
+        rendered_asset_id=asset["id"],
+        user_id="operator-user",
+        approved_by="operator",
+        review_decision=_review_decision(),
+        root=tmp_path / "static-approvals",
+    )
+    approval = load_creative_approval(Path(result["approvalPath"]))
+
+    assert approval["qcEvidence"][0]["checkId"] == "contentforge.final_artifact_audit"
+    assert approval["output"]["sha256"] == asset["content_hash"]
+    assert (
+        validate_approval_for_draft(approval, draft, campaign_slug="may")["approval"]
+        == approval
+    )
+
+
 def test_supported_builder_uses_exact_generated_review_manifest_and_registered_qc(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _payload, asset, draft = _v2_fixture(tmp_path)
     receipt = json.loads((tmp_path / "motion-qc-v2.json").read_text())
-    factory = _BuilderFactory(asset, receipt)
+    factory = _BuilderFactory(
+        asset,
+        receipt,
+        audit_path=tmp_path / "final-artifact-audit.json",
+    )
     calls = {"exports": 0}
 
     def fake_export(_factory, **kwargs):
@@ -413,6 +619,7 @@ def test_supported_builder_uses_exact_generated_review_manifest_and_registered_q
         rendered_asset_id=asset["id"],
         user_id="operator-user",
         approved_by="operator",
+        review_decision=_review_decision(),
         root=tmp_path / "built-approvals",
     )
     approval = load_creative_approval(Path(result["approvalPath"]))
@@ -420,6 +627,12 @@ def test_supported_builder_uses_exact_generated_review_manifest_and_registered_q
     assert result["executionClass"] == "local_model"
     assert result["providerCalls"] == result["productionWrites"] == 0
     assert approval["reviewManifest"] == result["reviewManifest"]
+    operator_review = json.loads(
+        Path(result["operatorReview"]["path"]).read_text(encoding="utf-8")
+    )
+    assert operator_review["wouldPost"] is True
+    assert operator_review["finalSha256"] == asset["content_hash"]
+    assert approval["operatorReview"] == result["operatorReview"]
     assert (
         validate_approval_for_draft(approval, draft, campaign_slug="may")["projection"]
         == approval["exportProjection"]
@@ -504,6 +717,7 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
             rendered_asset_id=asset["id"],
             user_id="operator-user",
             approved_by="operator",
+            review_decision=_review_decision(),
             root=cf.settings.creative_approvals_dir,
             publish_mode="notify",
         )
@@ -560,6 +774,10 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
                 "success": True,
                 "postIds": ["post-approved-1"],
                 "writtenDrafts": 1,
+                "acknowledgment": {
+                    "status": "accepted",
+                    "postIds": ["post-approved-1"],
+                },
             }
 
         monkeypatch.setattr(
@@ -589,8 +807,8 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
             max_drafts=1,
             publish_mode="notify",
             allow_warnings=True,
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
+            warning_override_reason="Reviewed exact approved notify draft.",
+            warning_override_by="operator-user",
             threadsdash_ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
             threadsdash_ingest_secret="test-secret",
         )
@@ -776,6 +994,13 @@ def _paid_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
     manifest = {**manifest_core, "manifestFingerprint": _fingerprint(manifest_core)}
     manifest_path = tmp_path / "paid-review-manifest.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True))
+    operator_review = _operator_review_file(
+        tmp_path,
+        asset_id=asset["id"],
+        final_sha=asset["content_hash"],
+        manifest_sha=_sha(manifest_path),
+        suffix="-paid",
+    )
     core = {
         "schema": "campaign_factory.creative_approval.v2",
         "approvalId": "approval-paid-v2-1",
@@ -790,9 +1015,11 @@ def _paid_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
                 "receiptSha256": _sha(receipt_path),
                 "subjectSha256": output_sha,
                 "passed": True,
-            }
+            },
+            _final_artifact_qc_item(tmp_path, output_sha, suffix="-paid"),
         ],
         "reviewManifest": {"path": str(manifest_path), "sha256": _sha(manifest_path)},
+        "operatorReview": operator_review,
         "exportProjection": creative_export_projection(draft, campaign_slug="may"),
         "contentSemantics": {
             "burnedOverlayText": draft["burnedCaptionText"],
@@ -943,6 +1170,30 @@ def test_creative_approval_binds_every_exact_artifact(tmp_path: Path) -> None:
     store = CreativeApprovalStore(tmp_path / "approvals")
     with pytest.raises(CreativeApprovalError, match="v1_read_only"):
         store.record(payload)
+
+
+def test_export_projection_binds_clean_caption_fallback_reason(tmp_path: Path) -> None:
+    _payload, _asset, draft = _v2_fixture(tmp_path)
+    draft.update(
+        {
+            "burnedCaptionText": None,
+            "burnedCaptionHash": None,
+            "instagramPostCaption": "sending one-word replies",
+            "content": "sending one-word replies",
+            "captionOutcomeContext": {
+                "captionFallback": {
+                    "reasonCode": "no_safe_caption_lane",
+                    "renderPolicy": "clean_without_overlay",
+                }
+            },
+        }
+    )
+
+    projection = creative_export_projection(draft, campaign_slug="may")
+
+    assert projection["burnedCaptionText"] is None
+    assert projection["captionFallbackReason"] == "no_safe_caption_lane"
+    assert projection["instagramPostCaption"] == "sending one-word replies"
 
 
 def test_creative_approval_v1_is_preserved_as_non_operational_history(
@@ -1123,6 +1374,53 @@ def test_creative_approval_rejects_output_substitution(tmp_path: Path) -> None:
         validate_creative_approval(payload)
 
 
+def test_active_production_motion_still_requires_exact_v2_approval() -> None:
+    assert (
+        asset_requires_creative_approval(
+            {
+                "metadata": {
+                    "schema": "campaign_factory.motion_generation_asset.v1",
+                    "productionMotionRecipe": {"status": "active"},
+                    "creativeApprovalRequired": False,
+                    "humanReviewRequired": False,
+                }
+            }
+        )
+        is True
+    )
+
+
+def test_one_byte_change_blocks_old_v2_approval_at_export_validation(
+    tmp_path: Path,
+) -> None:
+    approval, asset, draft = _v2_fixture(tmp_path)
+    store = CreativeApprovalStore(tmp_path / "approvals")
+    store.record(approval)
+    Path(approval["output"]["path"]).write_bytes(
+        Path(approval["output"]["path"]).read_bytes() + b"x"
+    )
+
+    class Publishability:
+        def rendered_asset(self, _asset_id: str) -> dict:
+            return asset
+
+        def creative_approval_for_asset(self, _asset_id: str) -> dict:
+            return store.status_for_asset(asset)
+
+    class Domains:
+        publishability = Publishability()
+
+    class Factory:
+        domains = Domains()
+
+    with pytest.raises(ValueError, match="creative_approval"):
+        threadsdash_delivery_adapter._validate_exact_creative_approvals(
+            Factory(),
+            {"drafts": [draft]},
+            campaign_slug="may",
+        )
+
+
 def test_creative_approval_rejects_failed_qc(tmp_path: Path) -> None:
     payload = _approval(tmp_path)
     payload["qcEvidence"][0]["passed"] = False
@@ -1130,6 +1428,19 @@ def test_creative_approval_rejects_failed_qc(tmp_path: Path) -> None:
     core.pop("approvalFingerprint")
     payload["approvalFingerprint"] = _fingerprint(core)
     with pytest.raises(CreativeApprovalError, match="qc_blocked"):
+        validate_creative_approval(payload)
+
+
+def test_v2_approval_requires_final_artifact_integrity_receipt(tmp_path: Path) -> None:
+    payload, _asset, _draft = _v2_fixture(tmp_path)
+    payload["qcEvidence"] = [
+        item
+        for item in payload["qcEvidence"]
+        if item["checkId"] != "contentforge.final_artifact_audit"
+    ]
+    _resign_v2(payload)
+
+    with pytest.raises(CreativeApprovalError, match="final_artifact_audit_missing"):
         validate_creative_approval(payload)
 
 
