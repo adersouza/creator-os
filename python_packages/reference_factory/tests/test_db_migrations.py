@@ -11,14 +11,28 @@ from reference_factory.db_migrations import Migration, run_migrations
 def test_clean_database_records_version_and_enforces_evidence(tmp_path: Path) -> None:
     conn = connect(tmp_path / "reference.sqlite")
 
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert [
         tuple(row)
         for row in conn.execute(
             "SELECT version, status FROM reference_schema_migrations ORDER BY version"
         )
-    ] == [(1, "applied"), (2, "applied")]
+    ] == [(1, "applied"), (2, "applied"), (3, "applied")]
+    assert (
+        conn.execute(
+            """
+        SELECT COUNT(*) FROM sqlite_master
+        WHERE type='table' AND name IN (
+          'reference_lifecycle_events',
+          'reference_lifecycle_state',
+          'reference_pattern_lifecycle_events',
+          'reference_pattern_lifecycle_state'
+        )
+        """
+        ).fetchone()[0]
+        == 4
+    )
     with pytest.raises(
         sqlite3.IntegrityError, match="invalid reference analysis status"
     ):
@@ -48,12 +62,12 @@ def test_unversioned_historical_schema_upgrades(tmp_path: Path) -> None:
 
     upgraded = connect(db_path)
 
-    assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 3
     assert (
         upgraded.execute(
             "SELECT COUNT(*) FROM reference_schema_migrations WHERE status='applied'"
         ).fetchone()[0]
-        == 2
+        == 3
     )
 
 

@@ -1464,9 +1464,14 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 self._raced = False
 
             def execute(self, sql, parameters=()):
+                if sql == "BEGIN IMMEDIATE":
+                    # Deliberately suppress the lease lock so this fixture can
+                    # exercise the compare-and-set lost-race fallback.
+                    return self._real.execute("SELECT 1")
                 if (
                     not self._raced
-                    and "SELECT * FROM queue_jobs WHERE status = 'queued'" in sql
+                    and "SELECT * FROM queue_jobs" in sql
+                    and "status = 'queued'" in sql
                 ):
                     row = self._real.execute(sql, parameters).fetchone()
                     self._winner_queue.claim("worker-1")

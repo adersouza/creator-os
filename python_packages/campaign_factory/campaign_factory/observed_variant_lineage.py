@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from reel_factory.worker_api import (
+    contentforge_qc_policy_sha256,
     normalize_profile_id,
     probe_media_identity,
     render_observed_profile,
@@ -541,7 +542,6 @@ class ObservedVariantLineageMixin:
                 "mediaIntegrityQc": True,
             }
 
-        qc_policy_path = self.settings.contentforge_root / "lib" / "similarity.js"
         audio_embedder_path = Path(__file__).with_name("audio_radar") / "embedding.py"
         receipt = render_observed_profile(
             source_path=source,
@@ -557,8 +557,8 @@ class ObservedVariantLineageMixin:
             visible_text=visible_text,
             attempt_limit=attempt_limit,
             qc_callback=qc_callback,
-            qc_policy_sha256=(
-                self._sha256_file(qc_policy_path) if qc_policy_path.is_file() else None
+            qc_policy_sha256=contentforge_qc_policy_sha256(
+                self.settings.contentforge_root
             ),
             audio_embedder_sha256=(
                 self._sha256_file(audio_embedder_path)

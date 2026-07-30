@@ -179,7 +179,7 @@ def _mock_lineage(source_video: Path) -> dict[str, Any]:
         "generation": {
             "tool": "higgsfield_kling_cli",
             "modelProfile": "Stacey",
-            "soulId": "5828d958-91dd-4d6d-8909-934503f47644",
+            "soulId": "mock_identity_stacey1",
             "imageModel": "text2image_soul_v2",
             "videoModel": "kling3_0",
             "imageJobId": "mock_img_job",

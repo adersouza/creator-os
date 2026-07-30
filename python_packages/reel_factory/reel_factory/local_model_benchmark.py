@@ -1029,7 +1029,10 @@ class LocalModelBenchmarkStore:
         registry_payload = evidence_record_payload(analyzer_registry)
         if recipe_payload.get("schema") != "creator_os.benchmark_recipe.v1":
             raise LocalQueueError("benchmark_recipe_schema_mismatch")
-        if registry_payload.get("schema") != "creator_os.analyzer_registry.v1":
+        if registry_payload.get("schema") not in {
+            "creator_os.analyzer_registry.v1",
+            "creator_os.analyzer_registry.v2",
+        }:
             raise LocalQueueError("benchmark_analyzer_registry_schema_mismatch")
         recipe_fingerprint = fingerprint(recipe_payload)
         registry_fingerprint = fingerprint(registry_payload)
@@ -1199,7 +1202,10 @@ class LocalModelBenchmarkStore:
         )
         if recipe_payload.get("schema") != "creator_os.benchmark_recipe.v1":
             raise LocalQueueError("benchmark_persisted_recipe_schema_mismatch")
-        if registry_payload.get("schema") != "creator_os.analyzer_registry.v1":
+        if registry_payload.get("schema") not in {
+            "creator_os.analyzer_registry.v1",
+            "creator_os.analyzer_registry.v2",
+        }:
             raise LocalQueueError("benchmark_persisted_registry_schema_mismatch")
         if recipe_payload.get("recipeId") != receipt.benchmark_recipe_id:
             raise LocalQueueError("benchmark_receipt_recipe_id_mismatch")

@@ -341,7 +341,12 @@
         "queueJobFingerprint": {"$ref": "#/$defs/sha256"},
         "benchmarkRecipe": {"$ref": "benchmark_recipe.v1.schema.json"},
         "benchmarkRecipeFingerprint": {"$ref": "#/$defs/sha256"},
-        "analyzerRegistry": {"$ref": "analyzer_registry.v1.schema.json"},
+        "analyzerRegistry": {
+          "oneOf": [
+            {"$ref": "analyzer_registry.v1.schema.json"},
+            {"$ref": "analyzer_registry.v2.schema.json"}
+          ]
+        },
         "analyzerRegistryFingerprint": {"$ref": "#/$defs/sha256"},
         "promotionEligible": {"type": "boolean"}
       }

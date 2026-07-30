@@ -4,10 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from campaign_factory.real_provider_acceptance import (
-    STACEY_SOUL_ID,
-    run_real_provider_acceptance,
-)
+from campaign_factory.real_provider_acceptance import run_real_provider_acceptance
 
 
 class FakeAcceptanceSeams:
@@ -80,6 +77,19 @@ class FakeAcceptanceSeams:
         return {"ok": True, "postId": "draft_post_1", "lineageMatch": True}
 
 
+def _identity_context() -> dict:
+    return {
+        "schema": "campaign_factory.creator_operation_context.v1",
+        "creatorId": "model_stacey",
+        "creatorSlug": "stacey",
+        "operation": "provider_spend",
+        "provider": "higgsfield",
+        "identityProfileId": "identity_stacey_v1",
+        "providerIdentityId": "governed_stacey_soul",
+        "governanceFingerprint": "a" * 64,
+    }
+
+
 def test_real_provider_acceptance_runs_paid_call_once_and_writes_redacted_artifact(
     tmp_path: Path,
 ) -> None:
@@ -91,6 +101,7 @@ def test_real_provider_acceptance_runs_paid_call_once_and_writes_redacted_artifa
         paid_confirmation=True,
         max_credits=1.0,
         seams=seams,
+        identity_context=_identity_context(),
     )
 
     assert result["ok"] is True
@@ -106,7 +117,8 @@ def test_real_provider_acceptance_runs_paid_call_once_and_writes_redacted_artifa
         "ingest",
         "verify_draft",
     ]
-    assert result["lineage"]["soulId"] == STACEY_SOUL_ID
+    assert result["lineage"]["soulId"] == "governed_stacey_soul"
+    assert result["lineage"]["governanceFingerprint"] == "a" * 64
     assert result["scheduleRequested"] is False
     assert result["publishRequested"] is False
     artifact_text = Path(result["artifactPath"]).read_text(encoding="utf-8")
@@ -126,6 +138,7 @@ def test_real_provider_acceptance_cancels_unused_reservation(
             paid_confirmation=True,
             max_credits=1.0,
             seams=seams,
+            identity_context=_identity_context(),
         )
 
     assert seams.calls[-1] == "cancel"
@@ -143,5 +156,25 @@ def test_real_provider_acceptance_requires_explicit_paid_confirmation(
             paid_confirmation=False,
             max_credits=1.0,
             seams=seams,
+            identity_context=_identity_context(),
+        )
+    assert seams.calls == []
+
+
+def test_real_provider_acceptance_rejects_ungoverned_identity(
+    tmp_path: Path,
+) -> None:
+    seams = FakeAcceptanceSeams()
+    with pytest.raises(PermissionError, match="governed Stacey provider identity"):
+        run_real_provider_acceptance(
+            workspace=tmp_path,
+            target_environment="preview",
+            paid_confirmation=True,
+            max_credits=1.0,
+            seams=seams,
+            identity_context={
+                **_identity_context(),
+                "governanceFingerprint": "",
+            },
         )
     assert seams.calls == []

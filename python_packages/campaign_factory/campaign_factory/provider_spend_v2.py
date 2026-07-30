@@ -465,6 +465,7 @@ def record_wavespeed_execution(
     status: str,
     actual_usd: float | None = None,
 ) -> str:
+    caller_owned_transaction = conn.in_transaction
     ensure_cost_table(conn)
     quote = authorization["providerQuote"]
     scope = authorization["scope"]
@@ -492,7 +493,7 @@ def record_wavespeed_execution(
         f"SELECT campaign_id FROM {AUTHORIZATION_TABLE} WHERE authorization_id = ?",
         (authorization["authorizationId"],),
     ).fetchone()
-    return record_ai_cost(
+    event_id = record_ai_cost(
         conn,
         provider="wavespeed",
         operation=str(scope["operation"]),
@@ -524,7 +525,11 @@ def record_wavespeed_execution(
         provider_quote=quote,
         cohort_id=str(scope["cohortId"]),
         ensure_schema=False,
+        commit=False,
     )
+    if not caller_owned_transaction:
+        conn.commit()
+    return event_id
 
 
 def _reserved_total(conn: sqlite3.Connection, predicate: str, value: str) -> float:

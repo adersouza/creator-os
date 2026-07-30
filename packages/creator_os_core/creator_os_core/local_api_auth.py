@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+
+
+@dataclass(frozen=True)
+class LocalApiAuthContext:
+    actor_fingerprint: str
+    role: str
+    authenticated: bool
 
 
 def _truthy(value: str | None) -> bool:
@@ -26,15 +35,29 @@ def _is_loopback(host: str | None) -> bool:
 def require_local_api_auth(
     request: Request,
     authorization: str | None = Header(default=None),
-) -> None:
-    authorize_local_api_request(request, authorization)
+) -> LocalApiAuthContext:
+    context = getattr(request.state, "local_api_auth", None)
+    if not isinstance(context, LocalApiAuthContext):
+        context = authorize_local_api_request(request, authorization)
+        request.state.local_api_auth = context
+    authorizer = getattr(request.app.state, "local_api_authorizer", None)
+    if callable(authorizer):
+        authorizer(request, context)
+    return context
 
 
-def authorize_local_api_request(request: Request, authorization: str | None) -> None:
+def authorize_local_api_request(
+    request: Request, authorization: str | None
+) -> LocalApiAuthContext:
     token = os.environ.get("CREATOR_OS_API_TOKEN")
     if token:
         if authorization == f"Bearer {token}":
-            return
+            return LocalApiAuthContext(
+                actor_fingerprint="token:"
+                + hashlib.sha256(token.encode()).hexdigest()[:20],
+                role=str(os.environ.get("CREATOR_OS_API_ROLE") or "operator"),
+                authenticated=True,
+            )
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid API token",
@@ -44,7 +67,11 @@ def authorize_local_api_request(request: Request, authorization: str | None) -> 
     if _truthy(os.environ.get("ALLOW_INSECURE_LOCAL")) and _is_loopback(
         request.client.host if request.client else None
     ):
-        return
+        return LocalApiAuthContext(
+            actor_fingerprint="loopback:insecure",
+            role="reader",
+            authenticated=False,
+        )
 
     raise HTTPException(
         status_code=401,
@@ -60,7 +87,10 @@ def install_local_api_auth_middleware(app: FastAPI) -> None:
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         try:
-            authorize_local_api_request(request, request.headers.get("authorization"))
+            context = authorize_local_api_request(
+                request, request.headers.get("authorization")
+            )
+            request.state.local_api_auth = context
         except HTTPException as exc:
             return JSONResponse(
                 status_code=exc.status_code,

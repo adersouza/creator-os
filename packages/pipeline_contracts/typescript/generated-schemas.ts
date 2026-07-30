@@ -369,6 +369,235 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	analyzerRegistryV2: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/schemas/analyzer_registry.v2.schema.json",
+	  "title": "Creator OS Production Analyzer Authority Registry",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "registryId",
+	    "authorityVersion",
+	    "analyzers",
+	    "provenance"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.analyzer_registry.v2"
+	    },
+	    "registryId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "authorityVersion": {
+	      "const": 2
+	    },
+	    "analyzers": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "$ref": "#/$defs/analyzerRegistration"
+	      }
+	    },
+	    "provenance": {
+	      "$ref": "evidence_provenance.v1.schema.json"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "analyzerRegistration": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "analyzerId",
+	        "analyzerVersion",
+	        "evidenceKinds",
+	        "implementationRef",
+	        "implementationFingerprint",
+	        "model",
+	        "validationDataset",
+	        "thresholds",
+	        "thresholdsFingerprint",
+	        "falsePositiveBudget",
+	        "falseNegativeBudget",
+	        "lastQualification",
+	        "nextRenewal",
+	        "approvedUseCases",
+	        "unsupportedUseCases",
+	        "rollbackVersion",
+	        "operator",
+	        "authorityReview"
+	      ],
+	      "properties": {
+	        "analyzerId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analyzerVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "evidenceKinds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "implementationRef": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "implementationFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "model": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "modelId",
+	            "modelFingerprint"
+	          ],
+	          "properties": {
+	            "modelId": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "modelFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            }
+	          }
+	        },
+	        "validationDataset": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "datasetId",
+	            "datasetOwner",
+	            "manifestRef",
+	            "manifestFingerprint"
+	          ],
+	          "properties": {
+	            "datasetId": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "datasetOwner": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "manifestRef": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "manifestFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            }
+	          }
+	        },
+	        "thresholds": {
+	          "type": "object"
+	        },
+	        "thresholdsFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "falsePositiveBudget": {
+	          "type": "number",
+	          "minimum": 0,
+	          "maximum": 1
+	        },
+	        "falseNegativeBudget": {
+	          "type": "number",
+	          "minimum": 0,
+	          "maximum": 1
+	        },
+	        "lastQualification": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "nextRenewal": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "approvedUseCases": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "unsupportedUseCases": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "rollbackVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "operator": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "authorityReview": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "reviewId",
+	            "decision",
+	            "reviewedAt",
+	            "approvedChangeClasses",
+	            "reviewedMaterialFingerprint"
+	          ],
+	          "properties": {
+	            "reviewId": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "decision": {
+	              "const": "approved"
+	            },
+	            "reviewedAt": {
+	              "type": "string",
+	              "format": "date-time"
+	            },
+	            "approvedChangeClasses": {
+	              "type": "array",
+	              "minItems": 1,
+	              "uniqueItems": true,
+	              "items": {
+	                "enum": [
+	                  "initial_authority",
+	                  "threshold_change",
+	                  "model_upgrade",
+	                  "detector_removal",
+	                  "production_authority_expansion",
+	                  "implementation_change",
+	                  "qualification_renewal"
+	                ]
+	              }
+	            },
+	            "reviewedMaterialFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            }
+	          }
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	assignmentEligibility: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.assignment_eligibility.v1",
@@ -6240,7 +6469,8 @@ export const generatedPipelineContractSchemas = {
 	      "const": "Stacey"
 	    },
 	    "soul_id": {
-	      "const": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+	      "type": "string",
+	      "minLength": 1
 	    },
 	    "account_handle": {
 	      "const": "bennett_s33"
@@ -7443,7 +7673,14 @@ export const generatedPipelineContractSchemas = {
 	          "$ref": "#/$defs/sha256"
 	        },
 	        "analyzerRegistry": {
-	          "$ref": "analyzer_registry.v1.schema.json"
+	          "oneOf": [
+	            {
+	              "$ref": "analyzer_registry.v1.schema.json"
+	            },
+	            {
+	              "$ref": "analyzer_registry.v2.schema.json"
+	            }
+	          ]
 	        },
 	        "analyzerRegistryFingerprint": {
 	          "$ref": "#/$defs/sha256"
@@ -10612,7 +10849,14 @@ export const generatedPipelineContractSchemas = {
 	          "$ref": "trusted_media_analysis.v1.schema.json"
 	        },
 	        "analyzerRegistry": {
-	          "$ref": "analyzer_registry.v1.schema.json"
+	          "oneOf": [
+	            {
+	              "$ref": "analyzer_registry.v1.schema.json"
+	            },
+	            {
+	              "$ref": "analyzer_registry.v2.schema.json"
+	            }
+	          ]
 	        },
 	        "humanReview": {
 	          "$ref": "human_media_review.v1.schema.json"
@@ -12955,6 +13199,9 @@ export const generatedPipelineContractSchemas = {
 	        "humanGoldLabelsAuthoritative": {
 	          "const": true
 	        },
+	        "currentSignedReferenceRightsRequired": {
+	          "type": "boolean"
+	        },
 	        "measuredFactsSource": {
 	          "const": "campaign_factory.performance_snapshots"
 	        },
@@ -13032,6 +13279,14 @@ export const generatedPipelineContractSchemas = {
 	      "type": "array",
 	      "items": {
 	        "$ref": "#/$defs/audioPattern"
+	      }
+	    },
+	    "invalidatedPatternIds": {
+	      "type": "array",
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "string",
+	        "minLength": 1
 	      }
 	    },
 	    "provenance": {
@@ -13165,6 +13420,9 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "notes": {
 	          "$ref": "#/$defs/nullableString"
+	        },
+	        "lifecycle": {
+	          "$ref": "#/$defs/referenceLifecycle"
 	        },
 	        "promptCardIds": {
 	          "type": "array",
@@ -13328,6 +13586,9 @@ export const generatedPipelineContractSchemas = {
 	        "pattern": {
 	          "type": "object"
 	        },
+	        "lifecycle": {
+	          "$ref": "#/$defs/patternLifecycle"
+	        },
 	        "measuredExampleCount": {
 	          "$ref": "#/$defs/nonNegativeInteger"
 	        },
@@ -13384,6 +13645,154 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "placement": {
 	          "type": "object"
+	        }
+	      }
+	    },
+	    "referenceLifecycle": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "referenceId",
+	        "rightsStatus",
+	        "referenceStatus",
+	        "contradictionStatus",
+	        "expiresAt",
+	        "latestEventId",
+	        "latestEvidenceType",
+	        "latestEventFingerprint",
+	        "eligible",
+	        "blockers"
+	      ],
+	      "properties": {
+	        "referenceId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "rightsStatus": {
+	          "type": "string",
+	          "enum": [
+	            "unverified",
+	            "granted",
+	            "revoked",
+	            "expired"
+	          ]
+	        },
+	        "referenceStatus": {
+	          "type": "string",
+	          "enum": [
+	            "active",
+	            "deleted"
+	          ]
+	        },
+	        "contradictionStatus": {
+	          "type": "string",
+	          "enum": [
+	            "clear",
+	            "open"
+	          ]
+	        },
+	        "expiresAt": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "format": "date-time"
+	        },
+	        "latestEventId": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "latestEvidenceType": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "enum": [
+	            "evidence",
+	            "inference",
+	            null
+	          ]
+	        },
+	        "latestEventFingerprint": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "eligible": {
+	          "type": "boolean"
+	        },
+	        "blockers": {
+	          "type": "array",
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        }
+	      }
+	    },
+	    "patternLifecycle": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "patternId",
+	        "status",
+	        "supersededByPatternId",
+	        "latestEventId",
+	        "latestEvidenceType",
+	        "latestEventFingerprint",
+	        "eligible",
+	        "blockers"
+	      ],
+	      "properties": {
+	        "patternId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "status": {
+	          "type": "string",
+	          "enum": [
+	            "legacy_active",
+	            "active",
+	            "superseded",
+	            "invalidated"
+	          ]
+	        },
+	        "supersededByPatternId": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "latestEventId": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "latestEvidenceType": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "enum": [
+	            "evidence",
+	            "inference",
+	            null
+	          ]
+	        },
+	        "latestEventFingerprint": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "eligible": {
+	          "type": "boolean"
+	        },
+	        "blockers": {
+	          "type": "array",
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
 	        }
 	      }
 	    },
@@ -13847,6 +14256,544 @@ export const generatedPipelineContractSchemas = {
 	    "sha256": {
 	      "type": "string",
 	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
+	rendererEquivalenceReceiptV2: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.renderer_equivalence_receipt.v2",
+	  "title": "Creator OS Renderer Equivalence Receipt v2",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "qualificationId",
+	    "mediaClass",
+	    "toolchain",
+	    "fixture",
+	    "equivalencePolicy",
+	    "source",
+	    "identityOutput",
+	    "checks",
+	    "measurements",
+	    "qcEvidence",
+	    "qcRegression",
+	    "status",
+	    "qualifiedAt",
+	    "receiptFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.renderer_equivalence_receipt.v2"
+	    },
+	    "qualificationId": {
+	      "type": "string",
+	      "pattern": "^renderer_qualification_[a-f0-9]{24}$"
+	    },
+	    "mediaClass": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "toolchain": {
+	      "$ref": "#/$defs/toolchain"
+	    },
+	    "fixture": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "fixtureId",
+	        "kind",
+	        "inputSha256",
+	        "deterministicInput"
+	      ],
+	      "properties": {
+	        "fixtureId": {
+	          "type": "string",
+	          "pattern": "^control_[a-f0-9]{24}$"
+	        },
+	        "kind": {
+	          "const": "exact_control_bytes"
+	        },
+	        "inputSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "deterministicInput": {
+	          "const": true
+	        }
+	      }
+	    },
+	    "equivalencePolicy": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "policyId",
+	        "policyVersion",
+	        "qualificationScope",
+	        "crossMachineByteReproducibility",
+	        "byteIdentityRequired",
+	        "minimumSsim",
+	        "maximumDurationDeltaFrames",
+	        "requiredStreamChecks"
+	      ],
+	      "properties": {
+	        "policyId": {
+	          "const": "reel_factory.renderer_equivalence"
+	        },
+	        "policyVersion": {
+	          "const": "2.0.0"
+	        },
+	        "qualificationScope": {
+	          "const": "exact_toolchain_and_host"
+	        },
+	        "crossMachineByteReproducibility": {
+	          "const": "not_claimed"
+	        },
+	        "byteIdentityRequired": {
+	          "const": false
+	        },
+	        "minimumSsim": {
+	          "type": "number",
+	          "minimum": 0.995,
+	          "maximum": 1
+	        },
+	        "maximumDurationDeltaFrames": {
+	          "const": 1
+	        },
+	        "requiredStreamChecks": {
+	          "type": "array",
+	          "minItems": 4,
+	          "uniqueItems": true,
+	          "items": {
+	            "enum": [
+	              "dimensions",
+	              "frame_rate",
+	              "duration",
+	              "audio_policy"
+	            ]
+	          }
+	        }
+	      }
+	    },
+	    "source": {
+	      "$ref": "#/$defs/mediaIdentity"
+	    },
+	    "identityOutput": {
+	      "$ref": "#/$defs/mediaIdentity"
+	    },
+	    "checks": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "dimensionsEqual",
+	        "frameRateEqual",
+	        "durationWithinOneFrame",
+	        "audioPolicyEqual"
+	      ],
+	      "properties": {
+	        "dimensionsEqual": {
+	          "type": "boolean"
+	        },
+	        "frameRateEqual": {
+	          "type": "boolean"
+	        },
+	        "durationWithinOneFrame": {
+	          "type": "boolean"
+	        },
+	        "audioPolicyEqual": {
+	          "type": "boolean"
+	        }
+	      }
+	    },
+	    "measurements": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "ssim",
+	        "byteIdentical",
+	        "durationDeltaSeconds",
+	        "durationDeltaFrames"
+	      ],
+	      "properties": {
+	        "ssim": {
+	          "type": "number",
+	          "minimum": 0,
+	          "maximum": 1
+	        },
+	        "byteIdentical": {
+	          "type": "boolean"
+	        },
+	        "durationDeltaSeconds": {
+	          "type": "number",
+	          "minimum": 0
+	        },
+	        "durationDeltaFrames": {
+	          "type": "number",
+	          "minimum": 0
+	        }
+	      }
+	    },
+	    "qcEvidence": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "evaluated",
+	        "policySha256",
+	        "baselineReport",
+	        "identityReport",
+	        "newBlockingCodes"
+	      ],
+	      "properties": {
+	        "evaluated": {
+	          "type": "boolean"
+	        },
+	        "policySha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "baselineReport": {
+	          "oneOf": [
+	            {
+	              "$ref": "#/$defs/evidenceFile"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "identityReport": {
+	          "oneOf": [
+	            {
+	              "$ref": "#/$defs/evidenceFile"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "newBlockingCodes": {
+	          "type": "array",
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        }
+	      }
+	    },
+	    "qcRegression": {
+	      "type": "boolean"
+	    },
+	    "status": {
+	      "enum": [
+	        "qualified",
+	        "failed"
+	      ]
+	    },
+	    "qualifiedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "receiptFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "status": {
+	            "const": "qualified"
+	          }
+	        },
+	        "required": [
+	          "status"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "checks": {
+	            "properties": {
+	              "dimensionsEqual": {
+	                "const": true
+	              },
+	              "frameRateEqual": {
+	                "const": true
+	              },
+	              "durationWithinOneFrame": {
+	                "const": true
+	              },
+	              "audioPolicyEqual": {
+	                "const": true
+	              }
+	            }
+	          },
+	          "measurements": {
+	            "properties": {
+	              "ssim": {
+	                "minimum": 0.995
+	              },
+	              "durationDeltaFrames": {
+	                "maximum": 1
+	              }
+	            }
+	          },
+	          "qcEvidence": {
+	            "properties": {
+	              "evaluated": {
+	                "const": true
+	              },
+	              "baselineReport": {
+	                "$ref": "#/$defs/evidenceFile"
+	              },
+	              "identityReport": {
+	                "$ref": "#/$defs/evidenceFile"
+	              }
+	            }
+	          },
+	          "qcRegression": {
+	            "const": false
+	          }
+	        }
+	      }
+	    }
+	  ],
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "evidenceFile": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "path",
+	        "sha256"
+	      ],
+	      "properties": {
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "mediaIdentity": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "sha256",
+	        "mediaType",
+	        "byteSize",
+	        "width",
+	        "height",
+	        "fps",
+	        "durationSeconds",
+	        "audioPresent"
+	      ],
+	      "properties": {
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "mediaType": {
+	          "enum": [
+	            "image",
+	            "video"
+	          ]
+	        },
+	        "byteSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "width": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "height": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "fps": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "exclusiveMinimum": 0
+	        },
+	        "durationSeconds": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "minimum": 0
+	        },
+	        "audioPresent": {
+	          "type": [
+	            "boolean",
+	            "null"
+	          ]
+	        }
+	      }
+	    },
+	    "executable": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "path",
+	        "sha256",
+	        "version",
+	        "capabilitiesSha256"
+	      ],
+	      "properties": {
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "version": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "capabilitiesSha256": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "toolchain": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "repositorySha",
+	        "rendererImplementationSha256",
+	        "ffmpeg",
+	        "ffprobe",
+	        "fonts",
+	        "fontsFingerprint",
+	        "host",
+	        "hostFingerprint",
+	        "codecPolicy",
+	        "codecPolicyFingerprint",
+	        "encoderSettingsSha256",
+	        "audioEmbedderSha256",
+	        "qcPolicySha256",
+	        "fingerprint"
+	      ],
+	      "properties": {
+	        "repositorySha": {
+	          "type": "string",
+	          "minLength": 7
+	        },
+	        "rendererImplementationSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffmpeg": {
+	          "$ref": "#/$defs/executable"
+	        },
+	        "ffprobe": {
+	          "$ref": "#/$defs/executable"
+	        },
+	        "fonts": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": false,
+	            "required": [
+	              "ref",
+	              "sha256"
+	            ],
+	            "properties": {
+	              "ref": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "sha256": {
+	                "$ref": "#/$defs/sha256"
+	              }
+	            }
+	          }
+	        },
+	        "fontsFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "host": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "system",
+	            "release",
+	            "machine",
+	            "python",
+	            "hostInstanceSha256"
+	          ],
+	          "properties": {
+	            "system": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "release": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "machine": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "python": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "hostInstanceSha256": {
+	              "$ref": "#/$defs/sha256"
+	            }
+	          }
+	        },
+	        "hostFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "codecPolicy": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "videoCodec",
+	            "pixelFormat",
+	            "imageJpegQuality",
+	            "identityAudioPolicy"
+	          ],
+	          "properties": {
+	            "videoCodec": {
+	              "const": "libx264"
+	            },
+	            "pixelFormat": {
+	              "const": "yuv420p"
+	            },
+	            "imageJpegQuality": {
+	              "const": 95
+	            },
+	            "identityAudioPolicy": {
+	              "const": "copy_if_present"
+	            }
+	          }
+	        },
+	        "codecPolicyFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "encoderSettingsSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "audioEmbedderSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "qcPolicySha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "fingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
 	    }
 	  }
 	} as const,
@@ -16033,6 +16980,7 @@ export const generatedPipelineContractSchemas = {
 export const generatedPipelineContractSchemaManifest = [
 	{ key: "accountEligibilityDecision", filename: "account_eligibility_decision.v1.schema.json", id: "campaign_factory.account_eligibility_decision.v1" },
 	{ key: "analyzerRegistry", filename: "analyzer_registry.v1.schema.json", id: "https://creator-os.local/schemas/analyzer_registry.v1.schema.json" },
+	{ key: "analyzerRegistryV2", filename: "analyzer_registry.v2.schema.json", id: "https://creator-os.local/schemas/analyzer_registry.v2.schema.json" },
 	{ key: "assignmentEligibility", filename: "assignment_eligibility.v1.schema.json", id: "campaign_factory.assignment_eligibility.v1" },
 	{ key: "audioCatalogExport", filename: "audio_catalog_export.v1.schema.json", id: "reference_factory.audio_catalog_export.v1" },
 	{ key: "audioIntent", filename: "audio_intent.v1.schema.json", id: "pipeline.audio_intent.v1" },
@@ -16081,6 +17029,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "rendererEquivalenceReceipt", filename: "renderer_equivalence_receipt.v1.schema.json", id: "creator_os.renderer_equivalence_receipt.v1" },
+	{ key: "rendererEquivalenceReceiptV2", filename: "renderer_equivalence_receipt.v2.schema.json", id: "creator_os.renderer_equivalence_receipt.v2" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
 	{ key: "runtimePromotionApproval", filename: "runtime_promotion_approval.v1.schema.json", id: "creator_os.runtime_promotion_approval.v1" },
 	{ key: "runtimePromotionReceipt", filename: "runtime_promotion_receipt.v1.schema.json", id: "creator_os.runtime_promotion_receipt.v1" },

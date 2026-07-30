@@ -69,6 +69,8 @@ def test_compiled_prompt_preserves_identity_and_safety_constraints() -> None:
     assert "Provider output stays silent" in compiled["text"]
     assert "negativeConstraints" not in card
     assert "continuityRequirements" in card
+    assert card["promptGovernance"]["registryFingerprint"]
+    assert compiled["promptGovernance"]["definitionFingerprint"]
 
 
 def test_compatibility_is_advisory_without_model_switch_or_provider_calls() -> None:

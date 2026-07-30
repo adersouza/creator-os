@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Callable
@@ -15,7 +16,9 @@ from referencing.jsonschema import DRAFT202012
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
-ANALYZER_REGISTRY_SCHEMA = "analyzer_registry.v1.schema.json"
+ANALYZER_REGISTRY_V1_SCHEMA = "analyzer_registry.v1.schema.json"
+ANALYZER_REGISTRY_V2_SCHEMA = "analyzer_registry.v2.schema.json"
+ANALYZER_REGISTRY_SCHEMA = ANALYZER_REGISTRY_V1_SCHEMA
 EVIDENCE_ATTESTATION_SCHEMA = "evidence_attestation.v1.schema.json"
 BENCHMARK_RECIPE_SCHEMA = "benchmark_recipe.v1.schema.json"
 CONTENT_INTENT_SCHEMA = "content_intent.v1.schema.json"
@@ -84,11 +87,15 @@ PAID_MOTION_EXECUTION_RECEIPT_SCHEMA = "paid_motion_execution_receipt.v1.schema.
 RUNTIME_PROMOTION_APPROVAL_SCHEMA = "runtime_promotion_approval.v1.schema.json"
 RUNTIME_PROMOTION_RECEIPT_SCHEMA = "runtime_promotion_receipt.v1.schema.json"
 VISUAL_DERIVATIVE_RECEIPT_SCHEMA = "visual_derivative_receipt.v1.schema.json"
-RENDERER_EQUIVALENCE_RECEIPT_SCHEMA = "renderer_equivalence_receipt.v1.schema.json"
+RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA = "renderer_equivalence_receipt.v1.schema.json"
+RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA = "renderer_equivalence_receipt.v2.schema.json"
+RENDERER_EQUIVALENCE_RECEIPT_SCHEMA = RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA
 EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA = "experiment_assignment_receipt.v1.schema.json"
 
 SCHEMA_NAMES = {
     "analyzer_registry": ANALYZER_REGISTRY_SCHEMA,
+    "analyzer_registry_v1": ANALYZER_REGISTRY_V1_SCHEMA,
+    "analyzer_registry_v2": ANALYZER_REGISTRY_V2_SCHEMA,
     "evidence_attestation": EVIDENCE_ATTESTATION_SCHEMA,
     "audio_intent": AUDIO_INTENT_SCHEMA,
     "benchmark_recipe": BENCHMARK_RECIPE_SCHEMA,
@@ -162,6 +169,8 @@ SCHEMA_NAMES = {
     "runtime_promotion_receipt": RUNTIME_PROMOTION_RECEIPT_SCHEMA,
     "visual_derivative_receipt": VISUAL_DERIVATIVE_RECEIPT_SCHEMA,
     "renderer_equivalence_receipt": RENDERER_EQUIVALENCE_RECEIPT_SCHEMA,
+    "renderer_equivalence_receipt_v1": RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA,
+    "renderer_equivalence_receipt_v2": RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA,
     "experiment_assignment_receipt": EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA,
 }
 
@@ -171,7 +180,17 @@ class ContractValidationError(ValueError):
 
 
 def validate_analyzer_registry(value: Any) -> None:
-    validate_contract(value, ANALYZER_REGISTRY_SCHEMA)
+    if (
+        isinstance(value, dict)
+        and value.get("schema") == "creator_os.analyzer_registry.v2"
+    ):
+        validate_contract(value, ANALYZER_REGISTRY_V2_SCHEMA)
+        return
+    validate_contract(value, ANALYZER_REGISTRY_V1_SCHEMA)
+
+
+def validate_analyzer_registry_v2(value: Any) -> None:
+    validate_contract(value, ANALYZER_REGISTRY_V2_SCHEMA)
 
 
 def validate_evidence_attestation(value: Any) -> None:
@@ -311,7 +330,79 @@ def validate_visual_derivative_receipt(value: Any) -> None:
 
 
 def validate_renderer_equivalence_receipt(value: Any) -> None:
-    validate_contract(value, RENDERER_EQUIVALENCE_RECEIPT_SCHEMA)
+    if (
+        isinstance(value, dict)
+        and value.get("schema") == "creator_os.renderer_equivalence_receipt.v2"
+    ):
+        _validate_renderer_equivalence_receipt_v2(value)
+        return
+    validate_contract(value, RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA)
+
+
+def validate_renderer_equivalence_receipt_v2(value: Any) -> None:
+    _validate_renderer_equivalence_receipt_v2(value)
+
+
+def _validate_renderer_equivalence_receipt_v2(value: Any) -> None:
+    validate_contract(value, RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA)
+    if not isinstance(value, dict):
+        return
+    errors: list[str] = []
+    policy = value["equivalencePolicy"]
+    measurements = value["measurements"]
+    qc_evidence = value["qcEvidence"]
+    if value["status"] == "qualified":
+        if not all(value["checks"].values()):
+            errors.append("$.checks: all checks must pass when status is qualified")
+        if measurements["ssim"] < policy["minimumSsim"]:
+            errors.append("$.measurements.ssim: below declared minimumSsim")
+        if measurements["durationDeltaFrames"] > policy["maximumDurationDeltaFrames"]:
+            errors.append("$.measurements.durationDeltaFrames: above declared maximum")
+        if value["qcRegression"]:
+            errors.append("$.qcRegression: must be false when status is qualified")
+        if not qc_evidence["evaluated"]:
+            errors.append(
+                "$.qcEvidence.evaluated: must be true when status is qualified"
+            )
+        if not isinstance(qc_evidence["baselineReport"], dict):
+            errors.append(
+                "$.qcEvidence.baselineReport: required when status is qualified"
+            )
+        if not isinstance(qc_evidence["identityReport"], dict):
+            errors.append(
+                "$.qcEvidence.identityReport: required when status is qualified"
+            )
+        if qc_evidence["newBlockingCodes"]:
+            errors.append(
+                "$.qcEvidence.newBlockingCodes: must be empty when status is qualified"
+            )
+    if qc_evidence["policySha256"] != value["toolchain"]["qcPolicySha256"]:
+        errors.append("$.qcEvidence.policySha256: must match toolchain.qcPolicySha256")
+    if value["fixture"]["inputSha256"] != value["source"]["sha256"]:
+        errors.append("$.fixture.inputSha256: must match source.sha256")
+    expected_qualification = (
+        "renderer_qualification_"
+        + _canonical_fingerprint(
+            {
+                "fixtureId": value["fixture"]["fixtureId"],
+                "toolchainFingerprint": value["toolchain"]["fingerprint"],
+            }
+        )[:24]
+    )
+    if value["qualificationId"] != expected_qualification:
+        errors.append("$.qualificationId: does not bind fixture and toolchain")
+    unsigned = dict(value)
+    unsigned.pop("receiptFingerprint", None)
+    if value["receiptFingerprint"] != _canonical_fingerprint(unsigned):
+        errors.append("$.receiptFingerprint: does not match canonical receipt")
+    if errors:
+        raise ContractValidationError("; ".join(errors))
+
+
+def _canonical_fingerprint(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def validate_experiment_assignment_receipt(value: Any) -> None:
@@ -634,7 +725,9 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "threadsdash_handshake.v1.example.json": validate_threadsdash_handshake,
         "threadsdash_handshake.v2.example.json": validate_threadsdash_handshake,
         "visual_derivative_receipt.v1.example.json": validate_visual_derivative_receipt,
+        "analyzer_registry.v2.example.json": validate_analyzer_registry_v2,
         "renderer_equivalence_receipt.v1.example.json": validate_renderer_equivalence_receipt,
+        "renderer_equivalence_receipt.v2.example.json": validate_renderer_equivalence_receipt_v2,
         "experiment_assignment_receipt.v1.example.json": validate_experiment_assignment_receipt,
     }
     checks = []

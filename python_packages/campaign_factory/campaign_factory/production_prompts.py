@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from types import MappingProxyType
 from typing import Any, Final
+
+from .prompt_registry import bind_campaign_prompt
 
 PROMPT_CARD_SCHEMA: Final = "campaign_factory.creative_direction_prompt_card.v1"
 COMPILED_PROMPT_SCHEMA: Final = "campaign_factory.compiled_passive_prompt.v1"
@@ -46,12 +50,18 @@ INTENT_PROMPTS: Final[dict[str, str]] = {
     ),
 }
 
-CREATOR_SOUL_IDS: Final[dict[str, str]] = {
-    "stacey": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
-    "stacey1": "5828d958-91dd-4d6d-8909-934503f47644",
-    "larissa": "44326567-b12c-410c-95b7-31891bb0629b",
-    "lola": "4c86c548-7aa5-4ad1-bc03-b94aa4ce8385",
-}
+CREATOR_SOUL_IDS: Final = MappingProxyType(
+    {
+        creator: value
+        for creator, variable in {
+            "stacey": "CREATOR_OS_SOUL_ID_STACEY",
+            "stacey1": "CREATOR_OS_SOUL_ID_STACEY1",
+            "larissa": "CREATOR_OS_SOUL_ID_LARISSA",
+            "lola": "CREATOR_OS_SOUL_ID_LOLA",
+        }.items()
+        if (value := str(os.environ.get(variable) or "").strip())
+    }
+)
 
 
 def require_creator_soul_id(creator: str) -> tuple[str, str]:
@@ -158,6 +168,20 @@ def build_creative_direction_prompt_card(
             "compatibilitySchema": observed_facts.get("schema") or UNKNOWN,
         },
     }
+    core["promptGovernance"] = bind_campaign_prompt(
+        prompt_id="campaign.creative_direction",
+        version="1",
+        provider="any",
+        model="local_deterministic",
+        compiled_prompt={"intentPrompt": INTENT_PROMPTS[intent]},
+        inputs={
+            "creator": creator,
+            "intent": intent,
+            "sourceSha256": source["content_hash"],
+            "observedFacts": observed_facts,
+            "referencePatternId": pattern,
+        },
+    )
     return {**core, "promptCardFingerprint": _fingerprint(core)}
 
 
@@ -192,9 +216,21 @@ def compile_passive_prompt_card(
             "Provider output stays silent for downstream Audio Radar finishing.",
         )
     )
+    governance = bind_campaign_prompt(
+        prompt_id="campaign.passive_provider_compile",
+        version="1",
+        provider="any",
+        model="local_deterministic",
+        compiled_prompt=text,
+        inputs={
+            "promptCardFingerprint": card["promptCardFingerprint"],
+            "basePrompt": base_prompt,
+        },
+    )
     core = {
         "schema": COMPILED_PROMPT_SCHEMA,
         "promptCardFingerprint": card["promptCardFingerprint"],
         "text": " ".join(text.split()),
+        "promptGovernance": governance,
     }
     return {**core, "compiledPromptFingerprint": _fingerprint(core)}

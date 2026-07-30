@@ -49,6 +49,7 @@ def run_creation_batch(
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
     source_asset_ids: tuple[str, ...] | None = None,
+    campaign: str | None = None,
 ) -> dict[str, Any]:
     """Run one of the three product modes, reusing qualified media first."""
 
@@ -62,9 +63,9 @@ def run_creation_batch(
         raise ValueError("--recreation-anchor-approval is only valid for recreate_reel")
     if recreation_attempt_id is not None and mode != "recreate_reel":
         raise ValueError("--recreation-attempt-id is only valid for recreate_reel")
-    if source_asset_ids and mode != "static_reel":
-        raise ValueError("--source-asset-id is only valid for static_reel")
-    if source_asset_ids:
+    if source_asset_ids and mode == "recreate_reel":
+        raise ValueError("--source-asset-id is not valid for recreate_reel")
+    if source_asset_ids and mode == "static_reel":
         validate_static_source_assets(factory, source_asset_ids)
     intent = "recreate_reel" if mode == "recreate_reel" else style
     reference_sha = (
@@ -92,6 +93,7 @@ def run_creation_batch(
             audio_policy=_audio_policy(audio_preference),
             reference_sha256=reference_sha,
             account_id=destination.get("accountId"),
+            campaign=campaign,
         )
         if reuse_policy == "prefer_exact" and not source_asset_ids
         else []
@@ -130,6 +132,7 @@ def run_creation_batch(
                 audio_preference=audio_preference,
                 apply=apply,
                 source_asset_ids=source_asset_ids,
+                campaign=campaign,
             )
         else:
             result = run_production_batch(
@@ -147,9 +150,11 @@ def run_creation_batch(
                 reference_platform=reference_platform,
                 reference_authorized=reference_authorized,
                 reference_talking=reference_talking,
+                selected_source_asset_ids=source_asset_ids,
                 prompt_pack_provider=prompt_pack_provider,
                 recreation_anchor_approval_path=recreation_anchor_approval_path,
                 recreation_attempt_id=recreation_attempt_id,
+                campaign=campaign,
             )
     except Exception:
         _release_new_reservations(factory, reservation)
@@ -192,6 +197,7 @@ def _qualified_reusable_assets(
     audio_policy: str,
     reference_sha256: str | None,
     account_id: str | None,
+    campaign: str | None,
 ) -> list[dict[str, Any]]:
     identity = factory.domains.creator_governance.active_identity_profile(
         creator, provider="internal"
@@ -207,6 +213,7 @@ def _qualified_reusable_assets(
         WHERE lower(m.slug) = ? AND ra.media_type = 'video'
           AND ra.content_surface = 'reel'
           AND ra.review_state = 'approved'
+          AND (? IS NULL OR lower(c.slug) = lower(?))
           AND ra.audit_status IN ('approved_candidate', 'needs_review')
           AND EXISTS (
             SELECT 1
@@ -215,7 +222,7 @@ def _qualified_reusable_assets(
           )
         ORDER BY ra.updated_at DESC, ra.created_at DESC, ra.id
         """,
-        (creator_slug,),
+        (creator_slug, campaign, campaign),
     ).fetchall()
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -692,6 +699,7 @@ def _run_static_reel_batch(
     audio_preference: str,
     apply: bool,
     source_asset_ids: tuple[str, ...] | None = None,
+    campaign: str | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -702,6 +710,7 @@ def _run_static_reel_batch(
         accounts=accounts,
         audio_preference=audio_preference,
         selected_source_asset_ids=source_asset_ids,
+        campaign=campaign,
     )
     plan.update(
         {

@@ -120,6 +120,50 @@ def _seed_stacey_source(cf, tmp_path: Path) -> None:
     )
 
 
+def test_calm_animation_forwards_selected_source_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        _seed_stacey_source(cf, tmp_path)
+        source = cf.domains.asset_import.assets_for_campaign(
+            cf.domains.campaign_by_slug("stacey-library")["id"]
+        )[0]
+        captured: dict[str, object] = {}
+
+        def production(_factory, **kwargs):
+            captured.update(kwargs)
+            return {
+                "schema": "campaign_factory.production_batch.v1",
+                "requested": 1,
+                "results": [],
+                "summary": {
+                    "requested": 1,
+                    "completed": 0,
+                    "failed": 0,
+                },
+            }
+
+        monkeypatch.setattr(creation_modes, "run_production_batch", production)
+        creation_modes.run_creation_batch(
+            cf,
+            creator="stacey",
+            campaign="stacey-library",
+            mode="calm_animation",
+            style="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts=None,
+            audio_preference="embedded_trending_required",
+            apply=False,
+            source_asset_ids=(str(source["id"]),),
+        )
+
+        assert captured["selected_source_asset_ids"] == (str(source["id"]),)
+    finally:
+        cf.close()
+
+
 def test_calm_animation_reuses_exact_approved_asset_before_prompt_or_provider(
     tmp_path: Path, monkeypatch
 ) -> None:

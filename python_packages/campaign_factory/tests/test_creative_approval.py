@@ -7,10 +7,14 @@ from pathlib import Path
 
 import pytest
 from campaign_asset_test_support import add_audit_report
+from campaign_factory import motion_qc_publishability as motion_qc_module
 from campaign_factory.adapters import (
     threadsdash_draft_delivery as threadsdash_delivery_adapter,
 )
 from campaign_factory.adapters.threadsdash_draft_delivery import export_threadsdash
+from campaign_factory.canonical_analyzer_registry import (
+    CanonicalAnalyzerRegistryError,
+)
 from campaign_factory.cost_tracker import ensure_cost_table
 from campaign_factory.creative_approval import (
     APPROVAL_ATTESTATION_ISSUER,
@@ -39,6 +43,7 @@ from creator_os_core.provider_spend import (
 )
 from test_motion_generation_stage import (
     _asset_source_sha256,
+    _canonical_analyzer_registry,
     _motion_qc_receipt,
     _register_motion_fixture,
     _write_motion_qc_receipt,
@@ -55,6 +60,18 @@ SPEND_SECRET = "creator-os-test-spend-secret-32-bytes-long"
 @pytest.fixture(autouse=True)
 def _evidence_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", EVIDENCE_SECRET)
+    expected_registry = _canonical_analyzer_registry()
+
+    def validate_test_registry(registry: dict) -> dict:
+        if registry != expected_registry:
+            raise CanonicalAnalyzerRegistryError("analyzer_registry_not_canonical")
+        return registry
+
+    monkeypatch.setattr(
+        motion_qc_module,
+        "validate_canonical_analyzer_registry",
+        validate_test_registry,
+    )
 
 
 def _sha(path: Path) -> str:

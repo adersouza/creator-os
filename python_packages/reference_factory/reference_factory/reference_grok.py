@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import math
 import mimetypes
 import os
 import subprocess
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
@@ -27,6 +30,7 @@ from .prompt_records import (
 from .prompt_records import (
     write_jsonl_records as _write_jsonl_records,
 )
+from .prompt_registry import PROMPT_REGISTRY, bind_reference_prompt
 from .reference_analysis import _json_from_model_text
 from .reference_intake import (
     import_reference_analysis,
@@ -38,6 +42,7 @@ from .reference_intake_contracts import (
     GROK_PROMPT_MODEL_DEFAULT,
     XAI_CHAT_COMPLETIONS_URL,
 )
+from .reference_lifecycle import require_reference_provider_rights
 from .reference_prompt_generation import generate_video_prompts
 from .timeutil import now_iso
 
@@ -56,6 +61,8 @@ def analyze_reference_with_grok_api(
     api_key: str | None = None,
     prompt_style: str = "imageat",
     ffmpeg: str = "ffmpeg",
+    paid_action_authorizer: Callable[..., Mapping[str, Any]] | None = None,
+    paid_action_reconciler: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, object]:
     resolved_key = (
         api_key or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
@@ -64,6 +71,10 @@ def analyze_reference_with_grok_api(
         raise RuntimeError(
             "Set XAI_API_KEY or GROK_API_KEY before running Grok API analysis."
         )
+    _require_paid_action_callbacks(
+        paid_action_authorizer,
+        paid_action_reconciler,
+    )
 
     queued = queue_reference_analysis(
         conn,
@@ -82,7 +93,8 @@ def analyze_reference_with_grok_api(
     imported_items: list[dict[str, Any]] = []
     frame_dir = data_root / "reference_intake" / "grok_frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
-    for job in queued.get("jobs") or []:
+    queued_jobs = queued.get("jobs")
+    for job in queued_jobs if isinstance(queued_jobs, list) else []:
         try:
             source = Path(str(job.get("sourcePath") or "")).expanduser()
             if not source.exists():
@@ -94,17 +106,70 @@ def analyze_reference_with_grok_api(
                 ffmpeg=ffmpeg,
             )
             prompt = _grok_prompt_builder(job, prompt_style=prompt_style)
-            response = _xai_chat_completion(
-                api_key=resolved_key,
+            source_sha256 = _sha256_file(source)
+            provider_image_sha256 = _sha256_file(image_path)
+            rights = require_reference_provider_rights(
+                conn,
+                reference_id=str(job["referenceId"]),
+                provider="xai",
+                operation="reference_analysis",
+                expected_source_sha256=source_sha256,
+            )
+            prompt_inputs = {
+                "analysisJobId": job["id"],
+                "referenceId": job["referenceId"],
+                "sourcePath": str(source),
+                "sourceSha256": source_sha256,
+                "providerImageSha256": provider_image_sha256,
+                "promptStyle": prompt_style,
+                "rightsEvidenceFingerprint": rights["rightsEvidenceFingerprint"],
+            }
+            prompt_governance = bind_reference_prompt(
+                prompt_id="reference.grok_analysis",
+                version="1",
+                provider="xai",
                 model=model,
-                prompt=prompt,
-                image_path=image_path,
+                compiled_prompt=prompt,
+                inputs=prompt_inputs,
+            )
+            paid_action = _authorize_paid_action(
+                paid_action_authorizer,
+                provider="xai",
+                model=model,
+                action_type="reference_analysis",
+                request_fingerprint=str(prompt_governance["receiptFingerprint"]),
+                prompt_governance=prompt_governance,
+                compiled_prompt=prompt,
+                prompt_inputs=prompt_inputs,
+            )
+            response, paid_action_reconciliation, provider_evidence = (
+                _execute_paid_action(
+                    paid_action=paid_action,
+                    reconciler=paid_action_reconciler,
+                    external_call=lambda: _xai_reference_call_with_rights(
+                        conn=conn,
+                        reference_id=str(job["referenceId"]),
+                        provider_operation="reference_analysis",
+                        source_sha256=source_sha256,
+                        authorized_rights=rights,
+                        api_key=resolved_key,
+                        model=model,
+                        prompt=prompt,
+                        image_path=image_path,
+                        expected_image_sha256=provider_image_sha256,
+                    ),
+                )
             )
             analysis = _json_from_model_text(response)
             analysis["analysisJobId"] = job["id"]
             analysis["referenceId"] = job["referenceId"]
             analysis.setdefault("schema", ANALYSIS_SCHEMA)
             analysis.setdefault("provider", "grok_api")
+            analysis["promptGovernance"] = prompt_governance
+            analysis["paidAction"] = paid_action
+            analysis["paidActionReconciliation"] = paid_action_reconciliation
+            analysis["providerResponseEvidence"] = provider_evidence
+            analysis["providerRights"] = rights
             image_json = analysis.get("image_prompt_json")
             if isinstance(image_json, dict):
                 image_json.setdefault("promptMode", "structured_json")
@@ -155,6 +220,7 @@ def analyze_reference_with_grok_api(
 
 
 def compile_prompts_with_grok_api(
+    conn: Connection,
     *,
     data_root: Path,
     reference_id: str,
@@ -163,6 +229,8 @@ def compile_prompts_with_grok_api(
     api_key: str | None = None,
     ffmpeg: str = "ffmpeg",
     instructions: str | None = None,
+    paid_action_authorizer: Callable[..., Mapping[str, Any]] | None = None,
+    paid_action_reconciler: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, object]:
     resolved_key = (
         api_key or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
@@ -171,6 +239,10 @@ def compile_prompts_with_grok_api(
         raise RuntimeError(
             "Set XAI_API_KEY or GROK_API_KEY before running Grok prompt compilation."
         )
+    _require_paid_action_callbacks(
+        paid_action_authorizer,
+        paid_action_reconciler,
+    )
 
     prompt_dir = data_root / "reference_intake"
     image_path = prompt_dir / "daily_higgsfield_image_prompts.jsonl"
@@ -189,17 +261,64 @@ def compile_prompts_with_grok_api(
     reference_image = _grok_reference_image(
         reference_media, frame_dir=frame_dir, reference_id=reference_id, ffmpeg=ffmpeg
     )
-    response = _xai_chat_completion(
-        api_key=resolved_key,
+    reference_media_sha256 = _sha256_file(reference_media)
+    reference_image_sha256 = _sha256_file(reference_image)
+    rights = require_reference_provider_rights(
+        conn,
+        reference_id=reference_id,
+        provider="xai",
+        operation="reference_prompt_compilation",
+        expected_source_sha256=reference_media_sha256,
+    )
+    compiled_request = _grok_prompt_compiler_prompt(
+        reference_id=reference_id,
+        image_prompt=image_prompt,
+        video_prompt=video_prompt,
+        instructions=instructions,
+    )
+    prompt_inputs = {
+        "referenceId": reference_id,
+        "imagePrompt": image_prompt,
+        "videoPrompt": video_prompt,
+        "instructions": instructions,
+        "referenceMediaSha256": reference_media_sha256,
+        "providerImageSha256": reference_image_sha256,
+        "rightsEvidenceFingerprint": rights["rightsEvidenceFingerprint"],
+    }
+    prompt_governance = bind_reference_prompt(
+        prompt_id="reference.grok_prompt_compilation",
+        version="1",
+        provider="xai",
         model=model,
-        prompt=_grok_prompt_compiler_prompt(
+        compiled_prompt=compiled_request,
+        inputs=prompt_inputs,
+    )
+    paid_action = _authorize_paid_action(
+        paid_action_authorizer,
+        provider="xai",
+        model=model,
+        action_type="reference_prompt_compilation",
+        request_fingerprint=str(prompt_governance["receiptFingerprint"]),
+        prompt_governance=prompt_governance,
+        compiled_prompt=compiled_request,
+        prompt_inputs=prompt_inputs,
+    )
+    response, paid_action_reconciliation, provider_evidence = _execute_paid_action(
+        paid_action=paid_action,
+        reconciler=paid_action_reconciler,
+        external_call=lambda: _xai_reference_call_with_rights(
+            conn=conn,
             reference_id=reference_id,
-            image_prompt=image_prompt,
-            video_prompt=video_prompt,
-            instructions=instructions,
+            provider_operation="reference_prompt_compilation",
+            source_sha256=reference_media_sha256,
+            authorized_rights=rights,
+            api_key=resolved_key,
+            model=model,
+            prompt=compiled_request,
+            image_path=reference_image,
+            expected_image_sha256=reference_image_sha256,
+            response_format=_grok_prompt_compiler_response_format(),
         ),
-        image_path=reference_image,
-        response_format=_grok_prompt_compiler_response_format(),
     )
     compiled = _normalize_compiled_prompt_set(_json_from_model_text(response))
     _validate_compiled_prompt_set(compiled)
@@ -211,6 +330,11 @@ def compile_prompts_with_grok_api(
         "referenceId": reference_id,
         "referenceImage": str(reference_image),
         "compiledAt": now_iso(),
+        "promptGovernance": prompt_governance,
+        "paidAction": dict(paid_action),
+        "paidActionReconciliation": dict(paid_action_reconciliation),
+        "providerResponseEvidence": provider_evidence,
+        "providerRights": rights,
     }
     for row in image_rows:
         if _record_reference_id(row) == reference_id:
@@ -249,6 +373,11 @@ def compile_prompts_with_grok_api(
                 "model": model,
                 "referenceImage": str(reference_image),
                 "compiledPrompts": compiled,
+                "promptGovernance": prompt_governance,
+                "paidAction": paid_action,
+                "paidActionReconciliation": paid_action_reconciliation,
+                "providerResponseEvidence": provider_evidence,
+                "providerRights": rights,
             },
             indent=2,
             ensure_ascii=False,
@@ -262,11 +391,174 @@ def compile_prompts_with_grok_api(
         "model": model,
         "referenceImage": str(reference_image),
         "compiledPath": str(out_path),
+        "promptGovernance": prompt_governance,
+        "paidAction": paid_action,
+        "paidActionReconciliation": paid_action_reconciliation,
+        "providerResponseEvidence": provider_evidence,
         "updated": {
             "higgsfieldImagePrompts": str(image_path),
             "klingVideoPrompts": str(video_path),
         },
         "compiledPrompts": compiled,
+    }
+
+
+def _authorize_paid_action(
+    authorizer: Callable[..., Mapping[str, Any]] | None,
+    *,
+    provider: str,
+    model: str,
+    action_type: str,
+    request_fingerprint: str,
+    prompt_governance: Mapping[str, Any],
+    compiled_prompt: Any,
+    prompt_inputs: Any,
+) -> dict[str, Any]:
+    if authorizer is None:
+        raise PermissionError(
+            "reference_paid_action_requires_campaign_factory_authorization"
+        )
+    receipt = dict(
+        authorizer(
+            provider=provider,
+            model=model,
+            action_type=action_type,
+            request_fingerprint=request_fingerprint,
+            prompt_governance=prompt_governance,
+            current_prompt_registry=PROMPT_REGISTRY,
+            compiled_prompt=compiled_prompt,
+            prompt_inputs=prompt_inputs,
+        )
+    )
+    if (
+        receipt.get("schema") != "campaign_factory.reference_paid_action_context.v1"
+        or not receipt.get("authorizationId")
+        or not receipt.get("attemptId")
+        or not receipt.get("campaignLedgerEventId")
+        or receipt.get("provider") != provider
+        or receipt.get("model") != model
+        or receipt.get("actionType") != action_type
+        or receipt.get("requestFingerprint") != request_fingerprint
+        or receipt.get("attemptPersistedBeforeExternalEffect") is not True
+    ):
+        raise PermissionError("reference_paid_action_attempt_receipt_invalid")
+    return receipt
+
+
+def _require_paid_action_callbacks(
+    authorizer: Callable[..., Mapping[str, Any]] | None,
+    reconciler: Callable[..., Mapping[str, Any]] | None,
+) -> None:
+    if authorizer is None:
+        raise PermissionError(
+            "reference_paid_action_requires_campaign_factory_authorization"
+        )
+    if reconciler is None:
+        raise PermissionError(
+            "reference_paid_action_requires_campaign_factory_reconciliation"
+        )
+
+
+def _execute_paid_action(
+    *,
+    paid_action: Mapping[str, Any],
+    reconciler: Callable[..., Mapping[str, Any]] | None,
+    external_call: Callable[[], str | Mapping[str, Any]],
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    if reconciler is None:
+        raise PermissionError(
+            "reference_paid_action_requires_campaign_factory_reconciliation"
+        )
+    try:
+        external_result = external_call()
+    except Exception:
+        _reconcile_paid_action(
+            reconciler,
+            paid_action=paid_action,
+            unknown_reason="provider_outcome_ambiguous",
+        )
+        raise
+    response, evidence = _provider_response(external_result)
+    reconciliation = _reconcile_paid_action(
+        reconciler,
+        paid_action=paid_action,
+        actual_usd=evidence["actualUsd"],
+        provider_reference=evidence["providerReference"],
+        unknown_reason=(
+            "provider_cost_not_exposed" if evidence["actualUsd"] is None else None
+        ),
+    )
+    return response, reconciliation, evidence
+
+
+def _reconcile_paid_action(
+    reconciler: Callable[..., Mapping[str, Any]],
+    *,
+    paid_action: Mapping[str, Any],
+    actual_usd: float | None = None,
+    provider_reference: str | None = None,
+    unknown_reason: str | None = None,
+) -> dict[str, Any]:
+    receipt = dict(
+        reconciler(
+            paid_action=dict(paid_action),
+            actual_usd=actual_usd,
+            provider_reference=provider_reference,
+            unknown_reason=unknown_reason,
+        )
+    )
+    if (
+        receipt.get("schema") != "campaign_factory.unified_paid_action_ledger.v1"
+        or receipt.get("eventId") != paid_action.get("campaignLedgerEventId")
+        or (
+            actual_usd is None
+            and (
+                receipt.get("reconciliationState") != "unknown"
+                or receipt.get("netUsd") is not None
+                or receipt.get("unknownReason") != unknown_reason
+            )
+        )
+        or (
+            actual_usd is not None
+            and (
+                receipt.get("reconciliationState") != "reconciled"
+                or receipt.get("actualUsd") != actual_usd
+                or receipt.get("unknownReason") is not None
+            )
+        )
+        or receipt.get("providerReference") != provider_reference
+    ):
+        raise PermissionError("reference_paid_action_reconciliation_receipt_invalid")
+    return receipt
+
+
+def _provider_response(
+    value: str | Mapping[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    if isinstance(value, str):
+        content = value
+        raw: Mapping[str, Any] = {}
+    elif isinstance(value, Mapping):
+        content = str(value.get("content") or "")
+        raw = value
+    else:
+        raise RuntimeError("provider response type is invalid")
+    if not content.strip():
+        raise RuntimeError("provider response did not include text content")
+    provider_reference = str(raw.get("providerReference") or "").strip() or None
+    usage = raw.get("usage")
+    actual_usd = raw.get("actualUsd")
+    if not (
+        isinstance(actual_usd, (int, float))
+        and not isinstance(actual_usd, bool)
+        and math.isfinite(float(actual_usd))
+        and float(actual_usd) >= 0
+    ):
+        actual_usd = None
+    return content, {
+        "providerReference": provider_reference,
+        "usage": dict(usage) if isinstance(usage, Mapping) else None,
+        "actualUsd": float(actual_usd) if actual_usd is not None else None,
     }
 
 
@@ -299,16 +591,44 @@ def _grok_reference_image(
     return output
 
 
+def _xai_reference_call_with_rights(
+    *,
+    conn: Connection,
+    reference_id: str,
+    provider_operation: str,
+    source_sha256: str,
+    authorized_rights: Mapping[str, Any],
+    **provider_call: Any,
+) -> dict[str, Any]:
+    current = require_reference_provider_rights(
+        conn,
+        reference_id=reference_id,
+        provider="xai",
+        operation=provider_operation,
+        expected_source_sha256=source_sha256,
+    )
+    if (
+        current["rightsEvidenceFingerprint"]
+        != authorized_rights["rightsEvidenceFingerprint"]
+    ):
+        raise PermissionError("reference_rights_changed_after_authorization")
+    return _xai_chat_completion(**provider_call)
+
+
 def _xai_chat_completion(
     *,
     api_key: str,
     model: str,
     prompt: str,
     image_path: Path,
+    expected_image_sha256: str,
     response_format: dict[str, Any] | None = None,
-) -> str:
+) -> dict[str, Any]:
+    image_bytes = image_path.read_bytes()
+    if hashlib.sha256(image_bytes).hexdigest() != expected_image_sha256:
+        raise PermissionError("reference_provider_image_sha256_mismatch")
     mime = mimetypes.guess_type(str(image_path))[0] or "image/jpeg"
-    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    encoded = base64.b64encode(image_bytes).decode("ascii")
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -343,7 +663,32 @@ def _xai_chat_completion(
     content = message.get("content") if isinstance(message, dict) else ""
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("xAI API response did not include text content")
-    return content
+    usage = data.get("usage")
+    cost = data.get("cost")
+    if not isinstance(cost, (int, float)) and isinstance(usage, Mapping):
+        cost = usage.get("cost_usd") if "cost_usd" in usage else usage.get("costUsd")
+    actual_usd = (
+        float(cost)
+        if isinstance(cost, (int, float))
+        and not isinstance(cost, bool)
+        and math.isfinite(float(cost))
+        and float(cost) >= 0
+        else None
+    )
+    return {
+        "content": content,
+        "providerReference": str(data.get("id") or "").strip() or None,
+        "usage": dict(usage) if isinstance(usage, Mapping) else None,
+        "actualUsd": actual_usd,
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _grok_prompt_compiler_response_format() -> dict[str, Any]:

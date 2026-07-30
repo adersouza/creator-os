@@ -71,7 +71,12 @@
       "required": ["analysis", "analyzerRegistry", "humanReview"],
       "properties": {
         "analysis": {"$ref": "trusted_media_analysis.v1.schema.json"},
-        "analyzerRegistry": {"$ref": "analyzer_registry.v1.schema.json"},
+        "analyzerRegistry": {
+          "oneOf": [
+            {"$ref": "analyzer_registry.v1.schema.json"},
+            {"$ref": "analyzer_registry.v2.schema.json"}
+          ]
+        },
         "humanReview": {"$ref": "human_media_review.v1.schema.json"}
       }
     },

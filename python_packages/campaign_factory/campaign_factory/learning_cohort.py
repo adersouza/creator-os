@@ -12,12 +12,12 @@ from zoneinfo import ZoneInfo
 
 from creator_os_core.fileops import atomic_write_text
 
+from .creator_governance import resolve_active_identity_profile
 from .learning_score import learning_eligible, learning_loop_cutover, snapshot_reward
 from .lineage_v2 import lineage_v2_is_learning_traceable
 
 COHORT_ID = "stacey_learning_cohort_v1"
 CREATOR = "Stacey"
-SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 ACCOUNT_HANDLE = "bennett_s33"
 TIMEZONE = "America/New_York"
 TOTAL_DAYS = 25
@@ -188,6 +188,15 @@ def _ensure_learning_cohort_governance(conn: sqlite3.Connection, *, now: str) ->
     return campaign_id
 
 
+def _current_learning_cohort_soul_id(conn: sqlite3.Connection) -> str:
+    identity = resolve_active_identity_profile(
+        conn,
+        creator=CREATOR,
+        provider="higgsfield",
+    )
+    return str(identity["provider_identity_id"])
+
+
 def prepare_learning_cohort(
     conn: sqlite3.Connection, *, start_date: str, seed: str = COHORT_ID
 ) -> dict[str, Any]:
@@ -202,6 +211,7 @@ def prepare_learning_cohort(
         assignments = _assignment_rows(conn)
         return _prepare_report(assignments, idempotent=True)
 
+    soul_id = _current_learning_cohort_soul_id(conn)
     conn.execute(
         """INSERT INTO learning_cohorts
         (id, campaign_slug, creator, soul_id, account_handle, timezone,
@@ -211,7 +221,7 @@ def prepare_learning_cohort(
             COHORT_ID,
             COHORT_ID,
             CREATOR,
-            SOUL_ID,
+            soul_id,
             ACCOUNT_HANDLE,
             TIMEZONE,
             parsed_start.isoformat(),
@@ -509,7 +519,13 @@ def learning_cohort_assignment_metadata(
 ) -> dict[str, Any]:
     ensure_learning_cohort_tables(conn)
     row = conn.execute(
-        "SELECT * FROM learning_cohort_assignments WHERE id = ? AND cohort_id = ?",
+        """
+        SELECT a.*, c.creator AS cohort_creator, c.soul_id AS cohort_soul_id,
+               c.account_handle AS cohort_account_handle
+        FROM learning_cohort_assignments a
+        JOIN learning_cohorts c ON c.id = a.cohort_id
+        WHERE a.id = ? AND a.cohort_id = ?
+        """,
         (assignment_id, COHORT_ID),
     ).fetchone()
     if row is None:
@@ -529,9 +545,9 @@ def learning_cohort_assignment_metadata(
         "provider_reservation_id": value["provider_reservation_id"],
         "draft_id": value["draft_id"],
         "post_id": value["post_id"],
-        "creator": CREATOR,
-        "soul_id": SOUL_ID,
-        "account_handle": ACCOUNT_HANDLE,
+        "creator": value["cohort_creator"],
+        "soul_id": value["cohort_soul_id"],
+        "account_handle": value["cohort_account_handle"],
         "generation_state": value["generation_state"],
         "approval_state": value["approval_state"],
         "schedule_state": value["schedule_state"],

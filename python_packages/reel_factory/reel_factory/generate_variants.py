@@ -217,13 +217,6 @@ def clean_prompt(captured: str) -> str:
     return text.strip(" ,.\n") + ("." if text.strip(" ,.\n") else "")
 
 
-_STACEY_SOUL_IDS = {
-    "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
-    "5828d958-91dd-4d6d-8909-934503f47644",
-}
-_STACEY_IDENTITY_GUIDANCE = "19 years old, dark hair, no tattoos"
-
-
 def sexy_variant(
     cleaned: str, *, include_butt: bool, identity_guidance: str | None = None
 ) -> str:
@@ -267,13 +260,7 @@ def build_spec(
     cleaned = clean_prompt(captured_prompt)
     aspect = pick_aspect(cleaned)
     full_body = aspect == "2:3"
-    guidance = (
-        identity_guidance
-        if identity_guidance is not None
-        else _STACEY_IDENTITY_GUIDANCE
-        if soul_id in _STACEY_SOUL_IDS
-        else None
-    )
+    guidance = identity_guidance
     sexy = sexy_variant(cleaned, include_butt=full_body, identity_guidance=guidance)
     return {
         "soul_id": soul_id,

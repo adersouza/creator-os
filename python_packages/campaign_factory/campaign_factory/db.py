@@ -11,6 +11,15 @@ from pathlib import Path
 from creator_os_core.sqlite import connect_sqlite
 from creator_os_core.sqlite import ensure_columns as _ensure_columns
 
+from .campaign_schema_v5 import (
+    apply as _apply_campaign_schema_v5,
+)
+from .campaign_schema_v5 import (
+    checksum as _campaign_schema_v5_checksum,
+)
+from .campaign_schema_v5 import (
+    postcondition as _campaign_schema_v5_postcondition,
+)
 from .creator_governance_schema import CREATOR_GOVERNANCE_SCHEMA
 from .db_migrations import (
     _apply_creator_governance_backfill,
@@ -22,13 +31,16 @@ from .db_migrations import (
     _repair_source_asset_fk_references,
 )
 from .db_schema import SCHEMA
+from .orchestration_schema import DAILY_ORCHESTRATION_SCHEMA
 from .source_lifecycle_schema import SOURCE_LIFECYCLE_SCHEMA
 
-_CAMPAIGN_SCHEMA_VERSION = 3
+_CAMPAIGN_SCHEMA_VERSION = 5
 _CAMPAIGN_SCHEMA_MIGRATIONS = (
     (1, "20260730_campaign_schema_baseline_v1"),
     (2, "20260730_campaign_state_evidence_guards_v1"),
     (3, "20260730_source_lifecycle_reconciliation_v1"),
+    (4, "20260730_daily_orchestration_authority_v1"),
+    (5, "20260730_orchestration_cost_guards_v2"),
 )
 
 
@@ -984,6 +996,10 @@ def _apply_campaign_schema_v3(conn: sqlite3.Connection) -> None:
         )
 
 
+def _apply_campaign_schema_v4(conn: sqlite3.Connection) -> None:
+    _execute_transactional_script(conn, DAILY_ORCHESTRATION_SCHEMA)
+
+
 def _campaign_schema_v1_postcondition(conn: sqlite3.Connection) -> None:
     required_tables = {
         "campaigns",
@@ -1055,6 +1071,33 @@ def _campaign_schema_v3_postcondition(conn: sqlite3.Connection) -> None:
     )
 
 
+def _campaign_schema_v4_postcondition(conn: sqlite3.Connection) -> None:
+    required_tables = {
+        "daily_orchestrator_runs",
+        "daily_orchestrator_items",
+        "operator_authority_events",
+    }
+    tables = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if missing := required_tables - tables:
+        raise RuntimeError(
+            "campaign_schema_tables_missing:" + ",".join(sorted(missing))
+        )
+    _require_campaign_schema_triggers(
+        conn,
+        {
+            "daily_orchestrator_runs_no_delete",
+            "daily_orchestrator_items_no_delete",
+            "operator_authority_events_immutable_update",
+            "operator_authority_events_immutable_delete",
+        },
+    )
+
+
 def _require_campaign_schema_triggers(
     conn: sqlite3.Connection, required_triggers: set[str]
 ) -> None:
@@ -1075,19 +1118,27 @@ def _campaign_schema_postcondition(conn: sqlite3.Connection, *, version: int) ->
         1: _campaign_schema_v1_postcondition,
         2: _campaign_schema_v2_postcondition,
         3: _campaign_schema_v3_postcondition,
+        4: _campaign_schema_v4_postcondition,
+        5: _campaign_schema_v5_postcondition,
     }[version](conn)
 
 
 def _campaign_schema_checksum(version: int, migration_id: str) -> str:
+    if version == 5:
+        return _campaign_schema_v5_checksum(migration_id)
     implementation = {
         1: _apply_campaign_schema_v1,
         2: _apply_campaign_schema_v2,
         3: _apply_campaign_schema_v3,
+        4: _apply_campaign_schema_v4,
+        5: _apply_campaign_schema_v5,
     }[version]
     postcondition = {
         1: _campaign_schema_v1_postcondition,
         2: _campaign_schema_v2_postcondition,
         3: _campaign_schema_v3_postcondition,
+        4: _campaign_schema_v4_postcondition,
+        5: _campaign_schema_v5_postcondition,
     }[version]
     payload = inspect.getsource(implementation)
     if version == 1:
@@ -1098,8 +1149,11 @@ def _campaign_schema_checksum(version: int, migration_id: str) -> str:
     elif version == 3:
         payload += "\n" + inspect.getsource(_execute_transactional_script)
         payload += "\n" + SOURCE_LIFECYCLE_SCHEMA
+    elif version == 4:
+        payload += "\n" + inspect.getsource(_execute_transactional_script)
+        payload += "\n" + DAILY_ORCHESTRATION_SCHEMA
     payload += "\n" + inspect.getsource(postcondition)
-    if version in {2, 3}:
+    if version in {2, 3, 4}:
         payload += "\n" + inspect.getsource(_require_campaign_schema_triggers)
     return hashlib.sha256(f"{migration_id}\n{payload}".encode()).hexdigest()
 
@@ -1208,6 +1262,8 @@ def _run_campaign_schema_migration(
             1: _apply_campaign_schema_v1,
             2: _apply_campaign_schema_v2,
             3: _apply_campaign_schema_v3,
+            4: _apply_campaign_schema_v4,
+            5: _apply_campaign_schema_v5,
         }[version]
         implementation(conn)
         _campaign_schema_postcondition(conn, version=version)

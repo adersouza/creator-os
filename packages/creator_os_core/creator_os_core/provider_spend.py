@@ -18,6 +18,7 @@ from typing import Any
 
 AUTHORIZATION_SCHEMA = "campaign_factory.provider_spend_authorization.v1"
 AUTHORIZATION_SCHEMA_V2 = "campaign_factory.provider_spend_authorization.v2"
+AUTHORIZATION_SCHEMA_V3 = "campaign_factory.provider_spend_authorization.v3"
 HIGGSFIELD_CREDIT_UNIT = "higgsfield_credits"
 USD_UNIT = "USD"
 PAID_GENERATION_MODES = {"image", "reference-image", "video"}
@@ -185,6 +186,76 @@ def build_video_provider_spend_scope(
         "parameters": dict(parameters),
     }
     return {**scope, "requestFingerprint": spend_scope_fingerprint(scope)}
+
+
+def build_paid_action_spend_scope(
+    *,
+    provider: str,
+    provider_model: str,
+    action_type: str,
+    creator_id: str,
+    campaign_id: str,
+    run_id: str,
+    input_fingerprints: Mapping[str, str],
+    parameters: Mapping[str, Any],
+    prompt_governance: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a provider-neutral scope for any approved paid external effect."""
+
+    normalized = {
+        "provider": _required_text(provider, "provider").lower(),
+        "providerModel": _required_text(provider_model, "provider model"),
+        "actionType": _required_text(action_type, "action type"),
+        "creatorId": _required_text(creator_id, "creator id"),
+        "campaignId": _required_text(campaign_id, "campaign id"),
+        "runId": _required_text(run_id, "run id"),
+        "providerCallCount": 1,
+        "inputFingerprints": {
+            _required_text(role, "input fingerprint role"): _sha256_text(
+                value, "input fingerprint"
+            )
+            for role, value in sorted(input_fingerprints.items())
+        },
+        "parameters": dict(parameters),
+        "promptGovernance": (
+            dict(prompt_governance) if prompt_governance is not None else None
+        ),
+    }
+    if not normalized["inputFingerprints"]:
+        raise ValueError("paid action requires at least one input fingerprint")
+    return {**normalized, "requestFingerprint": spend_scope_fingerprint(normalized)}
+
+
+def build_paid_action_quote(
+    *,
+    provider: str,
+    model: str,
+    amount: float,
+    unit: str = USD_UNIT,
+    source: str,
+    pricing_version: str,
+) -> dict[str, Any]:
+    """Normalize and fingerprint an exact provider quote."""
+
+    if (
+        isinstance(amount, bool)
+        or not isinstance(amount, (int, float))
+        or not math.isfinite(float(amount))
+        or float(amount) <= 0
+    ):
+        raise ValueError("paid action quote amount must be finite and positive")
+    core = {
+        "provider": _required_text(provider, "quote provider").lower(),
+        "model": _required_text(model, "quote model"),
+        "amount": float(amount),
+        "unit": _required_text(unit, "quote unit"),
+        "source": _required_text(source, "quote source"),
+        "pricingVersion": _required_text(pricing_version, "pricing version"),
+    }
+    return {
+        **core,
+        "pricingFingerprint": hashlib.sha256(canonical_json(core)).hexdigest(),
+    }
 
 
 def sign_authorization(payload: Mapping[str, Any], *, secret: str) -> dict[str, Any]:
@@ -355,6 +426,97 @@ def verify_authorization_v2(
     return dict(payload)
 
 
+def verify_authorization_v3(
+    payload: Mapping[str, Any],
+    *,
+    expected_scope: Mapping[str, Any],
+    secret: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Verify a generic paid-action authorization before external I/O."""
+
+    _validate_secret(secret)
+    if payload.get("schema") != AUTHORIZATION_SCHEMA_V3:
+        raise SpendAuthorizationError("invalid v3 provider spend authorization schema")
+    signature = payload.get("signature")
+    if not isinstance(signature, str) or len(signature) != 64:
+        raise SpendAuthorizationError(
+            "provider spend authorization signature is missing"
+        )
+    unsigned = {key: value for key, value in payload.items() if key != "signature"}
+    expected_signature = hmac.new(
+        secret.encode("utf-8"), canonical_json(unsigned), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        raise SpendAuthorizationError(
+            "provider spend authorization signature is invalid"
+        )
+    if (
+        payload.get("issuer") != "campaign_factory"
+        or payload.get("status") != "authorized"
+    ):
+        raise SpendAuthorizationError("provider spend authorization is not executable")
+    scope = payload.get("scope")
+    if not isinstance(scope, dict) or canonical_json(scope) != canonical_json(
+        dict(expected_scope)
+    ):
+        raise SpendAuthorizationError(
+            "provider spend authorization scope does not match"
+        )
+    if scope.get("requestFingerprint") != spend_scope_fingerprint(scope):
+        raise SpendAuthorizationError("provider spend request fingerprint is invalid")
+    for key in (
+        "provider",
+        "providerModel",
+        "actionType",
+        "creatorId",
+        "campaignId",
+        "runId",
+    ):
+        _required_text(scope.get(key), f"scope {key}")
+    if scope.get("providerCallCount") != 1:
+        raise SpendAuthorizationError("paid action must authorize exactly one call")
+    inputs = scope.get("inputFingerprints")
+    if not isinstance(inputs, dict) or not inputs:
+        raise SpendAuthorizationError("paid action input fingerprints are missing")
+    for value in inputs.values():
+        _sha256_text(value, "input fingerprint")
+    quote = payload.get("providerQuote")
+    if not isinstance(quote, dict):
+        raise SpendAuthorizationError("provider quote is missing")
+    quote_core = {
+        key: quote.get(key)
+        for key in (
+            "provider",
+            "model",
+            "amount",
+            "unit",
+            "source",
+            "pricingVersion",
+        )
+    }
+    amount = quote_core["amount"]
+    if (
+        quote_core["provider"] != scope["provider"]
+        or quote_core["model"] != scope["providerModel"]
+        or isinstance(amount, bool)
+        or not isinstance(amount, (int, float))
+        or not math.isfinite(float(amount))
+        or float(amount) <= 0
+        or quote.get("pricingFingerprint")
+        != hashlib.sha256(canonical_json(quote_core)).hexdigest()
+    ):
+        raise SpendAuthorizationError("provider quote is invalid")
+    current = now or datetime.now(UTC)
+    issued_at = _parse_time(payload.get("issuedAt"), "issuedAt")
+    expires_at = _parse_time(payload.get("expiresAt"), "expiresAt")
+    if expires_at <= issued_at or current < issued_at or current >= expires_at:
+        raise SpendAuthorizationError(
+            "provider spend authorization is expired or not active"
+        )
+    return dict(payload)
+
+
 def _parse_time(value: Any, field: str) -> datetime:
     if not isinstance(value, str) or not value:
         raise SpendAuthorizationError(
@@ -378,3 +540,16 @@ def _validate_secret(secret: str) -> None:
         raise SpendAuthorizationError(
             "CREATOR_OS_SPEND_AUTH_SECRET must contain at least 32 bytes"
         )
+
+
+def _required_text(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} is required")
+    return value.strip()
+
+
+def _sha256_text(value: Any, label: str) -> str:
+    text = _required_text(value, label)
+    if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+    return text

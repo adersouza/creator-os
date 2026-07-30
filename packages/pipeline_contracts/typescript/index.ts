@@ -1,4 +1,5 @@
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+import { createHash } from "node:crypto";
 import {
 	generatedPipelineContractSchemaManifest,
 	generatedPipelineContractSchemas,
@@ -68,6 +69,10 @@ export const BENCHMARK_RECIPE_SCHEMA_ID =
 	generatedPipelineContractSchemas.benchmarkRecipe.$id;
 export const ANALYZER_REGISTRY_SCHEMA_ID =
 	generatedPipelineContractSchemas.analyzerRegistry.$id;
+export const ANALYZER_REGISTRY_V2_SCHEMA_ID =
+	generatedPipelineContractSchemas.analyzerRegistryV2.$id;
+export const RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA_ID =
+	generatedPipelineContractSchemas.rendererEquivalenceReceiptV2.$id;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -164,6 +169,8 @@ export const benchmarkRecipeSchema =
 	generatedPipelineContractSchemas.benchmarkRecipe;
 export const analyzerRegistrySchema =
 	generatedPipelineContractSchemas.analyzerRegistry;
+export const rendererEquivalenceReceiptV2Schema =
+	generatedPipelineContractSchemas.rendererEquivalenceReceiptV2;
 
 export const audioCatalogExportSchema =
 	generatedPipelineContractSchemas.audioCatalogExport;
@@ -1128,11 +1135,118 @@ export function validateBenchmarkRecipe(value: unknown): string[] {
 }
 
 export function validateAnalyzerRegistry(value: unknown): string[] {
-	return schemaErrors(
-		generatedPipelineContractSchemas.analyzerRegistry,
+	if (!isRecord(value)) return ["analyzer registry must be an object"];
+	const contractSchema =
+		value.schema === "creator_os.analyzer_registry.v1"
+			? generatedPipelineContractSchemas.analyzerRegistry
+			: value.schema === "creator_os.analyzer_registry.v2"
+				? generatedPipelineContractSchemas.analyzerRegistryV2
+				: null;
+	return contractSchema
+		? schemaErrors(contractSchema, value, "analyzer registry")
+		: ["analyzer registry schema mismatch"];
+}
+
+export function validateRendererEquivalenceReceiptV2(value: unknown): string[] {
+	const errors = schemaErrors(
+		generatedPipelineContractSchemas.rendererEquivalenceReceiptV2,
 		value,
-		"analyzer registry",
+		"renderer equivalence receipt",
 	);
+	if (!isRecord(value)) return errors;
+	const policy = isRecord(value.equivalencePolicy)
+		? value.equivalencePolicy
+		: {};
+	const measurements = isRecord(value.measurements) ? value.measurements : {};
+	const checks = isRecord(value.checks) ? value.checks : {};
+	const fixture = isRecord(value.fixture) ? value.fixture : {};
+	const toolchain = isRecord(value.toolchain) ? value.toolchain : {};
+	const qcEvidence = isRecord(value.qcEvidence) ? value.qcEvidence : {};
+	const source = isRecord(value.source) ? value.source : {};
+	if (value.status === "qualified") {
+		if (!Object.values(checks).every((check) => check === true)) {
+			errors.push("renderer equivalence receipt checks must all pass when qualified");
+		}
+		if (
+			typeof measurements.ssim === "number" &&
+			typeof policy.minimumSsim === "number" &&
+			measurements.ssim < policy.minimumSsim
+		) {
+			errors.push("renderer equivalence receipt ssim is below declared minimumSsim");
+		}
+		if (
+			typeof measurements.durationDeltaFrames === "number" &&
+			typeof policy.maximumDurationDeltaFrames === "number" &&
+			measurements.durationDeltaFrames > policy.maximumDurationDeltaFrames
+		) {
+			errors.push(
+				"renderer equivalence receipt durationDeltaFrames is above declared maximum",
+			);
+		}
+		if (value.qcRegression !== false) {
+			errors.push("renderer equivalence receipt qcRegression must be false when qualified");
+		}
+		if (
+			qcEvidence.evaluated !== true ||
+			!isRecord(qcEvidence.baselineReport) ||
+			!isRecord(qcEvidence.identityReport)
+		) {
+			errors.push("renderer equivalence receipt qualified QC evidence is incomplete");
+		}
+		if (
+			!Array.isArray(qcEvidence.newBlockingCodes) ||
+			qcEvidence.newBlockingCodes.length > 0
+		) {
+			errors.push(
+				"renderer equivalence receipt qualified QC evidence has new blocking codes",
+			);
+		}
+	}
+	if (qcEvidence.policySha256 !== toolchain.qcPolicySha256) {
+		errors.push(
+			"renderer equivalence receipt QC policy does not match toolchain",
+		);
+	}
+	if (fixture.inputSha256 !== source.sha256) {
+		errors.push("renderer equivalence receipt fixture does not match source");
+	}
+	if (
+		typeof fixture.fixtureId === "string" &&
+		typeof toolchain.fingerprint === "string"
+	) {
+		const expectedQualification = `renderer_qualification_${canonicalFingerprint({
+			fixtureId: fixture.fixtureId,
+			toolchainFingerprint: toolchain.fingerprint,
+		}).slice(0, 24)}`;
+		if (value.qualificationId !== expectedQualification) {
+			errors.push(
+				"renderer equivalence receipt qualificationId does not bind fixture and toolchain",
+			);
+		}
+	}
+	const unsigned = { ...value };
+	delete unsigned.receiptFingerprint;
+	if (value.receiptFingerprint !== canonicalFingerprint(unsigned)) {
+		errors.push("renderer equivalence receipt fingerprint does not match canonical receipt");
+	}
+	return errors;
+}
+
+function canonicalFingerprint(value: unknown): string {
+	return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) {
+		return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+	}
+	if (isRecord(value)) {
+		return `{${Object.keys(value)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value);
 }
 
 export function validateGeneratedAssetLineage(value: unknown): string[] {

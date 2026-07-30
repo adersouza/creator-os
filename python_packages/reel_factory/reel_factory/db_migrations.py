@@ -210,6 +210,117 @@ BEGIN
 END;
 """
 
+QUEUE_STRICT_GUARDS = """
+DROP TRIGGER IF EXISTS queue_jobs_status_update;
+CREATE TRIGGER queue_jobs_status_update
+BEFORE UPDATE OF status ON queue_jobs
+WHEN OLD.status != NEW.status AND NOT (
+  (OLD.status = 'queued' AND NEW.status = 'claimed') OR
+  (OLD.status = 'claimed' AND NEW.status IN ('running', 'queued', 'interrupted')) OR
+  (OLD.status = 'running' AND NEW.status IN ('queued', 'succeeded', 'failed', 'interrupted'))
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid queue job transition');
+END;
+CREATE TRIGGER IF NOT EXISTS queue_jobs_identity_immutable
+BEFORE UPDATE OF job_key, command_json, cwd, max_attempts, created_at ON queue_jobs
+BEGIN
+  SELECT RAISE(ABORT, 'queue job identity is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS queue_jobs_attempt_progression
+BEFORE UPDATE OF status, attempts ON queue_jobs
+WHEN (
+  (OLD.status = 'claimed' AND NEW.status = 'running'
+    AND NEW.attempts != OLD.attempts + 1)
+  OR
+  (NOT (OLD.status = 'claimed' AND NEW.status = 'running')
+    AND NEW.attempts != OLD.attempts)
+  OR NEW.attempts > NEW.max_attempts
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid queue attempt progression');
+END;
+CREATE TRIGGER IF NOT EXISTS queue_jobs_state_shape_insert
+BEFORE INSERT ON queue_jobs
+WHEN NOT (
+  NEW.status = 'queued'
+  AND NEW.worker_id IS NULL AND NEW.claimed_at IS NULL
+  AND NEW.started_at IS NULL AND NEW.ended_at IS NULL
+  AND NEW.heartbeat_at IS NULL AND NEW.error_text IS NULL
+  AND NEW.attempts < NEW.max_attempts
+  AND json_valid(NEW.command_json) = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid queue job state shape');
+END;
+CREATE TRIGGER IF NOT EXISTS queue_jobs_state_shape_update
+BEFORE UPDATE ON queue_jobs
+WHEN NOT (
+  (NEW.status = 'queued'
+    AND NEW.worker_id IS NULL AND NEW.claimed_at IS NULL
+    AND NEW.started_at IS NULL AND NEW.ended_at IS NULL
+    AND NEW.heartbeat_at IS NULL AND NEW.error_text IS NULL
+    AND NEW.attempts < NEW.max_attempts)
+  OR
+  (NEW.status = 'claimed'
+    AND LENGTH(TRIM(COALESCE(NEW.worker_id, ''))) > 0
+    AND NEW.claimed_at IS NOT NULL AND NEW.started_at IS NULL
+    AND NEW.ended_at IS NULL AND NEW.heartbeat_at IS NOT NULL
+    AND NEW.error_text IS NULL AND NEW.attempts < NEW.max_attempts)
+  OR
+  (NEW.status = 'running'
+    AND LENGTH(TRIM(COALESCE(NEW.worker_id, ''))) > 0
+    AND NEW.claimed_at IS NOT NULL AND NEW.started_at IS NOT NULL
+    AND NEW.started_at >= NEW.claimed_at
+    AND NEW.ended_at IS NULL AND NEW.heartbeat_at IS NOT NULL
+    AND NEW.error_text IS NULL AND NEW.attempts <= NEW.max_attempts)
+  OR
+  (NEW.status = 'succeeded'
+    AND LENGTH(TRIM(COALESCE(NEW.worker_id, ''))) > 0
+    AND NEW.claimed_at IS NOT NULL AND NEW.started_at IS NOT NULL
+    AND NEW.ended_at IS NOT NULL AND NEW.ended_at >= NEW.started_at
+    AND NEW.error_text IS NULL)
+  OR
+  (NEW.status IN ('failed', 'interrupted')
+    AND NEW.ended_at IS NOT NULL
+    AND LENGTH(TRIM(COALESCE(NEW.error_text, ''))) > 0)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid queue job state shape');
+END;
+CREATE TRIGGER IF NOT EXISTS queue_job_events_transition_insert
+BEFORE INSERT ON queue_job_events
+WHEN NOT (
+  NEW.new_status = (SELECT status FROM queue_jobs WHERE job_id=NEW.job_id)
+  AND (
+    (NOT EXISTS (
+      SELECT 1 FROM queue_job_events WHERE job_id=NEW.job_id
+    ) AND NEW.old_status IS NULL AND NEW.new_status='queued')
+    OR
+    (NEW.old_status = (
+      SELECT new_status FROM queue_job_events
+      WHERE job_id=NEW.job_id ORDER BY rowid DESC LIMIT 1
+    )
+      AND NEW.old_status != NEW.new_status
+      AND (
+        (NEW.old_status = 'queued' AND NEW.new_status = 'claimed')
+        OR
+        (NEW.old_status = 'claimed'
+          AND NEW.new_status IN ('running', 'queued', 'interrupted'))
+        OR
+        (NEW.old_status = 'running'
+          AND NEW.new_status IN (
+            'queued', 'succeeded', 'failed', 'interrupted'
+          ))
+      )
+    )
+  )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'queue event does not match job transition');
+END;
+"""
+
 
 @dataclass(frozen=True)
 class Migration:
@@ -388,6 +499,13 @@ def run_queue_migrations(conn: sqlite3.Connection) -> None:
                 _apply_queue_guards,
                 _queue_guard_postcondition,
             ),
+            Migration(
+                3,
+                "20260730_reel_queue_strict_state_machine_v2",
+                QUEUE_STRICT_GUARDS,
+                _apply_queue_strict_guards,
+                _queue_strict_guard_postcondition,
+            ),
         ),
     )
 
@@ -451,6 +569,115 @@ def _apply_queue_guards(conn: sqlite3.Connection) -> None:
         FROM queue_jobs
         """
     )
+
+
+def _apply_queue_strict_guards(conn: sqlite3.Connection) -> None:
+    now = int(datetime.now(UTC).timestamp())
+    # The v2 transition trigger does not permit migration-only normalization
+    # such as queued -> interrupted. Reinstall the strict trigger after legacy
+    # rows and their audit events have been normalized in this transaction.
+    conn.execute("DROP TRIGGER IF EXISTS queue_jobs_status_update")
+    conn.execute(
+        """
+        UPDATE queue_jobs SET
+          status='interrupted', ended_at=?,
+          error_text='queue state normalized during strict migration'
+        WHERE status IN ('claimed', 'running') AND (
+          worker_id IS NULL OR TRIM(worker_id)='' OR claimed_at IS NULL
+          OR heartbeat_at IS NULL
+        )
+        """,
+        (now,),
+    )
+    conn.execute(
+        """
+        UPDATE queue_jobs SET
+          status='interrupted', ended_at=?,
+          error_text='queue attempt budget exhausted before strict migration'
+        WHERE (status IN ('queued', 'claimed') AND attempts >= max_attempts)
+           OR (status='running' AND attempts > max_attempts)
+        """,
+        (now,),
+    )
+    conn.execute(
+        """
+        UPDATE queue_jobs SET worker_id=NULL, claimed_at=NULL, started_at=NULL,
+          ended_at=NULL, heartbeat_at=NULL, error_text=NULL
+        WHERE status='queued'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE queue_jobs SET started_at=NULL, ended_at=NULL, error_text=NULL
+        WHERE status='claimed'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE queue_jobs SET
+          started_at=CASE
+            WHEN started_at IS NULL OR started_at < claimed_at THEN claimed_at
+            ELSE started_at
+          END,
+          attempts=MAX(attempts, 1), ended_at=NULL, error_text=NULL
+        WHERE status='running'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE queue_jobs SET
+          started_at=COALESCE(started_at, claimed_at),
+          ended_at=CASE
+            WHEN COALESCE(ended_at, heartbeat_at, claimed_at, created_at)
+              < COALESCE(started_at, claimed_at)
+            THEN COALESCE(started_at, claimed_at)
+            ELSE COALESCE(ended_at, heartbeat_at, started_at, claimed_at, created_at)
+          END,
+          error_text=NULL
+        WHERE status='succeeded'
+          AND LENGTH(TRIM(COALESCE(worker_id, ''))) > 0
+          AND claimed_at IS NOT NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE queue_jobs SET ended_at=COALESCE(ended_at, heartbeat_at, started_at,
+          claimed_at, created_at), error_text=COALESCE(NULLIF(error_text, ''),
+          'historical terminal queue failure')
+        WHERE status IN ('failed', 'interrupted')
+        """
+    )
+    rows = conn.execute(
+        """
+        SELECT q.job_id, q.status, q.created_at,
+          (SELECT e.new_status FROM queue_job_events e
+           WHERE e.job_id=q.job_id ORDER BY e.rowid DESC LIMIT 1) AS event_status
+        FROM queue_jobs q
+        WHERE COALESCE((
+          SELECT e.new_status FROM queue_job_events e
+          WHERE e.job_id=q.job_id ORDER BY e.rowid DESC LIMIT 1
+        ), '') != q.status
+        """
+    ).fetchall()
+    conn.executemany(
+        """
+        INSERT INTO queue_job_events (
+          event_id, job_id, old_status, new_status, actor, reason, created_at
+        ) VALUES (?, ?, ?, ?, 'schema_migration',
+          'strict queue state normalization', ?)
+        """,
+        [
+            (
+                f"qe_strict_{row['job_id']}",
+                row["job_id"],
+                row["event_status"],
+                row["status"],
+                now,
+            )
+            for row in rows
+        ],
+    )
+    execute_script(conn, QUEUE_STRICT_GUARDS)
 
 
 def _manifest_baseline_postcondition(conn: sqlite3.Connection) -> None:
@@ -535,6 +762,82 @@ def _queue_guard_postcondition(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if missing is not None:
         raise RuntimeError(f"reel_queue_schema_event_missing:{missing['job_id']}")
+
+
+def _queue_strict_guard_postcondition(conn: sqlite3.Connection) -> None:
+    _queue_guard_postcondition(conn)
+    _require_triggers(
+        conn,
+        {
+            "queue_jobs_identity_immutable",
+            "queue_jobs_attempt_progression",
+            "queue_jobs_state_shape_insert",
+            "queue_jobs_state_shape_update",
+            "queue_job_events_transition_insert",
+        },
+    )
+    invalid = conn.execute(
+        """
+        SELECT job_id, status
+        FROM queue_jobs
+        WHERE NOT (
+          (status = 'queued'
+            AND worker_id IS NULL AND claimed_at IS NULL
+            AND started_at IS NULL AND ended_at IS NULL
+            AND heartbeat_at IS NULL AND error_text IS NULL
+            AND attempts < max_attempts)
+          OR
+          (status = 'claimed'
+            AND LENGTH(TRIM(COALESCE(worker_id, ''))) > 0
+            AND claimed_at IS NOT NULL AND started_at IS NULL
+            AND ended_at IS NULL AND heartbeat_at IS NOT NULL
+            AND error_text IS NULL AND attempts < max_attempts)
+          OR
+          (status = 'running'
+            AND LENGTH(TRIM(COALESCE(worker_id, ''))) > 0
+            AND claimed_at IS NOT NULL AND started_at IS NOT NULL
+            AND started_at >= claimed_at
+            AND ended_at IS NULL AND heartbeat_at IS NOT NULL
+            AND error_text IS NULL AND attempts <= max_attempts)
+          OR
+          (status = 'succeeded'
+            AND LENGTH(TRIM(COALESCE(worker_id, ''))) > 0
+            AND claimed_at IS NOT NULL AND started_at IS NOT NULL
+            AND ended_at IS NOT NULL AND ended_at >= started_at
+            AND error_text IS NULL)
+          OR
+          (status IN ('failed', 'interrupted')
+            AND ended_at IS NOT NULL
+            AND LENGTH(TRIM(COALESCE(error_text, ''))) > 0)
+        )
+        LIMIT 1
+        """
+    ).fetchone()
+    if invalid is not None:
+        raise RuntimeError(
+            "reel_queue_schema_invalid_state_shape:"
+            f"{invalid['job_id']}:{invalid['status']}"
+        )
+    event_mismatch = conn.execute(
+        """
+        SELECT q.job_id, q.status, latest.new_status
+        FROM queue_jobs q
+        JOIN queue_job_events latest
+          ON latest.rowid = (
+            SELECT MAX(event.rowid)
+            FROM queue_job_events event
+            WHERE event.job_id = q.job_id
+          )
+        WHERE latest.new_status != q.status
+        LIMIT 1
+        """
+    ).fetchone()
+    if event_mismatch is not None:
+        raise RuntimeError(
+            "reel_queue_schema_event_state_mismatch:"
+            f"{event_mismatch['job_id']}:{event_mismatch['new_status']}:"
+            f"{event_mismatch['status']}"
+        )
 
 
 def execute_script(conn: sqlite3.Connection, script: str) -> None:

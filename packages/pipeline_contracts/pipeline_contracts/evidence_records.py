@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from .validator import (
     validate_analyzer_registry,
+    validate_analyzer_registry_v2,
     validate_benchmark_recipe,
     validate_content_intent,
     validate_creator_identity_profile,
@@ -335,6 +336,119 @@ class AnalyzerRegistryV1:
             registry_id=str(payload["registryId"]),
             analyzers=tuple(
                 AnalyzerRegistrationV1.from_dict(item) for item in payload["analyzers"]
+            ),
+            provenance=ProvenanceV1.from_dict(payload["provenance"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzerRegistrationV2:
+    analyzer_id: str
+    analyzer_version: str
+    evidence_kinds: tuple[str, ...]
+    implementation_ref: str
+    implementation_fingerprint: str
+    model: dict[str, Any]
+    validation_dataset: dict[str, Any]
+    thresholds: dict[str, Any]
+    thresholds_fingerprint: str
+    false_positive_budget: float
+    false_negative_budget: float
+    last_qualification: str
+    next_renewal: str
+    approved_use_cases: tuple[str, ...]
+    unsupported_use_cases: tuple[str, ...]
+    rollback_version: str
+    operator: str
+    authority_review: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "analyzerId": self.analyzer_id,
+            "analyzerVersion": self.analyzer_version,
+            "evidenceKinds": list(self.evidence_kinds),
+            "implementationRef": self.implementation_ref,
+            "implementationFingerprint": self.implementation_fingerprint,
+            "model": dict(self.model),
+            "validationDataset": dict(self.validation_dataset),
+            "thresholds": dict(self.thresholds),
+            "thresholdsFingerprint": self.thresholds_fingerprint,
+            "falsePositiveBudget": self.false_positive_budget,
+            "falseNegativeBudget": self.false_negative_budget,
+            "lastQualification": self.last_qualification,
+            "nextRenewal": self.next_renewal,
+            "approvedUseCases": list(self.approved_use_cases),
+            "unsupportedUseCases": list(self.unsupported_use_cases),
+            "rollbackVersion": self.rollback_version,
+            "operator": self.operator,
+            "authorityReview": {
+                **self.authority_review,
+                "approvedChangeClasses": list(
+                    self.authority_review["approvedChangeClasses"]
+                ),
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> AnalyzerRegistrationV2:
+        return cls(
+            analyzer_id=str(payload["analyzerId"]),
+            analyzer_version=str(payload["analyzerVersion"]),
+            evidence_kinds=tuple(str(value) for value in payload["evidenceKinds"]),
+            implementation_ref=str(payload["implementationRef"]),
+            implementation_fingerprint=str(payload["implementationFingerprint"]),
+            model=dict(payload["model"]),
+            validation_dataset=dict(payload["validationDataset"]),
+            thresholds=dict(payload["thresholds"]),
+            thresholds_fingerprint=str(payload["thresholdsFingerprint"]),
+            false_positive_budget=float(payload["falsePositiveBudget"]),
+            false_negative_budget=float(payload["falseNegativeBudget"]),
+            last_qualification=str(payload["lastQualification"]),
+            next_renewal=str(payload["nextRenewal"]),
+            approved_use_cases=tuple(
+                str(value) for value in payload["approvedUseCases"]
+            ),
+            unsupported_use_cases=tuple(
+                str(value) for value in payload["unsupportedUseCases"]
+            ),
+            rollback_version=str(payload["rollbackVersion"]),
+            operator=str(payload["operator"]),
+            authority_review=dict(payload["authorityReview"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzerRegistryV2:
+    registry_id: str
+    analyzers: tuple[AnalyzerRegistrationV2, ...]
+    provenance: ProvenanceV1
+    authority_version: Literal[2] = 2
+
+    def __post_init__(self) -> None:
+        validate_analyzer_registry_v2(self.to_dict())
+        identities = [
+            (registration.analyzer_id, registration.analyzer_version)
+            for registration in self.analyzers
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError("analyzer_registry_duplicate_registration")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "creator_os.analyzer_registry.v2",
+            "registryId": self.registry_id,
+            "authorityVersion": self.authority_version,
+            "analyzers": [registration.to_dict() for registration in self.analyzers],
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> AnalyzerRegistryV2:
+        validate_analyzer_registry_v2(payload)
+        return cls(
+            registry_id=str(payload["registryId"]),
+            analyzers=tuple(
+                AnalyzerRegistrationV2.from_dict(item) for item in payload["analyzers"]
             ),
             provenance=ProvenanceV1.from_dict(payload["provenance"]),
         )

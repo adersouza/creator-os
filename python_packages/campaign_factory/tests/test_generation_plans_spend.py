@@ -40,6 +40,7 @@ from campaign_generation_test_support import (
 from campaign_test_support import (
     add_rendered_asset,
     add_source_asset,
+    authorize_campaign_governance,
     isolate_account_groups,
     make_factory,
     set_test_source_prompt,
@@ -126,6 +127,14 @@ def test_daily_library_plan_is_deterministic_and_zero_cost(
         },
     )
     try:
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="learning-governance",
+            provider="higgsfield",
+            soul_id="governed_stacey_learning_soul",
+        )
         prepare_learning_cohort(cf.conn, start_date="2026-07-12")
         cf.domains.asset_import.import_folder(
             folder,
@@ -251,6 +260,14 @@ def test_daily_library_apply_stops_at_review_ready(
     )
     monkeypatch.setattr(daily_library_module, "audit_campaign", fake_audit)
     try:
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="learning-governance",
+            provider="higgsfield",
+            soul_id="governed_stacey_learning_soul",
+        )
         prepare_learning_cohort(cf.conn, start_date="2026-07-12")
         cf.domains.asset_import.import_folder(
             folder,

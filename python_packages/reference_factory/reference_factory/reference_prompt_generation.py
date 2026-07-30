@@ -14,6 +14,7 @@ from pipeline_contracts.validator import (
 
 from .db import json_dump, json_load
 from .identity import stable_id
+from .prompt_registry import bind_reference_prompt
 from .reference_analysis import (
     _analysis_value,
     _blueprint_first_frame,
@@ -93,6 +94,19 @@ def generate_video_prompts(
             analysis = _heuristic_analysis(job)
         for target_tool in tools:
             prompt_json = _prompt_for_tool(target_tool, job, analysis, model_profile)
+            prompt_json["promptGovernance"] = bind_reference_prompt(
+                prompt_id="reference.provider_prompt_compile",
+                version="1",
+                provider="higgsfield",
+                model=model_profile or target_tool,
+                compiled_prompt=prompt_json,
+                inputs={
+                    "analysisJobId": job["id"],
+                    "referenceId": job["reference_id"],
+                    "targetTool": target_tool,
+                    "modelProfile": model_key,
+                },
+            )
             if creative_plan_id:
                 prompt_json["creativePlanId"] = creative_plan_id
             prompt_id = stable_id(
@@ -701,6 +715,7 @@ def _higgsfield_prompt(
         if isinstance(analysis.get("patternCard"), dict)
         else _pattern_card_from_analysis(job, analysis)
     )
+    assert isinstance(pattern, dict)
     pattern_id = str(
         pattern.get("id")
         or stable_id(
@@ -774,6 +789,7 @@ def _kling_prompt(
         if isinstance(analysis.get("patternCard"), dict)
         else _pattern_card_from_analysis(job, analysis)
     )
+    assert isinstance(pattern, dict)
     pattern_id = str(
         pattern.get("id")
         or stable_id(

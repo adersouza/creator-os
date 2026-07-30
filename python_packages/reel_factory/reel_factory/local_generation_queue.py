@@ -673,7 +673,10 @@ class LocalGenerationJob:
             registry_payload = evidence_record_payload(analyzer_registry)
             if recipe_payload.get("schema") != "creator_os.benchmark_recipe.v1":
                 raise ValueError("benchmark_recipe_schema_mismatch")
-            if registry_payload.get("schema") != "creator_os.analyzer_registry.v1":
+            if registry_payload.get("schema") not in {
+                "creator_os.analyzer_registry.v1",
+                "creator_os.analyzer_registry.v2",
+            }:
                 raise ValueError("analyzer_registry_schema_mismatch")
             if recipe_payload.get("expectedProviderCalls") != 0:
                 raise ValueError("benchmark_recipe_provider_calls_must_be_zero")

@@ -230,6 +230,7 @@ def register_core_commands(sub) -> None:
     run.add_argument("--campaign", required=True)
     run.add_argument("--workers", type=int, default=3)
     run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--apply", action="store_true")
     run.add_argument("--band", choices=["top", "center", "bottom"], default="center")
     run.add_argument("--color", choices=["light", "dark", "auto"], default="light")
     run.add_argument(
@@ -257,6 +258,18 @@ def register_core_commands(sub) -> None:
     daily_library.add_argument("--library-root", type=Path)
     daily_library.add_argument("--contentforge-base-url", default="cli://local")
     daily_library.add_argument("--apply", action="store_true")
+    orchestrate = sub.add_parser(
+        "orchestrate-daily",
+        help="fairly plan or execute Creator OS creation without publishing",
+    )
+    orchestrate.add_argument("--run-key", required=True)
+    orchestrate.add_argument("--max-items", type=int, required=True)
+    orchestrate.add_argument("--per-creator-cap", type=int, default=2)
+    orchestrate.add_argument("--per-campaign-cap", type=int, default=1)
+    orchestrate.add_argument("--provider-cap", type=int, default=0)
+    orchestrate.add_argument("--max-attempts", type=int, default=3)
+    orchestrate.add_argument("--apply", action="store_true")
+    orchestrate.add_argument("--execute", action="store_true")
     stills = sub.add_parser(
         "stills",
         help="enroll, harvest, edit, and report reusable derived still inventory",

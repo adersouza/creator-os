@@ -7,13 +7,14 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  analyzeTrustedMedia,
-  buildTrustedMotionSpecificQc,
+  analyzeTrustedMedia as analyzeTrustedMediaProduction,
+  analyzeTrustedMediaForIsolatedTest as analyzeTrustedMedia,
+  buildTrustedMotionSpecificQcForIsolatedTest as buildTrustedMotionSpecificQc,
   motionEvidenceFromTrustedAnalysis,
-  rerunTrustedMotionSpecificQc,
+  rerunTrustedMotionSpecificQcForIsolatedTest as rerunTrustedMotionSpecificQc,
 } from "../lib/trusted-media-analysis.js";
-import { snapshotTrustedMediaAnalyzerRegistry } from "../lib/analyzer-registry.js";
 import { signEvidenceAttestation } from "../lib/evidence-attestation.js";
+import { isolatedQualifiedAnalyzerRegistry } from "./support/qualified-analyzer-registry.js";
 
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 const TEST_SECRET = "contentforge-test-secret-0123456789-abcdef";
@@ -88,8 +89,21 @@ function resignAnalysis(analysis) {
 }
 
 async function registry(producedAt) {
-  return snapshotTrustedMediaAnalyzerRegistry({ producedAt, repositoryRoot: ROOT });
+  return isolatedQualifiedAnalyzerRegistry({ producedAt, repositoryRoot: ROOT });
 }
+
+test("production analysis rejects isolated unit-test analyzer authority", async function () {
+  var analyzerRegistry = await registry("2026-07-22T20:00:00Z");
+  await assert.rejects(
+    analyzeTrustedMediaProduction({
+      mediaPath: path.join(ROOT, "package.json"),
+      producedAt: "2026-07-22T20:00:00Z",
+      analyzerRegistry,
+      repositoryRoot: ROOT,
+    }),
+    /trusted_media_analyzer_registry_not_canonical_production_authority/,
+  );
+});
 
 function humanReview(analysis, overrides = {}) {
   var sampling = analysis.humanReviewSampling;
@@ -1267,6 +1281,28 @@ test("public motion-qc CLI quarantines raw and incomplete evidence", async funct
     await assert.rejects(
       run("node", [path.join(ROOT, "packages/contentforge/cli.mjs"), "motion-qc", incompleteRequest]),
       /caller-supplied evidence or analysis cannot produce a trusted receipt/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("public analyze-media CLI rejects isolated test authority", async function () {
+  var root = await mkdtemp(path.join(os.tmpdir(), "contentforge-analyze-cli-"));
+  try {
+    var requestPath = path.join(root, "request.json");
+    await writeFile(requestPath, JSON.stringify({
+      mediaPath: path.join(ROOT, "package.json"),
+      producedAt: "2026-07-22T20:00:00Z",
+      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+    }));
+    await assert.rejects(
+      run("node", [
+        path.join(ROOT, "packages/contentforge/cli.mjs"),
+        "analyze-media",
+        requestPath,
+      ]),
+      /trusted_media_analyzer_registry_not_canonical_production_authority/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -45,6 +45,64 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
     assert "static-reel" not in result.stdout
 
 
+def test_reference_paid_routes_through_the_root_campaign_composition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    result = namespace["main"](
+        [
+            "reference-paid",
+            "grok-analyze",
+            "--creator",
+            "creator",
+            "--campaign",
+            "campaign",
+            "--run-id",
+            "run",
+            "--quote-usd",
+            "0.10",
+            "--max-usd",
+            "1.00",
+            "--pricing-version",
+            "current",
+            "--source",
+            "/tmp/reference",
+            "--apply",
+        ]
+    )
+
+    assert result == 0
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[:3] == ["uv", "run", "python"]
+    assert command[3].endswith("/scripts/reference_paid.py")
+    assert command[4:] == [
+        "grok-analyze",
+        "--creator",
+        "creator",
+        "--campaign",
+        "campaign",
+        "--run-id",
+        "run",
+        "--quote-usd",
+        "0.10",
+        "--max-usd",
+        "1.00",
+        "--pricing-version",
+        "current",
+        "--source",
+        "/tmp/reference",
+        "--apply",
+    ]
+
+
 def test_draft_export_forces_draft_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     namespace = runpy.run_path(str(CLI))
     commands: list[list[str]] = []

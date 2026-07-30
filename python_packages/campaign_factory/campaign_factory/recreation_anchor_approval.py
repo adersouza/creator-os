@@ -13,6 +13,7 @@ from creator_os_core.recreation_anchor_approval import (
 from PIL import Image, UnidentifiedImageError
 
 from .production_prompts import require_creator_soul_id
+from .production_source_selection import active_production_identity
 from .recreation_prompting import validate_prompt_pack
 
 
@@ -29,7 +30,11 @@ def approve_recreation_anchor(
 ) -> dict[str, Any]:
     """Approve one downloaded Soul 2 anchor against its full prompt lineage."""
 
-    creator_slug, soul_id = require_creator_soul_id(creator)
+    creator_slug, soul_id = (
+        active_production_identity(factory, creator)
+        if factory is not None
+        else require_creator_soul_id(creator)
+    )
     anchor = _regular_file(anchor_file, "anchor file")
     try:
         with Image.open(anchor) as image:

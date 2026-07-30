@@ -19,7 +19,10 @@ from campaign_factory.observed_experiment_reporting import (
     record_observed_experiment_decision,
 )
 from campaign_test_support import make_factory
-from reel_factory.observed_profiles import render_observed_profile
+from reel_factory.observed_profiles import (
+    CONTENTFORGE_QC_POLICY_FILES,
+    render_observed_profile,
+)
 
 TEST_PROFILE = "mirror_crop_tone@1"
 
@@ -211,6 +214,11 @@ def _audio_receipt(original: Path, final: Path) -> dict:
 
 
 def _fixture(tmp_path: Path, monkeypatch):
+    contentforge_root = tmp_path / "contentforge"
+    for relative in CONTENTFORGE_QC_POLICY_FILES:
+        policy_file = contentforge_root / relative
+        policy_file.parent.mkdir(parents=True, exist_ok=True)
+        policy_file.write_text("fixture-policy", encoding="utf-8")
     cf = make_factory(tmp_path)
 
     def audit_variation_batch(*, report_path: Path, **_kwargs):
@@ -843,6 +851,92 @@ def test_eligible_existing_media_can_register_as_parent(tmp_path: Path):
             ).fetchone()[0]
         )
         assert metadata["controlAdmission"] == "eligible_existing_media"
+    finally:
+        cf.close()
+
+
+def test_pair_reservation_rejects_tampered_renderer_qc_evidence(
+    tmp_path: Path, monkeypatch
+):
+    cf, experiment_id, items, accounts, slots = _fixture(tmp_path, monkeypatch)
+    try:
+        control = cf.domains.rendered_asset("control_asset")
+        metadata = json.loads(control["metadata_json"])
+        baseline = Path(
+            metadata["rendererEquivalenceReceipt"]["qcEvidence"]["baselineReport"][
+                "path"
+            ]
+        )
+        baseline.write_text('{"tampered":true}', encoding="utf-8")
+
+        with pytest.raises(ValueError, match="baselineReport evidence SHA mismatch"):
+            cf.domains.inventory_reservations.reserve_experiment_pair(
+                experiment_id=experiment_id,
+                parent_family_id="control_asset",
+                pair_index=0,
+                control_asset_id="control_asset",
+                treatment_asset_id="treatment_asset",
+                account_ids=accounts,
+                eligible_slots=slots,
+                plan_item_ids=items,
+                treatment_profile=TEST_PROFILE,
+            )
+    finally:
+        cf.close()
+
+
+def test_pair_reservation_rejects_missing_renderer_identity_output(
+    tmp_path: Path, monkeypatch
+):
+    cf, experiment_id, items, accounts, slots = _fixture(tmp_path, monkeypatch)
+    try:
+        control = cf.domains.rendered_asset("control_asset")
+        metadata = json.loads(control["metadata_json"])
+        identity_output = Path(
+            metadata["rendererEquivalenceReceipt"]["identityOutputPath"]
+        )
+        identity_output.unlink()
+
+        with pytest.raises(ValueError, match="renderer identity output is missing"):
+            cf.domains.inventory_reservations.reserve_experiment_pair(
+                experiment_id=experiment_id,
+                parent_family_id="control_asset",
+                pair_index=0,
+                control_asset_id="control_asset",
+                treatment_asset_id="treatment_asset",
+                account_ids=accounts,
+                eligible_slots=slots,
+                plan_item_ids=items,
+                treatment_profile=TEST_PROFILE,
+            )
+    finally:
+        cf.close()
+
+
+def test_pair_reservation_rejects_tampered_renderer_identity_output(
+    tmp_path: Path, monkeypatch
+):
+    cf, experiment_id, items, accounts, slots = _fixture(tmp_path, monkeypatch)
+    try:
+        control = cf.domains.rendered_asset("control_asset")
+        metadata = json.loads(control["metadata_json"])
+        identity_output = Path(
+            metadata["rendererEquivalenceReceipt"]["identityOutputPath"]
+        )
+        identity_output.write_bytes(identity_output.read_bytes() + b"tampered")
+
+        with pytest.raises(ValueError, match="renderer identity output SHA mismatch"):
+            cf.domains.inventory_reservations.reserve_experiment_pair(
+                experiment_id=experiment_id,
+                parent_family_id="control_asset",
+                pair_index=0,
+                control_asset_id="control_asset",
+                treatment_asset_id="treatment_asset",
+                account_ids=accounts,
+                eligible_slots=slots,
+                plan_item_ids=items,
+                treatment_profile=TEST_PROFILE,
+            )
     finally:
         cf.close()
 

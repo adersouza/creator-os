@@ -481,7 +481,8 @@ def test_canonical_analyzer_registry_rejects_self_consistent_arbitrary_snapshot(
         lambda *_args, **_kwargs: canonical,
     )
     with pytest.raises(
-        LocalMotionAdmissionError, match="analyzer_registry_not_canonical"
+        LocalMotionAdmissionError,
+        match="analyzer_registry_production_authority_v2_required",
     ):
         validate_canonical_analyzer_registry(
             supplied, contentforge_root=tmp_path / "contentforge"

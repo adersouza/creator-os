@@ -25,6 +25,7 @@ from .control import operator_control_check
 from .creation_modes import run_creation_batch
 from .creative_approval import build_and_record_creative_approval_v2
 from .daily_library_production import run_daily_library_production
+from .daily_orchestrator import orchestrate_daily
 from .derived_still_reporting import derived_still_report
 from .derived_stills import (
     edit_still,
@@ -358,7 +359,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 campaign_slug=args.campaign,
                 workers=args.workers,
                 library_root=args.library_root,
-                dry_run=args.dry_run,
+                dry_run=not args.apply or args.dry_run,
                 caption_band=args.band,
                 caption_color=args.color,
                 caption_style=args.style,
@@ -389,6 +390,21 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 workers=args.workers,
                 contentforge_base_url=args.contentforge_base_url,
                 apply=args.apply,
+            )
+        )
+        return 0
+    if args.cmd == "orchestrate-daily":
+        print_json(
+            orchestrate_daily(
+                cf,
+                run_key=args.run_key,
+                max_items=args.max_items,
+                per_creator_cap=args.per_creator_cap,
+                per_campaign_cap=args.per_campaign_cap,
+                provider_cap=args.provider_cap,
+                max_attempts=args.max_attempts,
+                apply=args.apply,
+                execute=args.execute,
             )
         )
         return 0

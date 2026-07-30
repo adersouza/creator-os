@@ -1,0 +1,34 @@
+{
+  "schema": "contentforge.analyzer_validation_manifest.v1",
+  "datasetId": "contentforge.production_authority.v2",
+  "datasetOwner": "contentforge",
+  "scope": "technical media integrity and delivery analysis only",
+  "executableQualification": {
+    "command": "pnpm --dir packages/contentforge audit:campaign-factory:calibrate",
+    "status": "blocked",
+    "blockingReasons": [
+      "expected_verdict_mismatches:2",
+      "missing_real_samples:2"
+    ]
+  },
+  "fixtures": [
+    {
+      "ref": "packages/contentforge/test/fixtures/campaign-factory/manifests/real_samples.json",
+      "sha256": "93e508f31841d18b24c3d5ea116eed0203aad393264789a30098cd0825f42c80"
+    },
+    {
+      "ref": "packages/contentforge/test/fixtures/campaign-factory/manifests/expected_verdicts.json",
+      "sha256": "62f4b57916266ea2f50278cf5b3684e4d014cf8f46d81a351821415d557a2190"
+    },
+    {
+      "ref": "packages/contentforge/test/fixtures/detector-calibration/media_pairs.json",
+      "sha256": "c87901887f0d223e540b34e173b007ddedaf1dfe9708e01e209c837848ac4af6"
+    }
+  ],
+  "excludedClaims": [
+    "creator identity approval",
+    "creative approval",
+    "publication authorization",
+    "cross-platform reach prediction"
+  ]
+}

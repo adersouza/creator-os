@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 from reel_factory.observed_profiles import (
+    CONTENTFORGE_QC_POLICY_FILES,
     PROFILES,
     build_ffmpeg_command,
+    contentforge_qc_policy_sha256,
     default_attempt_limit,
     probe_media_identity,
     qualify_renderer_equivalence,
@@ -19,6 +21,17 @@ from reel_factory.observed_profiles import (
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_contentforge_qc_policy_fingerprint_binds_policy_bytes(tmp_path: Path) -> None:
+    root = tmp_path / "contentforge"
+    for relative in CONTENTFORGE_QC_POLICY_FILES:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(relative, encoding="utf-8")
+    before = contentforge_qc_policy_sha256(root)
+    (root / CONTENTFORGE_QC_POLICY_FILES[0]).write_text("changed", encoding="utf-8")
+    assert contentforge_qc_policy_sha256(root) != before
 
 
 def _image(path: Path, *, size: tuple[int, int] = (320, 240)) -> Path:
@@ -298,13 +311,41 @@ def test_missing_sha_mismatch_and_unsupported_dimensions_fail_closed(tmp_path: P
 
 def test_renderer_equivalence_receipt_qualifies_png_identity(tmp_path: Path):
     source = _image(tmp_path / "source.png")
+    baseline = tmp_path / "baseline.json"
+    identity = tmp_path / "identity.json"
+    baseline.write_text('{"status":"pass"}', encoding="utf-8")
+    identity.write_text('{"status":"pass"}', encoding="utf-8")
     receipt = qualify_renderer_equivalence(
         source_path=source,
         output_path=tmp_path / "identity.png",
         receipt_path=tmp_path / "equivalence.json",
+        qc_regression_callback=lambda *_: {
+            "regressed": False,
+            "baselineReport": {
+                "path": str(baseline),
+                "sha256": _sha(baseline),
+            },
+            "identityReport": {
+                "path": str(identity),
+                "sha256": _sha(identity),
+            },
+            "newBlockingCodes": [],
+        },
     )
     assert receipt["status"] == "qualified"
-    assert receipt["ssim"] >= 0.995
+    assert receipt["schema"] == "creator_os.renderer_equivalence_receipt.v2"
+    assert receipt["measurements"]["ssim"] >= 0.995
+    assert (
+        receipt["equivalencePolicy"]["crossMachineByteReproducibility"] == "not_claimed"
+    )
+    assert receipt["equivalencePolicy"]["byteIdentityRequired"] is False
+    assert receipt["toolchain"]["ffmpeg"]["sha256"]
+    assert receipt["toolchain"]["ffprobe"]["sha256"]
+    assert receipt["toolchain"]["fonts"]
+    assert receipt["toolchain"]["hostFingerprint"]
+    assert receipt["toolchain"]["codecPolicyFingerprint"]
+    assert receipt["qcEvidence"]["evaluated"] is True
+    assert receipt["qcEvidence"]["baselineReport"]["sha256"] == _sha(baseline)
 
 
 def test_renderer_equivalence_rejects_qc_regression(tmp_path: Path):

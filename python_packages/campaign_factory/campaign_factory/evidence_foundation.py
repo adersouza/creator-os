@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from pipeline_contracts import (
-    AnalyzerRegistryV1,
+    AnalyzerRegistryV2,
     BenchmarkRecipeV1,
     ContentIntentV1,
     CreatorIdentityProfileV1,
@@ -86,13 +86,18 @@ def compile_thin_evidence_records(
     content_intent: ContentIntentV1,
     execution_policy: Mapping[str, Any],
     benchmark_recipe: BenchmarkRecipeV1,
-    analyzer_registry: AnalyzerRegistryV1,
+    analyzer_registry: AnalyzerRegistryV2,
 ) -> dict[str, Any]:
     """Validate independent records and return their canonical JSON forms.
 
     This function only checks cross-record references. It does not route work,
     select providers, run analyzers, persist state, or authorize publication.
     """
+
+    if not isinstance(analyzer_registry, AnalyzerRegistryV2):
+        raise ThinEvidenceCompatibilityError(
+            "thin_evidence_analyzer_production_authority_v2_required"
+        )
 
     policy = dict(execution_policy)
     validate_generation_execution_plan(policy)
@@ -162,9 +167,12 @@ def validate_compiled_thin_evidence_records(
         )
         intent = ContentIntentV1.from_dict(dict(evidence_records["contentIntent"]))
         recipe = BenchmarkRecipeV1.from_dict(dict(evidence_records["benchmarkRecipe"]))
-        registry = AnalyzerRegistryV1.from_dict(
-            dict(evidence_records["analyzerRegistry"])
-        )
+        registry_payload = dict(evidence_records["analyzerRegistry"])
+        if registry_payload.get("schema") != "creator_os.analyzer_registry.v2":
+            raise ThinEvidenceCompatibilityError(
+                "thin_evidence_analyzer_production_authority_v2_required"
+            )
+        registry = AnalyzerRegistryV2.from_dict(registry_payload)
         policy = dict(evidence_records["executionPolicy"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ThinEvidenceCompatibilityError(

@@ -26,9 +26,13 @@ from .adapters.threadsdash_draft_readiness import (
 from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
 from .config import get_settings
 from .core import CampaignFactory
+from .operator_authority_http import install_operator_authority_middleware
 
 settings = get_settings()
 app = FastAPI(title="campaign_factory", dependencies=[Depends(require_local_api_auth)])
+install_operator_authority_middleware(app, settings_provider=lambda: settings)
+
+
 install_local_api_auth_middleware(app)
 
 

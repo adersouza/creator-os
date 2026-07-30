@@ -6,6 +6,7 @@ from pathlib import Path
 
 import campaign_factory.db as campaign_db
 import pytest
+from campaign_factory.campaign_schema_v5 import postcondition as v5_postcondition
 from campaign_factory.db import (
     _campaign_schema_checksum,
     _ensure_campaign_schema_ledger,
@@ -40,7 +41,7 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             ORDER BY migration_id
             """
         ).fetchall()
-        assert len(rows) == 3
+        assert len(rows) == 5
         assert {row["status"] for row in rows} == {"applied"}
         assert all(len(row["checksum"]) == 64 for row in rows)
         assert all(row["source_version"] for row in rows)
@@ -48,12 +49,14 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             1,
             2,
             3,
+            4,
+            5,
         }
         assert (
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 3
+            == 5
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -155,7 +158,7 @@ def test_campaign_schema_blocks_newer_database(tmp_path: Path):
         )
         conn.commit()
         with pytest.raises(
-            RuntimeError, match="campaign_schema_newer_than_runtime:999>3"
+            RuntimeError, match="campaign_schema_newer_than_runtime:999>5"
         ):
             init_db(conn)
     finally:
@@ -213,7 +216,7 @@ def test_interrupted_campaign_migration_is_retried(tmp_path: Path):
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 3
+            == 5
         )
         assert (
             conn.execute(
@@ -238,7 +241,7 @@ def test_campaign_checksum_excludes_future_dispatch_changes(
     monkeypatch.setattr(
         campaign_db,
         "_CAMPAIGN_SCHEMA_MIGRATIONS",
-        (*campaign_db._CAMPAIGN_SCHEMA_MIGRATIONS, (4, "future_v1")),
+        (*campaign_db._CAMPAIGN_SCHEMA_MIGRATIONS, (6, "future_v1")),
     )
     monkeypatch.setattr(
         campaign_db,
@@ -247,6 +250,233 @@ def test_campaign_checksum_excludes_future_dispatch_changes(
     )
 
     assert _campaign_schema_checksum(1, migration_id) == before
+
+
+def test_applied_v4_checksum_is_frozen_and_upgrades_forward_to_v5(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path / "campaign-v4.db")
+    try:
+        _ensure_campaign_schema_ledger(conn)
+        for version, migration_id in campaign_db._CAMPAIGN_SCHEMA_MIGRATIONS[:4]:
+            _run_campaign_schema_migration(
+                conn,
+                version=version,
+                migration_id=migration_id,
+            )
+        assert (
+            _campaign_schema_checksum(4, "20260730_daily_orchestration_authority_v1")
+            == "b44fff4781a02bfbd61db2a9fa57af796a6d5f89b49584c29235db3df30144a1"
+        )
+
+        init_db(conn)
+
+        assert (
+            conn.execute(
+                "SELECT version FROM campaign_schema_state WHERE singleton = 1"
+            ).fetchone()["version"]
+            == 5
+        )
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='trigger' AND name='daily_orchestrator_items_update_guard'"
+        ).fetchone()
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='index' AND name='idx_ai_cost_events_unified_report'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def test_applied_v5_checksum_is_frozen_from_live_provider_schema_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import campaign_factory.cost_tracker as cost_tracker
+    import campaign_factory.orchestration_schema as orchestration_schema
+    import campaign_factory.provider_spend as provider_spend
+
+    migration_id = "20260730_orchestration_cost_guards_v2"
+    expected = "6aaa603abf9955cb652491f82dbee01903504b1a77b77398de175f65c688780a"
+    assert _campaign_schema_checksum(5, migration_id) == expected
+
+    monkeypatch.setattr(
+        provider_spend,
+        "AUTHORIZATION_TABLE_SQL",
+        "CREATE TABLE future_authorizations(id TEXT PRIMARY KEY)",
+    )
+    monkeypatch.setattr(
+        cost_tracker,
+        "CREATE_TABLE_SQL",
+        "CREATE TABLE future_costs(id TEXT PRIMARY KEY)",
+    )
+    monkeypatch.setattr(
+        orchestration_schema,
+        "DAILY_ORCHESTRATION_GUARDS_V2",
+        "CREATE TRIGGER future_live_guard BEFORE UPDATE ON future BEGIN SELECT 1; END",
+    )
+
+    assert _campaign_schema_checksum(5, migration_id) == expected
+
+
+def test_v5_postcondition_requires_every_guard_and_index(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    try:
+        conn.execute("DROP TRIGGER operator_authority_events_immutable_delete")
+        conn.execute("DROP INDEX idx_provider_spend_authorizations_status")
+        conn.commit()
+
+        with pytest.raises(
+            RuntimeError,
+            match="campaign_schema_indexes_missing:"
+            "idx_provider_spend_authorizations_status",
+        ):
+            v5_postcondition(conn)
+
+        conn.execute(
+            """
+            CREATE INDEX idx_provider_spend_authorizations_status
+            ON provider_spend_authorizations(provider, status, issued_at)
+            """
+        )
+        conn.commit()
+        with pytest.raises(
+            RuntimeError,
+            match="campaign_schema_triggers_missing:"
+            "operator_authority_events_immutable_delete",
+        ):
+            v5_postcondition(conn)
+    finally:
+        conn.close()
+
+
+def test_terminal_authority_and_orchestration_evidence_is_immutable(
+    tmp_path: Path,
+) -> None:
+    conn = _db(tmp_path)
+    now = "2026-07-30T00:00:00Z"
+    later = "2026-07-30T00:01:00Z"
+    try:
+        conn.execute(
+            """
+            INSERT INTO models(id, slug, name, created_at, updated_at)
+            VALUES ('model_terminal', 'model-terminal', 'Model', ?, ?)
+            """,
+            (now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO campaigns
+            (id, slug, name, root_path, created_at, updated_at)
+            VALUES ('campaign_terminal', 'campaign-terminal', 'Campaign',
+                    '/tmp/campaign-terminal', ?, ?)
+            """,
+            (now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO operator_authority_events
+            (id, operation_id, effect_class, decision, actor_fingerprint, role,
+             request_fingerprint, reason, created_at, idempotency_key,
+             execution_state, attempt_count, claim_updated_at)
+            VALUES ('authority_terminal', 'operation_terminal', 'local_mutation',
+                    'allowed', 'actor', 'operator', ?, 'fixture', ?,
+                    'terminal-key', 'claimed', 1, ?)
+            """,
+            ("a" * 64, now, now),
+        )
+        conn.execute(
+            """
+            UPDATE operator_authority_events
+            SET execution_state = 'succeeded', completed_at = ?,
+                outcome_json = '{"result":"original"}'
+            WHERE id = 'authority_terminal'
+            """,
+            (later,),
+        )
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="operator authority event transition is invalid",
+        ):
+            conn.execute(
+                """
+                UPDATE operator_authority_events
+                SET outcome_json = '{"result":"rewritten"}'
+                WHERE id = 'authority_terminal'
+                """
+            )
+
+        conn.execute(
+            """
+            INSERT INTO daily_orchestrator_runs
+            (id, run_key, status, algorithm_version, policy_fingerprint,
+             requested_items, selected_items, limits_json, stop_reason,
+             next_run_reason, created_at, updated_at)
+            VALUES ('run_terminal', 'run-terminal', 'planned', 'v1', ?,
+                    1, 1, '{}', 'planned', 'next', ?, ?)
+            """,
+            ("b" * 64, now, now),
+        )
+        conn.execute(
+            """
+            UPDATE daily_orchestrator_runs
+            SET status = 'completed', updated_at = ?
+            WHERE id = 'run_terminal'
+            """,
+            (later,),
+        )
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="daily orchestrator run evidence is immutable",
+        ):
+            conn.execute(
+                """
+                UPDATE daily_orchestrator_runs
+                SET updated_at = '2026-07-30T00:02:00Z'
+                WHERE id = 'run_terminal'
+                """
+            )
+
+        conn.execute(
+            """
+            INSERT INTO daily_orchestrator_items
+            (id, run_id, ordinal, creator_id, campaign_id, mode, intent, state,
+             attempt_count, max_attempts, selection_reason_json,
+             decision_fingerprint, created_at, updated_at)
+            VALUES ('item_terminal', 'run_terminal', 0, 'model_terminal',
+                    'campaign_terminal', 'static_reel', 'passive', 'selected',
+                    0, 2, '{}', ?, ?, ?)
+            """,
+            ("c" * 64, now, now),
+        )
+        conn.execute(
+            """
+            UPDATE daily_orchestrator_items
+            SET state = 'running', attempt_count = 1, updated_at = ?
+            WHERE id = 'item_terminal'
+            """,
+            (later,),
+        )
+        conn.execute(
+            """
+            UPDATE daily_orchestrator_items
+            SET state = 'completed', result_json = '{"asset":"original"}'
+            WHERE id = 'item_terminal'
+            """
+        )
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="daily orchestrator item evidence is immutable",
+        ):
+            conn.execute(
+                """
+                UPDATE daily_orchestrator_items
+                SET result_json = '{"asset":"rewritten"}'
+                WHERE id = 'item_terminal'
+                """
+            )
+    finally:
+        conn.close()
 
 
 def test_later_campaign_migration_rolls_back_and_retries(tmp_path: Path) -> None:

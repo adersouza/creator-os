@@ -282,6 +282,7 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
 
             self.assertEqual(compiled.aspectRatio, "9:16")
             self.assertEqual(compiled.durationSeconds, 5)
+            self.assertTrue(compiled.promptGovernance["registryFingerprint"])
             self.assertIn("full head and face visible", prompt)
             self.assertIn("outfit", prompt)
             self.assertIn("setting", prompt)

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.learning_cohort import COHORT_ID, prepare_learning_cohort
+
+sys.path.insert(
+    0, str(Path(__file__).parents[2] / "python_packages/campaign_factory/tests")
+)
+from campaign_test_support import authorize_campaign_governance  # noqa: E402
 
 SCRIPT = (
     Path(__file__).resolve().parents[2] / "scripts" / "run_learning_cohort_daily.py"
@@ -22,7 +28,7 @@ def load_module():
 
 
 def factory(tmp_path: Path) -> CampaignFactory:
-    return CampaignFactory(
+    campaign_factory = CampaignFactory(
         Settings(
             root=tmp_path,
             db_path=tmp_path / "campaign_factory.sqlite",
@@ -32,6 +38,15 @@ def factory(tmp_path: Path) -> CampaignFactory:
             campaigns_dir=tmp_path / "campaigns",
         )
     )
+    authorize_campaign_governance(
+        campaign_factory,
+        tmp_path,
+        creator="stacey",
+        campaign="learning-governance",
+        provider="higgsfield",
+        soul_id="governed_stacey_learning_soul",
+    )
+    return campaign_factory
 
 
 def prepare(cf: CampaignFactory) -> None:

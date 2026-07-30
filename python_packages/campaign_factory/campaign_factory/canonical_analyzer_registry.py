@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import validate_analyzer_registry
+
 from .contentforge_cli import run_contentforge
 
 
@@ -22,9 +24,58 @@ def validate_canonical_analyzer_registry(
     *,
     contentforge_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Require the exact registry emitted from current trusted implementations."""
+    """Require current v2 production authority from exact implementations."""
 
     supplied = dict(registry)
+    if (
+        supplied.get("schema") != "creator_os.analyzer_registry.v2"
+        or supplied.get("authorityVersion") != 2
+    ):
+        raise CanonicalAnalyzerRegistryError(
+            "analyzer_registry_production_authority_v2_required"
+        )
+    return _validate_exact_registry(
+        supplied,
+        authority_version=2,
+        contentforge_root=contentforge_root,
+    )
+
+
+def validate_historical_analyzer_registry(
+    registry: Mapping[str, Any],
+    *,
+    contentforge_root: Path | None = None,
+) -> dict[str, Any]:
+    """Validate retained structure without claiming current implementation authority."""
+
+    supplied = dict(registry)
+    schema = supplied.get("schema")
+    if schema not in {
+        "creator_os.analyzer_registry.v1",
+        "creator_os.analyzer_registry.v2",
+    }:
+        raise CanonicalAnalyzerRegistryError("analyzer_registry_schema_unsupported")
+    del contentforge_root
+    try:
+        validate_analyzer_registry(supplied)
+    except Exception as exc:
+        raise CanonicalAnalyzerRegistryError(
+            f"historical_analyzer_registry_structure_invalid:{exc}"
+        ) from exc
+    return {
+        "registry": supplied,
+        "verificationScope": "historical_structure_only",
+        "productionAuthority": False,
+        "currentImplementationCompatibility": "not_verified",
+    }
+
+
+def _validate_exact_registry(
+    supplied: dict[str, Any],
+    *,
+    authority_version: int,
+    contentforge_root: Path | None,
+) -> dict[str, Any]:
     provenance = supplied.get("provenance")
     provenance = provenance if isinstance(provenance, Mapping) else {}
     produced_at = str(provenance.get("producedAt") or "").strip()
@@ -34,7 +85,10 @@ def validate_canonical_analyzer_registry(
         canonical = run_contentforge(
             contentforge_root or _default_contentforge_root(),
             "analyzer-registry",
-            {"producedAt": produced_at},
+            {
+                "producedAt": produced_at,
+                "authorityVersion": authority_version,
+            },
             timeout=30,
         )
     except RuntimeError as exc:

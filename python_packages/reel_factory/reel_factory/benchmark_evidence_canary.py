@@ -34,7 +34,7 @@ def _read_registry(path: Path) -> dict[str, Any]:
         raise RuntimeError("canary_analyzer_registry_invalid") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("canary_analyzer_registry_invalid")
-    if payload.get("schema") != "creator_os.analyzer_registry.v1":
+    if payload.get("schema") != "creator_os.analyzer_registry.v2":
         raise RuntimeError("canary_analyzer_registry_schema_mismatch")
     return payload
 
@@ -98,7 +98,11 @@ def _run_measured_copy(
 
 
 def run_canary(
-    *, root: Path, analyzer_registry_path: Path, repository_root: Path
+    *,
+    root: Path,
+    analyzer_registry_path: Path,
+    repository_root: Path,
+    isolated_contentforge_test_adapter: Path | None = None,
 ) -> dict[str, Any]:
     canary_root = root.expanduser().resolve()
     if canary_root.exists() and any(canary_root.iterdir()):
@@ -346,6 +350,22 @@ def run_canary(
 
     receipts = []
     contentforge_cli = repository_root / "packages/contentforge/cli.mjs"
+    analysis_command = [str(contentforge_cli), "analyze-media"]
+    if isolated_contentforge_test_adapter is not None:
+        adapter = isolated_contentforge_test_adapter.expanduser().resolve()
+        test_support = (
+            repository_root / "packages/contentforge/test/support"
+        ).resolve()
+        if (
+            adapter.is_symlink()
+            or not adapter.is_file()
+            or adapter.parent != test_support
+            or not str(registry.get("registryId") or "").startswith(
+                "contentforge.unit_test_authority.v2."
+            )
+        ):
+            raise ValueError("isolated_contentforge_test_adapter_invalid")
+        analysis_command = [str(adapter)]
     for job, output in completed_jobs:
         output_sha256 = sha256_file(output)
         request_path = canary_root / f"{job.job_id}.trusted-analysis-request.json"
@@ -364,7 +384,7 @@ def run_canary(
             encoding="utf-8",
         )
         completed = subprocess.run(
-            ["node", str(contentforge_cli), "analyze-media", str(request_path)],
+            ["node", *analysis_command, str(request_path)],
             cwd=repository_root,
             capture_output=True,
             text=True,
@@ -460,12 +480,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--analyzer-registry", required=True, type=Path)
     parser.add_argument("--repository-root", required=True, type=Path)
+    parser.add_argument(
+        "--isolated-contentforge-test-adapter",
+        type=Path,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args(argv)
     try:
         payload = run_canary(
             root=args.root,
             analyzer_registry_path=args.analyzer_registry,
             repository_root=args.repository_root.expanduser().resolve(),
+            isolated_contentforge_test_adapter=args.isolated_contentforge_test_adapter,
         )
     except (OSError, RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

@@ -44,7 +44,7 @@
     "metric_24h_state": { "type": "string", "minLength": 1 },
     "metric_72h_state": { "type": "string", "minLength": 1 },
     "creator": { "const": "Stacey" },
-    "soul_id": { "const": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36" },
+    "soul_id": { "type": "string", "minLength": 1 },
     "account_handle": { "const": "bennett_s33" }
   }
 }

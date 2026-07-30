@@ -80,6 +80,7 @@ def test_real_capture_builds_clean_text_only_stacey_variant() -> None:
         _REAL_HIGGSFIELD_CAPTURE,
         soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
         reference_media_id="real-reference-media",
+        identity_guidance="19 years old, dark hair, no tattoos",
     )
     prompt = spec["sexy"]["prompt"].lower()
 
@@ -125,6 +126,7 @@ def test_stacey_sexy_prompt_uses_exact_operator_identity_phrase() -> None:
         _ENHANCED,
         soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
         reference_media_id="ref-9",
+        identity_guidance="19 years old, dark hair, no tattoos",
     )
     prompt = spec["sexy"]["prompt"].lower()
     assert "19 years old" in prompt
@@ -138,6 +140,7 @@ def test_stacey_prompt_removes_standalone_adult_word() -> None:
     spec = build_spec(
         "A mirror selfie with an adult subject in a social media story interface.",
         soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        identity_guidance="19 years old, dark hair, no tattoos",
     )
     prompt = spec["sexy"]["prompt"].lower()
     assert "19 years old" in prompt
@@ -145,3 +148,14 @@ def test_stacey_prompt_removes_standalone_adult_word() -> None:
         assert banned not in prompt
     assert "in an" not in prompt
     assert " ," not in prompt
+
+
+def test_soul_id_does_not_implicitly_select_identity_guidance() -> None:
+    spec = build_spec(
+        _ENHANCED,
+        soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        reference_media_id="ref-9",
+    )
+
+    assert spec["identity_guidance"] is None
+    assert "19 years old" not in spec["sexy"]["prompt"].lower()

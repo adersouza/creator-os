@@ -207,6 +207,10 @@ def run_reference_analysis(
                 intent="recreate_reel",
                 reference_video=source,
                 external_call_authorized=apply,
+                cost_connection=factory.conn,
+                campaign_id=str(governance_context["campaignId"]),
+                run_id=f"reference_prompt:{reference_id}",
+                governance_context=governance_context,
             )
             prompt_cache = prompt_pack.get("cache") or {}
             prompt_call_made = prompt_cache.get("providerCallMade") is True

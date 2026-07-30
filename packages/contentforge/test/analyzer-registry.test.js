@@ -1,105 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { snapshotTrustedMediaAnalyzerRegistry } from "../lib/analyzer-registry.js";
+import { verifyAnalyzerValidationManifest } from "../lib/analyzer-validation-manifest.js";
 
 const PRODUCED_AT = "2026-07-22T12:00:00Z";
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 
-test("snapshots the exact deterministic motion-QC implementation", async function () {
-  var first = await snapshotTrustedMediaAnalyzerRegistry({
-    producedAt: PRODUCED_AT,
-    repositoryRoot: ROOT,
-  });
-  var second = await snapshotTrustedMediaAnalyzerRegistry({
-    producedAt: PRODUCED_AT,
-    repositoryRoot: ROOT,
-  });
-  var registration = first.analyzers.find(function (item) {
-    return item.analyzerId === "contentforge.motion_specific_qc";
-  });
-  var implementation = path.join(ROOT, registration.implementationRef);
-  var actual = createHash("sha256").update(await readFile(implementation)).digest("hex");
-
-  assert.deepEqual(first, second);
-  assert.equal(first.schema, "creator_os.analyzer_registry.v1");
-  assert.equal(first.analyzers.length, 9);
-  assert.equal(registration.analyzerId, "contentforge.motion_specific_qc");
-  assert.equal(registration.analyzerVersion, "2.0.0");
-  assert.deepEqual(registration.evidenceKinds, ["motion_specific_qc_receipt"]);
-  assert.equal(registration.implementationFingerprint, actual);
-  assert.ok(first.provenance.sourceReferences.some(function (item) {
-    return item.recordId === "contentforge.motion_specific_qc@2.0.0" && item.fingerprint === actual;
-  }));
-  var humanReview = first.analyzers.find(function (item) {
-    return item.analyzerId === "reel_factory.structured_human_media_review";
-  });
-  assert.equal(humanReview.analyzerVersion, "1.0.0");
-  assert.deepEqual(humanReview.evidenceKinds, ["human_media_review"]);
-  assert.equal(
-    humanReview.implementationRef,
-    "python_packages/reel_factory/reel_factory/human_media_review.py",
+test("fails closed while executable analyzer qualification is blocked", async function () {
+  await assert.rejects(
+    snapshotTrustedMediaAnalyzerRegistry({
+      producedAt: PRODUCED_AT,
+      repositoryRoot: ROOT,
+    }),
+    /executable qualification is blocked:expected_verdict_mismatches:2,missing_real_samples:2/,
   );
-  assert.match(humanReview.implementationFingerprint, /^[a-f0-9]{64}$/);
-  var trusted = first.analyzers.filter(function (item) {
-    return item.analyzerId.startsWith("contentforge.")
-      && item.analyzerId !== "contentforge.motion_specific_qc";
-  });
-  assert.deepEqual(trusted.map(function (item) { return item.analyzerId; }), [
-    "contentforge.audio_integrity",
-    "contentforge.local_face_mouth_track",
-    "contentforge.local_lip_sync",
-    "contentforge.media_integrity",
-    "contentforge.overlay_delivery",
-    "contentforge.pose_continuity",
-    "contentforge.temporal_motion",
-  ]);
-  var lipSync = trusted.find(function (item) {
-    return item.analyzerId === "contentforge.local_lip_sync";
-  });
-  assert.equal(
-    lipSync.implementationRef,
-    "packages/contentforge/lib/trusted-media-analysis.js",
-  );
-  var overlay = trusted.find(function (item) {
-    return item.analyzerId === "contentforge.overlay_delivery";
-  });
-  assert.equal(
-    overlay.implementationRef,
-    "packages/contentforge/lib/similarity.js",
-  );
-  assert.equal(
-    overlay.implementationFingerprint,
-    createHash("sha256").update(await readFile(path.join(ROOT, overlay.implementationRef))).digest("hex"),
-  );
-  var faceTrack = first.analyzers.find(function (item) {
-    return item.analyzerId === "contentforge.local_face_mouth_track";
-  });
-  assert.equal(
-    faceTrack.implementationRef,
-    "packages/contentforge/scripts/local-lip-sync-analyzer.py",
-  );
-  assert.match(faceTrack.implementationFingerprint, /^[a-f0-9]{64}$/);
-  var poseContinuity = first.analyzers.find(function (item) {
-    return item.analyzerId === "contentforge.pose_continuity";
-  });
-  assert.equal(
-    poseContinuity.implementationRef,
-    "packages/contentforge/scripts/local-pose-continuity-analyzer.py",
-  );
-  assert.match(poseContinuity.implementationFingerprint, /^[a-f0-9]{64}$/);
-  assert.ok(trusted.filter(function (item) {
-    return ![
-      "contentforge.local_face_mouth_track",
-      "contentforge.overlay_delivery",
-      "contentforge.pose_continuity",
-    ].includes(item.analyzerId);
-  }).every(function (item) {
-    return item.implementationRef === "packages/contentforge/lib/trusted-media-analysis.js";
-  }));
 });
 
 test("requires an explicit snapshot timestamp", async function () {
@@ -107,4 +30,73 @@ test("requires an explicit snapshot timestamp", async function () {
     snapshotTrustedMediaAnalyzerRegistry({ repositoryRoot: ROOT }),
     /requires an explicit producedAt/,
   );
+});
+
+test("keeps v1 snapshots available only for historical verification", async function () {
+  var historical = await snapshotTrustedMediaAnalyzerRegistry({
+    producedAt: PRODUCED_AT,
+    repositoryRoot: ROOT,
+    authorityVersion: 1,
+  });
+
+  assert.equal(historical.schema, "creator_os.analyzer_registry.v1");
+  assert.equal(historical.analyzers.length, 9);
+  assert.ok(historical.analyzers.every(function (item) {
+    return !Object.hasOwn(item, "authorityReview");
+  }));
+});
+
+test("fails closed when production authority has expired", async function () {
+  await assert.rejects(
+    snapshotTrustedMediaAnalyzerRegistry({
+      producedAt: "2027-01-21T00:00:00Z",
+      repositoryRoot: ROOT,
+    }),
+    /executable qualification is blocked/,
+  );
+});
+
+test("rejects replayed production authority after its renewal time", async function () {
+  var originalNow = Date.now;
+  Date.now = function () { return Date.parse("2027-01-21T00:00:00Z"); };
+  try {
+    await assert.rejects(
+      snapshotTrustedMediaAnalyzerRegistry({
+        producedAt: PRODUCED_AT,
+        repositoryRoot: ROOT,
+      }),
+      /executable qualification is blocked/,
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("binds analyzer authority to validation fixture bytes", async function () {
+  var temporary = await mkdtemp(path.join(os.tmpdir(), "contentforge-analyzer-"));
+  try {
+    await cp(path.join(ROOT, "packages/contentforge/analyzer-validation"), path.join(
+      temporary,
+      "packages/contentforge/analyzer-validation",
+    ), { recursive: true });
+    await cp(path.join(ROOT, "packages/contentforge/test/fixtures"), path.join(
+      temporary,
+      "packages/contentforge/test/fixtures",
+    ), { recursive: true });
+    var manifestRef = "packages/contentforge/analyzer-validation/production-authority-v2.json";
+    await verifyAnalyzerValidationManifest(temporary, manifestRef);
+    await writeFile(
+      path.join(
+        temporary,
+        "packages/contentforge/test/fixtures/detector-calibration/media_pairs.json",
+      ),
+      "{}",
+    );
+    await assert.rejects(
+      verifyAnalyzerValidationManifest(temporary, manifestRef),
+      /fixture drift/,
+    );
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });

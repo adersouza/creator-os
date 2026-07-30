@@ -8,7 +8,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from reel_factory.worker_api import toolchain_receipt
+from reel_factory.worker_api import (
+    contentforge_qc_policy_sha256,
+    renderer_runtime_receipt,
+)
 
 from pipeline_contracts import (
     validate_experiment_assignment_receipt,
@@ -38,6 +41,7 @@ class InventoryReservationRepository:
         ensure_rendered_asset_perceptual_metadata: Callable[..., dict[str, Any]],
         asset_uniqueness_values: Callable[..., dict[str, str]],
         default_reservation_ttl_days: int,
+        contentforge_root: Path,
     ) -> None:
         self.conn = conn
         self._new_id = new_id
@@ -49,6 +53,7 @@ class InventoryReservationRepository:
         )
         self._asset_uniqueness_values = asset_uniqueness_values
         self._default_reservation_ttl_days = default_reservation_ttl_days
+        self._contentforge_root = contentforge_root.expanduser().resolve()
 
     def reserve_inventory_asset(
         self,
@@ -625,8 +630,7 @@ class InventoryReservationRepository:
         ) or treatment_family != parent_family_id:
             raise ValueError("control and treatment do not share the parent family")
 
-    @staticmethod
-    def _validate_renderer_qualification(control: dict[str, Any]) -> None:
+    def _validate_renderer_qualification(self, control: dict[str, Any]) -> None:
         metadata = json.loads(control.get("metadata_json") or "{}")
         binding = metadata.get("rendererEquivalenceReceipt")
         if not isinstance(binding, dict):
@@ -640,17 +644,52 @@ class InventoryReservationRepository:
             raise ValueError("control renderer equivalence receipt SHA mismatch")
         receipt = json.loads(path.read_text(encoding="utf-8"))
         validate_renderer_equivalence_receipt(receipt)
+        if receipt.get("schema") != "creator_os.renderer_equivalence_receipt.v2":
+            raise ValueError("control renderer production qualification v2 is required")
         if receipt.get("status") != "qualified":
             raise ValueError("control renderer equivalence qualification failed")
-        if receipt.get("sourceSha256") != control.get("content_hash"):
+        qc_evidence = receipt.get("qcEvidence")
+        if (
+            not isinstance(qc_evidence, dict)
+            or qc_evidence.get("evaluated") is not True
+        ):
+            raise ValueError("control renderer QC evidence is incomplete")
+        for key in ("baselineReport", "identityReport"):
+            evidence = qc_evidence.get(key)
+            if not isinstance(evidence, dict):
+                raise ValueError(f"control renderer {key} evidence is missing")
+            evidence_path = Path(str(evidence.get("path") or "")).expanduser()
+            if evidence_path.is_symlink() or not evidence_path.is_file():
+                raise ValueError(f"control renderer {key} evidence file is missing")
+            with evidence_path.open("rb") as handle:
+                evidence_digest = hashlib.file_digest(handle, "sha256").hexdigest()
+            if evidence_digest != evidence.get("sha256"):
+                raise ValueError(f"control renderer {key} evidence SHA mismatch")
+        source = receipt.get("source")
+        source = source if isinstance(source, dict) else {}
+        if source.get("sha256") != control.get("content_hash"):
             raise ValueError("control renderer qualification source SHA mismatch")
+        identity = receipt.get("identityOutput")
+        identity = identity if isinstance(identity, dict) else {}
+        identity_path = Path(str(binding.get("identityOutputPath") or "")).expanduser()
+        if identity_path.is_symlink() or not identity_path.is_file():
+            raise ValueError("control renderer identity output is missing")
+        with identity_path.open("rb") as handle:
+            identity_digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        if identity_digest != binding.get(
+            "identityOutputSha256"
+        ) or identity_digest != identity.get("sha256"):
+            raise ValueError("control renderer identity output SHA mismatch")
         audio_embedder = Path(__file__).with_name("audio_radar") / "embedding.py"
         with audio_embedder.open("rb") as handle:
             audio_embedder_sha = hashlib.file_digest(handle, "sha256").hexdigest()
-        current = toolchain_receipt(audio_embedder_sha256=audio_embedder_sha)[
-            "fingerprint"
-        ]
-        if receipt.get("toolchainFingerprint") != current:
+        current = renderer_runtime_receipt(
+            qc_policy_sha256=contentforge_qc_policy_sha256(self._contentforge_root),
+            audio_embedder_sha256=audio_embedder_sha,
+        )["fingerprint"]
+        toolchain = receipt.get("toolchain")
+        toolchain = toolchain if isinstance(toolchain, dict) else {}
+        if toolchain.get("fingerprint") != current:
             raise ValueError("control renderer qualification expired")
 
     @classmethod

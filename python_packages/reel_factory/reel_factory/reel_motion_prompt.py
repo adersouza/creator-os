@@ -19,6 +19,11 @@ try:
 except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
+try:
+    from .prompt_registry import bind_reel_prompt
+except ImportError:  # script mode: package dir itself is on sys.path
+    from prompt_registry import bind_reel_prompt  # type: ignore[no-redef]
+
 SceneType = Literal[
     "mirror_selfie",
     "boat_bikini",
@@ -103,6 +108,7 @@ class ReelMotionPrompt:
     aspectRatio: str
     durationSeconds: int
     klingMotionPrompt: str
+    promptGovernance: dict[str, object]
 
 
 def compile_reel_motion_prompt(
@@ -129,6 +135,16 @@ def compile_reel_motion_prompt(
             )
     motion_prompt = f"{_COMMON_SAFETY} {scene_motion}{prompt_context}"
     validate_kling_motion_prompt_text(motion_prompt)
+    governance = bind_reel_prompt(
+        compiled_prompt=motion_prompt,
+        inputs={
+            "startImagePath": start_image,
+            "sceneType": normalized,
+            "capturedHiggsfieldPrompt": captured_higgsfield_prompt,
+            "aspectRatio": aspect_ratio,
+            "durationSeconds": duration_seconds,
+        },
+    )
     return ReelMotionPrompt(
         schema="reel_factory.reel_motion_prompt.v1",
         startImagePath=start_image,
@@ -136,6 +152,7 @@ def compile_reel_motion_prompt(
         aspectRatio=aspect_ratio,
         durationSeconds=duration_seconds,
         klingMotionPrompt=motion_prompt,
+        promptGovernance=governance,
     )
 
 

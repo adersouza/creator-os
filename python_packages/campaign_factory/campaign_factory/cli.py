@@ -13,16 +13,52 @@ from .config import get_settings
 from .core import CampaignFactory, new_id, slugify, utc_now
 from .creator_governance import CreatorGovernanceRepository
 from .db import init_db
+from .operator_authority import (
+    authorize_cli_operation,
+    claim_cli_authority_event,
+    complete_cli_authority_event,
+)
 
 
 def main() -> int:
     parser = build_cli_parser()
     args = parser.parse_args()
+    authority = authorize_cli_operation(args)
     settings = get_settings()
 
     if args.cmd == "serve":
-        uvicorn.run(
-            "campaign_factory.app:app", host=args.host, port=args.port, reload=False
+        cf = CampaignFactory(settings)
+        try:
+            authority_claim = claim_cli_authority_event(cf.conn, authority)
+        finally:
+            cf.close()
+        if authority_claim["status"] == "replay":
+            return _replayed_exit_code(authority_claim)
+        if authority_claim["status"] == "in_progress":
+            raise RuntimeError("operator_operation_already_in_progress")
+        if authority_claim["status"] == "reconciliation_required":
+            raise RuntimeError("operator_operation_reconciliation_required")
+        try:
+            uvicorn.run(
+                "campaign_factory.app:app",
+                host=args.host,
+                port=args.port,
+                reload=False,
+            )
+        except Exception as exc:
+            _complete_cli(
+                settings,
+                authority,
+                succeeded=False,
+                retryable=True,
+                error=f"{type(exc).__name__}:{exc}",
+            )
+            raise
+        _complete_cli(
+            settings,
+            authority,
+            succeeded=True,
+            exit_code=0,
         )
         return 0
 
@@ -107,17 +143,72 @@ def main() -> int:
 
     cf = CampaignFactory(settings)
     try:
-        for dispatch in (
-            dispatch_scale_commands,
-            dispatch_pipeline_commands,
-            dispatch_operations_commands,
-        ):
-            result = dispatch(args, cf, settings)
-            if result is not None:
-                return result
+        authority_claim = claim_cli_authority_event(cf.conn, authority)
+        if authority_claim["status"] == "replay":
+            return _replayed_exit_code(authority_claim)
+        if authority_claim["status"] == "in_progress":
+            raise RuntimeError("operator_operation_already_in_progress")
+        if authority_claim["status"] == "reconciliation_required":
+            raise RuntimeError("operator_operation_reconciliation_required")
+        try:
+            exit_code = 0
+            for dispatch in (
+                dispatch_scale_commands,
+                dispatch_pipeline_commands,
+                dispatch_operations_commands,
+            ):
+                result = dispatch(args, cf, settings)
+                if result is not None:
+                    exit_code = int(result)
+                    break
+        except Exception as exc:
+            complete_cli_authority_event(
+                cf.conn,
+                authority,
+                succeeded=False,
+                retryable=True,
+                error=f"{type(exc).__name__}:{exc}",
+            )
+            raise
+        complete_cli_authority_event(
+            cf.conn,
+            authority,
+            succeeded=True,
+            exit_code=exit_code,
+        )
+        return exit_code
     finally:
         cf.close()
-    return 0
+
+
+def _complete_cli(
+    settings,
+    authority,
+    *,
+    succeeded: bool,
+    exit_code: int | None = None,
+    retryable: bool = False,
+    error: str | None = None,
+) -> None:
+    cf = CampaignFactory(settings)
+    try:
+        complete_cli_authority_event(
+            cf.conn,
+            authority,
+            succeeded=succeeded,
+            exit_code=exit_code,
+            retryable=retryable,
+            error=error,
+        )
+    finally:
+        cf.close()
+
+
+def _replayed_exit_code(claim: dict) -> int:
+    outcome = claim.get("outcome")
+    if not isinstance(outcome, dict) or not isinstance(outcome.get("exitCode"), int):
+        raise RuntimeError("operator_cli_replay_outcome_missing")
+    return int(outcome["exitCode"])
 
 
 if __name__ == "__main__":

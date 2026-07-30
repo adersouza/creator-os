@@ -29,6 +29,7 @@ from reel_factory.local_model_benchmark import (
 from pipeline_contracts import (
     AnalyzerRegistrationV1,
     AnalyzerRegistryV1,
+    AnalyzerRegistryV2,
     AnalyzerRequirementV1,
     BenchmarkRecipeV1,
     ProvenanceV1,
@@ -1509,17 +1510,22 @@ def test_interrupted_job_cannot_create_benchmark_receipt(tmp_path: Path) -> None
 
 
 def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> None:
-    registry_request = tmp_path / "registry-request.json"
     registry_path = tmp_path / "analyzer-registry.json"
-    registry_request.write_text(
-        json.dumps({"producedAt": "2026-07-22T12:00:00Z"}), encoding="utf-8"
-    )
+    registry_script = """
+import { isolatedQualifiedAnalyzerRegistry } from "./packages/contentforge/test/support/qualified-analyzer-registry.js";
+const result = await isolatedQualifiedAnalyzerRegistry({
+  producedAt: "2026-07-22T12:00:00Z",
+  repositoryRoot: process.argv[1],
+});
+process.stdout.write(JSON.stringify(result));
+"""
     adapter = subprocess.run(
         [
             "node",
-            str(ROOT / "packages/contentforge/cli.mjs"),
-            "analyzer-registry",
-            str(registry_request),
+            "--input-type=module",
+            "-e",
+            registry_script,
+            str(ROOT),
         ],
         cwd=ROOT,
         capture_output=True,
@@ -1528,7 +1534,7 @@ def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> N
         timeout=60,
     )
     assert adapter.returncode == 0, adapter.stderr
-    adapter_registry = AnalyzerRegistryV1.from_dict(json.loads(adapter.stdout))
+    adapter_registry = AnalyzerRegistryV2.from_dict(json.loads(adapter.stdout))
     registry_path.write_text(json.dumps(adapter_registry.to_dict()), encoding="utf-8")
     canary_root = tmp_path / "canary"
     completed = subprocess.run(
@@ -1542,6 +1548,8 @@ def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> N
             str(registry_path),
             "--repository-root",
             str(ROOT),
+            "--isolated-contentforge-test-adapter",
+            str(ROOT / "packages/contentforge/test/support/analyze-media-isolated.mjs"),
         ],
         cwd=ROOT,
         capture_output=True,

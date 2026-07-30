@@ -1,0 +1,61 @@
+{
+  "schema": "creator_os.analyzer_registry.v2",
+  "registryId": "contentforge.production_authority.v2.example",
+  "authorityVersion": 2,
+  "analyzers": [
+    {
+      "analyzerId": "contentforge.media_integrity",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": [
+        "media_integrity_observation"
+      ],
+      "implementationRef": "packages/contentforge/lib/trusted-media-analysis.js",
+      "implementationFingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+      "model": {
+        "modelId": "deterministic_code",
+        "modelFingerprint": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "validationDataset": {
+        "datasetId": "contentforge.production_authority.v2",
+        "datasetOwner": "contentforge",
+        "manifestRef": "packages/contentforge/analyzer-validation/production-authority-v2.json",
+        "manifestFingerprint": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "thresholds": {
+        "videoStreamRequired": true
+      },
+      "thresholdsFingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.01,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": [
+        "generated_motion_technical_qc"
+      ],
+      "unsupportedUseCases": [
+        "identity_approval"
+      ],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "review_media_integrity_initial",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": [
+          "initial_authority"
+        ],
+        "reviewedMaterialFingerprint": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    }
+  ],
+  "provenance": {
+    "producer": "contentforge.analyzer_registry_adapter",
+    "producedAt": "2026-07-30T12:00:00Z",
+    "sourceReferences": [
+      {
+        "recordId": "contentforge.media_integrity@1.0.0",
+        "fingerprint": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  }
+}

@@ -5,13 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import tempfile
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.provider_spend import (
+    build_paid_action_quote,
+    build_paid_action_spend_scope,
+)
 from creator_os_core.runtime_guards import global_kill_switch_active
 from PIL import Image
 from reel_factory.worker_api import (
@@ -29,14 +33,16 @@ from reel_factory.worker_api import (
     verify_identity,
 )
 
-from .core import new_id, sanitize_for_storage, sha256_file
-from .cost_tracker import record_ai_cost
-from .persistence import utc_now
-from .provider_spend import (
-    AUTHORIZATION_TABLE,
-    consume_provider_spend_authorization,
-    ensure_authorization_table,
+from .all_provider_cost import (
+    begin_paid_action_attempt,
+    budget_limits_from_env,
+    issue_paid_action_authorization,
+    reconcile_paid_action_cost,
 )
+from .core import new_id, sanitize_for_storage, sha256_file
+from .persistence import utc_now
+from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
+from .provider_spend import AUTHORIZATION_TABLE
 
 TIER_POLICIES = {
     "canonical_identity_source": {
@@ -338,6 +344,22 @@ def edit_still(
     transport = adapter or provider_adapter(provider)
     if transport.provider != provider:
         raise ValueError("provider adapter identity mismatch")
+    prompt_inputs = {
+        "sourceSha256": source["sha256"],
+        "sourceTier": source_receipt["sourceTier"],
+        "operation": operation,
+        "format": output_format,
+        "count": count,
+        "colors": list(PILOT_COLORWAYS[:count]),
+    }
+    prompt_governance = bind_campaign_prompt(
+        prompt_id="campaign.derived_still_edit",
+        version="1",
+        provider=provider,
+        model=transport.model,
+        compiled_prompt=prompt,
+        inputs=prompt_inputs,
+    )
     request_core = {
         "sourceSha256": source["sha256"],
         "sourceTier": source_receipt["sourceTier"],
@@ -349,6 +371,8 @@ def edit_still(
         "colors": list(PILOT_COLORWAYS[:count]),
         "promptBuilderVersion": PROMPT_BUILDER_VERSION,
         "prompt": prompt,
+        "promptInputs": prompt_inputs,
+        "promptGovernance": prompt_governance,
         "outputSettings": {
             "minimumPanelPixels": [720, 1280],
             "panelAspectRatio": "2:3",
@@ -407,11 +431,19 @@ def edit_still(
         quote=quote,
         scope=request_core,
         governance_context=governance_context,
+        max_usd=max_usd,
     )
     try:
-        consume_provider_spend_authorization(
-            factory.conn, str(authorization["authorizationId"])
+        cost_event_id = begin_paid_action_attempt(
+            factory.conn,
+            authorization=authorization["payload"],
+            secret=str(os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET") or ""),
+            attempt_id=str(authorization["attemptId"]),
+            current_prompt_registry=PROMPT_REGISTRY,
+            compiled_prompt=prompt,
+            prompt_inputs=prompt_inputs,
         )
+        authorization["costEventId"] = cost_event_id
     except Exception:
         _cancel_spend(factory, authorization["authorizationId"])
         raise
@@ -426,8 +458,6 @@ def edit_still(
             factory,
             authorization=authorization,
             provider_result=provider_result,
-            quote=quote,
-            campaign_id=campaign["id"],
         )
         images = list(provider_result.get("images") or [])
         if output_format == "grid_2x3":
@@ -579,6 +609,16 @@ def edit_still(
         )
         return completed
     except Exception as exc:
+        if authorization.get("costEventId"):
+            try:
+                reconcile_paid_action_cost(
+                    factory.conn,
+                    event_id=str(authorization["costEventId"]),
+                    actual_usd=None,
+                    unknown_reason="provider_outcome_ambiguous",
+                )
+            except PermissionError:
+                pass
         factory.domains.events.record_event(
             "derived_still_provider_outcome_ambiguous",
             campaign_id=campaign["id"],
@@ -1192,86 +1232,101 @@ def _authorize_spend(
     quote: Mapping[str, Any],
     scope: Mapping[str, Any],
     governance_context: Mapping[str, Any],
+    max_usd: float,
 ) -> dict[str, Any]:
-    ensure_authorization_table(factory.conn)
-    now = datetime.now(UTC)
-    authorization_id = new_id("spauth")
-    reservation_id = new_id("spres")
-    with factory.conn:
-        existing = factory.conn.execute(
-            f"SELECT status FROM {AUTHORIZATION_TABLE} WHERE request_fingerprint = ?",
-            (request_fingerprint,),
-        ).fetchone()
-        if existing:
-            raise PermissionError("provider spend request already authorized")
-        factory.conn.execute(
-            f"""
-            INSERT INTO {AUTHORIZATION_TABLE} (
-              authorization_id, reservation_id, provider, campaign_id, cohort_id,
-              request_fingerprint, amount, unit, scope_json, provider_quote_json,
-              creator_id, identity_profile_id, governance_fingerprint,
-              governance_context_json, status, issued_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?,
-                      'authorized', ?, ?)
-            """,
-            (
-                authorization_id,
-                reservation_id,
-                provider,
-                campaign_id,
-                f"derived_stills:{campaign_id}",
-                request_fingerprint,
-                float(quote["amount"]),
-                json.dumps(sanitize_for_storage(dict(scope)), sort_keys=True),
-                json.dumps(sanitize_for_storage(dict(quote)), sort_keys=True),
-                governance_context["creatorId"],
-                governance_context["identityProfileId"],
-                governance_context["governanceFingerprint"],
-                json.dumps(
-                    sanitize_for_storage(dict(governance_context)), sort_keys=True
-                ),
-                now.isoformat(),
-                (now + timedelta(minutes=10)).isoformat(),
-            ),
-        )
+    secret = str(os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET") or "")
+    paid_scope = build_paid_action_spend_scope(
+        provider=provider,
+        provider_model=str(scope["model"]),
+        action_type="derived_still_edit",
+        creator_id=str(governance_context["creatorId"]),
+        campaign_id=campaign_id,
+        run_id=f"derived_stills:{campaign_id}",
+        input_fingerprints={
+            "derived_edit_request": request_fingerprint,
+            "source_image": str(scope["sourceSha256"]),
+        },
+        parameters={
+            "operation": scope["operation"],
+            "format": scope["format"],
+            "count": scope["count"],
+            "colors": scope["colors"],
+            "promptBuilderVersion": scope["promptBuilderVersion"],
+        },
+        prompt_governance=scope["promptGovernance"],
+    )
+    normalized_quote = build_paid_action_quote(
+        provider=provider,
+        model=str(scope["model"]),
+        amount=float(quote["amount"]),
+        source=str(quote.get("source") or "provider_adapter_exact_quote"),
+        pricing_version=str(
+            quote.get("pricingVersion")
+            or quote.get("version")
+            or f"{provider}:{scope['model']}:runtime_quote.v1"
+        ),
+    )
+    payload = issue_paid_action_authorization(
+        factory.conn,
+        scope=paid_scope,
+        quote=normalized_quote,
+        secret=secret,
+        limits=budget_limits_from_env(provider=provider, run_cap_usd=max_usd),
+        governance_context=governance_context,
+        current_prompt_registry=PROMPT_REGISTRY,
+        compiled_prompt=scope["prompt"],
+        prompt_inputs=scope["promptInputs"],
+    )
     return {
-        "authorizationId": authorization_id,
-        "reservationId": reservation_id,
+        "authorizationId": payload["authorizationId"],
+        "reservationId": payload["reservationId"],
+        "attemptId": new_id("provider_attempt"),
         "requestFingerprint": request_fingerprint,
+        "spendRequestFingerprint": paid_scope["requestFingerprint"],
         "provider": provider,
-        "quote": dict(quote),
+        "quote": normalized_quote,
         "governanceContext": dict(governance_context),
+        "payload": payload,
     }
 
 
 def _record_spend_result(
     factory: Any,
     *,
-    authorization: Mapping[str, Any],
+    authorization: dict[str, Any],
     provider_result: Mapping[str, Any],
-    quote: Mapping[str, Any],
-    campaign_id: str,
 ) -> None:
-    record_ai_cost(
+    actual = _provider_actual_usd(provider_result)
+    authorization["costReconciliation"] = reconcile_paid_action_cost(
         factory.conn,
-        provider=str(provider_result.get("provider")),
-        operation="derived_still_edit",
-        campaign_id=campaign_id,
-        generations=1,
-        source_event_key=(
-            f"derived_still:{authorization['requestFingerprint']}:"
-            f"{provider_result.get('requestId') or 'reconciled'}"
-        ),
-        reservation_id=str(authorization["reservationId"]),
-        amount=float(quote["amount"]),
-        unit="USD",
-        provider_quote=dict(quote),
-        metadata={
-            "requestFingerprint": authorization["requestFingerprint"],
-            "providerRequestId": provider_result.get("requestId"),
-            "usage": provider_result.get("usage"),
-        },
+        event_id=str(authorization["costEventId"]),
+        actual_usd=actual,
+        provider_reference=str(provider_result.get("requestId") or "") or None,
+        unknown_reason=("provider_cost_not_exposed" if actual is None else None),
     )
+
+
+def _provider_actual_usd(provider_result: Mapping[str, Any]) -> float | None:
+    raw = provider_result.get("cost")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        direct_amount = float(raw)
+        return (
+            direct_amount
+            if math.isfinite(direct_amount) and direct_amount >= 0
+            else None
+        )
+    if isinstance(raw, Mapping):
+        usd_value = raw.get("usd")
+        if isinstance(usd_value, (int, float)) and not isinstance(usd_value, bool):
+            amount = float(usd_value)
+            return amount if math.isfinite(amount) and amount >= 0 else None
+    usage = provider_result.get("usage")
+    if isinstance(usage, Mapping):
+        usage_value = usage.get("costUsd")
+        if isinstance(usage_value, (int, float)) and not isinstance(usage_value, bool):
+            amount = float(usage_value)
+            return amount if math.isfinite(amount) and amount >= 0 else None
+    return None
 
 
 def _cancel_spend(factory: Any, authorization_id: str) -> None:
