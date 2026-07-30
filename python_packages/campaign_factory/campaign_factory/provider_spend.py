@@ -305,10 +305,12 @@ def issue_provider_spend_authorization(
     # Validate the exact durable payload before reserving provider capacity.
     validate_provider_spend_authorization(payload)
     if conn.in_transaction:
+        raise RuntimeError("provider_spend_issue_requires_clean_transaction")
+    ensure_authorization_table(conn)
+    if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
     try:
-        ensure_authorization_table(conn)
         existing = conn.execute(
             f"SELECT status FROM {AUTHORIZATION_TABLE} WHERE request_fingerprint = ?",
             (request_fingerprint,),
@@ -437,6 +439,7 @@ def consume_provider_spend_authorization(
     *,
     now: datetime.datetime | None = None,
 ) -> None:
+    caller_owned_transaction = conn.in_transaction
     ensure_authorization_table(conn)
     authorization = conn.execute(
         f"""
@@ -508,7 +511,8 @@ def consume_provider_spend_authorization(
         raise PermissionError(
             "provider spend authorization is missing, expired, or consumed"
         )
-    conn.commit()
+    if not caller_owned_transaction:
+        conn.commit()
 
 
 def cancel_provider_spend_authorization(
@@ -519,6 +523,7 @@ def cancel_provider_spend_authorization(
 ) -> bool:
     """Release one unconsumed reservation after an aborted batch."""
 
+    caller_owned_transaction = conn.in_transaction
     ensure_authorization_table(conn)
     timestamp = _iso(now or datetime.datetime.now(datetime.UTC))
     cursor = conn.execute(
@@ -529,7 +534,8 @@ def cancel_provider_spend_authorization(
         """,
         (timestamp, authorization_id),
     )
-    conn.commit()
+    if not caller_owned_transaction:
+        conn.commit()
     return cursor.rowcount == 1
 
 
@@ -589,6 +595,7 @@ def record_provider_execution(
     events = execution.get("events")
     if not isinstance(events, list):
         return []
+    caller_owned_transaction = conn.in_transaction
     ensure_cost_table(conn)
     authorization_row = conn.execute(
         f"SELECT campaign_id FROM {AUTHORIZATION_TABLE} WHERE authorization_id = ?",
@@ -640,9 +647,11 @@ def record_provider_execution(
                 provider_quote=quote,
                 cohort_id=str(scope.get("cohortId") or ""),
                 ensure_schema=False,
+                commit=False,
             )
         )
-    conn.commit()
+    if not caller_owned_transaction:
+        conn.commit()
     if overspend_actual is not None:
         raise ProviderOverspendError(
             actual=overspend_actual,

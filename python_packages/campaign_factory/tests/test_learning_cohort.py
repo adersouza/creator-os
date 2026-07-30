@@ -21,12 +21,13 @@ from campaign_factory.learning_cohort import (
     sync_learning_cohort_publish_state,
 )
 from campaign_factory.lineage_v2 import build_lineage_v2_core, finalize_lineage_v2
+from campaign_test_support import authorize_campaign_governance
 
 from pipeline_contracts.validator import validate_contract
 
 
 def _factory(tmp_path: Path) -> CampaignFactory:
-    return CampaignFactory(
+    factory = CampaignFactory(
         Settings(
             root=tmp_path,
             db_path=tmp_path / "campaign_factory.sqlite",
@@ -36,6 +37,15 @@ def _factory(tmp_path: Path) -> CampaignFactory:
             campaigns_dir=tmp_path / "campaigns",
         )
     )
+    authorize_campaign_governance(
+        factory,
+        tmp_path,
+        creator="stacey",
+        campaign="learning-governance",
+        provider="higgsfield",
+        soul_id="governed_stacey_learning_soul",
+    )
+    return factory
 
 
 def _reference_ready(cf: CampaignFactory) -> None:
@@ -82,6 +92,14 @@ def test_prepare_is_fixed_balanced_and_idempotent(tmp_path: Path) -> None:
         ).fetchone()["id"]
         metadata = learning_cohort_assignment_metadata(cf.conn, assignment_id)
         validate_contract(metadata, "learning_cohort.v1.schema.json")
+        cf.conn.execute(
+            "UPDATE learning_cohorts SET soul_id = ? WHERE id = ?",
+            ("historical-soul-id", COHORT_ID),
+        )
+        cf.conn.commit()
+        historical = learning_cohort_assignment_metadata(cf.conn, assignment_id)
+        assert historical["soul_id"] == "historical-soul-id"
+        validate_contract(historical, "learning_cohort.v1.schema.json")
     finally:
         cf.close()
 

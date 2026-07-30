@@ -20,6 +20,7 @@ import {
   signEvidenceAttestation,
   verifyEvidenceAttestation,
 } from "./evidence-attestation.js";
+import { verifyAnalyzerValidationManifest } from "./analyzer-validation-manifest.js";
 import { evaluateMotionSpecificQc } from "./motion-specific-qc.js";
 import { getPythonCommand } from "./python-runtime.js";
 import { runTrustedCaptionOverlayAudit } from "./similarity.js";
@@ -101,22 +102,36 @@ const ajv = new Ajv2020({ allErrors: true, strict: false, formats: { "date-time"
 const evidenceProvenanceSchema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "evidence_provenance.v1.schema.json"), "utf8"));
 const evidenceAttestationSchema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "evidence_attestation.v1.schema.json"), "utf8"));
 const analyzerRegistrySchema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "analyzer_registry.v1.schema.json"), "utf8"));
+const analyzerRegistryV2Schema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "analyzer_registry.v2.schema.json"), "utf8"));
 const trustedAnalysisSchema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "trusted_media_analysis.v1.schema.json"), "utf8"));
 const humanReviewSchema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "human_media_review.v1.schema.json"), "utf8"));
 ajv.addSchema(evidenceProvenanceSchema, "evidence_provenance.v1.schema.json");
 ajv.addSchema(evidenceAttestationSchema, "evidence_attestation.v1.schema.json");
 ajv.addSchema(analyzerRegistrySchema, "analyzer_registry.v1.schema.json");
+ajv.addSchema(analyzerRegistryV2Schema, "analyzer_registry.v2.schema.json");
 ajv.addSchema(trustedAnalysisSchema, "trusted_media_analysis.v1.schema.json");
 ajv.addSchema(humanReviewSchema, "human_media_review.v1.schema.json");
 const validateTrustedAnalysisSchema = ajv.getSchema("trusted_media_analysis.v1.schema.json");
 const validateHumanReviewSchema = ajv.getSchema("human_media_review.v1.schema.json");
 const validateAnalyzerRegistrySchema = ajv.getSchema("analyzer_registry.v1.schema.json");
+const validateAnalyzerRegistryV2Schema = ajv.getSchema("analyzer_registry.v2.schema.json");
 const validateMotionReceiptSchema = ajv.compile(JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "motion_specific_qc_receipt.v2.schema.json"), "utf8")));
 
 const RFC3339_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const ANALYSIS_ATTESTATION_ISSUER = "contentforge.trusted_media_analysis";
 const HUMAN_REVIEW_ATTESTATION_ISSUER = "reel_factory.structured_human_media_review";
 const RECEIPT_ATTESTATION_ISSUER = "contentforge.trusted_motion_qc";
+const ISOLATED_TEST_AUTHORITY = Symbol("contentforge.isolated_test_authority");
+const PRODUCTION_REGISTRY_PREFIX = "contentforge.production_authority.v2.";
+const PRODUCTION_REGISTRY_PRODUCER = "contentforge.analyzer_registry_adapter";
+const PRODUCTION_DATASET_ID = "contentforge.production_authority.v2";
+const PRODUCTION_DATASET_OWNER = "contentforge";
+const PRODUCTION_DATASET_MANIFEST =
+  "packages/contentforge/analyzer-validation/production-authority-v2.json";
+const ISOLATED_TEST_REGISTRY_PREFIX = "contentforge.unit_test_authority.v2.";
+const ISOLATED_TEST_REGISTRY_PRODUCER =
+  "contentforge.test.isolated_qualified_analyzer_registry";
+const ISOLATED_TEST_DATASET_OWNER = "contentforge_test";
 const REQUIRED_DECISIVE_ANALYZERS = Object.freeze([
   Object.freeze({
     analyzerId: "contentforge.motion_specific_qc",
@@ -1235,9 +1250,57 @@ function analyzerVerdict(record, subjectSha256, analysisId) {
   };
 }
 
-async function verifiedRegistry(analyzerRegistry, repositoryRoot) {
-  requireSchema(validateAnalyzerRegistrySchema, analyzerRegistry, "trusted_media_analyzer_registry_schema_invalid");
-  if (!analyzerRegistry || analyzerRegistry.schema !== "creator_os.analyzer_registry.v1") {
+function analyzerAuthorityMaterial(item) {
+  return {
+    analyzerId: item.analyzerId,
+    analyzerVersion: item.analyzerVersion,
+    evidenceKinds: item.evidenceKinds,
+    approvedImplementationFingerprint: item.implementationFingerprint,
+    model: item.model,
+    validationDataset: item.validationDataset,
+    thresholds: item.thresholds,
+    thresholdsFingerprint: item.thresholdsFingerprint,
+    falsePositiveBudget: item.falsePositiveBudget,
+    falseNegativeBudget: item.falseNegativeBudget,
+    lastQualification: item.lastQualification,
+    nextRenewal: item.nextRenewal,
+    approvedUseCases: item.approvedUseCases,
+    unsupportedUseCases: item.unsupportedUseCases,
+    rollbackVersion: item.rollbackVersion,
+    operator: item.operator,
+  };
+}
+
+async function verifiedRegistry(
+  analyzerRegistry,
+  repositoryRoot,
+  {
+    productionAuthorityRequired = true,
+    authorityCapability = null,
+  } = {},
+) {
+  var registryValidator = productionAuthorityRequired
+    ? validateAnalyzerRegistryV2Schema
+    : analyzerRegistry?.schema === "creator_os.analyzer_registry.v2"
+      ? validateAnalyzerRegistryV2Schema
+      : validateAnalyzerRegistrySchema;
+  requireSchema(
+    registryValidator,
+    analyzerRegistry,
+    "trusted_media_analyzer_registry_schema_invalid",
+  );
+  if (
+    !analyzerRegistry
+    || (
+      productionAuthorityRequired
+        ? analyzerRegistry.schema !== "creator_os.analyzer_registry.v2"
+          || analyzerRegistry.authorityVersion !== 2
+        : ![
+          "creator_os.analyzer_registry.v1",
+          "creator_os.analyzer_registry.v2",
+        ].includes(analyzerRegistry.schema)
+    )
+  ) {
     throw new Error("trusted_media_analyzer_registry_invalid");
   }
   if (typeof analyzerRegistry.registryId !== "string" || !analyzerRegistry.registryId.trim()) {
@@ -1246,11 +1309,59 @@ async function verifiedRegistry(analyzerRegistry, repositoryRoot) {
   if (!Array.isArray(analyzerRegistry.analyzers)) {
     throw new Error("trusted_media_analyzer_registry_entries_missing");
   }
+  var isolatedTestAuthority =
+    authorityCapability === ISOLATED_TEST_AUTHORITY;
+  if (productionAuthorityRequired) {
+    var expectedPrefix = isolatedTestAuthority
+      ? ISOLATED_TEST_REGISTRY_PREFIX
+      : PRODUCTION_REGISTRY_PREFIX;
+    var expectedProducer = isolatedTestAuthority
+      ? ISOLATED_TEST_REGISTRY_PRODUCER
+      : PRODUCTION_REGISTRY_PRODUCER;
+    if (
+      !analyzerRegistry.registryId.startsWith(expectedPrefix)
+      || analyzerRegistry.provenance.producer !== expectedProducer
+    ) {
+      throw new Error(
+        isolatedTestAuthority
+          ? "trusted_media_isolated_test_authority_invalid"
+          : "trusted_media_analyzer_registry_not_canonical_production_authority",
+      );
+    }
+  }
   requireCurrentTimestamp(
     analyzerRegistry.provenance.producedAt,
     "trusted_media_analyzer_registry_timestamp",
   );
   var root = path.resolve(repositoryRoot || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."));
+  var canonicalPolicies = null;
+  if (productionAuthorityRequired && !isolatedTestAuthority) {
+    var authorityPath = path.resolve(
+      root,
+      "packages/contentforge/analyzer-authority.v2.json",
+    );
+    await requireRegularNonSymlink(
+      authorityPath,
+      "trusted_media_analyzer_authority_policy",
+    );
+    var authority = JSON.parse(await readFile(authorityPath, "utf8"));
+    if (
+      authority.schema !== "contentforge.analyzer_authority_policy.v2"
+      || authority.authorityVersion !== 2
+      || authority.datasetId !== PRODUCTION_DATASET_ID
+      || authority.datasetOwner !== PRODUCTION_DATASET_OWNER
+      || authority.datasetManifestRef !== PRODUCTION_DATASET_MANIFEST
+      || !Array.isArray(authority.analyzers)
+    ) {
+      throw new Error("trusted_media_analyzer_authority_policy_invalid");
+    }
+    canonicalPolicies = new Map(authority.analyzers.map(function (item) {
+      return [`${item.analyzerId}@${item.analyzerVersion}`, item];
+    }));
+    if (canonicalPolicies.size !== authority.analyzers.length) {
+      throw new Error("trusted_media_analyzer_authority_policy_invalid");
+    }
+  }
   var registrations = new Map();
   for (var item of analyzerRegistry.analyzers) {
     if (!item || typeof item !== "object") throw new Error("trusted_media_analyzer_registration_invalid");
@@ -1270,7 +1381,90 @@ async function verifiedRegistry(analyzerRegistry, repositoryRoot) {
     if (actual !== item.implementationFingerprint) {
       throw new Error(`trusted_media_analyzer_implementation_drift:${key}`);
     }
+    if (productionAuthorityRequired) {
+      var canonicalPolicy = canonicalPolicies?.get(key);
+      if (
+        canonicalPolicies
+        && (
+          !canonicalPolicy
+          || item.implementationFingerprint
+            !== canonicalPolicy.approvedImplementationFingerprint
+          || canonicalJsonDeep(item.evidenceKinds)
+            !== canonicalJsonDeep(canonicalPolicy.evidenceKinds)
+          || canonicalJsonDeep(item.model)
+            !== canonicalJsonDeep(canonicalPolicy.model)
+          || canonicalJsonDeep(item.thresholds)
+            !== canonicalJsonDeep(canonicalPolicy.thresholds)
+          || item.thresholdsFingerprint
+            !== canonicalPolicy.thresholdsFingerprint
+          || item.falsePositiveBudget !== canonicalPolicy.falsePositiveBudget
+          || item.falseNegativeBudget !== canonicalPolicy.falseNegativeBudget
+          || item.lastQualification !== canonicalPolicy.lastQualification
+          || item.nextRenewal !== canonicalPolicy.nextRenewal
+          || canonicalJsonDeep(item.approvedUseCases)
+            !== canonicalJsonDeep(canonicalPolicy.approvedUseCases)
+          || canonicalJsonDeep(item.unsupportedUseCases)
+            !== canonicalJsonDeep(canonicalPolicy.unsupportedUseCases)
+          || item.rollbackVersion !== canonicalPolicy.rollbackVersion
+          || item.operator !== canonicalPolicy.operator
+          || canonicalJsonDeep(item.authorityReview)
+            !== canonicalJsonDeep(canonicalPolicy.authorityReview)
+        )
+      ) {
+        throw new Error(`trusted_media_analyzer_not_canonical:${key}`);
+      }
+      var producedAt = Date.parse(analyzerRegistry.provenance.producedAt);
+      var verifiedAt = Date.now();
+      if (
+        fingerprint(item.thresholds) !== item.thresholdsFingerprint
+        || fingerprint(analyzerAuthorityMaterial(item))
+          !== item.authorityReview.reviewedMaterialFingerprint
+        || item.authorityReview.decision !== "approved"
+        || Date.parse(item.authorityReview.reviewedAt)
+          > Date.parse(item.lastQualification)
+        || Date.parse(item.lastQualification) > producedAt
+        || producedAt > Date.parse(item.nextRenewal)
+        || verifiedAt < Date.parse(item.lastQualification)
+        || verifiedAt > Date.parse(item.nextRenewal)
+        || !item.approvedUseCases.includes("trusted_media_analysis_bundle")
+      ) {
+        throw new Error(`trusted_media_analyzer_production_authority_invalid:${key}`);
+      }
+      var verifiedDataset;
+      try {
+        verifiedDataset = await verifyAnalyzerValidationManifest(
+          root,
+          item.validationDataset.manifestRef,
+        );
+      } catch {
+        throw new Error(`trusted_media_analyzer_validation_dataset_invalid:${key}`);
+      }
+      if (
+        verifiedDataset.manifest.datasetId
+          !== item.validationDataset.datasetId
+        || verifiedDataset.manifest.datasetOwner
+          !== item.validationDataset.datasetOwner
+        || verifiedDataset.manifestFingerprint
+          !== item.validationDataset.manifestFingerprint
+        || verifiedDataset.manifest.executableQualification.status !== "qualified"
+      ) {
+        throw new Error(`trusted_media_analyzer_validation_dataset_invalid:${key}`);
+      }
+      if (
+        isolatedTestAuthority
+          ? verifiedDataset.manifest.datasetOwner !== ISOLATED_TEST_DATASET_OWNER
+          : verifiedDataset.manifest.datasetId !== PRODUCTION_DATASET_ID
+            || verifiedDataset.manifest.datasetOwner !== PRODUCTION_DATASET_OWNER
+            || item.validationDataset.manifestRef !== PRODUCTION_DATASET_MANIFEST
+      ) {
+        throw new Error(`trusted_media_analyzer_validation_dataset_invalid:${key}`);
+      }
+      canonicalPolicies?.delete(key);
+    }
     registrations.set(key, item);
+  }
+  if (canonicalPolicies?.size) {
+    throw new Error("trusted_media_analyzer_authority_policy_incomplete");
   }
   for (var definition of [...TRUSTED_ANALYZERS, ...REQUIRED_DECISIVE_ANALYZERS]) {
     var key = `${definition.analyzerId}@${definition.analyzerVersion}`;
@@ -1286,6 +1480,18 @@ async function verifiedRegistry(analyzerRegistry, repositoryRoot) {
   if (canonicalJsonDeep(orderedKeys) !== canonicalJsonDeep([...orderedKeys].sort())) {
     throw new Error("trusted_media_analyzer_registry_order_invalid");
   }
+  var expectedRegistryId = (
+    isolatedTestAuthority
+      ? ISOLATED_TEST_REGISTRY_PREFIX
+      : PRODUCTION_REGISTRY_PREFIX
+  ) + fingerprint(analyzerRegistry.analyzers).slice(0, 16);
+  if (productionAuthorityRequired && analyzerRegistry.registryId !== expectedRegistryId) {
+    throw new Error(
+      isolatedTestAuthority
+        ? "trusted_media_isolated_test_authority_invalid"
+        : "trusted_media_analyzer_registry_not_canonical_production_authority",
+    );
+  }
   var references = new Map(analyzerRegistry.provenance.sourceReferences.map(function (item) {
     return [item.recordId, item.fingerprint];
   }));
@@ -1299,7 +1505,52 @@ async function verifiedRegistry(analyzerRegistry, repositoryRoot) {
   };
 }
 
-export async function analyzeTrustedMedia({
+export async function verifyHistoricalAnalyzerRegistry(
+  analyzerRegistry,
+  { repositoryRoot = null } = {},
+) {
+  void repositoryRoot;
+  var validator = analyzerRegistry?.schema === "creator_os.analyzer_registry.v2"
+    ? validateAnalyzerRegistryV2Schema
+    : validateAnalyzerRegistrySchema;
+  requireSchema(
+    validator,
+    analyzerRegistry,
+    "trusted_media_historical_analyzer_registry_schema_invalid",
+  );
+  var registrations = new Set();
+  for (var item of analyzerRegistry.analyzers) {
+    var key = `${item.analyzerId}@${item.analyzerVersion}`;
+    if (registrations.has(key)) {
+      throw new Error("trusted_media_duplicate_analyzer_registration");
+    }
+    registrations.add(key);
+  }
+  var references = new Map(
+    analyzerRegistry.provenance.sourceReferences.map(function (item) {
+      return [item.recordId, item.fingerprint];
+    }),
+  );
+  if (
+    references.size !== analyzerRegistry.analyzers.length
+    || analyzerRegistry.analyzers.some(function (item) {
+      return references.get(`${item.analyzerId}@${item.analyzerVersion}`)
+        !== item.implementationFingerprint;
+    })
+  ) {
+    throw new Error("trusted_media_analyzer_registry_provenance_mismatch");
+  }
+  return {
+    registryId: analyzerRegistry.registryId,
+    registryFingerprint: fingerprint(analyzerRegistry),
+    schema: analyzerRegistry.schema,
+    productionAuthority: false,
+    verificationScope: "historical_structure_only",
+    currentImplementationCompatibility: "not_verified",
+  };
+}
+
+async function analyzeTrustedMediaWithAuthority({
   mediaPath,
   sourcePath = null,
   expectedMediaSha256 = null,
@@ -1310,12 +1561,15 @@ export async function analyzeTrustedMedia({
   analyzerRegistry,
   repositoryRoot = null,
   runner = runTool,
-} = {}) {
+} = {}, authorityCapability = null) {
   requireCurrentTimestamp(producedAt, "trusted_media_analysis_timestamp");
   if (overlayEvidence !== null) {
     throw new Error("trusted_media_caller_overlay_evidence_rejected");
   }
-  var registry = await verifiedRegistry(analyzerRegistry, repositoryRoot);
+  var registry = await verifiedRegistry(analyzerRegistry, repositoryRoot, {
+    productionAuthorityRequired: true,
+    authorityCapability,
+  });
   var resolvedMedia = path.resolve(String(mediaPath || ""));
   await requireRegularNonSymlink(resolvedMedia, "trusted_media_input");
   var snapshot = await stableMediaSnapshot(resolvedMedia);
@@ -1493,6 +1747,14 @@ export async function analyzeTrustedMedia({
   }
 }
 
+export async function analyzeTrustedMedia(args = {}) {
+  return analyzeTrustedMediaWithAuthority(args);
+}
+
+export async function analyzeTrustedMediaForIsolatedTest(args = {}) {
+  return analyzeTrustedMediaWithAuthority(args, ISOLATED_TEST_AUTHORITY);
+}
+
 export function motionEvidenceFromTrustedAnalysis(
   analysis,
   { humanReview = null, analyzerRegistry = null } = {},
@@ -1606,14 +1868,16 @@ export function motionEvidenceFromTrustedAnalysis(
   };
 }
 
-export async function buildTrustedMotionSpecificQc({
+async function buildTrustedMotionSpecificQcWithAuthority({
   analysis,
   analyzerRegistry,
   humanReview,
   options = {},
   repositoryRoot = REPOSITORY_ROOT,
-} = {}) {
-  var registry = await verifiedRegistry(analyzerRegistry, repositoryRoot);
+} = {}, authorityCapability = null) {
+  var registry = await verifiedRegistry(analyzerRegistry, repositoryRoot, {
+    authorityCapability,
+  });
   validateAnalysisRecord(analysis);
   var review = validateHumanReviewRecord(humanReview, analysis);
   if (analysis.analyzerRegistry.registryId !== registry.registryId
@@ -1759,6 +2023,17 @@ export async function buildTrustedMotionSpecificQc({
   return receipt;
 }
 
+export async function buildTrustedMotionSpecificQc(args = {}) {
+  return buildTrustedMotionSpecificQcWithAuthority(args);
+}
+
+export async function buildTrustedMotionSpecificQcForIsolatedTest(args = {}) {
+  return buildTrustedMotionSpecificQcWithAuthority(
+    args,
+    ISOLATED_TEST_AUTHORITY,
+  );
+}
+
 export async function rerunTrustedMotionSpecificQc({
   mediaPath,
   sourcePath,
@@ -1789,6 +2064,44 @@ export async function rerunTrustedMotionSpecificQc({
     runner,
   });
   return buildTrustedMotionSpecificQc({
+    analysis,
+    analyzerRegistry,
+    humanReview,
+    options,
+    repositoryRoot,
+  });
+}
+
+export async function rerunTrustedMotionSpecificQcForIsolatedTest({
+  mediaPath,
+  sourcePath,
+  expectedMediaSha256 = null,
+  expectedSourceSha256 = null,
+  producedAt,
+  overlaysExist = false,
+  overlayEvidence = null,
+  analyzerRegistry,
+  humanReview,
+  options = {},
+  repositoryRoot = REPOSITORY_ROOT,
+  runner = runTool,
+} = {}) {
+  if (typeof sourcePath !== "string" || !sourcePath.trim()) {
+    throw new Error("trusted_motion_qc_source_path_required");
+  }
+  var analysis = await analyzeTrustedMediaForIsolatedTest({
+    mediaPath,
+    sourcePath,
+    expectedMediaSha256,
+    expectedSourceSha256,
+    producedAt,
+    overlaysExist,
+    overlayEvidence,
+    analyzerRegistry,
+    repositoryRoot,
+    runner,
+  });
+  return buildTrustedMotionSpecificQcForIsolatedTest({
     analysis,
     analyzerRegistry,
     humanReview,

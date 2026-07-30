@@ -144,6 +144,27 @@ def resolve_campaign_operation(
     )
 
 
+def resolve_active_identity_profile(
+    conn: sqlite3.Connection,
+    *,
+    creator: str,
+    provider: str,
+    managed_root: Path | None = None,
+) -> dict[str, Any]:
+    """Resolve exact active identity bytes through the canonical governance domain."""
+
+    repository = CreatorGovernanceRepository(
+        conn,
+        new_id=lambda prefix: f"{prefix}_read_only",
+        slugify=lambda value: str(value).strip().lower().replace(" ", "_"),
+        utc_now=lambda: (
+            datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        ),
+        managed_root=managed_root,
+    )
+    return repository.active_identity_profile(creator, provider=provider)
+
+
 def _canonical_sha256(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()

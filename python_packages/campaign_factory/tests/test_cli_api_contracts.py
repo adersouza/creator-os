@@ -263,6 +263,7 @@ def test_contract_schema_examples_validate():
     checks = validate_schema_examples()
     assert {check["name"] for check in checks} == {
         "account_eligibility_decision.v1.example.json",
+        "analyzer_registry.v2.example.json",
         "audio_intent.v1.example.json",
         "assignment_eligibility.v1.example.json",
         "audio_catalog_export.v1.example.json",
@@ -293,6 +294,7 @@ def test_contract_schema_examples_validate():
         "reference_video_remix_plan.v1.example.json",
         "reference_factory_knowledge_pack.v1.example.json",
         "renderer_equivalence_receipt.v1.example.json",
+        "renderer_equivalence_receipt.v2.example.json",
         "threadsdash_handshake.v1.example.json",
         "threadsdash_handshake.v2.example.json",
         "variant_assignment.v1.example.json",
@@ -1190,6 +1192,7 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
         cf.close()
 
     client = TestClient(app_module.app)
+    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "performance-api-test-token")
     sync = client.post(
         "/api/sync-performance",
         json={
@@ -1198,10 +1201,18 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
             "supabaseUrl": "https://example.supabase.co",
             "supabaseServiceRoleKey": "service-role",
         },
+        headers={
+            "Authorization": "Bearer performance-api-test-token",
+            "Idempotency-Key": "performance-api:sync",
+        },
     )
     assert sync.status_code == 200
     assert sync.json()["inserted"] == 1
-    summary = client.get("/api/performance-summary", params={"campaign": "may"})
+    summary = client.get(
+        "/api/performance-summary",
+        params={"campaign": "may"},
+        headers={"Authorization": "Bearer performance-api-test-token"},
+    )
     assert summary.status_code == 200
     data = summary.json()
     assert data["renderedAssets"]["asset_1"]["totals"]["views"] == 333
@@ -1294,6 +1305,7 @@ def test_account_plan_warns_on_batch_volume_and_api_assigns(
         cf.close()
 
     monkeypatch.setattr(app_module, "settings", settings)
+    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "account-plan-test-token")
     client = TestClient(app_module.app)
     response = client.post(
         "/api/asset-account-assignment",
@@ -1301,11 +1313,17 @@ def test_account_plan_warns_on_batch_volume_and_api_assigns(
             "renderedAssetId": "asset_1",
             "instagramAccountId": "ig_extra",
         },
+        headers={
+            "Authorization": "Bearer account-plan-test-token",
+            "Idempotency-Key": "account-plan:assign",
+        },
     )
     assert response.status_code == 400
     assert "reuse_window" in response.json()["detail"]
     account_plan = client.get(
-        "/api/account-plan", params={"campaign": "may", "userId": "user_1"}
+        "/api/account-plan",
+        params={"campaign": "may", "userId": "user_1"},
+        headers={"Authorization": "Bearer account-plan-test-token"},
     )
     assert account_plan.status_code == 200
     assert not any(

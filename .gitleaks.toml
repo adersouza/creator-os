@@ -34,6 +34,7 @@ regexes = [
   '''juno_ak_abc123def456''',
   '''juno_ak_test_key''',
   '''my-cron-secret-123''',
+  '''rendererEquivalenceReceiptV2''',
   '''test-vapid-key-123''',
   '''TD_AUTH_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.\.\."''',
 ]

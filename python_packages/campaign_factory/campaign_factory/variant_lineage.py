@@ -12,6 +12,7 @@ from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
 from reel_factory.worker_api import (
+    contentforge_qc_policy_sha256,
     normalize_profile_id,
     qualify_renderer_equivalence,
 )
@@ -409,9 +410,8 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
         identity_output = output_dir / f"{rendered_asset_id}.identity{extension}"
         receipt_path = output_dir / (f"{rendered_asset_id}.renderer_equivalence.json")
         audio_embedder_path = Path(__file__).with_name("audio_radar") / "embedding.py"
-        qc_evidence: dict[str, Any] = {}
 
-        def qc_regressed(original: Path, identity: Path) -> bool:
+        def qc_regressed(original: Path, identity: Path) -> dict[str, Any]:
             baseline_path = output_dir / f"{rendered_asset_id}.baseline_qc.json"
             identity_path = output_dir / f"{rendered_asset_id}.identity_qc.json"
             baseline = audit_variation_batch(
@@ -443,31 +443,36 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
 
             baseline_codes = non_similarity_blockers(baseline)
             identity_codes = non_similarity_blockers(candidate)
-            qc_evidence.update(
-                {
-                    "baselineReportPath": str(baseline_path),
-                    "baselineReportSha256": self._sha256_file(baseline_path),
-                    "identityReportPath": str(identity_path),
-                    "identityReportSha256": self._sha256_file(identity_path),
-                    "newBlockingCodes": sorted(identity_codes - baseline_codes),
-                }
-            )
             valid_contracts = {
                 "campaign_factory_audit.v1.7",
                 "campaign_factory_audit.v1.8",
                 "campaign_factory_audit.v1.9",
                 "campaign_factory_audit.v1.10",
             }
-            return bool(
-                identity_codes - baseline_codes
-                or baseline.get("contractVersion") not in valid_contracts
-                or candidate.get("contractVersion") not in valid_contracts
-            )
+            return {
+                "regressed": bool(
+                    identity_codes - baseline_codes
+                    or baseline.get("contractVersion") not in valid_contracts
+                    or candidate.get("contractVersion") not in valid_contracts
+                ),
+                "baselineReport": {
+                    "path": str(baseline_path),
+                    "sha256": self._sha256_file(baseline_path),
+                },
+                "identityReport": {
+                    "path": str(identity_path),
+                    "sha256": self._sha256_file(identity_path),
+                },
+                "newBlockingCodes": sorted(identity_codes - baseline_codes),
+            }
 
         receipt = qualify_renderer_equivalence(
             source_path=source,
             output_path=identity_output,
             receipt_path=receipt_path,
+            qc_policy_sha256=contentforge_qc_policy_sha256(
+                self.settings.contentforge_root
+            ),
             audio_embedder_sha256=(
                 self._sha256_file(audio_embedder_path)
                 if audio_embedder_path.is_file()
@@ -486,12 +491,14 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
             "path": str(receipt_path),
             "sha256": self._sha256_file(receipt_path),
             "identityOutputPath": str(identity_output),
-            "identityOutputSha256": receipt["identityOutputSha256"],
-            "sourceSha256": receipt["sourceSha256"],
-            "toolchainFingerprint": receipt["toolchainFingerprint"],
+            "identityOutputSha256": receipt["identityOutput"]["sha256"],
+            "sourceSha256": receipt["source"]["sha256"],
+            "toolchainFingerprint": receipt["toolchain"]["fingerprint"],
             "mediaClass": receipt["mediaClass"],
             "status": receipt["status"],
-            "qcEvidence": qc_evidence,
+            "schema": receipt["schema"],
+            "qualificationId": receipt["qualificationId"],
+            "qcEvidence": receipt["qcEvidence"],
         }
         self.conn.execute(
             "UPDATE rendered_assets SET metadata_json = ?, updated_at = ? WHERE id = ?",

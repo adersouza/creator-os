@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import platform
 import random
 import re
 import shutil
@@ -31,9 +32,20 @@ ENCODER_SETTINGS = {
     "pixelFormat": "yuv420p",
     "imageJpegQuality": 95,
 }
+CONTENTFORGE_QC_POLICY_FILES = (
+    "lib/similarity.js",
+    "lib/campaign-factory-audit-config.js",
+    "lib/campaign-originality-audit.js",
+    "lib/video-analysis-gate.js",
+    "lib/virality-gate.js",
+    "lib/trusted-media-analysis.js",
+    "lib/analyzer-registry.js",
+    "analyzer-authority.v2.json",
+    "analyzer-validation/production-authority-v2.json",
+)
 
 QcCallback = Callable[[Path, Path, list[Path]], dict[str, Any]]
-EquivalenceQcCallback = Callable[[Path, Path], bool]
+EquivalenceQcCallback = Callable[[Path, Path], bool | dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -593,9 +605,93 @@ def toolchain_receipt(
             if re.fullmatch(r"[0-9a-f]{64}", str(audio_embedder_sha256 or ""))
             else _sha256_file(audio_embedder)
         ),
-        "qcPolicySha256": qc_policy_sha256
-        if re.fullmatch(r"[0-9a-f]{64}", str(qc_policy_sha256 or ""))
-        else hashlib.sha256(b"contentforge.campaign_factory_v1").hexdigest(),
+        "qcPolicySha256": _resolved_qc_policy_sha256(qc_policy_sha256),
+    }
+    values["fingerprint"] = _canonical_sha256(values)
+    return values
+
+
+def renderer_runtime_receipt(
+    *,
+    qc_policy_sha256: str | None = None,
+    audio_embedder_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Fingerprint the exact renderer, codecs, fonts, and host instance."""
+
+    renderer_path = Path(__file__).resolve()
+    ffmpeg_path = Path(shutil.which(FFMPEG) or FFMPEG).expanduser().resolve()
+    ffprobe_path = Path(shutil.which(FFPROBE) or FFPROBE).expanduser().resolve()
+    if not ffmpeg_path.is_file() or not ffprobe_path.is_file():
+        raise RuntimeError("renderer runtime executables are unavailable")
+
+    def executable(path: Path, *, capabilities: list[list[str]]) -> dict[str, str]:
+        version_output = _command_output([str(path), "-version"])
+        capability_material = "\n".join(
+            _command_output([str(path), *arguments]) for arguments in capabilities
+        )
+        return {
+            "path": str(path),
+            "sha256": _sha256_file(path),
+            "version": version_output.splitlines()[0],
+            "capabilitiesSha256": hashlib.sha256(
+                capability_material.encode("utf-8")
+            ).hexdigest(),
+        }
+
+    ffmpeg = executable(
+        ffmpeg_path,
+        capabilities=[
+            ["-hide_banner", "-encoders"],
+            ["-hide_banner", "-decoders"],
+            ["-hide_banner", "-filters"],
+        ],
+    )
+    ffprobe = executable(ffprobe_path, capabilities=[["-buildconf"]])
+    font_root = renderer_path.with_name("fonts").resolve()
+    fonts = [
+        {
+            "ref": f"fonts/{path.name}",
+            "sha256": _sha256_file(path),
+        }
+        for path in sorted(font_root.iterdir(), key=lambda item: item.name)
+        if path.is_file() and path.suffix.lower() in {".ttf", ".otf", ".woff2"}
+    ]
+    if not fonts:
+        raise RuntimeError("renderer font inventory is unavailable")
+    host = {
+        "system": platform.system() or "unknown",
+        "release": platform.release() or "unknown",
+        "machine": platform.machine() or "unknown",
+        "python": platform.python_version(),
+        "hostInstanceSha256": hashlib.sha256(
+            (platform.node() or "unknown-host").encode("utf-8")
+        ).hexdigest(),
+    }
+    codec_policy = {
+        "videoCodec": str(ENCODER_SETTINGS["videoCodec"]),
+        "pixelFormat": str(ENCODER_SETTINGS["pixelFormat"]),
+        "imageJpegQuality": int(ENCODER_SETTINGS["imageJpegQuality"]),
+        "identityAudioPolicy": "copy_if_present",
+    }
+    audio_embedder = renderer_path.with_name("audio_mux.py")
+    values: dict[str, Any] = {
+        "repositorySha": _repository_sha(renderer_path),
+        "rendererImplementationSha256": _sha256_file(renderer_path),
+        "ffmpeg": ffmpeg,
+        "ffprobe": ffprobe,
+        "fonts": fonts,
+        "fontsFingerprint": _canonical_sha256(fonts),
+        "host": host,
+        "hostFingerprint": _canonical_sha256(host),
+        "codecPolicy": codec_policy,
+        "codecPolicyFingerprint": _canonical_sha256(codec_policy),
+        "encoderSettingsSha256": _canonical_sha256(ENCODER_SETTINGS),
+        "audioEmbedderSha256": (
+            str(audio_embedder_sha256)
+            if re.fullmatch(r"[0-9a-f]{64}", str(audio_embedder_sha256 or ""))
+            else _sha256_file(audio_embedder)
+        ),
+        "qcPolicySha256": _resolved_qc_policy_sha256(qc_policy_sha256),
     }
     values["fingerprint"] = _canonical_sha256(values)
     return values
@@ -607,6 +703,7 @@ def qualify_renderer_equivalence(
     output_path: Path,
     receipt_path: Path,
     minimum_ssim: float = 0.995,
+    qc_policy_sha256: str | None = None,
     audio_embedder_sha256: str | None = None,
     qc_regression_callback: EquivalenceQcCallback | None = None,
 ) -> dict[str, Any]:
@@ -677,29 +774,121 @@ def qualify_renderer_equivalence(
         "audioPolicyEqual": source_media.get("audioPresent")
         == output_media.get("audioPresent"),
     }
-    qc_regression = (
-        bool(qc_regression_callback(source, output))
-        if qc_regression_callback
-        else False
+    resolved_qc_policy_sha256 = _resolved_qc_policy_sha256(qc_policy_sha256)
+    raw_qc_evidence = (
+        qc_regression_callback(source, output) if qc_regression_callback else None
     )
-    qualified = all(checks.values()) and ssim >= minimum_ssim and not qc_regression
-    toolchain = toolchain_receipt(
+    if isinstance(raw_qc_evidence, dict):
+        qc_regression = bool(raw_qc_evidence.get("regressed"))
+        qc_evidence = {
+            "evaluated": True,
+            "policySha256": resolved_qc_policy_sha256,
+            "baselineReport": raw_qc_evidence.get("baselineReport"),
+            "identityReport": raw_qc_evidence.get("identityReport"),
+            "newBlockingCodes": sorted(
+                {
+                    str(code)
+                    for code in raw_qc_evidence.get("newBlockingCodes", [])
+                    if str(code)
+                }
+            ),
+        }
+    else:
+        qc_regression = bool(raw_qc_evidence)
+        qc_evidence = {
+            "evaluated": False,
+            "policySha256": resolved_qc_policy_sha256,
+            "baselineReport": None,
+            "identityReport": None,
+            "newBlockingCodes": [],
+        }
+    qualified = (
+        all(checks.values())
+        and ssim >= minimum_ssim
+        and not qc_regression
+        and qc_evidence["evaluated"]
+    )
+    toolchain = renderer_runtime_receipt(
+        qc_policy_sha256=resolved_qc_policy_sha256,
         audio_embedder_sha256=audio_embedder_sha256,
     )
-    receipt = {
-        "schema": "creator_os.renderer_equivalence_receipt.v1",
+    source_identity = _portable_media_identity(source_media)
+    output_identity = _portable_media_identity(output_media)
+    duration_delta = abs(source_duration - output_duration)
+    duration_delta_frames = (
+        0.0 if source_media["mediaType"] == "image" else duration_delta * max(fps, 1.0)
+    )
+    fixture_id = (
+        "control_"
+        + _canonical_sha256(
+            {
+                "sourceSha256": source_media["sha256"],
+                "mediaClass": _media_class(source_media),
+            }
+        )[:24]
+    )
+    core: dict[str, Any] = {
+        "schema": "creator_os.renderer_equivalence_receipt.v2",
+        "qualificationId": "renderer_qualification_"
+        + _canonical_sha256(
+            {
+                "fixtureId": fixture_id,
+                "toolchainFingerprint": toolchain["fingerprint"],
+            }
+        )[:24],
         "mediaClass": _media_class(source_media),
-        "toolchainFingerprint": toolchain["fingerprint"],
-        "sourceSha256": source_media["sha256"],
-        "identityOutputSha256": output_media["sha256"],
+        "toolchain": toolchain,
+        "fixture": {
+            "fixtureId": fixture_id,
+            "kind": "exact_control_bytes",
+            "inputSha256": source_media["sha256"],
+            "deterministicInput": True,
+        },
+        "equivalencePolicy": {
+            "policyId": "reel_factory.renderer_equivalence",
+            "policyVersion": "2.0.0",
+            "qualificationScope": "exact_toolchain_and_host",
+            "crossMachineByteReproducibility": "not_claimed",
+            "byteIdentityRequired": False,
+            "minimumSsim": minimum_ssim,
+            "maximumDurationDeltaFrames": 1,
+            "requiredStreamChecks": [
+                "dimensions",
+                "frame_rate",
+                "duration",
+                "audio_policy",
+            ],
+        },
+        "source": source_identity,
+        "identityOutput": output_identity,
         "checks": checks,
-        "ssim": round(ssim, 6),
+        "measurements": {
+            "ssim": round(ssim, 6),
+            "byteIdentical": source_media["sha256"] == output_media["sha256"],
+            "durationDeltaSeconds": round(duration_delta, 9),
+            "durationDeltaFrames": round(duration_delta_frames, 9),
+        },
+        "qcEvidence": qc_evidence,
         "qcRegression": bool(qc_regression),
         "status": "qualified" if qualified else "failed",
         "qualifiedAt": _utc_now(),
     }
+    receipt = {**core, "receiptFingerprint": _canonical_sha256(core)}
     _atomic_write_json(receipt_path.expanduser().resolve(), receipt)
     return receipt
+
+
+def _portable_media_identity(media: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sha256": media["sha256"],
+        "mediaType": media["mediaType"],
+        "byteSize": int(media["byteSize"]),
+        "width": int(media["width"]),
+        "height": int(media["height"]),
+        "fps": media.get("fps"),
+        "durationSeconds": media.get("durationSeconds"),
+        "audioPresent": media.get("audioPresent"),
+    }
 
 
 def _measure_ssim(source: Path, output: Path) -> float:
@@ -852,6 +1041,30 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def contentforge_qc_policy_sha256(contentforge_root: Path | None = None) -> str:
+    root = (
+        contentforge_root.expanduser().resolve()
+        if contentforge_root is not None
+        else Path(__file__).resolve().parents[3] / "packages" / "contentforge"
+    )
+    materials = []
+    for relative in CONTENTFORGE_QC_POLICY_FILES:
+        path = root / relative
+        if not path.is_file() or path.is_symlink():
+            raise RuntimeError(f"ContentForge QC policy material is missing: {path}")
+        materials.append({"path": relative, "sha256": _sha256_file(path)})
+    return _canonical_sha256(materials)
+
+
+def _resolved_qc_policy_sha256(value: str | None) -> str:
+    if value is None:
+        return contentforge_qc_policy_sha256()
+    resolved = str(value).strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", resolved):
+        raise ValueError("qc_policy_sha256 must be a lowercase SHA-256")
+    return resolved
 
 
 def _canonical_sha256(value: Any) -> str:

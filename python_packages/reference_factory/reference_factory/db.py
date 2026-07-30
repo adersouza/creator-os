@@ -503,6 +503,108 @@ BEGIN
 END;
 """
 
+LIFECYCLE_GOVERNANCE = """
+CREATE TABLE IF NOT EXISTS reference_lifecycle_events (
+  id TEXT PRIMARY KEY,
+  reference_id TEXT NOT NULL REFERENCES source_files(reference_id) ON DELETE RESTRICT,
+  event_type TEXT NOT NULL CHECK(event_type IN (
+    'rights_granted',
+    'rights_renewed',
+    'rights_revoked',
+    'rights_expired',
+    'reference_deleted',
+    'contradiction_opened',
+    'contradiction_resolved'
+  )),
+  evidence_type TEXT NOT NULL CHECK(evidence_type IN ('evidence', 'inference')),
+  operator TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  expires_at TEXT,
+  subject_sha256 TEXT NOT NULL CHECK(length(subject_sha256) = 64),
+  event_payload_json TEXT NOT NULL CHECK(json_valid(event_payload_json)),
+  attestation_json TEXT NOT NULL CHECK(json_valid(attestation_json)),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reference_lifecycle_events_reference
+  ON reference_lifecycle_events(reference_id, effective_at, created_at);
+
+CREATE TABLE IF NOT EXISTS reference_lifecycle_state (
+  reference_id TEXT PRIMARY KEY REFERENCES source_files(reference_id) ON DELETE RESTRICT,
+  rights_status TEXT NOT NULL CHECK(rights_status IN (
+    'unverified', 'granted', 'revoked', 'expired'
+  )),
+  reference_status TEXT NOT NULL CHECK(reference_status IN ('active', 'deleted')),
+  contradiction_status TEXT NOT NULL CHECK(contradiction_status IN ('clear', 'open')),
+  rights_expires_at TEXT,
+  latest_event_id TEXT NOT NULL REFERENCES reference_lifecycle_events(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reference_lifecycle_state_eligibility
+  ON reference_lifecycle_state(
+    rights_status, reference_status, contradiction_status, rights_expires_at
+  );
+
+CREATE TABLE IF NOT EXISTS reference_pattern_lifecycle_events (
+  id TEXT PRIMARY KEY,
+  pattern_id TEXT NOT NULL REFERENCES reference_patterns(id) ON DELETE RESTRICT,
+  event_type TEXT NOT NULL CHECK(event_type IN (
+    'promoted', 'superseded', 'invalidated'
+  )),
+  superseded_by_pattern_id TEXT REFERENCES reference_patterns(id) ON DELETE RESTRICT,
+  evidence_type TEXT NOT NULL CHECK(evidence_type IN ('evidence', 'inference')),
+  operator TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  subject_sha256 TEXT NOT NULL CHECK(length(subject_sha256) = 64),
+  event_payload_json TEXT NOT NULL CHECK(json_valid(event_payload_json)),
+  attestation_json TEXT NOT NULL CHECK(json_valid(attestation_json)),
+  created_at TEXT NOT NULL,
+  CHECK(
+    (event_type = 'superseded' AND superseded_by_pattern_id IS NOT NULL)
+    OR (event_type != 'superseded' AND superseded_by_pattern_id IS NULL)
+  ),
+  CHECK(superseded_by_pattern_id IS NULL OR superseded_by_pattern_id != pattern_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reference_pattern_lifecycle_events_pattern
+  ON reference_pattern_lifecycle_events(pattern_id, effective_at, created_at);
+
+CREATE TABLE IF NOT EXISTS reference_pattern_lifecycle_state (
+  pattern_id TEXT PRIMARY KEY REFERENCES reference_patterns(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL CHECK(status IN ('active', 'superseded', 'invalidated')),
+  superseded_by_pattern_id TEXT REFERENCES reference_patterns(id) ON DELETE RESTRICT,
+  latest_event_id TEXT NOT NULL REFERENCES reference_pattern_lifecycle_events(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL,
+  CHECK(
+    (status = 'superseded' AND superseded_by_pattern_id IS NOT NULL)
+    OR (status != 'superseded' AND superseded_by_pattern_id IS NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_reference_pattern_lifecycle_state_status
+  ON reference_pattern_lifecycle_state(status, updated_at);
+
+CREATE TRIGGER IF NOT EXISTS reference_lifecycle_events_immutable_update
+BEFORE UPDATE ON reference_lifecycle_events
+BEGIN
+  SELECT RAISE(ABORT, 'reference lifecycle events are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_lifecycle_events_immutable_delete
+BEFORE DELETE ON reference_lifecycle_events
+BEGIN
+  SELECT RAISE(ABORT, 'reference lifecycle events are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_pattern_lifecycle_events_immutable_update
+BEFORE UPDATE ON reference_pattern_lifecycle_events
+BEGIN
+  SELECT RAISE(ABORT, 'reference pattern lifecycle events are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS reference_pattern_lifecycle_events_immutable_delete
+BEFORE DELETE ON reference_pattern_lifecycle_events
+BEGIN
+  SELECT RAISE(ABORT, 'reference pattern lifecycle events are immutable');
+END;
+"""
+
 
 def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     ensure_data_dirs(db_path.parent)
@@ -534,6 +636,13 @@ def _migrations() -> tuple[Migration, ...]:
             apply=_apply_evidence_guards,
             postcondition=_guard_postcondition,
         ),
+        Migration(
+            version=3,
+            migration_id="20260730_reference_lifecycle_governance_v1",
+            checksum_material=LIFECYCLE_GOVERNANCE,
+            apply=_apply_lifecycle_governance,
+            postcondition=_lifecycle_postcondition,
+        ),
     )
 
 
@@ -554,6 +663,17 @@ def _apply_evidence_guards(conn: sqlite3.Connection) -> None:
             statement = ""
     if statement.strip():
         raise RuntimeError("reference_schema_guard_sql_incomplete")
+
+
+def _apply_lifecycle_governance(conn: sqlite3.Connection) -> None:
+    statement = ""
+    for line in LIFECYCLE_GOVERNANCE.splitlines():
+        statement += f"{line}\n"
+        if sqlite3.complete_statement(statement):
+            conn.execute(statement)
+            statement = ""
+    if statement.strip():
+        raise RuntimeError("reference_lifecycle_schema_sql_incomplete")
 
 
 def _schema_postcondition(conn: sqlite3.Connection) -> None:
@@ -602,6 +722,41 @@ def _guard_postcondition(conn: sqlite3.Connection) -> None:
     if missing := required - actual:
         raise RuntimeError(
             f"reference_schema_triggers_missing:{','.join(sorted(missing))}"
+        )
+
+
+def _lifecycle_postcondition(conn: sqlite3.Connection) -> None:
+    required_tables = {
+        "reference_lifecycle_events",
+        "reference_lifecycle_state",
+        "reference_pattern_lifecycle_events",
+        "reference_pattern_lifecycle_state",
+    }
+    actual_tables = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    if missing := required_tables - actual_tables:
+        raise RuntimeError(
+            f"reference_lifecycle_tables_missing:{','.join(sorted(missing))}"
+        )
+    required_triggers = {
+        "reference_lifecycle_events_immutable_update",
+        "reference_lifecycle_events_immutable_delete",
+        "reference_pattern_lifecycle_events_immutable_update",
+        "reference_pattern_lifecycle_events_immutable_delete",
+    }
+    actual_triggers = {
+        str(row["name"])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        ).fetchall()
+    }
+    if missing := required_triggers - actual_triggers:
+        raise RuntimeError(
+            f"reference_lifecycle_triggers_missing:{','.join(sorted(missing))}"
         )
 
 

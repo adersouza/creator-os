@@ -11,7 +11,6 @@ from typing import Any, Protocol
 
 from creator_os_core.fileops import atomic_write_text
 
-STACEY_SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 ACCEPTANCE_COHORT_ID = "stacey_learning_cohort_v1"
 
 
@@ -52,6 +51,7 @@ def run_real_provider_acceptance(
     paid_confirmation: bool,
     max_credits: float,
     seams: RealProviderAcceptanceSeams,
+    identity_context: dict[str, Any],
 ) -> dict[str, Any]:
     if not paid_confirmation:
         raise ValueError("explicit paid confirmation is required")
@@ -66,14 +66,25 @@ def run_real_provider_acceptance(
         raise ValueError("max_credits must be finite and positive")
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
+    if (
+        identity_context.get("schema")
+        != "campaign_factory.creator_operation_context.v1"
+        or identity_context.get("operation") != "provider_spend"
+        or identity_context.get("provider") != "higgsfield"
+        or str(identity_context.get("creatorSlug") or "").casefold() != "stacey"
+        or not identity_context.get("providerIdentityId")
+        or not identity_context.get("governanceFingerprint")
+    ):
+        raise PermissionError("governed Stacey provider identity context is required")
+    soul_id = str(identity_context["providerIdentityId"])
 
     reservation_id: str | None = None
     consumed = False
     try:
-        soul = seams.verify_soul(STACEY_SOUL_ID)
-        if str(soul.get("id") or soul.get("soulId") or "") != STACEY_SOUL_ID:
+        soul = seams.verify_soul(soul_id)
+        if str(soul.get("id") or soul.get("soulId") or "") != soul_id:
             raise RuntimeError("Stacey Soul ID verification mismatch")
-        quote = seams.quote(STACEY_SOUL_ID)
+        quote = seams.quote(soul_id)
         quote_amount = _positive_credits(quote)
         if quote_amount > float(max_credits):
             raise RuntimeError("provider quote exceeds acceptance max credits")
@@ -87,7 +98,7 @@ def run_real_provider_acceptance(
             raise RuntimeError("failed to consume provider reservation")
         consumed = True
 
-        generation = seams.generate(STACEY_SOUL_ID, workspace)
+        generation = seams.generate(soul_id, workspace)
         image_path = Path(str(generation.get("imagePath") or ""))
         if not image_path.is_file():
             raise RuntimeError("provider generation did not produce an image")
@@ -95,13 +106,15 @@ def run_real_provider_acceptance(
         lineage = {
             "schema": "campaign_factory.real_provider_acceptance_lineage.v1",
             "creator": "Stacey",
-            "soulId": STACEY_SOUL_ID,
+            "soulId": soul_id,
             "providerJobId": generation.get("jobId"),
             "providerQuote": _redacted_quote(quote),
             "providerReservationId": reservation_id,
             "imageSha256": image_hash,
             "targetEnvironment": target_environment,
             "cohortId": ACCEPTANCE_COHORT_ID,
+            "identityProfileId": identity_context["identityProfileId"],
+            "governanceFingerprint": identity_context["governanceFingerprint"],
             "scheduleMode": "draft",
             "publishRequested": False,
         }

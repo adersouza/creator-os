@@ -33,6 +33,7 @@
       ],
       "properties": {
         "humanGoldLabelsAuthoritative": { "const": true },
+        "currentSignedReferenceRightsRequired": { "type": "boolean" },
         "measuredFactsSource": {
           "const": "campaign_factory.performance_snapshots"
         },
@@ -85,6 +86,11 @@
     "audioPatterns": {
       "type": "array",
       "items": { "$ref": "#/$defs/audioPattern" }
+    },
+    "invalidatedPatternIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
     },
     "provenance": {
       "type": "object",
@@ -158,6 +164,7 @@
         "contentHash": { "$ref": "#/$defs/nullableString" },
         "tags": { "type": "array", "items": { "type": "string" } },
         "notes": { "$ref": "#/$defs/nullableString" },
+        "lifecycle": { "$ref": "#/$defs/referenceLifecycle" },
         "promptCardIds": { "type": "array", "items": { "type": "string" } },
         "patternCardIds": { "type": "array", "items": { "type": "string" } },
         "captionPatternIds": { "type": "array", "items": { "type": "string" } },
@@ -236,6 +243,7 @@
         "captionPatternIds": { "type": "array", "items": { "type": "string" } },
         "audioPatternIds": { "type": "array", "items": { "type": "string" } },
         "pattern": { "type": "object" },
+        "lifecycle": { "$ref": "#/$defs/patternLifecycle" },
         "measuredExampleCount": { "$ref": "#/$defs/nonNegativeInteger" },
         "recommendationStatus": { "$ref": "#/$defs/recommendationStatus" },
         "measuredOutcomeProvenance": {
@@ -266,6 +274,93 @@
         "characterCount": { "$ref": "#/$defs/nonNegativeInteger" },
         "averageConfidence": { "type": ["number", "null"] },
         "placement": { "type": "object" }
+      }
+    },
+    "referenceLifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "referenceId",
+        "rightsStatus",
+        "referenceStatus",
+        "contradictionStatus",
+        "expiresAt",
+        "latestEventId",
+        "latestEvidenceType",
+        "latestEventFingerprint",
+        "eligible",
+        "blockers"
+      ],
+      "properties": {
+        "referenceId": { "type": "string", "minLength": 1 },
+        "rightsStatus": {
+          "type": "string",
+          "enum": ["unverified", "granted", "revoked", "expired"]
+        },
+        "referenceStatus": {
+          "type": "string",
+          "enum": ["active", "deleted"]
+        },
+        "contradictionStatus": {
+          "type": "string",
+          "enum": ["clear", "open"]
+        },
+        "expiresAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "latestEventId": { "$ref": "#/$defs/nullableString" },
+        "latestEvidenceType": {
+          "type": ["string", "null"],
+          "enum": ["evidence", "inference", null]
+        },
+        "latestEventFingerprint": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "eligible": { "type": "boolean" },
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "patternLifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patternId",
+        "status",
+        "supersededByPatternId",
+        "latestEventId",
+        "latestEvidenceType",
+        "latestEventFingerprint",
+        "eligible",
+        "blockers"
+      ],
+      "properties": {
+        "patternId": { "type": "string", "minLength": 1 },
+        "status": {
+          "type": "string",
+          "enum": ["legacy_active", "active", "superseded", "invalidated"]
+        },
+        "supersededByPatternId": { "$ref": "#/$defs/nullableString" },
+        "latestEventId": { "$ref": "#/$defs/nullableString" },
+        "latestEvidenceType": {
+          "type": ["string", "null"],
+          "enum": ["evidence", "inference", null]
+        },
+        "latestEventFingerprint": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "eligible": { "type": "boolean" },
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "audioPattern": {

@@ -387,6 +387,112 @@ def test_reference_bank_import_can_replace_campaign_links(tmp_path: Path):
         cf.close()
 
 
+def test_knowledge_pack_invalidation_tombstones_promoted_pattern_and_unlinks_campaign(
+    tmp_path: Path,
+):
+    example_path = (
+        Path(__file__).resolve().parents[3]
+        / "packages"
+        / "pipeline_contracts"
+        / "pipeline_contracts"
+        / "schemas"
+        / "reference_factory_knowledge_pack.v1.example.json"
+    )
+    active = json.loads(example_path.read_text(encoding="utf-8"))
+    active["policy"]["currentSignedReferenceRightsRequired"] = True
+    for reference in active["goldReferences"]:
+        reference["lifecycle"] = {
+            "referenceId": reference["referenceId"],
+            "rightsStatus": "granted",
+            "referenceStatus": "active",
+            "contradictionStatus": "clear",
+            "expiresAt": "2027-07-15T12:00:00Z",
+            "latestEventId": "refevt_fixture",
+            "latestEvidenceType": "evidence",
+            "latestEventFingerprint": "a" * 64,
+            "eligible": True,
+            "blockers": [],
+        }
+    for pattern in active["patternCards"]:
+        pattern["lifecycle"] = {
+            "patternId": pattern["id"],
+            "status": "active",
+            "supersededByPatternId": None,
+            "latestEventId": "patevt_fixture",
+            "latestEvidenceType": "evidence",
+            "latestEventFingerprint": "b" * 64,
+            "eligible": True,
+            "blockers": [],
+        }
+    active["invalidatedPatternIds"] = []
+    _refingerprint_knowledge_pack(active)
+    active_path = tmp_path / "active-pack.json"
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "video.mp4").write_bytes(b"video")
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.asset_import.import_folder(
+            source, campaign_slug="may", model_slug="model"
+        )
+        imported = cf.domains.reference.import_reference_bank(
+            active_path,
+            campaign_slug="may",
+        )
+        assert imported["campaignLinksCreated"] == 1
+        assert cf.domains.reference.reference_patterns()["count"] == 1
+
+        invalidated = json.loads(json.dumps(active))
+        invalidated_pattern_id = invalidated["patternCards"][0]["id"]
+        invalidated["patternCards"] = []
+        invalidated["summary"]["patternCardCount"] = 0
+        invalidated["summary"]["eligiblePatternCount"] = 0
+        invalidated["summary"]["advisoryPatternCount"] = 0
+        invalidated["invalidatedPatternIds"] = [invalidated_pattern_id]
+        _refingerprint_knowledge_pack(invalidated)
+        invalidated_path = tmp_path / "invalidated-pack.json"
+        invalidated_path.write_text(json.dumps(invalidated), encoding="utf-8")
+
+        result = cf.domains.reference.import_reference_bank(invalidated_path)
+
+        assert result["patternsInvalidated"] == 1
+        assert result["campaignLinksRemoved"] == 1
+        assert cf.domains.reference.reference_patterns()["patterns"] == []
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM campaign_reference_plans").fetchone()[
+                0
+            ]
+            == 0
+        )
+        with pytest.raises(ValueError, match="invalidated or superseded"):
+            cf.domains.reference.select_reference_pattern(
+                "may",
+                cluster_key="mirror::curiosity::question",
+            )
+    finally:
+        cf.close()
+
+
+def _refingerprint_knowledge_pack(pack: dict) -> None:
+    core = {
+        key: value
+        for key, value in pack.items()
+        if key not in {"schema", "packId", "sourceFingerprint", "generatedAt"}
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            core,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    pack["sourceFingerprint"] = fingerprint
+    pack["packId"] = f"kp_{fingerprint[:16]}"
+
+
 def test_reference_hooks_filter_only_objective_safety_failures(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

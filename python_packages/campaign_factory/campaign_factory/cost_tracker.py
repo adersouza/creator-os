@@ -79,7 +79,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_cost_events_source_key
 
 def ensure_cost_table(conn: sqlite3.Connection) -> None:
     """Create the ai_cost_events table if it doesn't exist."""
-    conn.executescript(f"{CREATE_TABLE_SQL};\n{CREATE_INDEX_SQL};")
+    # ``executescript`` implicitly commits an open SQLite transaction. Keep
+    # schema compatibility safe for callers that own the surrounding unit of
+    # work by issuing each statement individually.
+    conn.execute(CREATE_TABLE_SQL)
+    conn.execute(CREATE_INDEX_SQL)
     columns = {
         row[1] for row in conn.execute("PRAGMA table_info(ai_cost_events)").fetchall()
     }
@@ -185,8 +189,10 @@ def record_ai_cost(
     provider_quote: dict[str, Any] | None = None,
     cohort_id: str | None = None,
     ensure_schema: bool = True,
+    commit: bool = True,
 ) -> str:
-    """Record an AI cost event and return the event ID."""
+    """Record an AI cost event without committing a caller-owned transaction."""
+    caller_owned_transaction = conn.in_transaction
     if ensure_schema:
         ensure_cost_table(conn)
     if source_event_key:
@@ -292,7 +298,8 @@ def record_ai_cost(
             created_at,
         ),
     )
-    conn.commit()
+    if commit and not caller_owned_transaction:
+        conn.commit()
     return event_id
 
 

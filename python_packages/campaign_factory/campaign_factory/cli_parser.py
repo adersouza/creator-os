@@ -8,6 +8,10 @@ from .cli_parser_operations import register_operations_commands
 
 def build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="campaign-factory")
+    parser.add_argument(
+        "--idempotency-key",
+        help="stable identity for one mutating operator request",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
     register_core_commands(sub)
     register_operations_commands(sub)

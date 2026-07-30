@@ -12,7 +12,7 @@ from creator_os_core.fileops import atomic_write_text
 
 from .front_generation_stage import _invoke_generate_assets
 from .generation_execution_plan import build_generation_execution_plan
-from .production_prompts import require_creator_soul_id
+from .production_source_selection import active_production_identity
 from .recreation_prompting import validate_prompt_pack
 
 
@@ -26,7 +26,7 @@ def generate_recreation_anchor(
 ) -> dict[str, Any]:
     """Run one explicitly authorized text-only Soul call and register its bytes."""
 
-    creator_slug, soul_id = require_creator_soul_id(creator)
+    creator_slug, soul_id = active_production_identity(factory, creator)
     prompt_path = _regular_file(prompt_pack_path, "prompt pack")
     prompt_pack = validate_prompt_pack(
         json.loads(prompt_path.read_text(encoding="utf-8"))

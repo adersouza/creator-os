@@ -12,6 +12,11 @@ from creator_os_core.fileops import atomic_write_text
 from pipeline_contracts.validator import validate_reference_factory_knowledge_pack
 
 from .db import json_load
+from .reference_lifecycle import (
+    invalidated_pattern_ids,
+    pattern_lifecycle_snapshot,
+    reference_lifecycle_snapshot,
+)
 from .timeutil import now_iso
 
 KNOWLEDGE_PACK_SCHEMA = "reference_factory.knowledge_pack.v1"
@@ -25,11 +30,41 @@ def export_knowledge_pack(
     output_path: Path | None = None,
     minimum_measured_examples: int = MINIMUM_MEASURED_EXAMPLES,
     generated_at: str | None = None,
+    evidence_secret: str | None = None,
 ) -> dict[str, Any]:
     """Build the versioned, read-only Reference -> Campaign knowledge handoff."""
 
     minimum = max(MINIMUM_MEASURED_EXAMPLES, int(minimum_measured_examples))
-    gold_rows = _gold_reference_rows(conn)
+    produced_at = generated_at or now_iso()
+    candidate_gold_rows = _gold_reference_rows(conn)
+    lifecycle_by_reference = {
+        str(row["reference_id"]): reference_lifecycle_snapshot(
+            conn,
+            str(row["reference_id"]),
+            secret=evidence_secret,
+            as_of=produced_at,
+        )
+        for row in candidate_gold_rows
+    }
+    gold_rows = [
+        row
+        for row in candidate_gold_rows
+        if lifecycle_by_reference[str(row["reference_id"])]["eligible"]
+    ]
+    blocked_reference_ids = [
+        reference_id
+        for reference_id, lifecycle in lifecycle_by_reference.items()
+        if not lifecycle["eligible"]
+    ]
+    blocked_reference_pattern_ids = _rows_for_ids(
+        conn,
+        """
+        SELECT id FROM reference_patterns
+        WHERE reference_id IN ({placeholders})
+        ORDER BY id
+        """,
+        blocked_reference_ids,
+    )
     gold_ids = [str(row["reference_id"]) for row in gold_rows]
     prompt_rows = _rows_for_ids(
         conn,
@@ -40,7 +75,7 @@ def export_knowledge_pack(
         """,
         gold_ids,
     )
-    pattern_rows = _rows_for_ids(
+    candidate_pattern_rows = _rows_for_ids(
         conn,
         """
         SELECT * FROM reference_patterns
@@ -49,6 +84,17 @@ def export_knowledge_pack(
         """,
         gold_ids,
     )
+    lifecycle_by_pattern = {
+        str(row["id"]): pattern_lifecycle_snapshot(
+            conn, str(row["id"]), secret=evidence_secret
+        )
+        for row in candidate_pattern_rows
+    }
+    pattern_rows = [
+        row
+        for row in candidate_pattern_rows
+        if lifecycle_by_pattern[str(row["id"])]["eligible"]
+    ]
     caption_rows = _rows_for_ids(
         conn,
         """
@@ -135,6 +181,7 @@ def export_knowledge_pack(
                 row, pattern, audio_patterns
             ),
             "pattern": pattern,
+            "lifecycle": lifecycle_by_pattern[str(row["id"])],
             "measuredExampleCount": _measured_example_count(outcomes),
             "recommendationStatus": _recommendation_status(outcomes, minimum),
             "measuredOutcomeProvenance": outcomes,
@@ -161,6 +208,7 @@ def export_knowledge_pack(
                 "contentHash": row["content_hash"],
                 "tags": json_load(row["tags_json"], []),
                 "notes": row["notes"],
+                "lifecycle": lifecycle_by_reference[reference_id],
                 "promptCardIds": [item["id"] for item in prompts],
                 "patternCardIds": [item["id"] for item in patterns],
                 "captionPatternIds": [
@@ -179,6 +227,7 @@ def export_knowledge_pack(
     core = {
         "policy": {
             "humanGoldLabelsAuthoritative": True,
+            "currentSignedReferenceRightsRequired": True,
             "measuredFactsSource": MEASURED_FACTS_SOURCE,
             "minimumMeasuredExamplesForRecommendation": minimum,
         },
@@ -201,6 +250,12 @@ def export_knowledge_pack(
         "patternCards": pattern_cards,
         "captionPatterns": caption_patterns,
         "audioPatterns": audio_patterns,
+        "invalidatedPatternIds": sorted(
+            {
+                *invalidated_pattern_ids(conn),
+                *(str(row["id"]) for row in blocked_reference_pattern_ids),
+            }
+        ),
         "provenance": {
             "producer": "reference_factory",
             "sourceTables": [
@@ -209,6 +264,10 @@ def export_knowledge_pack(
                 "generated_video_prompts",
                 "prompt_post_outcomes",
                 "reference_patterns",
+                "reference_lifecycle_events",
+                "reference_lifecycle_state",
+                "reference_pattern_lifecycle_events",
+                "reference_pattern_lifecycle_state",
                 "review_labels",
                 "source_files",
             ],
@@ -224,7 +283,7 @@ def export_knowledge_pack(
         "schema": KNOWLEDGE_PACK_SCHEMA,
         "packId": f"kp_{fingerprint[:16]}",
         "sourceFingerprint": fingerprint,
-        "generatedAt": generated_at or now_iso(),
+        "generatedAt": produced_at,
         **core,
     }
     validate_reference_factory_knowledge_pack(pack)

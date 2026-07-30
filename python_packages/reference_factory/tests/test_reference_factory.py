@@ -177,8 +177,18 @@ def test_reference_analysis_export_rejects_all_provider_path_shapes(
             data_root=tmp_path / "data",
             provider_target=provider_target,
         )
-
     assert list(tmp_path.rglob("*_analysis_queue.json")) == []
+
+
+@pytest.fixture(autouse=True)
+def _authorized_provider_rights(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "reference_factory.reference_grok.require_reference_provider_rights",
+        lambda *_args, **_kwargs: {
+            "rightsEvidenceFingerprint": "test_rights",
+            "eligible": True,
+        },
+    )
 
 
 def make_conn(tmp_path: Path) -> sqlite3.Connection:
@@ -774,6 +784,10 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
         "kling_3_video",
     }
     assert {item["status"] for item in generated["prompts"]} == {"prompt_ready"}
+    assert all(
+        item["prompt"]["promptGovernance"]["registryFingerprint"]
+        for item in generated["prompts"]
+    )
     assert (
         "selected Soul identity as the sole person"
         in generated["prompts"][0]["prompt"]["soulIdInstruction"]
@@ -1327,6 +1341,32 @@ def test_reference_factory_cli_cannot_initiate_paid_generation() -> None:
     assert "run-daily-generation" not in subparsers.choices
 
 
+def _reference_paid_action(**kwargs: object) -> dict[str, object]:
+    return {
+        "schema": "campaign_factory.reference_paid_action_context.v1",
+        "authorizationId": "auth_test",
+        "attemptId": "attempt_test",
+        "campaignLedgerEventId": "cost_test",
+        "provider": kwargs["provider"],
+        "model": kwargs["model"],
+        "actionType": kwargs["action_type"],
+        "requestFingerprint": kwargs["request_fingerprint"],
+        "attemptPersistedBeforeExternalEffect": True,
+    }
+
+
+def _reference_paid_reconciliation(**kwargs: object) -> dict[str, object]:
+    paid_action = kwargs["paid_action"]
+    assert isinstance(paid_action, dict)
+    return {
+        "schema": "campaign_factory.unified_paid_action_ledger.v1",
+        "eventId": paid_action["campaignLedgerEventId"],
+        "netUsd": None,
+        "reconciliationState": "unknown",
+        "unknownReason": kwargs["unknown_reason"],
+    }
+
+
 def test_compile_prompts_with_grok_api_updates_prompt_jsonl(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1376,11 +1416,14 @@ def test_compile_prompts_with_grok_api_updates_prompt_jsonl(
     )
 
     result = compile_prompts_with_grok_api(
+        connect(tmp_path / "reference.sqlite"),
         data_root=data_root,
         reference_id="ref_grok",
         reference_media=reference_image,
         model="grok-4",
         instructions="more turquoise, more curve emphasis",
+        paid_action_authorizer=_reference_paid_action,
+        paid_action_reconciler=_reference_paid_reconciliation,
     )
 
     image_row = json.loads(
@@ -1423,6 +1466,8 @@ def test_compile_prompts_with_grok_api_updates_prompt_jsonl(
         "sheer white dress",
     ]
     assert result["compiledPrompts"]["confidence_score"] == 88
+    assert result["paidAction"]["campaignLedgerEventId"] == "cost_test"
+    assert result["paidActionReconciliation"]["reconciliationState"] == "unknown"
     assert "xai-test-secret" not in json.dumps(result)
 
 
@@ -1459,15 +1504,113 @@ def test_compile_prompts_with_grok_api_rejects_weak_breakdown(
 
     try:
         compile_prompts_with_grok_api(
+            connect(tmp_path / "reference.sqlite"),
             data_root=data_root,
             reference_id="ref_grok",
             reference_media=reference_image,
             model="grok-4",
+            paid_action_authorizer=_reference_paid_action,
+            paid_action_reconciler=_reference_paid_reconciliation,
         )
     except RuntimeError as exc:
         assert "outfit_variations" in str(exc)
     else:
         raise AssertionError("expected weak Grok breakdown to be rejected")
+
+
+def test_compile_prompts_with_grok_api_requires_persisted_paid_attempt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root, reference_id="ref_grok")
+    reference_image = tmp_path / "reference.jpg"
+    reference_image.write_bytes(b"jpg")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    called = False
+
+    def external_call(**_kwargs):
+        nonlocal called
+        called = True
+        return "{}"
+
+    monkeypatch.setattr(
+        "reference_factory.reference_grok._xai_chat_completion", external_call
+    )
+    with pytest.raises(
+        PermissionError,
+        match="reference_paid_action_requires_campaign_factory_authorization",
+    ):
+        compile_prompts_with_grok_api(
+            connect(tmp_path / "reference.sqlite"),
+            data_root=data_root,
+            reference_id="ref_grok",
+            reference_media=reference_image,
+        )
+    assert called is False
+
+
+def test_compile_prompts_with_grok_api_requires_campaign_reconciler_before_io(
+    tmp_path: Path, monkeypatch
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root, reference_id="ref_grok")
+    reference_image = tmp_path / "reference.jpg"
+    reference_image.write_bytes(b"jpg")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    called = False
+
+    def external_call(**_kwargs):
+        nonlocal called
+        called = True
+        return "{}"
+
+    monkeypatch.setattr(
+        "reference_factory.reference_grok._xai_chat_completion", external_call
+    )
+    with pytest.raises(
+        PermissionError,
+        match="reference_paid_action_requires_campaign_factory_reconciliation",
+    ):
+        compile_prompts_with_grok_api(
+            connect(tmp_path / "reference.sqlite"),
+            data_root=data_root,
+            reference_id="ref_grok",
+            reference_media=reference_image,
+            paid_action_authorizer=_reference_paid_action,
+        )
+    assert called is False
+
+
+def test_compile_prompts_with_grok_api_reconciles_ambiguous_provider_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root, reference_id="ref_grok")
+    reference_image = tmp_path / "reference.jpg"
+    reference_image.write_bytes(b"jpg")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    reconciliations: list[str] = []
+
+    def external_call(**_kwargs):
+        raise RuntimeError("provider disconnected")
+
+    def reconcile(**kwargs):
+        reconciliations.append(str(kwargs["unknown_reason"]))
+        return _reference_paid_reconciliation(**kwargs)
+
+    monkeypatch.setattr(
+        "reference_factory.reference_grok._xai_chat_completion", external_call
+    )
+    with pytest.raises(RuntimeError, match="provider disconnected"):
+        compile_prompts_with_grok_api(
+            connect(tmp_path / "reference.sqlite"),
+            data_root=data_root,
+            reference_id="ref_grok",
+            reference_media=reference_image,
+            paid_action_authorizer=_reference_paid_action,
+            paid_action_reconciler=reconcile,
+        )
+    assert reconciliations == ["provider_outcome_ambiguous"]
 
 
 def test_verify_proof_bundle_accepts_complete_no_audio_bundle(tmp_path: Path) -> None:

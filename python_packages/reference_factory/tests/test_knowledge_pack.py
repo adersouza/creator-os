@@ -5,8 +5,14 @@ from pathlib import Path
 
 from reference_factory.db import connect
 from reference_factory.knowledge_pack import export_knowledge_pack
+from reference_factory.reference_lifecycle import (
+    record_pattern_lifecycle_event,
+    record_reference_lifecycle_event,
+)
 
 from pipeline_contracts import validate_reference_factory_knowledge_pack
+
+SECRET = "reference-lifecycle-test-secret-" + ("x" * 32)
 
 
 def test_export_knowledge_pack_is_gold_first_versioned_and_measured(tmp_path: Path):
@@ -31,6 +37,7 @@ def test_export_knowledge_pack_is_gold_first_versioned_and_measured(tmp_path: Pa
             conn,
             output_path=output_path,
             generated_at="2026-07-15T15:00:00Z",
+            evidence_secret=SECRET,
         )
 
         validate_reference_factory_knowledge_pack(pack)
@@ -39,10 +46,12 @@ def test_export_knowledge_pack_is_gold_first_versioned_and_measured(tmp_path: Pa
         assert pack["packId"].startswith("kp_")
         assert pack["policy"] == {
             "humanGoldLabelsAuthoritative": True,
+            "currentSignedReferenceRightsRequired": True,
             "measuredFactsSource": "campaign_factory.performance_snapshots",
             "minimumMeasuredExamplesForRecommendation": 3,
         }
         assert [item["referenceId"] for item in pack["goldReferences"]] == ["ref_gold"]
+        assert pack["goldReferences"][0]["lifecycle"]["rightsStatus"] == "granted"
         assert [item["id"] for item in pack["promptCards"]] == ["prompt_gold"]
         assert [item["id"] for item in pack["patternCards"]] == ["pattern_gold"]
         assert [item["id"] for item in pack["captionPatterns"]] == ["caption_gold"]
@@ -74,14 +83,73 @@ def test_export_knowledge_pack_keeps_under_three_examples_advisory(tmp_path: Pat
         _insert_outcome(conn, "prompt_gold", "post_2", 2)
         conn.commit()
 
-        first = export_knowledge_pack(conn, generated_at="2026-07-15T15:00:00Z")
-        second = export_knowledge_pack(conn, generated_at="2026-07-16T15:00:00Z")
+        first = export_knowledge_pack(
+            conn,
+            generated_at="2026-07-15T15:00:00Z",
+            evidence_secret=SECRET,
+        )
+        second = export_knowledge_pack(
+            conn,
+            generated_at="2026-07-16T15:00:00Z",
+            evidence_secret=SECRET,
+        )
 
         assert first["patternCards"][0]["recommendationStatus"] == "advisory"
         assert first["summary"]["advisoryPatternCount"] == 1
         assert first["packId"] == second["packId"]
         assert first["sourceFingerprint"] == second["sourceFingerprint"]
         assert first["generatedAt"] != second["generatedAt"]
+    finally:
+        conn.close()
+
+
+def test_export_knowledge_pack_propagates_pattern_invalidation_and_revocation(
+    tmp_path: Path,
+):
+    conn = connect(tmp_path / "reference.sqlite")
+    try:
+        _insert_reference(conn, "ref_active", label="gold")
+        _insert_reference(conn, "ref_revoked", label="gold")
+        _insert_pattern(conn, "pattern_active", "ref_active")
+        _insert_pattern(conn, "pattern_invalid", "ref_active")
+        _insert_pattern(conn, "pattern_revoked", "ref_revoked")
+        record_pattern_lifecycle_event(
+            conn,
+            pattern_id="pattern_invalid",
+            event_type="invalidated",
+            operator="operator:test",
+            reason="operator rejected promoted pattern",
+            evidence={"reviewId": "review_invalid"},
+            effective_at="2026-07-15T13:00:00Z",
+            secret=SECRET,
+        )
+        record_reference_lifecycle_event(
+            conn,
+            reference_id="ref_revoked",
+            event_type="rights_revoked",
+            operator="operator:test",
+            reason="creator revoked authorization",
+            evidence={"revocationId": "revoked_1"},
+            effective_at="2026-07-15T13:00:00Z",
+            secret=SECRET,
+        )
+
+        pack = export_knowledge_pack(
+            conn,
+            generated_at="2026-07-15T15:00:00Z",
+            evidence_secret=SECRET,
+        )
+
+        assert [item["referenceId"] for item in pack["goldReferences"]] == [
+            "ref_active"
+        ]
+        assert [item["id"] for item in pack["patternCards"]] == ["pattern_active"]
+        assert pack["patternCards"][0]["lifecycle"]["status"] == "legacy_active"
+        assert pack["invalidatedPatternIds"] == [
+            "pattern_invalid",
+            "pattern_revoked",
+        ]
+        validate_reference_factory_knowledge_pack(pack)
     finally:
         conn.close()
 
@@ -101,7 +169,7 @@ def _insert_reference(conn, reference_id: str, *, label: str) -> None:
             f"{reference_id}.mp4",
             timestamp,
             f"path_{reference_id}",
-            f"hash_{reference_id}",
+            (reference_id.encode().hex() + ("0" * 64))[:64],
             timestamp,
             timestamp,
         ),
@@ -113,6 +181,28 @@ def _insert_reference(conn, reference_id: str, *, label: str) -> None:
         ) VALUES (?, ?, ?, '["mirror"]', 'operator label', ?, ?)
         """,
         (f"label_{reference_id}", reference_id, label, timestamp, timestamp),
+    )
+    record_reference_lifecycle_event(
+        conn,
+        reference_id=reference_id,
+        event_type="rights_granted",
+        operator="operator:test",
+        reason="test reference rights",
+        evidence={
+            "agreementId": f"contract_{reference_id}",
+            "subject": "rights-holder:creator-1",
+            "scope": ["pattern_learning"],
+            "providerSharing": {"allowed": False, "providers": []},
+            "commercialUse": True,
+            "territories": ["US"],
+            "validity": {
+                "startsAt": timestamp,
+                "expiresAt": "2027-07-15T12:00:00Z",
+            },
+        },
+        effective_at=timestamp,
+        expires_at="2027-07-15T12:00:00Z",
+        secret=SECRET,
     )
 
 

@@ -98,6 +98,7 @@ async function main() {
     );
     result = await snapshotTrustedMediaAnalyzerRegistry({
       producedAt: payload.producedAt,
+      authorityVersion: payload.authorityVersion ?? 2,
     });
   } else {
     throw new Error(

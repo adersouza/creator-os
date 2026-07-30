@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import subprocess
 import sys
 from copy import deepcopy
 from functools import lru_cache
@@ -17,7 +18,6 @@ from campaign_factory.canonical_analyzer_registry import (
 )
 from campaign_factory.cli_dispatch_operations import dispatch_operations_commands
 from campaign_factory.cli_parser import build_cli_parser
-from campaign_factory.contentforge_cli import run_contentforge
 from campaign_factory.db_migrations import _backfill_generation_output_lineage
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.motion_generation_stage import (
@@ -46,6 +46,18 @@ EVIDENCE_SECRET = "creator-os-test-evidence-secret-32-bytes-long"
 @pytest.fixture(autouse=True)
 def _evidence_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", EVIDENCE_SECRET)
+    expected_registry = _canonical_analyzer_registry()
+
+    def validate_test_registry(registry: dict) -> dict:
+        if registry != expected_registry:
+            raise CanonicalAnalyzerRegistryError("analyzer_registry_not_canonical")
+        return registry
+
+    monkeypatch.setattr(
+        motion_qc_module,
+        "validate_canonical_analyzer_registry",
+        validate_test_registry,
+    )
 
 
 def _fingerprint(value: object) -> str:
@@ -92,12 +104,23 @@ def test_production_direct_source_resolves_exact_imported_image(
 
 @lru_cache(maxsize=1)
 def _canonical_analyzer_registry() -> dict:
-    return run_contentforge(
-        REPOSITORY_ROOT / "packages" / "contentforge",
-        "analyzer-registry",
-        {"producedAt": "2026-07-22T20:00:00Z"},
+    script = """
+import { isolatedQualifiedAnalyzerRegistry } from "./packages/contentforge/test/support/qualified-analyzer-registry.js";
+const result = await isolatedQualifiedAnalyzerRegistry({
+  producedAt: "2026-07-22T20:00:00Z",
+  repositoryRoot: process.argv[1],
+});
+process.stdout.write(JSON.stringify(result));
+"""
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script, str(REPOSITORY_ROOT)],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
         timeout=30,
+        check=True,
     )
+    return json.loads(completed.stdout)
 
 
 def _local_motion_admission(model_id: str) -> dict:
@@ -721,7 +744,16 @@ def _motion_qc_receipt(
     }
     observations = [
         {
-            **item,
+            key: item[key]
+            for key in (
+                "analyzerId",
+                "analyzerVersion",
+                "evidenceKinds",
+                "implementationRef",
+                "implementationFingerprint",
+            )
+        }
+        | {
             "analyzerRegistryId": registry["registryId"],
             "analyzerRegistryFingerprint": registry_fingerprint,
             "toolRevisions": tools,

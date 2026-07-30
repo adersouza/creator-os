@@ -660,6 +660,7 @@ class CampaignDomainServices:
             ensure_rendered_asset_perceptual_metadata=self.inventory_perceptual.ensure_rendered_asset_perceptual_metadata,
             asset_uniqueness_values=self.inventory_perceptual.asset_uniqueness_values,
             default_reservation_ttl_days=7,
+            contentforge_root=settings.contentforge_root,
         )
         self.creator_governance = CreatorGovernanceRepository(
             conn,

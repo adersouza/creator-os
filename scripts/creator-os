@@ -112,6 +112,16 @@ def _reference_command(*args: str) -> list[str]:
     ]
 
 
+def _reference_paid_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "python",
+        str(ROOT / "scripts" / "reference_paid.py"),
+        *args,
+    ]
+
+
 def _learning_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -489,6 +499,15 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=ROOT.parent / "reference_reels/audio_catalog.json",
     )
+
+    reference_paid = sub.add_parser(
+        "reference-paid",
+        help="run one Campaign-authorized paid Reference Factory action",
+    )
+    reference_paid.add_argument(
+        "action", choices=["gemini-analyze", "grok-analyze", "grok-compile"]
+    )
+    reference_paid.add_argument("args", nargs=argparse.REMAINDER)
 
     audio = sub.add_parser(
         "audio",
@@ -1099,6 +1118,9 @@ def main(argv: list[str] | None = None) -> int:
             if code := _run(command):
                 return code
         return 0
+    if args.command == "reference-paid":
+        paid_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run(_reference_paid_command(args.action, *paid_args))
     if args.command == "audio":
         if args.audio_command == "status":
             command = _operator_status_command("--audio")

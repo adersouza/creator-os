@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
+import tempfile
 import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
 
+from .prompt_registry import bind_reference_prompt
 from .reference_analysis import _json_from_model_text
+from .reference_grok import (
+    _authorize_paid_action,
+    _execute_paid_action,
+    _require_paid_action_callbacks,
+    _sha256_file,
+)
 from .reference_intake import import_reference_analysis, queue_reference_analysis
 from .reference_intake_contracts import DEFAULT_INTAKE_PROFILE
+from .reference_lifecycle import require_reference_provider_rights
 from .reference_prompt_generation import generate_video_prompts
 
 
@@ -98,6 +109,8 @@ def analyze_reference_with_gemini_api(
     model: str = "gemini-2.5-flash",
     api_key: str | None = None,
     prompt_style: str = "minimal",
+    paid_action_authorizer: Callable[..., Mapping[str, Any]] | None = None,
+    paid_action_reconciler: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, object]:
     try:
         from google import genai
@@ -112,6 +125,10 @@ def analyze_reference_with_gemini_api(
         raise RuntimeError(
             "Set GEMINI_API_KEY or GOOGLE_API_KEY before running Gemini API analysis."
         )
+    _require_paid_action_callbacks(
+        paid_action_authorizer,
+        paid_action_reconciler,
+    )
 
     queued = queue_reference_analysis(
         conn,
@@ -132,20 +149,95 @@ def analyze_reference_with_gemini_api(
     analyzed = 0
     errors: list[dict[str, object]] = []
     imported_items: list[dict[str, Any]] = []
-    for job in queued.get("jobs") or []:
+    queued_jobs = queued.get("jobs")
+    for job in queued_jobs if isinstance(queued_jobs, list) else []:
         try:
             path = Path(str(job.get("sourcePath") or "")).expanduser()
             if not path.exists():
                 raise FileNotFoundError(f"source file missing: {path}")
-            uploaded = client.files.upload(file=str(path))
-            uploaded = _wait_for_gemini_file(client, uploaded)
-            response = client.models.generate_content(
-                model=model,
-                contents=[uploaded, str(job.get("promptText") or "")],
+            source_sha256 = _sha256_file(path)
+            rights = require_reference_provider_rights(
+                conn,
+                reference_id=str(job["referenceId"]),
+                provider="gemini",
+                operation="reference_analysis",
+                expected_source_sha256=source_sha256,
             )
-            analysis = _json_from_model_text(str(getattr(response, "text", "") or ""))
+            prompt = str(job.get("promptText") or "")
+            prompt_inputs = {
+                "analysisJobId": job["id"],
+                "referenceId": job["referenceId"],
+                "sourcePath": str(path),
+                "sourceSha256": source_sha256,
+                "promptStyle": prompt_style,
+                "rightsEvidenceFingerprint": rights["rightsEvidenceFingerprint"],
+            }
+            prompt_governance = bind_reference_prompt(
+                prompt_id="reference.gemini_analysis",
+                version="1",
+                provider="gemini",
+                model=model,
+                compiled_prompt=prompt,
+                inputs=prompt_inputs,
+            )
+            paid_action = _authorize_paid_action(
+                paid_action_authorizer,
+                provider="gemini",
+                model=model,
+                action_type="reference_analysis",
+                request_fingerprint=str(prompt_governance["receiptFingerprint"]),
+                prompt_governance=prompt_governance,
+                compiled_prompt=prompt,
+                prompt_inputs=prompt_inputs,
+            )
+
+            def call_provider() -> dict[str, Any]:
+                with tempfile.TemporaryDirectory(
+                    prefix="creator-os-gemini-reference-"
+                ) as raw_tmp:
+                    snapshot = Path(raw_tmp) / f"source{path.suffix}"
+                    _snapshot_exact_file(
+                        path,
+                        destination=snapshot,
+                        expected_sha256=source_sha256,
+                    )
+                    current_rights = require_reference_provider_rights(
+                        conn,
+                        reference_id=str(job["referenceId"]),
+                        provider="gemini",
+                        operation="reference_analysis",
+                        expected_source_sha256=source_sha256,
+                    )
+                    if (
+                        current_rights["rightsEvidenceFingerprint"]
+                        != rights["rightsEvidenceFingerprint"]
+                    ):
+                        raise PermissionError(
+                            "reference_rights_changed_after_authorization"
+                        )
+                    uploaded = client.files.upload(file=str(snapshot))
+                    uploaded = _wait_for_gemini_file(client, uploaded)
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=[uploaded, prompt],
+                    )
+                return _gemini_provider_response(response)
+
+            response_text, paid_action_reconciliation, provider_evidence = (
+                _execute_paid_action(
+                    paid_action=paid_action,
+                    reconciler=paid_action_reconciler,
+                    external_call=call_provider,
+                )
+            )
+            analysis = _json_from_model_text(response_text)
             analysis["analysisJobId"] = job["id"]
             analysis["referenceId"] = job["referenceId"]
+            analysis["promptGovernance"] = prompt_governance
+            analysis["paidAction"] = paid_action
+            analysis["paidActionReconciliation"] = paid_action_reconciliation
+            analysis["providerResponseEvidence"] = provider_evidence
+            analysis["providerRights"] = rights
             imported_items.append(analysis)
             analyzed += 1
         except Exception as exc:
@@ -189,6 +281,43 @@ def analyze_reference_with_gemini_api(
         "importPath": str(import_path),
         "import": imported,
         "promptGeneration": generated,
+    }
+
+
+def _snapshot_exact_file(
+    source: Path,
+    *,
+    destination: Path,
+    expected_sha256: str,
+) -> Path:
+    digest = hashlib.sha256()
+    with source.open("rb") as source_handle, destination.open("xb") as output:
+        for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+            output.write(chunk)
+    if digest.hexdigest() != expected_sha256:
+        destination.unlink(missing_ok=True)
+        raise PermissionError("reference_provider_media_sha256_mismatch")
+    return destination
+
+
+def _gemini_provider_response(response: Any) -> dict[str, Any]:
+    usage = getattr(response, "usage_metadata", None)
+    if usage is not None and hasattr(usage, "model_dump"):
+        usage = usage.model_dump()
+    elif not isinstance(usage, Mapping):
+        usage = None
+    cost = getattr(response, "cost", None)
+    return {
+        "content": str(getattr(response, "text", "") or ""),
+        "providerReference": str(
+            getattr(response, "response_id", None)
+            or getattr(response, "id", None)
+            or ""
+        ).strip()
+        or None,
+        "usage": dict(usage) if isinstance(usage, Mapping) else None,
+        "actualUsd": cost,
     }
 
 

@@ -7,6 +7,8 @@ from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
 
+from . import reference_gemini as _reference_gemini
+from . import reference_grok as _reference_grok
 from .audio import (
     analyze_audio_patterns,
     audio_catalog_health,
@@ -55,14 +57,7 @@ from .public_metrics import (
     import_apify_metrics,
     top_public_posts,
 )
-from .reference_gemini import (
-    analyze_reference_with_gemini_api,
-    import_gemini_app_response,
-)
-from .reference_grok import (
-    analyze_reference_with_grok_api,
-    compile_prompts_with_grok_api,
-)
+from .reference_gemini import import_gemini_app_response
 from .reference_intake import (
     analyze_reference_local,
     export_analysis_queue,
@@ -70,10 +65,19 @@ from .reference_intake import (
     import_reference_analysis,
     queue_reference_analysis,
 )
+from .reference_lifecycle import (
+    PATTERN_EVENT_TYPES,
+    REFERENCE_EVENT_TYPES,
+    record_pattern_lifecycle_event,
+    record_reference_lifecycle_event,
+)
 from .reference_prompt_generation import export_video_prompts, generate_video_prompts
 from .review import build_shortlist, export_gold, label_reference, review_batch
 from .scan import scan_source
 from .tiktok_archive import import_tiktok_archive
+
+analyze_reference_with_gemini_api = _reference_gemini.analyze_reference_with_gemini_api
+compile_prompts_with_grok_api = _reference_grok.compile_prompts_with_grok_api
 
 
 def parse_limit(value: str | int | None) -> int | None:
@@ -88,6 +92,16 @@ def parse_limit(value: str | int | None) -> int | None:
 
 def print_json(value: Any) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True))
+
+
+def parse_json_object(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError("--evidence must be valid JSON") from exc
+    if not isinstance(parsed, dict) or not parsed:
+        raise argparse.ArgumentTypeError("--evidence must be a nonempty JSON object")
+    return parsed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -150,6 +164,40 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument("--label", required=True, choices=["gold", "maybe", "ignore"])
     label.add_argument("--tags", default="")
     label.add_argument("--notes", default=None)
+
+    lifecycle = sub.add_parser(
+        "reference-lifecycle",
+        help="Append a signed reference rights or lifecycle event",
+    )
+    lifecycle.add_argument("--reference-id", required=True)
+    lifecycle.add_argument(
+        "--event", required=True, choices=sorted(REFERENCE_EVENT_TYPES)
+    )
+    lifecycle.add_argument("--operator", required=True)
+    lifecycle.add_argument("--reason", required=True)
+    lifecycle.add_argument("--evidence", required=True, type=parse_json_object)
+    lifecycle.add_argument(
+        "--evidence-type", choices=["evidence", "inference"], default="evidence"
+    )
+    lifecycle.add_argument("--effective-at", default=None)
+    lifecycle.add_argument("--expires-at", default=None)
+
+    pattern_lifecycle = sub.add_parser(
+        "pattern-lifecycle",
+        help="Append a signed promoted-pattern lifecycle event",
+    )
+    pattern_lifecycle.add_argument("--pattern-id", required=True)
+    pattern_lifecycle.add_argument(
+        "--event", required=True, choices=sorted(PATTERN_EVENT_TYPES)
+    )
+    pattern_lifecycle.add_argument("--superseded-by-pattern-id", default=None)
+    pattern_lifecycle.add_argument("--operator", required=True)
+    pattern_lifecycle.add_argument("--reason", required=True)
+    pattern_lifecycle.add_argument("--evidence", required=True, type=parse_json_object)
+    pattern_lifecycle.add_argument(
+        "--evidence-type", choices=["evidence", "inference"], default="evidence"
+    )
+    pattern_lifecycle.add_argument("--effective-at", default=None)
 
     sub.add_parser("export-gold", help="Export gold label manifest")
 
@@ -570,7 +618,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     gemini_api = sub.add_parser(
         "analyze-reference-with-gemini-api",
-        help="Use the official Gemini API to analyze queued local reference videos",
+        help="Compatibility command; paid execution uses creator-os reference-paid",
     )
     gemini_api.add_argument("--source", required=True)
     gemini_api.add_argument("--platform", default="instagram")
@@ -586,7 +634,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     grok_api = sub.add_parser(
         "analyze-reference-with-grok-api",
-        help="Use xAI/Grok vision to draft ImageAt-style JSON prompts from local references",
+        help="Compatibility command; paid execution uses creator-os reference-paid",
     )
     grok_api.add_argument("--source", required=True)
     grok_api.add_argument("--platform", default="instagram")
@@ -601,7 +649,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     grok_compile = sub.add_parser(
         "compile-prompts-with-grok-api",
-        help="Use xAI/Grok vision to compile final clean Higgsfield/Kling prose prompts",
+        help="Compatibility command; paid execution uses creator-os reference-paid",
     )
     grok_compile.add_argument("--reference-id", required=True)
     grok_compile.add_argument("--reference-media", required=True)
@@ -668,6 +716,34 @@ def main(argv: list[str] | None = None) -> int:
             tags = [tag.strip() for tag in args.tags.split(",") if tag.strip()]
             print_json(
                 label_reference(conn, args.reference_id, args.label, tags, args.notes)
+            )
+        elif args.command == "reference-lifecycle":
+            print_json(
+                record_reference_lifecycle_event(
+                    conn,
+                    reference_id=args.reference_id,
+                    event_type=args.event,
+                    operator=args.operator,
+                    reason=args.reason,
+                    evidence=args.evidence,
+                    evidence_type=args.evidence_type,
+                    effective_at=args.effective_at,
+                    expires_at=args.expires_at,
+                )
+            )
+        elif args.command == "pattern-lifecycle":
+            print_json(
+                record_pattern_lifecycle_event(
+                    conn,
+                    pattern_id=args.pattern_id,
+                    event_type=args.event,
+                    operator=args.operator,
+                    reason=args.reason,
+                    evidence=args.evidence,
+                    evidence_type=args.evidence_type,
+                    superseded_by_pattern_id=args.superseded_by_pattern_id,
+                    effective_at=args.effective_at,
+                )
             )
         elif args.command == "export-gold":
             print_json(export_gold(conn, data_root))
@@ -1078,58 +1154,15 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "verify-proof-bundle":
             print_json(verify_proof_bundle(Path(args.bundle).expanduser()))
-        elif args.command == "analyze-reference-with-gemini-api":
-            print_json(
-                analyze_reference_with_gemini_api(
-                    conn,
-                    source_root=Path(args.source),
-                    data_root=data_root,
-                    platform=args.platform,
-                    account_profile=args.account_profile,
-                    intake_profile=args.intake_profile,
-                    media_kinds=[
-                        kind.strip()
-                        for kind in args.media_kinds.split(",")
-                        if kind.strip()
-                    ],
-                    limit=args.limit,
-                    model=args.model,
-                    api_key=args.api_key,
-                    prompt_style=args.prompt_style,
-                )
-            )
-        elif args.command == "analyze-reference-with-grok-api":
-            print_json(
-                analyze_reference_with_grok_api(
-                    conn,
-                    source_root=Path(args.source),
-                    data_root=data_root,
-                    platform=args.platform,
-                    account_profile=args.account_profile,
-                    intake_profile=args.intake_profile,
-                    media_kinds=[
-                        kind.strip()
-                        for kind in args.media_kinds.split(",")
-                        if kind.strip()
-                    ],
-                    limit=args.limit,
-                    model=args.model,
-                    api_key=args.api_key,
-                    prompt_style=args.prompt_style,
-                    ffmpeg=args.ffmpeg,
-                )
-            )
-        elif args.command == "compile-prompts-with-grok-api":
-            print_json(
-                compile_prompts_with_grok_api(
-                    data_root=data_root,
-                    reference_id=args.reference_id,
-                    reference_media=Path(args.reference_media).expanduser(),
-                    model=args.model,
-                    api_key=args.api_key,
-                    ffmpeg=args.ffmpeg,
-                    instructions=args.instructions,
-                )
+        elif args.command in {
+            "analyze-reference-with-gemini-api",
+            "analyze-reference-with-grok-api",
+            "compile-prompts-with-grok-api",
+        }:
+            parser.error(
+                "paid Reference provider execution is Campaign-governed; "
+                "use `creator-os reference-paid --help` and supply creator, "
+                "campaign, source-asset, reference, quote, budget, and --apply"
             )
         elif args.command == "review-server":
             from .server import run_server

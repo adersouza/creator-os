@@ -445,6 +445,7 @@ def plan_production_batch(
     prompt_call_authorized: bool = False,
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
+    campaign: str | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
@@ -525,9 +526,10 @@ def plan_production_batch(
         JOIN models m ON m.id = s.model_id
         WHERE lower(m.slug) = ? AND s.media_type = 'image'
           AND lower(COALESCE(s.status, 'imported')) = 'approved'
+          AND (? IS NULL OR lower(c.slug) = lower(?) OR c.id = ?)
         ORDER BY c.updated_at DESC, s.created_at DESC, s.id
         """,
-        (creator_slug,),
+        (creator_slug, campaign, campaign, campaign),
     ).fetchall()
     sources: list[dict[str, Any]] = []
     seen_source_hashes: set[str] = set()
@@ -900,6 +902,7 @@ def run_production_batch(
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
+    campaign: str | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -920,6 +923,7 @@ def run_production_batch(
         prompt_call_authorized=apply,
         recreation_anchor_approval_path=recreation_anchor_approval_path,
         recreation_attempt_id=recreation_attempt_id,
+        campaign=campaign,
     )
     results: list[dict[str, Any]] = []
     if (

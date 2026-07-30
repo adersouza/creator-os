@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 from campaign_factory import front_generation_stage
+from campaign_factory.cost_tracker import ensure_cost_table
 from campaign_factory.production_higgsfield_authorization import (
     recovered_higgsfield_cost_binding,
 )
@@ -159,6 +160,64 @@ def test_campaign_issues_consumes_and_records_authoritative_cost(
             (authorization["authorizationId"],),
         ).fetchone()[0]
         == "consumed"
+    )
+
+
+def test_spend_helpers_do_not_commit_caller_owned_transaction(
+    tmp_path: Path,
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    now = datetime(2026, 7, 15, 12, tzinfo=UTC)
+    authorization = issue_provider_spend_authorization(
+        conn,
+        scope=_scope(tmp_path),
+        campaign_id="campaign_db_id",
+        max_credits=10,
+        secret=SECRET,
+        quote_provider=Quote(),
+        balance_provider=Balance(),
+        now=now,
+    )
+
+    conn.execute("BEGIN IMMEDIATE")
+    consume_provider_spend_authorization(
+        conn, authorization["authorizationId"], now=now
+    )
+    assert conn.in_transaction is True
+    conn.rollback()
+    assert conn.execute(
+        f"SELECT status FROM {AUTHORIZATION_TABLE} WHERE authorization_id = ?",
+        (authorization["authorizationId"],),
+    ).fetchone() == ("authorized",)
+
+    consume_provider_spend_authorization(
+        conn, authorization["authorizationId"], now=now
+    )
+    ensure_cost_table(conn)
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    event_ids = record_provider_execution(
+        conn,
+        authorization=authorization,
+        execution={
+            "events": [
+                {
+                    "provider": "higgsfield",
+                    "operation": "image_create",
+                    "model": "text2image_soul_v2",
+                    "jobId": "job_transaction",
+                    "actualCredits": 4,
+                }
+            ]
+        },
+    )
+    assert conn.in_transaction is True
+    conn.rollback()
+    assert (
+        conn.execute(
+            "SELECT 1 FROM ai_cost_events WHERE id = ?", (event_ids[0],)
+        ).fetchone()
+        is None
     )
 
 

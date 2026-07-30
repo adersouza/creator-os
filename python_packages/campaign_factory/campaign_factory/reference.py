@@ -79,9 +79,17 @@ class ReferenceRepository:
         unchanged = 0
         linked = 0
         unlinked = 0
+        invalidated = 0
         imported_pattern_ids: set[str] = set()
         promotion_receipts = 0
         missing_paths: list[str] = []
+        if knowledge_pack is not None:
+            invalidated, invalidated_links = self._apply_knowledge_pack_invalidations(
+                knowledge_pack,
+                now=now,
+                dry_run=dry_run,
+            )
+            unlinked += invalidated_links
         for idx, cluster in enumerate(clusters, 1):
             cluster_key = str(
                 cluster.get("clusterKey") or cluster.get("label") or f"cluster_{idx}"
@@ -281,7 +289,7 @@ class ReferenceRepository:
                 for row in existing_links
                 if row["reference_pattern_id"] not in imported_pattern_ids
             ]
-            unlinked = len(stale_link_ids)
+            unlinked += len(stale_link_ids)
             if not dry_run and stale_link_ids:
                 self.conn.executemany(
                     "DELETE FROM campaign_reference_plans WHERE id = ?",
@@ -291,7 +299,7 @@ class ReferenceRepository:
             if knowledge_pack is not None:
                 self._store_knowledge_pack(knowledge_pack, now=now)
             self.conn.commit()
-        if not dry_run and (created or updated or linked):
+        if not dry_run and (created or updated or linked or invalidated):
             self._record_event(
                 "reference_bank_imported",
                 status="success",
@@ -305,6 +313,7 @@ class ReferenceRepository:
                     "updated": updated,
                     "unchanged": unchanged,
                     "campaignLinks": linked,
+                    "patternsInvalidated": invalidated,
                 },
             )
         return {
@@ -316,7 +325,7 @@ class ReferenceRepository:
             "bankPath": str(bank_path),
             "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
             "dryRun": dry_run,
-            "wouldWrite": bool(created or updated or linked or unlinked),
+            "wouldWrite": bool(created or updated or linked or unlinked or invalidated),
             "patternsImported": created + updated,
             "patternsCreated": created,
             "patternsUpdated": updated,
@@ -324,6 +333,7 @@ class ReferenceRepository:
             "promotionReceiptsCreated": promotion_receipts,
             "campaignLinksCreated": linked,
             "campaignLinksRemoved": unlinked,
+            "patternsInvalidated": invalidated,
             "campaign": campaign_slug,
             "missingLocalPaths": sorted(set(missing_paths)),
             "knowledgePackId": (
@@ -338,12 +348,49 @@ class ReferenceRepository:
 
     def _knowledge_pack_as_reference_bank(self, pack: dict[str, Any]) -> dict[str, Any]:
         gold_by_id = {str(item["referenceId"]): item for item in pack["goldReferences"]}
+        signed_rights_required = (
+            pack.get("policy", {}).get("currentSignedReferenceRightsRequired") is True
+        )
+        if signed_rights_required:
+            missing_lifecycle = [
+                reference_id
+                for reference_id, item in gold_by_id.items()
+                if not isinstance(item.get("lifecycle"), dict)
+                or item["lifecycle"].get("eligible") is not True
+            ]
+            if missing_lifecycle:
+                raise ValueError(
+                    "knowledge pack signed-rights policy has ineligible references: "
+                    + ",".join(sorted(missing_lifecycle))
+                )
         prompt_by_id = {str(item["id"]): item for item in pack["promptCards"]}
         caption_by_id = {str(item["id"]): item for item in pack["captionPatterns"]}
         audio_by_id = {str(item["id"]): item for item in pack["audioPatterns"]}
         clusters = []
         for card in pack["patternCards"]:
+            pattern_lifecycle = card.get("lifecycle")
+            if signed_rights_required and not isinstance(pattern_lifecycle, dict):
+                raise ValueError(
+                    f"knowledge pack pattern lifecycle missing: {card['id']}"
+                )
+            if isinstance(pattern_lifecycle, dict) and (
+                pattern_lifecycle.get("eligible") is not True
+                or pattern_lifecycle.get("status") in {"superseded", "invalidated"}
+            ):
+                raise ValueError(
+                    f"knowledge pack contains ineligible pattern card: {card['id']}"
+                )
             reference_ids = [str(item) for item in card["referenceIds"]]
+            for reference_id in reference_ids:
+                lifecycle = (gold_by_id.get(reference_id) or {}).get("lifecycle")
+                if (
+                    isinstance(lifecycle, dict)
+                    and lifecycle.get("eligible") is not True
+                ):
+                    raise ValueError(
+                        "knowledge pack contains an ineligible reference: "
+                        + reference_id
+                    )
             prompt_cards = [
                 prompt_by_id[item]
                 for item in card["promptCardIds"]
@@ -407,6 +454,13 @@ class ReferenceRepository:
                         "measuredExampleCount": card["measuredExampleCount"],
                         "measuredOutcomeProvenance": card["measuredOutcomeProvenance"],
                         "policy": pack["policy"],
+                        "lifecycle": pattern_lifecycle,
+                        "referenceLifecycles": {
+                            reference_id: gold_by_id[reference_id].get("lifecycle")
+                            for reference_id in reference_ids
+                            if reference_id in gold_by_id
+                            and gold_by_id[reference_id].get("lifecycle") is not None
+                        },
                     },
                 }
             )
@@ -415,6 +469,76 @@ class ReferenceRepository:
             "runId": pack["packId"],
             "clusters": clusters,
         }
+
+    def _apply_knowledge_pack_invalidations(
+        self,
+        pack: dict[str, Any],
+        *,
+        now: str,
+        dry_run: bool,
+    ) -> tuple[int, int]:
+        invalidated_source_ids = {
+            str(value) for value in pack.get("invalidatedPatternIds") or []
+        }
+        if not invalidated_source_ids:
+            return 0, 0
+        affected_pattern_ids: list[str] = []
+        updates: list[tuple[str, str, str]] = []
+        rows = self.conn.execute(
+            "SELECT id, raw_json FROM reference_patterns ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            raw = json_load(row["raw_json"], {})
+            bank = raw.get("bank") if isinstance(raw, dict) else None
+            knowledge = bank.get("knowledge") if isinstance(bank, dict) else None
+            source_pattern_id = (
+                str(knowledge.get("patternCardId") or "")
+                if isinstance(knowledge, dict)
+                else ""
+            )
+            if source_pattern_id not in invalidated_source_ids:
+                continue
+            affected_pattern_ids.append(str(row["id"]))
+            if isinstance(knowledge, dict):
+                knowledge["lifecycle"] = {
+                    "status": "invalidated",
+                    "eligible": False,
+                    "sourcePackId": pack["packId"],
+                }
+            updates.append(
+                (
+                    json.dumps(raw, ensure_ascii=False, sort_keys=True),
+                    now,
+                    str(row["id"]),
+                )
+            )
+        if dry_run or not affected_pattern_ids:
+            link_count = sum(
+                int(
+                    self.conn.execute(
+                        """
+                        SELECT COUNT(*) FROM campaign_reference_plans
+                        WHERE reference_pattern_id=?
+                        """,
+                        (pattern_id,),
+                    ).fetchone()[0]
+                )
+                for pattern_id in affected_pattern_ids
+            )
+            return len(affected_pattern_ids), link_count
+        self.conn.executemany(
+            "UPDATE reference_patterns SET raw_json=?, updated_at=? WHERE id=?",
+            updates,
+        )
+        placeholders = ",".join("?" for _ in affected_pattern_ids)
+        cursor = self.conn.execute(
+            f"""
+            DELETE FROM campaign_reference_plans
+            WHERE reference_pattern_id IN ({placeholders})
+            """,
+            tuple(affected_pattern_ids),
+        )
+        return len(affected_pattern_ids), max(cursor.rowcount, 0)
 
     def _validate_knowledge_pack_fingerprint(self, pack: dict[str, Any]) -> None:
         core = {
@@ -494,11 +618,28 @@ class ReferenceRepository:
             "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT ?",
             (max(1, min(limit, 1000)),),
         ).fetchall()
+        eligible_rows = [
+            row for row in rows if self._reference_pattern_row_is_eligible(row)
+        ]
         return {
             "schema": "campaign_factory.reference_patterns.v1",
-            "count": len(rows),
-            "patterns": [self.reference_pattern_payload(dict(row)) for row in rows],
+            "count": len(eligible_rows),
+            "patterns": [
+                self.reference_pattern_payload(dict(row)) for row in eligible_rows
+            ],
         }
+
+    @staticmethod
+    def _reference_pattern_row_is_eligible(row: sqlite3.Row | dict[str, Any]) -> bool:
+        raw = json_load(row["raw_json"], {})
+        bank = raw.get("bank") if isinstance(raw, dict) else None
+        knowledge = bank.get("knowledge") if isinstance(bank, dict) else None
+        lifecycle = knowledge.get("lifecycle") if isinstance(knowledge, dict) else None
+        if not isinstance(lifecycle, dict):
+            return True
+        return lifecycle.get("eligible") is not False and lifecycle.get(
+            "status"
+        ) not in {"superseded", "invalidated"}
 
     def reference_pattern_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row.get("raw_json") or "{}", {})
@@ -551,13 +692,25 @@ class ReferenceRepository:
                 "SELECT * FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)
             ).fetchone()
         else:
-            pattern_row = self.conn.execute(
-                "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT 1"
-            ).fetchone()
+            pattern_row = next(
+                (
+                    row
+                    for row in self.conn.execute(
+                        """
+                        SELECT * FROM reference_patterns
+                        ORDER BY COALESCE(rank, 999999), label
+                        """
+                    ).fetchall()
+                    if self._reference_pattern_row_is_eligible(row)
+                ),
+                None,
+            )
         if not pattern_row:
             raise ValueError(
                 "reference pattern not found; run import-reference-bank first"
             )
+        if not self._reference_pattern_row_is_eligible(pattern_row):
+            raise ValueError("reference pattern is invalidated or superseded")
         now = self._utc_now()
         plan_id = self._new_id("refplan")
         self.conn.execute(
@@ -616,6 +769,8 @@ class ReferenceRepository:
         plans = []
         for row in rows:
             row_dict = dict(row)
+            if not self._reference_pattern_row_is_eligible(row_dict):
+                continue
             pattern = self.reference_pattern_payload(row_dict)
             plans.append(
                 {
@@ -688,7 +843,9 @@ class ReferenceRepository:
             """,
             (campaign_id,),
         ).fetchone()
-        return self.reference_pattern_payload(dict(row)) if row else None
+        if row is None or not self._reference_pattern_row_is_eligible(row):
+            return None
+        return self.reference_pattern_payload(dict(row))
 
     def reference_hooks(
         self, pattern: dict[str, Any], count: int = 5

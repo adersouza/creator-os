@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from campaign_factory import app as app_module
+from campaign_factory.config import Settings
 from fastapi.testclient import TestClient
 
 
@@ -30,7 +31,7 @@ def test_optional_request_bodies_use_distinct_default_dicts(handler):
     assert first is not second
 
 
-def test_optional_request_bodies_can_be_omitted(monkeypatch):
+def test_optional_request_bodies_can_be_omitted(monkeypatch, tmp_path):
     class Recommendations:
         def accept_recommendation_item(self, _item_id, **kwargs):
             return kwargs
@@ -64,6 +65,17 @@ def test_optional_request_bodies_can_be_omitted(monkeypatch):
             return None
 
     monkeypatch.setattr(app_module, "factory", FakeFactory)
+    monkeypatch.setattr(
+        app_module,
+        "settings",
+        Settings(
+            root=tmp_path,
+            db_path=tmp_path / "campaign_factory.sqlite",
+            reel_factory_root=tmp_path / "reel",
+            reference_reels_root=tmp_path / "reference",
+        ),
+    )
+    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "request-defaults-test-token")
     client = TestClient(app_module.app)
 
     for path in (
@@ -75,5 +87,11 @@ def test_optional_request_bodies_can_be_omitted(monkeypatch):
         "/api/exceptions/exception_1/snooze",
         "/api/exceptions/exception_1/reopen",
     ):
-        response = client.post(path)
+        response = client.post(
+            path,
+            headers={
+                "Authorization": "Bearer request-defaults-test-token",
+                "Idempotency-Key": f"request-defaults:{path}",
+            },
+        )
         assert response.status_code == 200, (path, response.text)

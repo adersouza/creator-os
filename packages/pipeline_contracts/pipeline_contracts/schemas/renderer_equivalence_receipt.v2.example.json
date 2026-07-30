@@ -1,0 +1,117 @@
+{
+  "schema": "creator_os.renderer_equivalence_receipt.v2",
+  "qualificationId": "renderer_qualification_29bbfef2ade17450759e51b7",
+  "mediaClass": "video:h264:1080x1920:30",
+  "toolchain": {
+    "repositorySha": "1234567",
+    "rendererImplementationSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "ffmpeg": {
+      "path": "/opt/bin/ffmpeg",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "version": "ffmpeg version 8.0",
+      "capabilitiesSha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "ffprobe": {
+      "path": "/opt/bin/ffprobe",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "version": "ffprobe version 8.0",
+      "capabilitiesSha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "fonts": [
+      {
+        "ref": "fonts/InstagramSansCondensed-Bold.woff2",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      }
+    ],
+    "fontsFingerprint": "7777777777777777777777777777777777777777777777777777777777777777",
+    "host": {
+      "system": "Darwin",
+      "release": "25.0.0",
+      "machine": "arm64",
+      "python": "3.12.0",
+      "hostInstanceSha256": "8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "hostFingerprint": "9999999999999999999999999999999999999999999999999999999999999999",
+    "codecPolicy": {
+      "videoCodec": "libx264",
+      "pixelFormat": "yuv420p",
+      "imageJpegQuality": 95,
+      "identityAudioPolicy": "copy_if_present"
+    },
+    "codecPolicyFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "encoderSettingsSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "audioEmbedderSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "qcPolicySha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "fixture": {
+    "fixtureId": "control_ffffffffffffffffffffffff",
+    "kind": "exact_control_bytes",
+    "inputSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "deterministicInput": true
+  },
+  "equivalencePolicy": {
+    "policyId": "reel_factory.renderer_equivalence",
+    "policyVersion": "2.0.0",
+    "qualificationScope": "exact_toolchain_and_host",
+    "crossMachineByteReproducibility": "not_claimed",
+    "byteIdentityRequired": false,
+    "minimumSsim": 0.995,
+    "maximumDurationDeltaFrames": 1,
+    "requiredStreamChecks": [
+      "dimensions",
+      "frame_rate",
+      "duration",
+      "audio_policy"
+    ]
+  },
+  "source": {
+    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "mediaType": "video",
+    "byteSize": 1000,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationSeconds": 6,
+    "audioPresent": true
+  },
+  "identityOutput": {
+    "sha256": "abababababababababababababababababababababababababababababababab",
+    "mediaType": "video",
+    "byteSize": 900,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationSeconds": 6,
+    "audioPresent": true
+  },
+  "checks": {
+    "dimensionsEqual": true,
+    "frameRateEqual": true,
+    "durationWithinOneFrame": true,
+    "audioPolicyEqual": true
+  },
+  "measurements": {
+    "ssim": 0.999,
+    "byteIdentical": false,
+    "durationDeltaSeconds": 0,
+    "durationDeltaFrames": 0
+  },
+  "qcEvidence": {
+    "evaluated": true,
+    "policySha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "baselineReport": {
+      "path": "/evidence/control.baseline_qc.json",
+      "sha256": "edededededededededededededededededededededededededededededededed"
+    },
+    "identityReport": {
+      "path": "/evidence/control.identity_qc.json",
+      "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    },
+    "newBlockingCodes": []
+  },
+  "qcRegression": false,
+  "status": "qualified",
+  "qualifiedAt": "2026-07-30T12:00:00Z",
+  "receiptFingerprint": "21521abbaa95f476a87e91e1ddd55eae1af5d93c3d216620c516706c1ebdf525"
+}

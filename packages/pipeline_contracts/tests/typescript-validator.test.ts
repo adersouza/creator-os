@@ -24,6 +24,7 @@ import {
 	validatePostMetricHistoryRead,
 	validateReferenceVideoMotionAnalysis,
 	validateReferenceVideoRemixPlan,
+	validateRendererEquivalenceReceiptV2,
 	validateRepurposingPlan,
 	validateRecommendationAccuracyReport,
 	validateVariantAssignment,
@@ -121,6 +122,31 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validateContentIntent(thinEvidenceExample("content_intent"))).toEqual([]);
 		expect(validateBenchmarkRecipe(thinEvidenceExample("benchmark_recipe"))).toEqual([]);
 		expect(validateAnalyzerRegistry(thinEvidenceExample("analyzer_registry"))).toEqual([]);
+	});
+
+	it("dispatches analyzer registry v2 through the public TypeScript API", () => {
+		const registry = JSON.parse(
+			readFileSync(
+				resolve(schemaRoot, "analyzer_registry.v2.example.json"),
+				"utf-8",
+			),
+		);
+		expect(validateAnalyzerRegistry(registry)).toEqual([]);
+	});
+
+	it("validates renderer equivalence v2 semantics and canonical binding", () => {
+		const receipt = versionedExample("renderer_equivalence_receipt", 2);
+		expect(validateRendererEquivalenceReceiptV2(receipt)).toEqual([]);
+
+		receipt.equivalencePolicy.minimumSsim = 1;
+		expect(validateRendererEquivalenceReceiptV2(receipt)).toEqual(
+			expect.arrayContaining([expect.stringContaining("below declared minimumSsim")]),
+		);
+		receipt.equivalencePolicy.minimumSsim = 0.995;
+		receipt.qcEvidence.policySha256 = "0".repeat(64);
+		expect(validateRendererEquivalenceReceiptV2(receipt)).toEqual(
+			expect.arrayContaining([expect.stringContaining("does not match toolchain")]),
+		);
 	});
 
 	it("rejects incomplete thin evidence provenance and analyzer identity", () => {

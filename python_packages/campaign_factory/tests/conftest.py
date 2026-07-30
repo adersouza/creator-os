@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+os.environ.setdefault(
+    "CREATOR_OS_SOUL_ID_STACEY", "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+)
+os.environ.setdefault(
+    "CREATOR_OS_SOUL_ID_STACEY1", "5828d958-91dd-4d6d-8909-934503f47644"
+)
+os.environ.setdefault(
+    "CREATOR_OS_SOUL_ID_LARISSA", "44326567-b12c-410c-95b7-31891bb0629b"
+)
+os.environ.setdefault("CREATOR_OS_SOUL_ID_LOLA", "4c86c548-7aa5-4ad1-bc03-b94aa4ce8385")
 
 MONOREPO_ROOT = Path(__file__).resolve().parents[3]
 PIPELINE_CONTRACTS = MONOREPO_ROOT / "packages" / "pipeline_contracts"
@@ -25,6 +37,10 @@ if _TESTS_DIR not in sys.path:
 def allow_insecure_local_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ALLOW_INSECURE_LOCAL", "1")
     monkeypatch.delenv("CREATOR_OS_API_TOKEN", raising=False)
+    monkeypatch.setenv(
+        "CREATOR_OS_EVIDENCE_AUTH_SECRET",
+        "campaign-factory-test-evidence-secret-000000000000",
+    )
 
 
 @pytest.fixture(autouse=True)

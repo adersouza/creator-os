@@ -34,6 +34,19 @@ from reel_factory.derived_stills import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _paid_action_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "CREATOR_OS_SPEND_AUTH_SECRET",
+        "test-only-derived-still-spend-secret-32-bytes",
+    )
+    monkeypatch.setenv("CREATOR_OS_PAID_DAILY_CAP_USD", "100")
+    monkeypatch.setenv("CREATOR_OS_PAID_MONTHLY_CAP_USD", "1000")
+    monkeypatch.setenv("CREATOR_OS_CREATOR_DAILY_CAP_USD", "100")
+    monkeypatch.setenv("CREATOR_OS_CAMPAIGN_DAILY_CAP_USD", "100")
+    monkeypatch.setenv("CREATOR_OS_OPENAI_DAILY_CAP_USD", "100")
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

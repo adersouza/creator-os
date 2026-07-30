@@ -4,26 +4,37 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import json
 import math
 import mimetypes
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import urllib.error
 import urllib.request
 import uuid
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.provider_spend import (
+    build_paid_action_quote,
+    build_paid_action_spend_scope,
+    verify_authorization_v3,
+)
 from creator_os_core.runtime_paths import resolve_runtime_paths
 
+from .all_provider_cost import (
+    begin_paid_action_attempt,
+    budget_limits_from_env,
+    issue_paid_action_authorization,
+    reconcile_paid_action_cost,
+)
 from .cli_support import _load_env_file
+from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
 PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v3"
@@ -63,6 +74,10 @@ def build_openai_prompt_pack(
     api_key: str | None = None,
     cache_root: Path | None = None,
     external_call_authorized: bool = False,
+    cost_connection: sqlite3.Connection | None = None,
+    campaign_id: str | None = None,
+    run_id: str | None = None,
+    governance_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Ask one vision model for a Soul anchor and exact provider prompts."""
 
@@ -74,16 +89,34 @@ def build_openai_prompt_pack(
     )
     selected_model = model or os.environ.get("CREATOR_OS_OPENAI_PROMPT_MODEL", "gpt-5")
     instruction = _instruction(intent, bool(video))
+    image_sha256 = _sha256(image)
+    video_sha256 = _sha256(video) if video else None
+    prompt_inputs = {
+        "creator": creator.strip().lower(),
+        "intent": intent,
+        "creatorImageSha256": image_sha256,
+        "referenceVideoSha256": video_sha256,
+    }
+    prompt_governance = bind_campaign_prompt(
+        prompt_id="campaign.openai_recreation_pack",
+        version="3",
+        provider="openai",
+        model=selected_model,
+        compiled_prompt=instruction,
+        inputs=prompt_inputs,
+    )
     request_core = {
         "schema": "campaign_factory.openai_prompt_request.v1",
         "builderVersion": PROMPT_BUILDER_VERSION,
         "creator": creator.strip().lower(),
         "intent": intent,
         "model": selected_model,
-        "creatorImageSha256": _sha256(image),
-        "referenceVideoSha256": _sha256(video) if video else None,
+        "creatorImageSha256": image_sha256,
+        "referenceVideoSha256": video_sha256,
         "instruction": instruction,
+        "promptInputs": prompt_inputs,
         "responseSchema": _response_schema(),
+        "promptGovernance": prompt_governance,
     }
     request_fingerprint = _fingerprint(request_core)
     cache_path = _prompt_cache_path(request_fingerprint, cache_root=cache_root)
@@ -111,47 +144,108 @@ def build_openai_prompt_pack(
     key = api_key or _openai_api_key()
     if not key:
         raise RuntimeError("openai_prompt_generation_key_missing")
+    if cost_connection is None or not campaign_id or not run_id:
+        raise PermissionError("openai_prompt_unified_cost_context_required")
     authorization = _authorize_openai_prompt_call(
         request_core,
         request_fingerprint=request_fingerprint,
         cache_path=cache_path,
+        conn=cost_connection,
+        creator_id=creator.strip().lower(),
+        campaign_id=campaign_id,
+        run_id=run_id,
+        governance_context=governance_context,
+    )
+    attempt_id = str(authorization["attemptId"])
+    event_id = begin_paid_action_attempt(
+        cost_connection,
+        authorization=authorization["payload"],
+        secret=str(os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET") or ""),
+        attempt_id=attempt_id,
+        current_prompt_registry=PROMPT_REGISTRY,
+        compiled_prompt=instruction,
+        prompt_inputs=prompt_inputs,
     )
 
-    with tempfile.TemporaryDirectory(prefix="creator-os-prompt-frames-") as raw_tmp:
-        frames = _sample_frames(video, Path(raw_tmp)) if video else []
-        content: list[dict[str, Any]] = [
-            {"type": "input_text", "text": instruction},
-            {
-                "type": "input_image",
-                "detail": "high",
-                "image_url": _data_url(image),
-            },
-        ]
-        content.extend(
-            {
-                "type": "input_image",
-                "detail": "high",
-                "image_url": _data_url(frame),
-            }
-            for frame in frames
-        )
-        response = _post_responses(
-            {
-                "model": selected_model,
-                "store": False,
-                "max_output_tokens": 4000,
-                "input": [{"role": "user", "content": content}],
-                "text": {
-                    "format": {
-                        "type": "json_schema",
-                        "name": "creator_os_prompt_pack",
-                        "strict": True,
-                        "schema": _response_schema(),
-                    }
+    provider_call_started = False
+    try:
+        with tempfile.TemporaryDirectory(prefix="creator-os-prompt-frames-") as raw_tmp:
+            temp_root = Path(raw_tmp)
+            exact_image_url = _data_url_exact(image, image_sha256)
+            video_snapshot = (
+                _snapshot_exact_file(
+                    video,
+                    expected_sha256=str(video_sha256),
+                    destination=temp_root / f"reference-video{video.suffix}",
+                )
+                if video is not None
+                else None
+            )
+            frames = (
+                _sample_frames(video_snapshot, temp_root)
+                if video_snapshot is not None
+                else []
+            )
+            content: list[dict[str, Any]] = [
+                {"type": "input_text", "text": instruction},
+                {
+                    "type": "input_image",
+                    "detail": "high",
+                    "image_url": exact_image_url,
                 },
-            },
-            api_key=key,
+            ]
+            content.extend(
+                {
+                    "type": "input_image",
+                    "detail": "high",
+                    "image_url": _data_url_exact(frame, _sha256(frame)),
+                }
+                for frame in frames
+            )
+            provider_call_started = True
+            response = _post_responses(
+                {
+                    "model": selected_model,
+                    "store": False,
+                    "max_output_tokens": 4000,
+                    "input": [{"role": "user", "content": content}],
+                    "text": {
+                        "format": {
+                            "type": "json_schema",
+                            "name": "creator_os_prompt_pack",
+                            "strict": True,
+                            "schema": _response_schema(),
+                        }
+                    },
+                },
+                api_key=key,
+            )
+    except Exception:
+        reconcile_paid_action_cost(
+            cost_connection,
+            event_id=event_id,
+            actual_usd=None if provider_call_started else 0,
+            unknown_reason=(
+                "provider_outcome_ambiguous" if provider_call_started else None
+            ),
         )
+        raise
+    response_cost = _response_cost(response)
+    cost_ledger = reconcile_paid_action_cost(
+        cost_connection,
+        event_id=event_id,
+        actual_usd=(
+            float(response_cost["usd"])
+            if response_cost.get("status") == "reported"
+            else None
+        ),
+        provider_reference=str(response.get("id") or "") or None,
+        unknown_reason=(
+            "provider_cost_not_exposed"
+            if response_cost.get("status") != "reported"
+            else None
+        ),
+    )
 
     value = _response_json(response)
     anchor_prompt = _validated_anchor_prompt(str(value["anchorPrompt"]))
@@ -184,15 +278,17 @@ def build_openai_prompt_pack(
             "requestFingerprint": request_fingerprint,
             "responseId": str(response.get("id") or "") or None,
             "usage": _json_record(response.get("usage")),
-            "cost": _response_cost(response),
+            "cost": response_cost,
+            "costLedger": cost_ledger,
             "authorization": authorization,
+            "promptGovernance": prompt_governance,
         },
         "creatorImage": {
-            "sha256": _sha256(image),
+            "sha256": image_sha256,
             "path": str(image),
         },
         "referenceVideo": (
-            {"sha256": _sha256(video), "path": str(video)} if video else None
+            {"sha256": video_sha256, "path": str(video)} if video else None
         ),
         "anchorPrompt": anchor_prompt,
         "seedancePrompt": seedance_prompt,
@@ -299,14 +395,31 @@ def compile_video_prompt(
         "openaiPromptPackFingerprint": prompt_pack["promptPackFingerprint"],
     }
     card["promptCardFingerprint"] = _fingerprint(card)
+    governance = bind_campaign_prompt(
+        prompt_id="campaign.recreation_provider_compile",
+        version="1",
+        provider=(
+            "higgsfield"
+            if provider_model in {"kling3_0_turbo", "seedance_2_0"}
+            else "any"
+        ),
+        model=provider_model,
+        compiled_prompt=prompt_text,
+        inputs={
+            "promptPackFingerprint": prompt_pack["promptPackFingerprint"],
+            "promptCardFingerprint": card["promptCardFingerprint"],
+        },
+    )
     return card, {
         "schema": "campaign_factory.openai_video_prompt.v1",
         "text": prompt_text,
+        "promptGovernance": governance,
         "compiledPromptFingerprint": _fingerprint(
             {
                 "text": prompt_text,
                 "promptPackFingerprint": prompt_pack["promptPackFingerprint"],
                 "providerModel": provider_model,
+                "promptGovernance": governance,
             }
         ),
     }
@@ -459,8 +572,13 @@ def _authorize_openai_prompt_call(
     *,
     request_fingerprint: str,
     cache_path: Path,
+    conn: sqlite3.Connection,
+    creator_id: str,
+    campaign_id: str,
+    run_id: str,
+    governance_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Persist and verify a signed one-call maximum before a paid API request."""
+    """Reserve unified budget and persist the signed one-call authorization."""
 
     secret = str(os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET") or "")
     if len(secret.encode()) < 32:
@@ -472,55 +590,51 @@ def _authorize_openai_prompt_call(
         raise RuntimeError("openai_prompt_spend_quote_missing") from exc
     if not math.isfinite(quote_usd) or quote_usd <= 0:
         raise RuntimeError("openai_prompt_spend_quote_missing")
-    issued = datetime.now(UTC)
-    authorization_id = f"openaiauth_{uuid.uuid4().hex}"
     attempt_id = f"openaiattempt_{uuid.uuid4().hex}"
-    core = {
-        "schema": "campaign_factory.openai_prompt_spend_authorization.v1",
-        "authorizationId": authorization_id,
-        "attemptId": attempt_id,
-        "issuer": "campaign_factory",
-        "status": "authorized",
-        "issuedAt": issued.isoformat(),
-        "expiresAt": (issued + timedelta(minutes=5)).isoformat(),
-        "scope": {
-            "provider": "openai",
-            "model": request_core["model"],
-            "operation": "recreation_prompt_pack",
-            "requestFingerprint": request_fingerprint,
+    scope = build_paid_action_spend_scope(
+        provider="openai",
+        provider_model=str(request_core["model"]),
+        action_type="recreation_prompt_pack",
+        creator_id=creator_id,
+        campaign_id=campaign_id,
+        run_id=run_id,
+        input_fingerprints={
+            "prompt_request": request_fingerprint,
+            "creator_image": str(request_core["creatorImageSha256"]),
+            **(
+                {"reference_video": str(request_core["referenceVideoSha256"])}
+                if request_core.get("referenceVideoSha256")
+                else {}
+            ),
+        },
+        parameters={
             "maximumCalls": 1,
-            "creatorImageSha256": request_core["creatorImageSha256"],
-            "referenceVideoSha256": request_core["referenceVideoSha256"],
+            "builderVersion": request_core["builderVersion"],
         },
-        "quote": {
-            "provider": "openai",
-            "model": request_core["model"],
-            "amount": quote_usd,
-            "unit": "USD",
-            "quoteClass": "operator_configured_maximum",
-            "source": "CREATOR_OS_OPENAI_PROMPT_QUOTE_USD",
-        },
-    }
-    signature = hmac.new(
-        secret.encode(),
-        _canonical_json(core).encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    receipt = {
-        **core,
-        "signature": {
-            "algorithm": "HMAC-SHA256",
-            "value": signature,
-        },
-    }
-    _verify_openai_prompt_authorization(
-        receipt,
+        prompt_governance=request_core["promptGovernance"],
+    )
+    quote = build_paid_action_quote(
+        provider="openai",
+        model=str(request_core["model"]),
+        amount=quote_usd,
+        source="CREATOR_OS_OPENAI_PROMPT_QUOTE_USD",
+        pricing_version="operator_configured_maximum.v1",
+    )
+    receipt = issue_paid_action_authorization(
+        conn,
+        scope=scope,
+        quote=quote,
         secret=secret,
-        request_fingerprint=request_fingerprint,
+        limits=budget_limits_from_env(provider="openai", run_cap_usd=quote_usd),
+        governance_context=governance_context,
+        current_prompt_registry=PROMPT_REGISTRY,
+        compiled_prompt=request_core["instruction"],
+        prompt_inputs=request_core["promptInputs"],
     )
     authorization_root = cache_path.parent / "authorizations"
     authorization_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(authorization_root, 0o700)
+    authorization_id = str(receipt["authorizationId"])
     receipt_path = authorization_root / f"{request_fingerprint}.{authorization_id}.json"
     receipt_text = json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n"
     atomic_write_text(receipt_path, receipt_text, encoding="utf-8")
@@ -530,11 +644,13 @@ def _authorize_openai_prompt_call(
         "attemptId": attempt_id,
         "status": "authorized",
         "requestFingerprint": request_fingerprint,
+        "spendRequestFingerprint": scope["requestFingerprint"],
         "maximumCalls": 1,
-        "quote": core["quote"],
+        "quote": quote,
         "receiptPath": str(receipt_path),
         "receiptSha256": hashlib.sha256(receipt_text.encode()).hexdigest(),
         "signatureAlgorithm": "HMAC-SHA256",
+        "payload": receipt,
     }
 
 
@@ -544,24 +660,19 @@ def _verify_openai_prompt_authorization(
     secret: str,
     request_fingerprint: str,
 ) -> None:
-    signature = receipt.get("signature")
-    if not isinstance(signature, dict) or signature.get("algorithm") != "HMAC-SHA256":
+    scope = receipt.get("scope")
+    if not isinstance(scope, dict):
         raise PermissionError("openai_prompt_spend_authorization_invalid")
-    core = {key: value for key, value in receipt.items() if key != "signature"}
-    expected = hmac.new(
-        secret.encode(),
-        _canonical_json(core).encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    scope = core.get("scope")
-    if (
-        not hmac.compare_digest(str(signature.get("value") or ""), expected)
-        or not isinstance(scope, dict)
-        or core.get("status") != "authorized"
-        or scope.get("requestFingerprint") != request_fingerprint
-        or scope.get("maximumCalls") != 1
-        or datetime.fromisoformat(str(core.get("expiresAt"))) <= datetime.now(UTC)
-    ):
+    try:
+        verify_authorization_v3(
+            receipt,
+            expected_scope=scope,
+            secret=secret,
+        )
+    except (ValueError, PermissionError) as exc:
+        raise PermissionError("openai_prompt_spend_authorization_invalid") from exc
+    inputs = scope.get("inputFingerprints")
+    if not isinstance(inputs, dict) or request_fingerprint not in inputs.values():
         raise PermissionError("openai_prompt_spend_authorization_invalid")
 
 
@@ -635,9 +746,29 @@ def _sample_frames(video: Path, output_dir: Path, *, count: int = 6) -> list[Pat
     return frames
 
 
-def _data_url(path: Path) -> str:
+def _data_url_exact(path: Path, expected_sha256: str) -> str:
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise PermissionError("openai_prompt_creator_image_sha256_mismatch")
     mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
-    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+    return f"data:{mime};base64,{base64.b64encode(content).decode()}"
+
+
+def _snapshot_exact_file(
+    source: Path,
+    *,
+    expected_sha256: str,
+    destination: Path,
+) -> Path:
+    digest = hashlib.sha256()
+    with source.open("rb") as source_handle, destination.open("xb") as output:
+        for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+            output.write(chunk)
+    if digest.hexdigest() != expected_sha256:
+        destination.unlink(missing_ok=True)
+        raise PermissionError("openai_prompt_reference_video_sha256_mismatch")
+    return destination
 
 
 def _validated_anchor_prompt(value: str) -> str:

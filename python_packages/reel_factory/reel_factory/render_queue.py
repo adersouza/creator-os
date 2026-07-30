@@ -61,11 +61,19 @@ class RenderQueue:
         return str(row["job_id"])
 
     def claim(self, worker_id: str) -> dict[str, Any] | None:
+        if not str(worker_id).strip():
+            raise ValueError("worker_id is required")
         now = int(time.time())
+        self.conn.execute("BEGIN IMMEDIATE")
         row = self.conn.execute(
-            "SELECT * FROM queue_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+            """
+            SELECT * FROM queue_jobs
+            WHERE status = 'queued' AND attempts < max_attempts
+            ORDER BY created_at, job_id LIMIT 1
+            """
         ).fetchone()
         if row is None:
+            self.conn.commit()
             return None
         cur = self.conn.execute(
             """
@@ -76,6 +84,7 @@ class RenderQueue:
             (worker_id, now, now, row["job_id"]),
         )
         if cur.rowcount == 0:
+            self.conn.commit()
             return None
         self._record_event(
             str(row["job_id"]),
@@ -114,17 +123,25 @@ class RenderQueue:
         self.conn.commit()
 
     def heartbeat(self, job_id: str, worker_id: str) -> None:
-        self.conn.execute(
+        cur = self.conn.execute(
             """
             UPDATE queue_jobs SET heartbeat_at = ?
             WHERE job_id = ? AND worker_id = ? AND status IN ('claimed', 'running')
             """,
             (int(time.time()), job_id, worker_id),
         )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise RuntimeError("render_queue_heartbeat_lease_mismatch")
         self.conn.commit()
 
     def finish(
-        self, job_id: str, status: str, *, error_text: str | None = None
+        self,
+        job_id: str,
+        status: str,
+        *,
+        worker_id: str,
+        error_text: str | None = None,
     ) -> None:
         if status not in {"succeeded", "failed", "interrupted"}:
             raise ValueError("finish status must be succeeded, failed, or interrupted")
@@ -132,19 +149,29 @@ class RenderQueue:
             "SELECT status, worker_id FROM queue_jobs WHERE job_id=?",
             (job_id,),
         ).fetchone()
-        if prior is None or prior["status"] not in {"claimed", "running"}:
+        if (
+            prior is None
+            or prior["status"] != "running"
+            or prior["worker_id"] != worker_id
+        ):
             raise RuntimeError("render_queue_job_not_active")
+        terminal_error = (
+            None
+            if status == "succeeded"
+            else (error_text or f"render queue ended as {status}")[-2000:]
+        )
         cur = self.conn.execute(
             """
             UPDATE queue_jobs
             SET status = ?, ended_at = ?, error_text = ?
-            WHERE job_id = ? AND status IN ('claimed', 'running')
+            WHERE job_id = ? AND status = 'running' AND worker_id = ?
             """,
             (
                 status,
                 int(time.time()),
-                error_text[-2000:] if error_text else None,
+                terminal_error,
                 job_id,
+                worker_id,
             ),
         )
         if cur.rowcount != 1:
@@ -154,46 +181,87 @@ class RenderQueue:
             job_id,
             old_status=str(prior["status"]),
             new_status=status,
-            actor=str(prior["worker_id"] or "worker"),
-            reason=error_text or "worker completed",
+            actor=worker_id,
+            reason=terminal_error or "worker completed",
         )
         self.conn.commit()
 
     def recover_stale(self, stale_after_sec: int = 300) -> int:
         cutoff = int(time.time()) - stale_after_sec
-        rows = self.conn.execute(
-            """
-            SELECT * FROM queue_jobs
-            WHERE status IN ('claimed', 'running') AND COALESCE(heartbeat_at, claimed_at, started_at, 0) < ?
-            """,
-            (cutoff,),
-        ).fetchall()
-        count = 0
-        for row in rows:
-            if int(row["attempts"]) < int(row["max_attempts"]):
-                self.conn.execute(
-                    "UPDATE queue_jobs SET status = 'queued', worker_id = NULL WHERE job_id = ?",
-                    (row["job_id"],),
+        if self.conn.in_transaction:
+            self.conn.commit()
+        with self.conn:
+            self.conn.execute("BEGIN IMMEDIATE")
+            rows = self.conn.execute(
+                """
+                SELECT * FROM queue_jobs
+                WHERE status IN ('claimed', 'running')
+                  AND COALESCE(heartbeat_at, claimed_at, started_at, 0) < ?
+                """,
+                (cutoff,),
+            ).fetchall()
+            count = 0
+            for row in rows:
+                observed_lease = next(
+                    (
+                        int(row[field])
+                        for field in ("heartbeat_at", "claimed_at", "started_at")
+                        if row[field] is not None
+                    ),
+                    0,
                 )
-                next_status = "queued"
-                reason = "stale worker lease released for retry"
-            else:
-                self.conn.execute(
-                    "UPDATE queue_jobs SET status = 'interrupted', ended_at = ?, error_text = ? WHERE job_id = ?",
-                    (int(time.time()), "worker heartbeat stale", row["job_id"]),
+                if int(row["attempts"]) < int(row["max_attempts"]):
+                    cur = self.conn.execute(
+                        """
+                        UPDATE queue_jobs SET status='queued', worker_id=NULL,
+                          claimed_at=NULL, started_at=NULL, ended_at=NULL,
+                          heartbeat_at=NULL, error_text=NULL
+                        WHERE job_id=? AND status=? AND worker_id IS ?
+                          AND COALESCE(heartbeat_at, claimed_at, started_at, 0)=?
+                          AND COALESCE(heartbeat_at, claimed_at, started_at, 0) < ?
+                        """,
+                        (
+                            row["job_id"],
+                            row["status"],
+                            row["worker_id"],
+                            observed_lease,
+                            cutoff,
+                        ),
+                    )
+                    next_status = "queued"
+                    reason = "stale worker lease released for retry"
+                else:
+                    cur = self.conn.execute(
+                        """
+                        UPDATE queue_jobs
+                        SET status='interrupted', ended_at=?, error_text=?
+                        WHERE job_id=? AND status=? AND worker_id IS ?
+                          AND COALESCE(heartbeat_at, claimed_at, started_at, 0)=?
+                          AND COALESCE(heartbeat_at, claimed_at, started_at, 0) < ?
+                        """,
+                        (
+                            int(time.time()),
+                            "worker heartbeat stale",
+                            row["job_id"],
+                            row["status"],
+                            row["worker_id"],
+                            observed_lease,
+                            cutoff,
+                        ),
+                    )
+                    next_status = "interrupted"
+                    reason = "stale worker lease exhausted attempts"
+                if cur.rowcount != 1:
+                    continue
+                self._record_event(
+                    str(row["job_id"]),
+                    old_status=str(row["status"]),
+                    new_status=next_status,
+                    actor="recovery",
+                    reason=reason,
                 )
-                next_status = "interrupted"
-                reason = "stale worker lease exhausted attempts"
-            self._record_event(
-                str(row["job_id"]),
-                old_status=str(row["status"]),
-                new_status=next_status,
-                actor="recovery",
-                reason=reason,
-            )
-            count += 1
-        self.conn.commit()
-        return count
+                count += 1
+            return count
 
     def status(self) -> dict[str, Any]:
         rows = self.conn.execute(

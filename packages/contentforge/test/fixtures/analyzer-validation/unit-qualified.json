@@ -1,0 +1,23 @@
+{
+  "schema": "contentforge.analyzer_validation_manifest.v1",
+  "datasetId": "contentforge.unit_test_authority.v1",
+  "datasetOwner": "contentforge_test",
+  "scope": "isolated analyzer behavior fixtures only; never production authority",
+  "executableQualification": {
+    "command": "node --test packages/contentforge/test/trusted-media-analysis.test.js",
+    "status": "qualified",
+    "blockingReasons": []
+  },
+  "fixtures": [
+    {
+      "ref": "packages/contentforge/test/fixtures/detector-calibration/media_pairs.json",
+      "sha256": "c87901887f0d223e540b34e173b007ddedaf1dfe9708e01e209c837848ac4af6"
+    }
+  ],
+  "excludedClaims": [
+    "production analyzer authority",
+    "creator identity approval",
+    "creative approval",
+    "publication authorization"
+  ]
+}

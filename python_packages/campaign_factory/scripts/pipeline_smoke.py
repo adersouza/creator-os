@@ -8,8 +8,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from campaign_factory.config import get_settings
+from campaign_factory.core import CampaignFactory
+from campaign_factory.creator_governance import resolve_campaign_operation
 from campaign_factory.pipeline_smoke import run_pipeline_smoke
 from campaign_factory.real_provider_acceptance import (
+    ACCEPTANCE_COHORT_ID,
     JsonCommandAcceptanceSeams,
     run_real_provider_acceptance,
 )
@@ -57,13 +61,32 @@ def main() -> None:
             )
         if not args.target_environment:
             raise SystemExit("--target-environment is required with --real-providers")
-        result = run_real_provider_acceptance(
-            workspace=Path(args.workspace),
-            target_environment=args.target_environment,
-            paid_confirmation=args.paid_confirmation,
-            max_credits=args.max_credits,
-            seams=JsonCommandAcceptanceSeams(args.driver_command),
-        )
+        factory = CampaignFactory(get_settings())
+        try:
+            campaign = factory.conn.execute(
+                "SELECT id FROM campaigns WHERE slug = ?",
+                (ACCEPTANCE_COHORT_ID,),
+            ).fetchone()
+            if campaign is None:
+                raise SystemExit(
+                    "the governed Stacey learning cohort campaign is missing"
+                )
+            identity_context = resolve_campaign_operation(
+                factory.conn,
+                campaign_id=str(campaign["id"]),
+                operation="provider_spend",
+                provider="higgsfield",
+            )
+            result = run_real_provider_acceptance(
+                workspace=Path(args.workspace),
+                target_environment=args.target_environment,
+                paid_confirmation=args.paid_confirmation,
+                max_credits=args.max_credits,
+                seams=JsonCommandAcceptanceSeams(args.driver_command),
+                identity_context=identity_context,
+            )
+        finally:
+            factory.close()
     else:
         result = run_pipeline_smoke(
             projects_root=Path(args.projects_root),

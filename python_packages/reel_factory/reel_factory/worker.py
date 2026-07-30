@@ -40,6 +40,7 @@ async def _run_one(queue: Any, worker_id: str) -> bool:
     queue.finish(
         job["job_id"],
         "succeeded" if rc == 0 else "failed",
+        worker_id=worker_id,
         error_text=None if rc == 0 else last,
     )
     return True

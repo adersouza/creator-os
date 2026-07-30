@@ -1,0 +1,287 @@
+{
+  "schema": "contentforge.analyzer_authority_policy.v2",
+  "authorityVersion": 2,
+  "datasetId": "contentforge.production_authority.v2",
+  "datasetManifestRef": "packages/contentforge/analyzer-validation/production-authority-v2.json",
+  "datasetOwner": "contentforge",
+  "qualifiedAt": "2026-07-20T00:00:00Z",
+  "renewAt": "2027-01-20T00:00:00Z",
+  "operator": "creator_os_release_owner",
+  "analyzers": [
+    {
+      "analyzerId": "contentforge.audio_integrity",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["audio_integrity_observation"],
+      "approvedImplementationFingerprint": "95671fef4d1c1439734921c855119d0a369bf4fdc3b9fcd1b161778402376bf1",
+      "model": {
+        "modelId": "local_media_toolchain",
+        "modelFingerprint": "226f0eca5e124aabac9e69c6341844ce9142aeb2c2d6ccd421ca636514cc82a7"
+      },
+      "thresholds": {"audioStreamProbeRequired": true},
+      "thresholdsFingerprint": "330dd8b0ab04458a5d59947e0d306113ecf3d89808c54cdff36702aaff70ae34",
+      "falsePositiveBudget": 0.02,
+      "falseNegativeBudget": 0.01,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "audio_stream_integrity"],
+      "unsupportedUseCases": ["speech_identity", "music_rights"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_audio_integrity_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "7bd35bc99a03014acff93c17cd39d45ec5a46eb9ba8ef32130c8f0b27742ed36"
+      }
+    },
+    {
+      "analyzerId": "contentforge.local_face_mouth_track",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["face_mouth_track_observation"],
+      "approvedImplementationFingerprint": "0d4a807fa94462709b9302a02ee53417dc5fa0e001d802fde1047802fc0c1b1b",
+      "model": {
+        "modelId": "apple_vision_face_landmarks",
+        "modelFingerprint": "441c514900f2abfeabfedbb31564edd77cdccd9ade7d2c3ee5b73b1714cb8258"
+      },
+      "thresholds": {"minimumFaceCoverage": 0.6, "minimumSamples": 36},
+      "thresholdsFingerprint": "a2e545645977ba6b7a8e346dd80a29e84f7b5c3505d420173ea5d62a76239504",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "technical_face_mouth_tracking"],
+      "unsupportedUseCases": ["identity_approval", "anatomy_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_local_face_mouth_track_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "1a283b7dd630dc82e2fabb43f15ad6bf3fce2b54939ce354350e3e04d4028b5a"
+      }
+    },
+    {
+      "analyzerId": "contentforge.local_lip_sync",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["lip_sync_observation"],
+      "approvedImplementationFingerprint": "95671fef4d1c1439734921c855119d0a369bf4fdc3b9fcd1b161778402376bf1",
+      "model": {
+        "modelId": "apple_vision_face_landmarks",
+        "modelFingerprint": "441c514900f2abfeabfedbb31564edd77cdccd9ade7d2c3ee5b73b1714cb8258"
+      },
+      "thresholds": {
+        "minimumFaceCoverage": 0.6,
+        "minimumSamples": 36,
+        "maximumOffsetMs": 120,
+        "minimumStatisticalConfidence": 0.95
+      },
+      "thresholdsFingerprint": "d899de9db144a56f23dde5b0b7cb96c1c9850cd598d65799132764e8d190f7a7",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "technical_lip_sync"],
+      "unsupportedUseCases": ["voice_identity_approval", "creative_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_local_lip_sync_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "2aa3a9d8a3cc4c9bbaff537e3e58284315113beb3476c91c88ab31d0d1f30507"
+      }
+    },
+    {
+      "analyzerId": "contentforge.media_integrity",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["media_integrity_observation"],
+      "approvedImplementationFingerprint": "95671fef4d1c1439734921c855119d0a369bf4fdc3b9fcd1b161778402376bf1",
+      "model": {
+        "modelId": "local_media_toolchain",
+        "modelFingerprint": "226f0eca5e124aabac9e69c6341844ce9142aeb2c2d6ccd421ca636514cc82a7"
+      },
+      "thresholds": {"videoStreamRequired": true, "durationRequired": true},
+      "thresholdsFingerprint": "118e6d24c9869f3ed1346769775a1619fd0b41c9985c7a1cfde7ac84ce1da6f9",
+      "falsePositiveBudget": 0.01,
+      "falseNegativeBudget": 0.01,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "media_stream_integrity"],
+      "unsupportedUseCases": ["identity_approval", "creative_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_media_integrity_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "ecbce6f3bd64d37f1774fe4e4ec0bc7e137a8f85e4beef0685b00cf3522989de"
+      }
+    },
+    {
+      "analyzerId": "contentforge.motion_specific_qc",
+      "analyzerVersion": "2.0.0",
+      "evidenceKinds": ["motion_specific_qc_receipt"],
+      "approvedImplementationFingerprint": "96e00f7e78ec115afdabaa634dca1c660e266365e75e9e24af5b18514ae9fe7d",
+      "model": {
+        "modelId": "deterministic_policy",
+        "modelFingerprint": "734b16fef3c7a575c578527ac42b75d937518bb4cf15c9da5cbf1b32d81bb11e"
+      },
+      "thresholds": {
+        "minMotionScore": 0.03,
+        "subtleMotionMax": 0.18,
+        "moderateMotionMax": 0.5,
+        "maxTemporalDiscontinuityScore": 0.25,
+        "maxFrozenFrameRatio": 0.2,
+        "maxLoopSeamScore": 0.25,
+        "maxFaceAnomalyScore": 0.25,
+        "maxHandAnomalyScore": 0.3,
+        "maxBodyAnomalyScore": 0.25,
+        "minIdentitySimilarityScore": 0.75,
+        "minLipSyncConfidence": 0.65,
+        "maxLipSyncOffsetMs": 120,
+        "minAudioAlignmentConfidence": 0.65,
+        "maxAudioAlignmentOffsetMs": 120
+      },
+      "thresholdsFingerprint": "b9c0e0e8b19435dfcd8aaee4eec45ee37014b313361fdb8687e1d1f5c3431e6c",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "generated_motion_technical_qc"],
+      "unsupportedUseCases": ["publication_authorization", "creative_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_motion_specific_qc_2_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "5de83a4cc7a69a04a4732feef653ef92de8d7831afadd970e1c4b7b706e1afbe"
+      }
+    },
+    {
+      "analyzerId": "contentforge.overlay_delivery",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["overlay_delivery_observation"],
+      "approvedImplementationFingerprint": "7213988b016e9b7ff0901b3a7b283497df7e419ee810a179b00c2cd90d4e70c6",
+      "model": {
+        "modelId": "local_ocr_and_geometry",
+        "modelFingerprint": "874ab2ae23b9551097926fc33ec4e5a12f254c26b107bedd51348a4a99778b29"
+      },
+      "thresholds": {
+        "fullDurationSamplingRequired": true,
+        "safeLaneRequired": true,
+        "semanticCompletenessRequired": true
+      },
+      "thresholdsFingerprint": "8500a839c79fa1c94c11edc0e6aa6c3b98d5c5d7eda707ea3d74575e3014ac3b",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "burned_overlay_delivery_qc"],
+      "unsupportedUseCases": ["post_caption_review", "creative_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_overlay_delivery_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "2a0e7fafcb933f91fcbeb5a66b38168246b9c98db3801aa0c1f227fa5816e7c2"
+      }
+    },
+    {
+      "analyzerId": "contentforge.pose_continuity",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["pose_continuity_observation"],
+      "approvedImplementationFingerprint": "b8f80c1874ba603435c686b303e044ad904466096c11192a3e1dc32f81d3f925",
+      "model": {
+        "modelId": "apple_vision_body_and_hand_pose",
+        "modelFingerprint": "c4986186fc66f99eade362b18c20541bb03b0969c74eb985c81667abb593c301"
+      },
+      "thresholds": {"fullDurationSamplingRequired": true, "technicalContinuityOnly": true},
+      "thresholdsFingerprint": "22b2b84c6f18423b65ac87aec8f878e9aff4afa3c47955723340882e7fe55714",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "technical_pose_continuity"],
+      "unsupportedUseCases": ["identity_approval", "anatomy_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_pose_continuity_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "b2e51faba00d449c6007ed385dc3835f1c80c0bf42253c17eef1b2b352848835"
+      }
+    },
+    {
+      "analyzerId": "reel_factory.structured_human_media_review",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["human_media_review"],
+      "approvedImplementationFingerprint": "dedbd4b714f6a6b619ddd8fe3ee4be7a50b1a3e766eb86b6fbe6e11bd6545334",
+      "model": {
+        "modelId": "authenticated_human_review",
+        "modelFingerprint": "251a553d137ae55dfef3844ad0ad847e17f6db08b153d713cd04a4aa362208cf"
+      },
+      "thresholds": {"exactShaRequired": true, "identityAndAnatomyDecisionRequired": true},
+      "thresholdsFingerprint": "3bf60688e0b7aa5b31abdc0a305f70d9439c3843a761ce306667dc5838573bf7",
+      "falsePositiveBudget": 0,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "structured_human_media_review"],
+      "unsupportedUseCases": ["technical_stream_analysis", "publication_authorization"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_reel_factory_structured_human_media_review_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "c67e0dbf9fd065728bd09064d155095d73536d0b6003acda31e54f802f76751c"
+      }
+    },
+    {
+      "analyzerId": "contentforge.temporal_motion",
+      "analyzerVersion": "1.0.0",
+      "evidenceKinds": ["temporal_motion_observation"],
+      "approvedImplementationFingerprint": "95671fef4d1c1439734921c855119d0a369bf4fdc3b9fcd1b161778402376bf1",
+      "model": {
+        "modelId": "local_media_toolchain",
+        "modelFingerprint": "226f0eca5e124aabac9e69c6341844ce9142aeb2c2d6ccd421ca636514cc82a7"
+      },
+      "thresholds": {
+        "sampleFramesPerSecond": 8,
+        "sampleWidth": 180,
+        "sampleHeight": 320,
+        "frozenDeltaThreshold": 0.002,
+        "discontinuityAbsoluteFloor": 0.18,
+        "discontinuityMadScale": 6,
+        "discontinuityMinimumExcess": 0.05
+      },
+      "thresholdsFingerprint": "1ba2bb7031a4ce2774b108c84e99a00488d6e8198f4be3bf13079db811a7c4b5",
+      "falsePositiveBudget": 0.05,
+      "falseNegativeBudget": 0.05,
+      "lastQualification": "2026-07-20T00:00:00Z",
+      "nextRenewal": "2027-01-20T00:00:00Z",
+      "approvedUseCases": ["trusted_media_analysis_bundle", "temporal_motion_integrity"],
+      "unsupportedUseCases": ["identity_approval", "creative_approval"],
+      "rollbackVersion": "none_initial_authority",
+      "operator": "creator_os_release_owner",
+      "authorityReview": {
+        "reviewId": "authority_contentforge_temporal_motion_1_0_0",
+        "decision": "approved",
+        "reviewedAt": "2026-07-20T00:00:00Z",
+        "approvedChangeClasses": ["initial_authority"],
+        "reviewedMaterialFingerprint": "c2245275917fee9892024e96bdc8164fc23fa39b2a5ea75eed3e33f792e5c0d6"
+      }
+    }
+  ]
+}
