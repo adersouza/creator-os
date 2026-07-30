@@ -19,9 +19,14 @@ from creator_os_core.recreation_anchor_approval import (
 from .cost_tracker import ensure_cost_table
 from .production_prompts import CREATOR_SOUL_IDS
 from .provider_spend import (
+    HiggsfieldCliBalanceProvider,
+    cancel_provider_spend_authorization,
     consume_provider_spend_authorization,
     ensure_authorization_table,
     issue_provider_spend_authorization,
+    load_provider_spend_authorization,
+    record_provider_execution,
+    validate_provider_spend_batch_capacity,
 )
 
 
@@ -58,30 +63,48 @@ def higgsfield_request(
         ) from exc
     stage = list(job["productionRecipe"].get("stages") or [])[0]
     authorization = job.get("_higgsfieldAuthorization")
+    recovery = job.get("_higgsfieldRecovery")
     authorization_id = (
         str(authorization["authorizationId"])
         if isinstance(authorization, Mapping) and authorization.get("authorizationId")
-        else None
+        else (
+            str(recovery["authorizationId"])
+            if isinstance(recovery, Mapping) and recovery.get("authorizationId")
+            else None
+        )
     )
     provider_quote = (
         authorization.get("providerQuote")
         if isinstance(authorization, Mapping)
         and isinstance(authorization.get("providerQuote"), Mapping)
-        else None
+        else (
+            recovery.get("creditQuote")
+            if isinstance(recovery, Mapping)
+            and isinstance(recovery.get("creditQuote"), Mapping)
+            else None
+        )
     )
     work_item_id = str(job["jobId"])
     if stage["recipeId"] == "higgsfield_recreate_reel":
         anchor = _validated_recreation_anchor(job, creator=creator, soul_id=soul_id)
         source_approval = str(anchor["approvalFingerprint"])
+        source_approval_id = (
+            f"recreation_anchor_approval:{anchor['approvalFingerprint']}"
+        )
+        source_asset_id = f"sha256:{anchor['anchorFileSha256']}"
         source_image_path = Path(str(anchor["anchorFilePath"]))
     else:
         anchor = None
         source_approval_evidence = job.get("sourceApproval")
-        if not isinstance(source_approval_evidence, Mapping) or not str(
-            source_approval_evidence.get("approvalFingerprint") or ""
+        if (
+            not isinstance(source_approval_evidence, Mapping)
+            or not str(source_approval_evidence.get("approvalEventId") or "")
+            or not str(source_approval_evidence.get("approvalFingerprint") or "")
         ):
             raise PermissionError("exact_source_approval_fingerprint_required")
         source_approval = str(source_approval_evidence["approvalFingerprint"])
+        source_approval_id = str(source_approval_evidence["approvalEventId"])
+        source_asset_id = str(job["sourceAssetId"])
         source_image_path = Path(str(job["sourcePath"]))
     return HiggsfieldProductionRequest(
         recipe_id=(
@@ -92,6 +115,9 @@ def higgsfield_request(
         creator=creator,
         soul_id=soul_id,
         source_approval=source_approval,
+        source_asset_id=source_asset_id,
+        campaign_source_asset_id=str(job["sourceAssetId"]),
+        source_approval_id=source_approval_id,
         source_image_path=source_image_path,
         driving_video_path=(
             Path(str(job["referenceVideoPath"]))
@@ -119,6 +145,12 @@ def higgsfield_request(
         ),
         campaign=str(job["campaign"]),
         cohort_id=work_item_id,
+        prompt_card_fingerprint=(
+            str(job["promptCard"]["promptCardFingerprint"])
+            if isinstance(job.get("promptCard"), Mapping)
+            and job["promptCard"].get("promptCardFingerprint")
+            else None
+        ),
         prompt_builder_fingerprint=_fingerprint(
             {
                 "promptCardFingerprint": (
@@ -166,6 +198,7 @@ def higgsfield_spend_scope(
     job: Mapping[str, Any],
     *,
     provider_plan: Mapping[str, Any],
+    provider_quote: Mapping[str, Any],
 ) -> dict[str, Any]:
     scope = provider_plan.get("authorizationScope")
     if not isinstance(scope, Mapping):
@@ -176,7 +209,16 @@ def higgsfield_spend_scope(
         raise ValueError("higgsfield_provider_plan_fingerprint_mismatch")
     if scope.get("workItemId") != job.get("jobId"):
         raise ValueError("higgsfield_provider_plan_work_item_mismatch")
-    return dict(scope)
+    batch_snapshot_fingerprint = job.get(
+        "_higgsfieldBalanceSnapshotFingerprint"
+    ) or scope.get("batchBalanceSnapshotFingerprint")
+    if not batch_snapshot_fingerprint:
+        raise ValueError("higgsfield_batch_balance_snapshot_fingerprint_missing")
+    return {
+        **dict(scope),
+        "batchBalanceSnapshotFingerprint": str(batch_snapshot_fingerprint),
+        "quoteFingerprint": _fingerprint(dict(provider_quote)),
+    }
 
 
 def _validated_recreation_anchor(
@@ -216,6 +258,7 @@ def prepare_higgsfield_job_quotes(
     jobs: list[dict[str, Any]],
     *,
     max_total_credits: float,
+    persist_attempts: bool = False,
 ) -> list[dict[str, Any]]:
     """Perform authenticated read-only quoting without issuing spend authority."""
 
@@ -267,22 +310,59 @@ def prepare_higgsfield_job_quotes(
             continue
         if capabilities is None:
             capabilities = discover_higgsfield_production_capabilities()
-        request = higgsfield_request(candidate, max_credits=max_total_credits)
-        provider_plan = build_higgsfield_production_plan(
-            request,
-            capabilities=capabilities,
-        )
-        quote = quote_higgsfield_production_plan(provider_plan)
+        pipeline_job = None
+        attempt_id = f"quote:{job['jobId']}"
+        exact_candidate = candidate
+        if persist_attempts:
+            pipeline_job = factory.domains.events.create_pipeline_job(
+                "higgsfield_motion_generation",
+                str(campaign["id"]),
+                {
+                    "workItemId": job["jobId"],
+                    "sourceAssetId": job["sourceAssetId"],
+                    "sourceSha256": job["sourceSha256"],
+                    "provider": "higgsfield",
+                    "providerModel": list(
+                        job["productionRecipe"].get("stages") or [{}]
+                    )[0].get("providerModel"),
+                },
+            )
+            pipeline_job = factory.domains.events.start_pipeline_job(pipeline_job["id"])
+            attempt_id = str(pipeline_job["attempt_id"])
+            exact_candidate = {
+                **candidate,
+                "_providerPipelineJobId": str(pipeline_job["id"]),
+                "_providerAttemptId": attempt_id,
+            }
+        try:
+            request = higgsfield_request(
+                exact_candidate,
+                max_credits=max_total_credits,
+                attempt_id=attempt_id,
+            )
+            provider_plan = build_higgsfield_production_plan(
+                request,
+                capabilities=capabilities,
+            )
+            quote = quote_higgsfield_production_plan(provider_plan)
+        except Exception as exc:
+            _mark_unsubmitted_attempts_no_effect(
+                factory,
+                [*prepared, exact_candidate],
+                failure=type(exc).__name__,
+            )
+            raise
         amount = float(quote["amount"])
         total = round(total + amount, 4)
         prepared.append(
             {
-                **candidate,
+                **exact_candidate,
                 "quotedProviderCredits": amount,
                 "providerPlanFingerprint": provider_plan["providerRequestFingerprint"],
                 "providerExecutionFingerprint": provider_plan["executionFingerprint"],
                 "providerSubmitContract": provider_plan["command"],
                 "providerQuoteContract": provider_plan["quoteCommand"],
+                "_higgsfieldPlan": provider_plan,
                 "_higgsfieldCapabilities": capabilities,
                 "_higgsfieldQuote": quote,
                 "_campaignId": str(campaign["id"]),
@@ -290,6 +370,11 @@ def prepare_higgsfield_job_quotes(
             }
         )
     if total > max_total_credits:
+        _mark_unsubmitted_attempts_no_effect(
+            factory,
+            prepared,
+            failure="production_batch_quote_exceeds_total_credit_cap",
+        )
         raise PermissionError(
             "production_batch_quote_exceeds_total_credit_cap: "
             f"{total:.4f} > {max_total_credits:.4f}"
@@ -306,10 +391,41 @@ def authorize_higgsfield_jobs(
     """Quote and authorize the whole batch before the first paid submission."""
 
     prepared = prepare_higgsfield_job_quotes(
-        factory, jobs, max_total_credits=max_total_credits
+        factory,
+        jobs,
+        max_total_credits=max_total_credits,
+        persist_attempts=True,
     )
-    with file_lock(_provider_account_lock_path(factory)):
-        return _authorize_prepared_higgsfield_jobs(factory, prepared)
+    try:
+        with file_lock(_provider_account_lock_path(factory)):
+            return _authorize_prepared_higgsfield_jobs(factory, prepared)
+    except Exception as exc:
+        _mark_unsubmitted_attempts_no_effect(
+            factory,
+            prepared,
+            failure=type(exc).__name__,
+        )
+        raise
+
+
+def _mark_unsubmitted_attempts_no_effect(
+    factory: Any,
+    jobs: list[Mapping[str, Any]],
+    *,
+    failure: str,
+) -> None:
+    for job in jobs:
+        pipeline_job_id = str(job.get("_providerPipelineJobId") or "")
+        if not pipeline_job_id:
+            continue
+        pipeline_job = factory.domains.events.pipeline_job(pipeline_job_id)
+        if pipeline_job.get("effect_state") != "PRE_EFFECT":
+            continue
+        factory.domains.events.mark_pipeline_effect_state(
+            pipeline_job_id,
+            "NO_EFFECT_CONFIRMED",
+            evidence={"authorizationFailure": failure},
+        )
 
 
 def _authorize_prepared_higgsfield_jobs(
@@ -318,62 +434,70 @@ def _authorize_prepared_higgsfield_jobs(
 ) -> list[dict[str, Any]]:
     secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
     fresh = [job for job in prepared if job.get("_higgsfieldRecovery") is None]
-    balance_snapshot = _authorize_batch_balance(factory, fresh)
-    authorized: list[dict[str, Any]] = []
-    for job in prepared:
-        if job.get("_higgsfieldRecovery") is not None:
-            recovery = job["_higgsfieldRecovery"]
-            scope = _recovered_authorization_scope(
-                factory,
-                authorization_id=str(recovery["authorizationId"]),
-                provider_request_fingerprint=str(
-                    recovery["providerRequestFingerprint"]
-                ),
-            )
-            authorized.append(
-                {
-                    **job,
-                    "_higgsfieldSpendScope": scope,
-                    "_higgsfieldAuthorization": None,
-                    "_providerPipelineJobId": str(recovery["attemptId"]).split(":", 1)[
-                        0
-                    ],
-                }
-            )
-            continue
-        pipeline_job = factory.domains.events.create_pipeline_job(
-            "higgsfield_motion_generation",
-            str(job["_campaignId"]),
-            {
-                "workItemId": job["jobId"],
-                "sourceAssetId": job["sourceAssetId"],
-                "sourceSha256": job["sourceSha256"],
-                "provider": "higgsfield",
-                "providerModel": list(job["productionRecipe"].get("stages") or [{}])[
-                    0
-                ].get("providerModel"),
-            },
-        )
-        pipeline_job = factory.domains.events.start_pipeline_job(pipeline_job["id"])
-        attempt_id = str(pipeline_job["attempt_id"])
-        exact_job = {
-            **job,
-            "_providerPipelineJobId": str(pipeline_job["id"]),
-            "_providerAttemptId": attempt_id,
-            "_higgsfieldBalanceSnapshotFingerprint": balance_snapshot["fingerprint"],
-        }
-        from reel_factory.worker_api import build_higgsfield_production_plan
-
-        provider_plan = build_higgsfield_production_plan(
-            higgsfield_request(
-                exact_job,
-                max_credits=float(job["quotedProviderCredits"]),
-                attempt_id=attempt_id,
+    balance_snapshot = _authorize_batch_balance(
+        factory,
+        fresh,
+        provider_snapshot=_provider_balance_snapshot() if fresh else None,
+    )
+    batch_scopes = [
+        (
+            higgsfield_spend_scope(
+                job,
+                provider_plan=dict(job["_higgsfieldPlan"]),
+                provider_quote=dict(job["_higgsfieldQuote"]),
             ),
-            capabilities=dict(job["_higgsfieldCapabilities"]),
+            float(job["quotedProviderCredits"]),
         )
-        scope = higgsfield_spend_scope(exact_job, provider_plan=provider_plan)
-        try:
+        for job in fresh
+    ]
+    validate_provider_spend_batch_capacity(factory.conn, batch_scopes)
+    authorized: list[dict[str, Any]] = []
+    issued_authorization_ids: list[str] = []
+    try:
+        for job in prepared:
+            if job.get("_higgsfieldRecovery") is not None:
+                recovery = job["_higgsfieldRecovery"]
+                scope = _recovered_authorization_scope(
+                    factory,
+                    authorization_id=str(recovery["authorizationId"]),
+                    provider_request_fingerprint=str(
+                        recovery["providerRequestFingerprint"]
+                    ),
+                )
+                if scope.get("providerCommandFingerprint") != recovery.get(
+                    "providerCommandFingerprint"
+                ) or scope.get("quoteFingerprint") != _fingerprint(
+                    dict(recovery["creditQuote"])
+                ):
+                    raise PermissionError(
+                        "higgsfield_recovery_execution_binding_mismatch"
+                    )
+                authorized.append(
+                    {
+                        **job,
+                        "_higgsfieldSpendScope": scope,
+                        "_higgsfieldAuthorization": None,
+                        "_providerPipelineJobId": str(recovery["attemptId"]).split(
+                            ":", 1
+                        )[0],
+                    }
+                )
+                continue
+            pipeline_job = factory.domains.events.pipeline_job(
+                str(job["_providerPipelineJobId"])
+            )
+            exact_job = {
+                **job,
+                "_higgsfieldBalanceSnapshotFingerprint": balance_snapshot[
+                    "fingerprint"
+                ],
+            }
+            provider_plan = dict(job["_higgsfieldPlan"])
+            scope = higgsfield_spend_scope(
+                exact_job,
+                provider_plan=provider_plan,
+                provider_quote=dict(job["_higgsfieldQuote"]),
+            )
             authorization = issue_provider_spend_authorization(
                 factory.conn,
                 scope=scope,
@@ -383,36 +507,42 @@ def _authorize_prepared_higgsfield_jobs(
                 quote_provider=_BoundHiggsfieldQuote(job["_higgsfieldQuote"]),
                 balance_provider=_BoundHiggsfieldBalance(balance_snapshot["credits"]),
             )
-        except Exception as exc:
+            issued_authorization_ids.append(str(authorization["authorizationId"]))
             factory.domains.events.mark_pipeline_effect_state(
                 str(pipeline_job["id"]),
-                "NO_EFFECT_CONFIRMED",
-                evidence={"authorizationFailure": type(exc).__name__},
+                "PRE_EFFECT",
+                authorization_id=str(authorization["authorizationId"]),
+                evidence={
+                    "providerRequestFingerprint": provider_plan[
+                        "providerRequestFingerprint"
+                    ],
+                    "executionFingerprint": provider_plan["executionFingerprint"],
+                    "providerCommandFingerprint": scope["providerCommandFingerprint"],
+                    "quoteFingerprint": scope["quoteFingerprint"],
+                    "provider": "higgsfield",
+                    "model": provider_plan["selectedModel"],
+                    "batchBalanceSnapshot": balance_snapshot,
+                },
             )
-            raise
-        factory.domains.events.mark_pipeline_effect_state(
-            str(pipeline_job["id"]),
-            "PRE_EFFECT",
-            authorization_id=str(authorization["authorizationId"]),
-            evidence={
-                "providerRequestFingerprint": provider_plan[
-                    "providerRequestFingerprint"
-                ],
-                "executionFingerprint": provider_plan["executionFingerprint"],
-                "batchBalanceSnapshot": balance_snapshot,
-            },
-        )
-        authorized.append(
-            {
-                **exact_job,
-                "providerPlanFingerprint": provider_plan["providerRequestFingerprint"],
-                "providerExecutionFingerprint": provider_plan["executionFingerprint"],
-                "providerSubmitContract": provider_plan["command"],
-                "providerQuoteContract": provider_plan["quoteCommand"],
-                "_higgsfieldSpendScope": scope,
-                "_higgsfieldAuthorization": authorization,
-            }
-        )
+            authorized.append(
+                {
+                    **exact_job,
+                    "providerPlanFingerprint": provider_plan[
+                        "providerRequestFingerprint"
+                    ],
+                    "providerExecutionFingerprint": provider_plan[
+                        "executionFingerprint"
+                    ],
+                    "providerSubmitContract": provider_plan["command"],
+                    "providerQuoteContract": provider_plan["quoteCommand"],
+                    "_higgsfieldSpendScope": scope,
+                    "_higgsfieldAuthorization": authorization,
+                }
+            )
+    except Exception:
+        for authorization_id in issued_authorization_ids:
+            cancel_provider_spend_authorization(factory.conn, authorization_id)
+        raise
     return authorized
 
 
@@ -429,9 +559,24 @@ def _provider_account_lock_path(factory: Any) -> Path:
     return Path.cwd() / ".higgsfield-provider-account"
 
 
+def _provider_balance_snapshot() -> dict[str, Any]:
+    observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    credits = HiggsfieldCliBalanceProvider().balance()
+    if credits is None:
+        raise PermissionError("higgsfield_batch_balance_unavailable")
+    material = {
+        "provider": "higgsfield",
+        "observedAt": observed_at,
+        "credits": float(credits),
+    }
+    return {**material, "evidenceFingerprint": _fingerprint(material)}
+
+
 def _authorize_batch_balance(
     factory: Any,
     jobs: list[dict[str, Any]],
+    *,
+    provider_snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not jobs:
         return {}
@@ -442,7 +587,8 @@ def _authorize_batch_balance(
         and isinstance(capabilities.get("authentication"), Mapping)
         else {}
     )
-    credits = authentication.get("credits")
+    snapshot = dict(provider_snapshot or {})
+    credits = snapshot.get("credits", authentication.get("credits"))
     if isinstance(credits, bool) or not isinstance(credits, (int, float)):
         raise PermissionError("higgsfield_batch_balance_unavailable")
     ensure_authorization_table(factory.conn)
@@ -453,7 +599,7 @@ def _authorize_batch_balance(
         FROM provider_spend_authorizations a
         WHERE a.provider = 'higgsfield'
           AND (
-            a.status = 'authorized'
+            (a.status = 'authorized' AND a.expires_at > ?)
             OR (
               a.status = 'consumed'
               AND NOT EXISTS (
@@ -462,7 +608,8 @@ def _authorize_batch_balance(
               )
             )
           )
-        """
+        """,
+        (datetime.now(UTC).isoformat().replace("+00:00", "Z"),),
     ).fetchone()
     active = float(active_row[0] or 0.0)
     required = round(
@@ -474,11 +621,25 @@ def _authorize_batch_balance(
         raise PermissionError("higgsfield_complete_batch_exceeds_available_balance")
     material = {
         "provider": "higgsfield",
-        "observedAt": capabilities.get("observedAt"),
+        "observedAt": snapshot.get("observedAt") or capabilities.get("observedAt"),
         "credits": float(credits),
+        "balanceEvidenceFingerprint": (
+            snapshot.get("evidenceFingerprint")
+            or _fingerprint(
+                {
+                    "provider": "higgsfield",
+                    "observedAt": capabilities.get("observedAt"),
+                    "credits": float(credits),
+                }
+            )
+        ),
         "minimumRetainedCredits": minimum,
         "existingActiveReservations": active,
         "preparedBatchQuote": required,
+        "projectedRemainingBalance": round(
+            float(credits) - minimum - active - required,
+            4,
+        ),
         "workItemIds": [str(job["jobId"]) for job in jobs],
     }
     return {**material, "fingerprint": _fingerprint(material)}
@@ -510,7 +671,33 @@ def provider_control_reconciliation(factory: Any) -> dict[str, Any]:
     """Report provider-control contradictions without guessing a repair."""
 
     ensure_authorization_table(factory.conn)
+    ensure_cost_table(factory.conn)
     issues: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    expired = factory.conn.execute(
+        """
+        SELECT authorization_id, request_fingerprint, expires_at
+        FROM provider_spend_authorizations
+        WHERE provider = 'higgsfield'
+          AND status = 'authorized'
+          AND expires_at <= ?
+        ORDER BY expires_at, authorization_id
+        """,
+        (now,),
+    ).fetchall()
+    for row in expired:
+        issues.append(
+            _provider_issue(
+                record=str(row["authorization_id"]),
+                conflict="authorized_provider_spend_expired",
+                manual_action="cancel the expired reservation before authorizing again",
+                evidence={
+                    "requestFingerprint": row["request_fingerprint"],
+                    "expiresAt": row["expires_at"],
+                },
+            )
+        )
     consumed_without_attempt = factory.conn.execute(
         """
         SELECT a.authorization_id, a.request_fingerprint, a.consumed_at
@@ -564,6 +751,10 @@ def provider_control_reconciliation(factory: Any) -> dict[str, Any]:
             "provider_completed_without_retained_output",
             "recover the known result into the staged download path",
         ),
+        "OUTPUT_DOWNLOADED": (
+            "downloaded_output_not_atomically_retained",
+            "resume the exact staged file without another provider submission",
+        ),
         "OUTPUT_RETAINED": (
             "completed_output_without_cost_binding",
             "reconcile actual or explicit unknown cost before asset registration",
@@ -592,12 +783,78 @@ def provider_control_reconciliation(factory: Any) -> dict[str, Any]:
                 },
             )
         )
+    cost_rows = factory.conn.execute(
+        """
+        SELECT e.id, e.amount, e.metadata_json,
+               a.authorization_id, a.amount AS authorized_amount
+        FROM ai_cost_events e
+        JOIN provider_spend_authorizations a
+          ON a.reservation_id = e.reservation_id
+        WHERE e.provider = 'higgsfield'
+        ORDER BY e.created_at, e.id
+        """
+    ).fetchall()
+    for row in cost_rows:
+        try:
+            metadata = json.loads(str(row["metadata_json"] or "{}"))
+        except json.JSONDecodeError:
+            metadata = {}
+        if row["amount"] is None:
+            issues.append(
+                _provider_issue(
+                    record=str(row["id"]),
+                    conflict="provider_actual_credits_unknown",
+                    manual_action="retain unknown cost until exact provider evidence exists",
+                    evidence={
+                        "authorizationId": row["authorization_id"],
+                        "actualCredits": None,
+                    },
+                )
+            )
+        elif float(row["amount"]) > float(row["authorized_amount"]) + 0.0001 or bool(
+            metadata.get("overspend")
+        ):
+            issues.append(
+                _provider_issue(
+                    record=str(row["id"]),
+                    conflict="provider_actual_exceeds_authorization",
+                    manual_action="review the durable overspend incident before progression",
+                    evidence={
+                        "authorizationId": row["authorization_id"],
+                        "actualCredits": float(row["amount"]),
+                        "authorizedMaximumCredits": float(row["authorized_amount"]),
+                    },
+                )
+            )
+    finalized = factory.conn.execute(
+        """
+        SELECT id, result_json
+        FROM pipeline_jobs
+        WHERE job_type = 'higgsfield_motion_generation'
+          AND effect_state = 'FINALIZED'
+        ORDER BY updated_at, id
+        """
+    ).fetchall()
+    for row in finalized:
+        try:
+            result = json.loads(str(row["result_json"] or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if _json_contains_true(result, "reconciledCompletedRequest"):
+            observations.append(
+                {
+                    "record": str(row["id"]),
+                    "observation": "completed_receipt_recovered_without_provider_call",
+                }
+            )
     return {
         "ok": not issues,
         "schema": "campaign_factory.provider_control_reconciliation.v1",
         "provider": "higgsfield",
         "issueCount": len(issues),
         "issues": issues,
+        "observationCount": len(observations),
+        "observations": observations,
         "automaticProviderCalls": 0,
     }
 
@@ -619,10 +876,22 @@ def _provider_issue(
     }
 
 
+def _json_contains_true(value: Any, key: str) -> bool:
+    if isinstance(value, Mapping):
+        return value.get(key) is True or any(
+            _json_contains_true(item, key) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(_json_contains_true(item, key) for item in value)
+    return False
+
+
 def _completed_higgsfield_recovery(
     job: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     """Return exact completed receipt evidence without authorizing another call."""
+
+    from reel_factory.worker_api import higgsfield_execution_fingerprint
 
     receipt_dir = (
         Path(str(job["providerReviewRoot"])).expanduser().resolve() / "receipts"
@@ -631,6 +900,21 @@ def _completed_higgsfield_recovery(
         return None
     expected_output = Path(str(job["providerOutputPath"])).expanduser().resolve()
     expected_source_sha = job.get("recreationAnchorSha256") or job.get("sourceSha256")
+    expected_source_asset_id = (
+        f"sha256:{job['recreationAnchorSha256']}"
+        if job.get("recreationAnchorSha256")
+        else job.get("sourceAssetId")
+    )
+    source_approval = job.get("sourceApproval")
+    expected_source_approval_id = (
+        f"recreation_anchor_approval:{job['recreationAnchorApprovalFingerprint']}"
+        if job.get("recreationAnchorApprovalFingerprint")
+        else (
+            source_approval.get("approvalEventId")
+            if isinstance(source_approval, Mapping)
+            else None
+        )
+    )
     stage = list(job["productionRecipe"].get("stages") or [])[0]
     matches: list[tuple[Path, dict[str, Any]]] = []
     conflicting_completed_receipt = False
@@ -641,32 +925,123 @@ def _completed_higgsfield_recovery(
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
+        receipt_status = (
+            str(receipt.get("status") or "") if isinstance(receipt, dict) else ""
+        )
         final = receipt.get("finalOutput") if isinstance(receipt, dict) else None
+        retained = receipt.get("retainedOutput") if isinstance(receipt, dict) else None
+        downloaded = (
+            receipt.get("downloadedOutput") if isinstance(receipt, dict) else None
+        )
+        downloaded_temporary_raw = (
+            Path(str(downloaded.get("temporaryPath") or "")).expanduser()
+            if isinstance(downloaded, dict)
+            else None
+        )
+        downloaded_temporary = (
+            downloaded_temporary_raw.resolve()
+            if downloaded_temporary_raw is not None
+            else None
+        )
+        downloaded_final = (
+            Path(str(downloaded.get("finalPath") or "")).expanduser().resolve()
+            if isinstance(downloaded, dict)
+            else None
+        )
+        recovery_output = (
+            final
+            if isinstance(final, dict)
+            else retained
+            if isinstance(retained, dict)
+            else downloaded
+            if isinstance(downloaded, dict)
+            else None
+        )
+        recovery_path = (
+            Path(
+                str(
+                    recovery_output.get("path")
+                    or recovery_output.get("temporaryPath")
+                    or ""
+                )
+            )
+            .expanduser()
+            .resolve()
+            if isinstance(recovery_output, dict)
+            else None
+        )
+        if (
+            receipt_status == "downloaded_output"
+            and downloaded_temporary is not None
+            and not downloaded_temporary.is_file()
+            and downloaded_final is not None
+        ):
+            recovery_path = downloaded_final
+        recoverable_status = receipt_status in {
+            "completed",
+            "downloaded_output",
+            "output_retained",
+            "rejected_unexpected_provider_audio",
+        }
         source = receipt.get("source") if isinstance(receipt, dict) else None
         driving = receipt.get("drivingVideo") if isinstance(receipt, dict) else None
+        anchor = (
+            receipt.get("recreationAnchorApproval")
+            if isinstance(receipt, dict)
+            else None
+        )
+        reference_element = (
+            receipt.get("referenceElement") if isinstance(receipt, dict) else None
+        )
+        provider_request_fingerprint = str(
+            receipt.get("providerRequestFingerprint") or ""
+        )
+        expected_execution_fingerprint = (
+            higgsfield_execution_fingerprint(
+                provider_request_fingerprint,
+                output_path=expected_output,
+                review_root=Path(str(job["providerReviewRoot"])),
+            )
+            if len(provider_request_fingerprint) == 64
+            else ""
+        )
+        reference_element_file = (
+            Path(str(reference_element.get("filePath") or "")).expanduser().resolve()
+            if isinstance(reference_element, dict)
+            else None
+        )
         if (
             isinstance(receipt, dict)
-            and receipt.get("status") == "completed"
-            and isinstance(final, dict)
+            and recoverable_status
+            and isinstance(recovery_output, dict)
             and (
                 receipt.get("workItemId") == job.get("jobId")
-                or Path(str(final.get("path") or "")).expanduser().resolve()
-                == expected_output
+                or (
+                    recovery_path == expected_output
+                    or Path(str(downloaded.get("finalPath") or ""))
+                    .expanduser()
+                    .resolve()
+                    == expected_output
+                    if isinstance(downloaded, dict)
+                    else False
+                )
             )
         ):
             conflicting_completed_receipt = True
         if (
             not isinstance(receipt, dict)
-            or receipt.get("status") != "completed"
+            or not recoverable_status
             or receipt.get("workItemId") != job.get("jobId")
             or receipt.get("model") != stage.get("providerModel")
             or receipt.get("seed") != job.get("seed")
             or not receipt.get("generationId")
             or not receipt.get("authorizationId")
             or not receipt.get("attemptId")
-            or not isinstance(final, dict)
+            or not isinstance(recovery_output, dict)
             or not isinstance(source, dict)
             or source.get("sha256") != expected_source_sha
+            or source.get("assetId") != expected_source_asset_id
+            or source.get("approvalId") != expected_source_approval_id
             or (
                 job.get("referenceVideoSha256")
                 and (
@@ -674,14 +1049,57 @@ def _completed_higgsfield_recovery(
                     or driving.get("sha256") != job.get("referenceVideoSha256")
                 )
             )
-            or Path(str(final.get("path") or "")).expanduser().resolve()
-            != expected_output
-            or not expected_output.is_file()
-            or _sha256_file(expected_output) != final.get("sha256")
+            or (
+                job.get("recreationAnchorApprovalFingerprint")
+                and (
+                    not isinstance(anchor, dict)
+                    or anchor.get("approvalFingerprint")
+                    != job.get("recreationAnchorApprovalFingerprint")
+                    or anchor.get("receiptSha256")
+                    != dict(job.get("recreationAnchorApproval") or {}).get(
+                        "receiptSha256"
+                    )
+                )
+            )
+            or (
+                job.get("intent") == "recreate_reel"
+                and (
+                    not isinstance(reference_element, dict)
+                    or reference_element_file is None
+                    or not reference_element_file.is_file()
+                    or _sha256_file(reference_element_file)
+                    != reference_element.get("fileSha256")
+                )
+            )
+            or recovery_path is None
+            or recovery_path.is_symlink()
+            or (
+                downloaded_temporary_raw is not None
+                and downloaded_temporary_raw.is_symlink()
+            )
+            or (
+                receipt_status == "downloaded_output"
+                and (
+                    not isinstance(downloaded, dict)
+                    or downloaded_final != expected_output
+                )
+            )
+            or (
+                receipt_status != "downloaded_output"
+                and receipt_status != "rejected_unexpected_provider_audio"
+                and recovery_path != expected_output
+            )
+            or not recovery_path.is_file()
+            or _sha256_file(recovery_path) != recovery_output.get("sha256")
             or not isinstance(receipt.get("creditQuote"), dict)
-            or not receipt.get("providerRequestFingerprint")
+            or len(provider_request_fingerprint) != 64
+            or receipt.get("executionFingerprint") != expected_execution_fingerprint
+            or len(str(receipt.get("providerCommandFingerprint") or "")) != 64
         ):
             continue
+        from .production_batch_results import probe_production_video
+
+        probe_production_video(recovery_path)
         matches.append((receipt_path, receipt))
     if len(matches) > 1:
         raise PermissionError("higgsfield_recovery_receipt_is_ambiguous")
@@ -690,18 +1108,28 @@ def _completed_higgsfield_recovery(
             raise PermissionError("higgsfield_recovery_source_binding_mismatch")
         return None
     receipt_path, receipt = matches[0]
-    final = receipt["finalOutput"]
+    final = (
+        receipt.get("finalOutput")
+        or receipt.get("retainedOutput")
+        or receipt.get("downloadedOutput")
+    )
     return {
         "receiptPath": str(receipt_path),
         "receiptSha256": _sha256_file(receipt_path),
         "generationId": str(receipt["generationId"]),
-        "outputPath": str(expected_output),
+        "outputPath": str(recovery_path),
         "outputSha256": str(final["sha256"]),
         "authorizationId": str(receipt["authorizationId"]),
         "attemptId": str(receipt["attemptId"]),
         "providerRequestFingerprint": str(receipt["providerRequestFingerprint"]),
         "executionFingerprint": receipt.get("executionFingerprint"),
+        "providerCommandFingerprint": receipt.get("providerCommandFingerprint"),
         "creditQuote": dict(receipt["creditQuote"]),
+        **(
+            {"recoveryStatus": str(receipt["status"])}
+            if receipt.get("status") != "completed"
+            else {}
+        ),
     }
 
 
@@ -803,6 +1231,17 @@ def reconcile_recovered_higgsfield_attempt(
         )
         effect_state = str(pipeline_job["effect_state"])
     if effect_state == "PROVIDER_COMPLETED":
+        pipeline_job = factory.domains.events.mark_pipeline_effect_state(
+            pipeline_job_id,
+            "OUTPUT_DOWNLOADED",
+            external_operation_id=external_id,
+            evidence={
+                "receiptPath": str(receipt_path),
+                "downloadedOutput": receipt.get("downloadedOutput"),
+            },
+        )
+        effect_state = str(pipeline_job["effect_state"])
+    if effect_state == "OUTPUT_DOWNLOADED":
         factory.domains.events.mark_pipeline_effect_state(
             pipeline_job_id,
             "OUTPUT_RETAINED",
@@ -812,6 +1251,26 @@ def reconcile_recovered_higgsfield_attempt(
                 "outputSha256": dict(receipt.get("finalOutput") or {}).get("sha256"),
             },
         )
+    authorization = load_provider_spend_authorization(
+        factory.conn,
+        str(receipt["authorizationId"]),
+        secret=os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", ""),
+    )
+    record_provider_execution(
+        factory.conn,
+        authorization=authorization,
+        execution={
+            "events": [
+                {
+                    "provider": "higgsfield",
+                    "operation": "video_generation",
+                    "model": receipt.get("model"),
+                    "jobId": receipt.get("generationId"),
+                    "actualCredits": receipt.get("creditsConsumed"),
+                }
+            ]
+        },
+    )
     binding = recovered_higgsfield_cost_binding(
         factory,
         job=job,
@@ -833,6 +1292,58 @@ def reconcile_recovered_higgsfield_attempt(
     return binding
 
 
+def resume_recovered_higgsfield_attempt(
+    factory: Any,
+    *,
+    pipeline_job_id: str,
+    request: Any,
+    recovery: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resume one retained/downloaded receipt without another provider submit."""
+
+    from reel_factory.worker_api import resume_higgsfield_local_output
+
+    load_provider_spend_authorization(
+        factory.conn,
+        str(recovery["authorizationId"]),
+        secret=os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", ""),
+    )
+    effect_rank = {
+        "PRE_EFFECT": 0,
+        "AUTHORIZATION_CONSUMED": 1,
+        "SUBMISSION_STARTED": 2,
+        "EXTERNAL_ID_KNOWN": 3,
+        "PROVIDER_COMPLETED": 4,
+        "OUTPUT_DOWNLOADED": 5,
+        "OUTPUT_RETAINED": 6,
+        "COST_RECONCILED": 7,
+    }
+
+    def record_effect(state: str, evidence: dict[str, Any]) -> None:
+        current = factory.domains.events.pipeline_job(pipeline_job_id)
+        if effect_rank.get(state, 100) <= effect_rank.get(
+            str(current.get("effect_state") or "PRE_EFFECT"), -1
+        ):
+            return
+        factory.domains.events.mark_pipeline_effect_state(
+            pipeline_job_id,
+            state,
+            authorization_id=str(recovery["authorizationId"]),
+            external_operation_id=(
+                str(evidence["externalOperationId"])
+                if evidence.get("externalOperationId")
+                else None
+            ),
+            evidence=evidence,
+        )
+
+    return resume_higgsfield_local_output(
+        request,
+        receipt_path=Path(str(recovery["receiptPath"])).expanduser().resolve(),
+        effect_recorder=record_effect,
+    )
+
+
 def prepare_authorized_higgsfield_execution(
     factory: Any,
     *,
@@ -850,20 +1361,25 @@ def prepare_authorized_higgsfield_execution(
     )
 
     plan = build_higgsfield_production_plan(request, capabilities=capabilities)
+    live_quote = quote_higgsfield_production_plan(plan)
+    live_quote_fingerprint = higgsfield_quote_fingerprint(live_quote)
+    expected_scope = {
+        **plan["authorizationScope"],
+        "quoteFingerprint": live_quote_fingerprint,
+    }
     if (
         plan["providerRequestFingerprint"] != job["providerPlanFingerprint"]
-        or plan["authorizationScope"] != spend_scope
+        or expected_scope != spend_scope
     ):
         raise PermissionError("higgsfield_authorized_provider_plan_mismatch")
-    live_quote = quote_higgsfield_production_plan(plan)
-    if higgsfield_quote_fingerprint(live_quote) != higgsfield_quote_fingerprint(
+    if live_quote_fingerprint != higgsfield_quote_fingerprint(
         dict(authorization["providerQuote"])
     ):
         raise PermissionError("higgsfield_quote_changed_after_authorization")
     authorization_id = str(authorization["authorizationId"])
     verify_authorization(
         authorization,
-        expected_scope=plan["authorizationScope"],
+        expected_scope=expected_scope,
         secret=os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", ""),
         now=datetime.now(UTC),
     )

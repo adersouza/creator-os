@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -18,6 +17,7 @@ from creator_os_core.recreation_anchor_approval import (
 )
 
 from . import learning_consumption
+from . import production_higgsfield_authorization as higgsfield_auth
 from .audio_policy import AUDIO_POLICIES, build_embedded_trending_audio_intent
 from .audio_radar import (
     AudioCache,
@@ -65,19 +65,14 @@ from .production_creative_evidence import (
     expand_production_job_prompt as _expand_production_job_prompt,
 )
 from .production_higgsfield_authorization import (
+    _fingerprint,
+    _sha256_file,
+)
+from .production_higgsfield_authorization import (
     authorize_higgsfield_jobs as _authorize_higgsfield_jobs,
 )
 from .production_higgsfield_authorization import (
-    higgsfield_request as _higgsfield_request,
-)
-from .production_higgsfield_authorization import (
-    prepare_authorized_higgsfield_execution as _prepare_authorized_higgsfield_execution,
-)
-from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
-)
-from .production_higgsfield_authorization import (
-    reconcile_recovered_higgsfield_attempt as _reconcile_recovered_higgsfield_attempt,
 )
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
@@ -112,20 +107,6 @@ _AUDIO_ALIASES: Final = {
     "embedded_trending": "embedded_trending_required",
     "reference_audio_required": "original_embedded",
 }
-
-
-def _fingerprint(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _audio_policy(value: str) -> str:
@@ -1011,7 +992,17 @@ def run_production_batch(
     )
     workers = min(plan["maxConcurrency"], len(prepared)) if concurrent else 1
     prepared = [
-        {**job, "_providerBalanceDeltaExclusive": workers == 1} for job in prepared
+        {
+            **job,
+            "_providerBalanceDeltaExclusive": (
+                workers == 1
+                and os.environ.get(
+                    "HIGGSFIELD_ACCOUNT_EXCLUSIVE_BALANCE_DELTAS", ""
+                ).strip()
+                == "1"
+            ),
+        }
+        for job in prepared
     ]
     if workers > 1:
         with ThreadPoolExecutor(
@@ -1219,15 +1210,24 @@ def _execute_higgsfield_provider_job(
         raise PermissionError("higgsfield_provider_attempt_missing")
     pipeline_job = factory.domains.events.pipeline_job(pipeline_job_id)
     try:
-        request = _higgsfield_request(
+        request = higgsfield_auth.higgsfield_request(
             job,
             max_credits=max_credits,
             attempt_id=attempt_id,
         )
         if recovery is not None:
             receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
-            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            cost_binding = _reconcile_recovered_higgsfield_attempt(
+            recovery_status = str(recovery.get("recoveryStatus") or "completed")
+            if recovery_status in {"downloaded_output", "output_retained"}:
+                receipt = higgsfield_auth.resume_recovered_higgsfield_attempt(
+                    factory,
+                    pipeline_job_id=pipeline_job_id,
+                    request=request,
+                    recovery=recovery,
+                )
+            else:
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            cost_binding = higgsfield_auth.reconcile_recovered_higgsfield_attempt(
                 factory,
                 pipeline_job_id=pipeline_job_id,
                 job=job,
@@ -1239,7 +1239,7 @@ def _execute_higgsfield_provider_job(
             assert authorization is not None
             assert capabilities is not None
             provider_plan, live_quote, record_effect = (
-                _prepare_authorized_higgsfield_execution(
+                higgsfield_auth.prepare_authorized_higgsfield_execution(
                     factory,
                     pipeline_job_id=pipeline_job_id,
                     job=job,
@@ -1353,12 +1353,17 @@ def _execute_higgsfield_provider_job(
             "reservationId": reservation_id,
             "spendScopeFingerprint": scope["requestFingerprint"],
             "providerPlanFingerprint": job["providerPlanFingerprint"],
+            "providerCommandFingerprint": scope["providerCommandFingerprint"],
+            "quoteFingerprint": scope["quoteFingerprint"],
+            "batchBalanceSnapshot": job.get("_higgsfieldBalanceSnapshotFingerprint"),
             "providerModel": receipt["model"],
             "generationId": receipt["generationId"],
             "soulId": receipt["soulId"],
             "seed": job["seed"],
             "quote": receipt["creditQuote"],
             "creditsConsumed": receipt.get("creditsConsumed"),
+            "actualCreditsState": receipt.get("actualCreditsState"),
+            "actualCreditsReason": receipt.get("actualCreditsReason"),
             "costEventIds": cost_ids,
             "source": receipt["source"],
             "recreationAnchorApproval": receipt.get("recreationAnchorApproval"),
@@ -1369,6 +1374,8 @@ def _execute_higgsfield_provider_job(
                 "sha256": _sha256_file(receipt_path),
             },
         }
+        if receipt.get("status") == "rejected_unexpected_provider_audio":
+            raise RuntimeError("higgsfield_silent_candidate_returned_audio")
         worker_result = {
             "schema": "reel_factory.higgsfield_motion_generation.v1",
             "backend": "higgsfield_cli",
@@ -1442,10 +1449,25 @@ def _execute_higgsfield_provider_job(
         factory.domains.events.finish_pipeline_job(pipeline_job["id"], result)
         return result, provider
     except Exception as exc:
+        terminal_technical_rejection = (
+            str(exc) == "higgsfield_silent_candidate_returned_audio"
+        )
         factory.domains.events.fail_pipeline_job(
             pipeline_job["id"],
             str(exc),
-            {"jobId": job["jobId"], "provider": "higgsfield"},
+            {
+                "jobId": job["jobId"],
+                "provider": "higgsfield",
+                **(
+                    {
+                        "technicalRejection": "unexpected_provider_audio",
+                        "assetProgression": "blocked",
+                    }
+                    if terminal_technical_rejection
+                    else {}
+                ),
+            },
+            terminal_effect_reconciled=terminal_technical_rejection,
         )
         raise
 

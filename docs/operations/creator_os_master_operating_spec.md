@@ -130,30 +130,37 @@ not blindly retried.
 - Authorization is consumed once at the provider-call boundary.
 - `providerRequestFingerprint` identifies the exact remote request.
   `executionFingerprint` additionally binds local output/review destinations and
-  the Reel Factory plan version.
+  the Reel Factory plan version. Local media paths and balance-snapshot
+  timestamps are excluded from the remote identity; exact content, approval,
+  prompt, command, work-item, and attempt identities are included.
 - The provider plan is rebuilt and its signed scope is compared immediately
   before authorization consumption. Any request or quote-fingerprint change
   requires a fresh authorization.
 - A batch may not exceed its total cap or one authenticated balance snapshot
   after the retained minimum and existing active reservations. Authorization is
-  serialized under the provider-account lock.
-- Concurrent jobs use provider-reported credits only. If those credits are not
-  exposed, per-job actual cost remains unknown; a shared account-balance delta
-  is never guessed as one job's cost.
+  serialized under the provider-account lock, and the complete batch is
+  preflighted against provider, daily, monthly, cohort, and run capacity before
+  the first authorization is issued.
+- Provider-reported credits remain authoritative. A balance delta is attributable
+  only when `HIGGSFIELD_ACCOUNT_EXCLUSIVE_BALANCE_DELTAS=1` explicitly certifies
+  exclusive account use and no sibling provider operation overlaps; otherwise
+  per-job actual cost remains unknown.
 - Actual cost below the authorized maximum is valid. Unknown actual cost remains
   unknown. Actual cost above the maximum is recorded, raises a
   `provider_overspend` incident, and blocks asset progression.
 - No automatic paid retry is allowed for ambiguity.
 - Campaign-owned provider attempts progress through durable effect states:
   `PRE_EFFECT`, `AUTHORIZATION_CONSUMED`, `SUBMISSION_STARTED`,
-  `EXTERNAL_ID_KNOWN`, `PROVIDER_COMPLETED`, `OUTPUT_RETAINED`, and
-  `COST_RECONCILED`, with explicit failed, ambiguous, and no-effect states.
+  `EXTERNAL_ID_KNOWN`, `PROVIDER_COMPLETED`, `OUTPUT_DOWNLOADED`,
+  `OUTPUT_RETAINED`, and `COST_RECONCILED`, with explicit failed, ambiguous, and
+  no-effect states.
 - Completed exact local receipts recover without a provider quote or balance
   read. Downloads use a staged file, receipt checkpoint, and atomic final rename;
   mismatched collisions are quarantined rather than overwritten.
 - `campaign-factory provider reconcile` reports consumed-without-submission,
-  ambiguous submission, missing output, missing cost, and missing registration
-  contradictions without making another provider call.
+  ambiguous submission, expired authorization, missing output, missing cost,
+  overspend, unknown actual credits, missing registration, and provider-free
+  completed recovery without making another provider call.
 - The global kill switch blocks paid generation and outbound draft export while
   leaving read-only diagnosis and zero-cost local rendering available.
 

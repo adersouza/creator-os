@@ -9,21 +9,26 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import campaign_factory.production_batch_results as production_batch_results
+import campaign_factory.production_higgsfield_authorization as authorization_subject
 import campaign_factory.production_lane as production_lane
 import pytest
 from campaign_factory.production_higgsfield_authorization import (
     _authorize_batch_balance,
+    _authorize_prepared_higgsfield_jobs,
     _completed_higgsfield_recovery,
     higgsfield_request,
     higgsfield_spend_scope,
 )
 from campaign_factory.production_lane import plan_production_batch
 from campaign_factory.production_prompts import CREATOR_SOUL_IDS
+from campaign_factory.provider_spend import ensure_authorization_table
 from campaign_factory.recreate_reel import (
     RECREATION_REVIEW_FIELDS,
     analyze_reference_reel,
     build_recreation_review,
 )
+from campaign_test_support import make_factory
 from creator_os_core.provider_spend import sign_authorization
 from creator_os_core.recreation_anchor_approval import (
     write_recreation_anchor_approval,
@@ -32,6 +37,7 @@ from PIL import Image
 from reel_factory.higgsfield_production import (
     HiggsfieldProductionRequest,
     build_higgsfield_production_plan,
+    higgsfield_execution_fingerprint,
 )
 
 from pipeline_contracts import validate_provider_spend_authorization
@@ -307,9 +313,17 @@ def test_reference_audio_policy_retains_exact_source_audio_identity(
     )
 
 
+@pytest.mark.parametrize("receipt_status", ["completed", "downloaded_output"])
 def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    receipt_status: str,
 ) -> None:
+    monkeypatch.setattr(
+        production_batch_results,
+        "probe_production_video",
+        lambda _path: {"codec": "h264"},
+    )
     source = tmp_path / "source.png"
     source.write_bytes(b"source")
     reference = tmp_path / "reference.mp4"
@@ -321,6 +335,11 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
     output_sha = hashlib.sha256(output.read_bytes()).hexdigest()
     fingerprint = "a" * 64
     review_root = tmp_path / "review"
+    execution_fingerprint = higgsfield_execution_fingerprint(
+        fingerprint,
+        output_path=output,
+        review_root=review_root,
+    )
     receipt_path = (
         review_root / "receipts" / f"{fingerprint}.higgsfield_submission.json"
     )
@@ -328,10 +347,11 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
     receipt_path.write_text(
         json.dumps(
             {
-                "status": "completed",
+                "status": receipt_status,
                 "requestFingerprint": fingerprint,
                 "providerRequestFingerprint": fingerprint,
-                "executionFingerprint": "e" * 64,
+                "executionFingerprint": execution_fingerprint,
+                "providerCommandFingerprint": "c" * 64,
                 "workItemId": "job-1",
                 "attemptId": "pipeline-1:1",
                 "authorizationId": "authorization-1",
@@ -343,9 +363,23 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
                     "amount": 8.0,
                     "unit": "higgsfield_credits",
                 },
-                "source": {"sha256": source_sha},
+                "source": {
+                    "assetId": "source-1",
+                    "approvalId": "approval-1",
+                    "sha256": source_sha,
+                },
                 "drivingVideo": {"sha256": reference_sha},
-                "finalOutput": {"path": str(output), "sha256": output_sha},
+                **(
+                    {
+                        "downloadedOutput": {
+                            "temporaryPath": str(tmp_path / "missing.download"),
+                            "finalPath": str(output),
+                            "sha256": output_sha,
+                        }
+                    }
+                    if receipt_status == "downloaded_output"
+                    else {"finalOutput": {"path": str(output), "sha256": output_sha}}
+                ),
             }
         ),
         encoding="utf-8",
@@ -355,6 +389,11 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
             "providerOutputPath": str(output),
             "providerReviewRoot": str(review_root),
             "jobId": "job-1",
+            "sourceAssetId": "source-1",
+            "sourceApproval": {
+                "approvalEventId": "approval-1",
+                "approvalFingerprint": "d" * 64,
+            },
             "sourceSha256": source_sha,
             "referenceVideoSha256": reference_sha,
             "seed": 42,
@@ -362,7 +401,7 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
         },
     )
 
-    assert recovery == {
+    expected_recovery = {
         "receiptPath": str(receipt_path),
         "receiptSha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
         "generationId": "generation-1",
@@ -371,13 +410,17 @@ def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
         "authorizationId": "authorization-1",
         "attemptId": "pipeline-1:1",
         "providerRequestFingerprint": fingerprint,
-        "executionFingerprint": "e" * 64,
+        "executionFingerprint": execution_fingerprint,
+        "providerCommandFingerprint": "c" * 64,
         "creditQuote": {
             "provider": "higgsfield",
             "amount": 8.0,
             "unit": "higgsfield_credits",
         },
     }
+    if receipt_status == "downloaded_output":
+        expected_recovery["recoveryStatus"] = "downloaded_output"
+    assert recovery == expected_recovery
 
 
 def test_completed_receipt_recovery_rejects_wrong_source(tmp_path: Path) -> None:
@@ -581,9 +624,55 @@ def test_passive_paid_request_requires_exact_source_approval_fingerprint(
     ):
         higgsfield_request(job, max_credits=20)
 
-    job["sourceApproval"] = {"approvalFingerprint": "a" * 64}
+    job["sourceApproval"] = {
+        "approvalEventId": "approval-event-1",
+        "approvalFingerprint": "a" * 64,
+    }
     request = higgsfield_request(job, max_credits=20)
     assert request.source_approval == "a" * 64
+
+
+def test_recovery_request_reuses_exact_authorization_and_quote(tmp_path: Path) -> None:
+    job = plan_production_batch(
+        _factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+    )["jobs"][0]
+    quote = {
+        "provider": "higgsfield",
+        "amount": 8.0,
+        "unit": "higgsfield_credits",
+    }
+    job.update(
+        {
+            "providerOutputPath": str(tmp_path / "output.mp4"),
+            "providerReviewRoot": str(tmp_path / "review"),
+            "providerPlanFingerprint": "b" * 64,
+            "sourceApproval": {
+                "approvalEventId": "approval-event-1",
+                "approvalFingerprint": "a" * 64,
+            },
+            "_higgsfieldAuthorization": None,
+            "_higgsfieldRecovery": {
+                "authorizationId": "authorization-1",
+                "creditQuote": quote,
+            },
+        }
+    )
+
+    request = higgsfield_request(job, max_credits=20, attempt_id="pipeline-1:1")
+
+    assert request.authorization_id == "authorization-1"
+    assert (
+        request.authorized_quote_fingerprint
+        == hashlib.sha256(
+            json.dumps(quote, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
 
 
 def test_reference_analysis_is_bounded_and_retains_private_identity(
@@ -679,6 +768,11 @@ def test_soul_identity_remains_bound_in_provider_plan(tmp_path: Path) -> None:
         creator="stacey",
         soul_id="soul-stacey",
         source_approval=approval["approvalFingerprint"],
+        source_asset_id=f"sha256:{approval['anchorFileSha256']}",
+        campaign_source_asset_id="source-asset-1",
+        source_approval_id=(
+            f"recreation_anchor_approval:{approval['approvalFingerprint']}"
+        ),
         source_image_path=Path(approval["anchorFilePath"]),
         driving_video_path=reference,
         output_path=tmp_path / "output.mp4",
@@ -755,6 +849,11 @@ def test_spend_scope_binds_approved_anchor_and_reference_bytes(tmp_path: Path) -
         creator="stacey",
         soul_id=CREATOR_SOUL_IDS["stacey"],
         source_approval=approval["approvalFingerprint"],
+        source_asset_id=f"sha256:{approval['anchorFileSha256']}",
+        campaign_source_asset_id=job["sourceAssetId"],
+        source_approval_id=(
+            f"recreation_anchor_approval:{approval['approvalFingerprint']}"
+        ),
         source_image_path=Path(approval["anchorFilePath"]),
         driving_video_path=Path(job["referenceVideoPath"]),
         output_path=tmp_path / "output.mp4",
@@ -771,13 +870,23 @@ def test_spend_scope_binds_approved_anchor_and_reference_bytes(tmp_path: Path) -
         public_mode="recreate_reel",
         campaign=job["campaign"],
         cohort_id=job["jobId"],
+        prompt_card_fingerprint=job["promptCard"]["promptCardFingerprint"],
         prompt_builder_fingerprint="f" * 64,
         batch_balance_snapshot_fingerprint="9" * 64,
     )
     capabilities = _capabilities()
     capabilities["souls"][0]["id"] = CREATOR_SOUL_IDS["stacey"]
     provider_plan = build_higgsfield_production_plan(request, capabilities=capabilities)
-    scope = higgsfield_spend_scope(job, provider_plan=provider_plan)
+    provider_quote = {
+        "provider": "higgsfield",
+        "amount": 8.0,
+        "unit": "higgsfield_credits",
+    }
+    scope = higgsfield_spend_scope(
+        job,
+        provider_plan=provider_plan,
+        provider_quote=provider_quote,
+    )
     assert scope["provider"] == "higgsfield"
     assert scope["providerModels"] == ["seedance_2_0"]
     assert scope["source"]["sha256"] == approval["anchorFileSha256"]
@@ -809,11 +918,7 @@ def test_spend_scope_binds_approved_anchor_and_reference_bytes(tmp_path: Path) -
             "issuedAt": "2026-07-29T12:00:00Z",
             "expiresAt": "2026-07-29T12:05:00Z",
             "scope": scope,
-            "providerQuote": {
-                "provider": "higgsfield",
-                "amount": 8.0,
-                "unit": "higgsfield_credits",
-            },
+            "providerQuote": provider_quote,
         },
         secret="test-only-provider-secret-at-least-32-bytes",
     )
@@ -883,6 +988,145 @@ def test_complete_batch_must_fit_one_balance_snapshot(
         ).fetchone()[0]
         == 0
     )
+
+
+def test_batch_authorization_rolls_back_before_bad_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = make_factory(tmp_path)
+    ensure_authorization_table(factory.conn)
+    pipeline_job = factory.domains.events.create_pipeline_job(
+        "higgsfield_motion_generation",
+        None,
+    )
+    pipeline_job = factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    monkeypatch.setattr(
+        authorization_subject,
+        "_provider_balance_snapshot",
+        lambda: {
+            "credits": 100.0,
+            "observedAt": "2026-07-29T12:00:00Z",
+            "evidenceFingerprint": "b" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        authorization_subject,
+        "_authorize_batch_balance",
+        lambda *_args, **_kwargs: {"fingerprint": "c" * 64, "credits": 100.0},
+    )
+    monkeypatch.setattr(
+        authorization_subject,
+        "validate_provider_spend_batch_capacity",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        authorization_subject,
+        "higgsfield_spend_scope",
+        lambda *_args, **_kwargs: {
+            "requestFingerprint": "d" * 64,
+            "providerCommandFingerprint": "e" * 64,
+            "quoteFingerprint": "f" * 64,
+        },
+    )
+
+    def issue(conn: sqlite3.Connection, **_kwargs: Any) -> dict[str, Any]:
+        conn.execute(
+            """
+            INSERT INTO provider_spend_authorizations
+              (authorization_id, reservation_id, provider, campaign_id, cohort_id,
+               request_fingerprint, amount, unit, scope_json, provider_quote_json,
+               status, issued_at, expires_at)
+            VALUES ('auth-fresh', 'res-fresh', 'higgsfield', NULL, 'cohort',
+                    ?, 1, 'higgsfield_credits', '{}', '{}', 'authorized',
+                    '2026-07-29T12:00:00Z', '2099-01-01T00:00:00Z')
+            """,
+            ("d" * 64,),
+        )
+        conn.commit()
+        return {
+            "authorizationId": "auth-fresh",
+            "reservationId": "res-fresh",
+        }
+
+    monkeypatch.setattr(
+        authorization_subject,
+        "issue_provider_spend_authorization",
+        issue,
+    )
+    prepared = [
+        {
+            "jobId": "fresh",
+            "quotedProviderCredits": 1.0,
+            "_campaignId": "campaign-1",
+            "_providerPipelineJobId": pipeline_job["id"],
+            "_higgsfieldPlan": {
+                "providerRequestFingerprint": "d" * 64,
+                "executionFingerprint": "e" * 64,
+                "selectedModel": "kling3_0",
+                "command": [],
+                "quoteCommand": [],
+            },
+            "_higgsfieldQuote": {
+                "provider": "higgsfield",
+                "amount": 1.0,
+                "unit": "higgsfield_credits",
+            },
+            "_higgsfieldRecovery": None,
+        },
+        {
+            "jobId": "bad-recovery",
+            "_higgsfieldRecovery": {
+                "authorizationId": "missing",
+                "providerRequestFingerprint": "f" * 64,
+                "attemptId": "missing-job:1",
+            },
+        },
+    ]
+
+    with pytest.raises(
+        PermissionError,
+        match="recovery_authorization_binding_missing",
+    ):
+        _authorize_prepared_higgsfield_jobs(factory, prepared)
+
+    assert (
+        factory.conn.execute(
+            "SELECT COUNT(*) FROM provider_spend_authorizations "
+            "WHERE status = 'authorized'"
+        ).fetchone()[0]
+        == 0
+    )
+    factory.close()
+
+
+def test_batch_balance_evidence_persists_projected_remaining(
+    tmp_path: Path,
+) -> None:
+    factory = _factory(tmp_path)
+    job = {
+        "jobId": "job-1",
+        "quotedProviderCredits": 15.0,
+        "_higgsfieldCapabilities": {
+            "observedAt": "2026-07-29T12:00:00Z",
+            "authentication": {"credits": 20.0},
+        },
+    }
+
+    snapshot = _authorize_batch_balance(
+        factory,
+        [job],
+        provider_snapshot={
+            "observedAt": "2026-07-29T12:01:00Z",
+            "credits": 20.0,
+            "evidenceFingerprint": "e" * 64,
+        },
+    )
+
+    assert snapshot["balanceEvidenceFingerprint"] == "e" * 64
+    assert snapshot["existingActiveReservations"] == 0
+    assert snapshot["preparedBatchQuote"] == 15.0
+    assert snapshot["projectedRemainingBalance"] == 5.0
 
 
 def test_apply_requires_reference_authorization_before_spend(

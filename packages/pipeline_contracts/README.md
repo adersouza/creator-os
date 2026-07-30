@@ -64,6 +64,12 @@ pnpm pack:contracts
 - Consumers pin the release URL plus package-lock integrity instead of trusting
   an unversioned sibling checkout or copying source files.
 
+### 4.2.0 exact provider authorization compatibility
+
+Package 4.2.0 keeps existing 4.1 exact-Higgsfield authorization receipts valid
+while adding source, prompt-card, command, quote, and batch-balance bindings for
+new provider attempts.
+
 ### 4.1.0 durable recovery and evidence contracts
 
 Package 4.1.0 adds the state-ownership registry and durable recovery, exact

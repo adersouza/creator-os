@@ -23,6 +23,7 @@ _EFFECT_STATES = {
     "AMBIGUOUS",
     "PROVIDER_FAILED",
     "PROVIDER_COMPLETED",
+    "OUTPUT_DOWNLOADED",
     "OUTPUT_RETAINED",
     "COST_RECONCILED",
     "NO_EFFECT_CONFIRMED",
@@ -59,7 +60,13 @@ _EFFECT_TRANSITIONS = {
         "FINALIZED",
     },
     "PROVIDER_FAILED": {"FINALIZED"},
-    "PROVIDER_COMPLETED": {"OUTPUT_RETAINED", "AMBIGUOUS", "FINALIZED"},
+    "PROVIDER_COMPLETED": {
+        "OUTPUT_DOWNLOADED",
+        "OUTPUT_RETAINED",
+        "AMBIGUOUS",
+        "FINALIZED",
+    },
+    "OUTPUT_DOWNLOADED": {"OUTPUT_RETAINED", "AMBIGUOUS", "FINALIZED"},
     "OUTPUT_RETAINED": {"COST_RECONCILED", "AMBIGUOUS", "FINALIZED"},
     "COST_RECONCILED": {"FINALIZED"},
     "AMBIGUOUS": {
@@ -474,7 +481,12 @@ class EventRepository:
         return self.pipeline_job(job_id)
 
     def fail_pipeline_job(
-        self, job_id: str, error: str, result_payload: dict[str, Any] | None = None
+        self,
+        job_id: str,
+        error: str,
+        result_payload: dict[str, Any] | None = None,
+        *,
+        terminal_effect_reconciled: bool = False,
     ) -> dict[str, Any]:
         now = self._utc_now()
         row = self.conn.execute(
@@ -528,12 +540,20 @@ class EventRepository:
                     ),
                 )
             return self.pipeline_job(job_id)
-        if row["status"] == "running" and row["effect_state"] in {
-            "EXTERNAL_ID_KNOWN",
-            "PROVIDER_COMPLETED",
-            "OUTPUT_RETAINED",
-            "COST_RECONCILED",
-        }:
+        if (
+            row["status"] == "running"
+            and row["effect_state"]
+            in {
+                "EXTERNAL_ID_KNOWN",
+                "PROVIDER_COMPLETED",
+                "OUTPUT_DOWNLOADED",
+                "OUTPUT_RETAINED",
+                "COST_RECONCILED",
+            }
+            and not (
+                terminal_effect_reconciled and row["effect_state"] == "COST_RECONCILED"
+            )
+        ):
             with self.conn:
                 self.conn.execute(
                     """
@@ -604,6 +624,14 @@ class EventRepository:
                 f"invalid_pipeline_effect_transition:{current}->{target}"
             )
         now = self._utc_now()
+        stored_evidence = None
+        if evidence is not None:
+            prior = json_load(row["reconciliation_json"], {})
+            stored_evidence = {
+                **(prior if isinstance(prior, dict) else {}),
+                **self._sanitize_for_storage(evidence),
+                "lastEffectState": target,
+            }
         with self.conn:
             self.conn.execute(
                 """
@@ -620,20 +648,12 @@ class EventRepository:
                     target,
                     _optional_text(authorization_id),
                     _optional_text(external_operation_id),
+                    None if stored_evidence is None else True,
                     (
                         None
-                        if evidence is None
+                        if stored_evidence is None
                         else json.dumps(
-                            self._sanitize_for_storage(evidence),
-                            ensure_ascii=False,
-                            sort_keys=True,
-                        )
-                    ),
-                    (
-                        None
-                        if evidence is None
-                        else json.dumps(
-                            self._sanitize_for_storage(evidence),
+                            stored_evidence,
                             ensure_ascii=False,
                             sort_keys=True,
                         )
@@ -829,6 +849,7 @@ class EventRepository:
                         "EXTERNAL_ID_KNOWN",
                         "AMBIGUOUS",
                         "PROVIDER_COMPLETED",
+                        "OUTPUT_DOWNLOADED",
                         "OUTPUT_RETAINED",
                         "COST_RECONCILED",
                         "EFFECT_CONFIRMED",
@@ -855,6 +876,7 @@ class EventRepository:
                             if recovery["effectState"]
                             in {
                                 "PROVIDER_COMPLETED",
+                                "OUTPUT_DOWNLOADED",
                                 "OUTPUT_RETAINED",
                                 "COST_RECONCILED",
                                 "EFFECT_CONFIRMED",

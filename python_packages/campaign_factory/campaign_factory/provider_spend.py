@@ -224,6 +224,22 @@ def issue_provider_spend_authorization(
         for model in scope.get("providerModels") or []
         if "kling" in str(model).lower()
     )
+    payload = sign_authorization(
+        {
+            "schema": AUTHORIZATION_SCHEMA,
+            "authorizationId": authorization_id,
+            "reservationId": reservation_id,
+            "issuer": "campaign_factory",
+            "status": "authorized",
+            "issuedAt": issued_at,
+            "expiresAt": expires_at,
+            "scope": scope,
+            "providerQuote": quote,
+        },
+        secret=secret,
+    )
+    # Validate the exact durable payload before reserving provider capacity.
+    validate_provider_spend_authorization(payload)
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
@@ -235,6 +251,9 @@ def issue_provider_spend_authorization(
         ).fetchone()
         if existing is not None:
             raise PermissionError("provider_spend_request_already_authorized")
+        active_provider_reservations = _active_provider_reservations(conn)
+        if balance - active_provider_reservations - amount < min_balance:
+            raise PermissionError("provider_balance_capacity_already_reserved")
         daily_spend = _reserved_total(conn, "substr(issued_at, 1, 10) = ?", day)
         monthly_spend = _reserved_total(conn, "substr(issued_at, 1, 7) = ?", month)
         cohort_spend = _reserved_total(conn, "cohort_id = ?", cohort_id)
@@ -273,22 +292,57 @@ def issue_provider_spend_authorization(
     except Exception:
         conn.rollback()
         raise
-    payload = sign_authorization(
-        {
-            "schema": AUTHORIZATION_SCHEMA,
-            "authorizationId": authorization_id,
-            "reservationId": reservation_id,
-            "issuer": "campaign_factory",
-            "status": "authorized",
-            "issuedAt": issued_at,
-            "expiresAt": expires_at,
-            "scope": scope,
-            "providerQuote": quote,
-        },
-        secret=secret,
-    )
-    validate_provider_spend_authorization(payload)
     return payload
+
+
+def validate_provider_spend_batch_capacity(
+    conn: sqlite3.Connection,
+    requests: list[tuple[dict[str, Any], float]],
+    *,
+    now: datetime.datetime | None = None,
+) -> None:
+    """Prove all prepared reservations fit policy before issuing the first."""
+
+    if not requests:
+        return
+    ensure_authorization_table(conn)
+    timestamp = _iso(now or datetime.datetime.now(datetime.UTC))
+    day = timestamp[:10]
+    month = timestamp[:7]
+    daily_cap = _positive_env("HIGGSFIELD_DAILY_BUDGET_CREDITS")
+    monthly_cap = _positive_env("HIGGSFIELD_MONTHLY_BUDGET_CREDITS")
+    cohort_cap = _positive_env("HIGGSFIELD_COHORT_MAX_CREDITS")
+    run_max_assets = _positive_int_env("HIGGSFIELD_RUN_MAX_ASSETS")
+    kling_daily_max = _positive_int_env("HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS")
+    total = sum(
+        _positive_number(amount, "prepared provider quote")
+        for _scope, amount in requests
+    )
+    calls = sum(int(scope.get("providerCallCount") or 0) for scope, _ in requests)
+    if calls <= 0 or calls > run_max_assets:
+        raise PermissionError("run_asset_limit_exceeded")
+    if _reserved_total(conn, "substr(issued_at, 1, 10) = ?", day) + total > daily_cap:
+        raise PermissionError("projected_daily_credits_exceeded")
+    if (
+        _reserved_total(conn, "substr(issued_at, 1, 7) = ?", month) + total
+        > monthly_cap
+    ):
+        raise PermissionError("projected_monthly_credits_exceeded")
+    cohorts: dict[str, float] = {}
+    for scope, amount in requests:
+        cohort = str(scope.get("cohortId") or "")
+        cohorts[cohort] = cohorts.get(cohort, 0.0) + float(amount)
+    for cohort, amount in cohorts.items():
+        if _reserved_total(conn, "cohort_id = ?", cohort) + amount > cohort_cap:
+            raise PermissionError("projected_cohort_credits_exceeded")
+    quoted_kling = sum(
+        1
+        for scope, _amount in requests
+        for model in scope.get("providerModels") or []
+        if "kling" in str(model).lower()
+    )
+    if _kling_count(conn, day) + quoted_kling > kling_daily_max:
+        raise PermissionError("projected_daily_kling_generation_limit_exceeded")
 
 
 def consume_provider_spend_authorization(
@@ -312,6 +366,66 @@ def consume_provider_spend_authorization(
             "provider spend authorization is missing, expired, or consumed"
         )
     conn.commit()
+
+
+def cancel_provider_spend_authorization(
+    conn: sqlite3.Connection,
+    authorization_id: str,
+    *,
+    now: datetime.datetime | None = None,
+) -> bool:
+    """Release one unconsumed reservation after an aborted batch."""
+
+    ensure_authorization_table(conn)
+    timestamp = _iso(now or datetime.datetime.now(datetime.UTC))
+    cursor = conn.execute(
+        f"""
+        UPDATE {AUTHORIZATION_TABLE}
+        SET status = 'cancelled', cancelled_at = ?
+        WHERE authorization_id = ? AND status = 'authorized'
+        """,
+        (timestamp, authorization_id),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def load_provider_spend_authorization(
+    conn: sqlite3.Connection,
+    authorization_id: str,
+    *,
+    secret: str,
+) -> dict[str, Any]:
+    """Reconstruct the original signed receipt for exact crash recovery."""
+
+    ensure_authorization_table(conn)
+    row = conn.execute(
+        f"""
+        SELECT authorization_id, reservation_id, issued_at, expires_at,
+               scope_json, provider_quote_json
+        FROM {AUTHORIZATION_TABLE}
+        WHERE authorization_id = ?
+        """,
+        (authorization_id,),
+    ).fetchone()
+    if row is None:
+        raise PermissionError("provider_spend_authorization_missing")
+    payload = sign_authorization(
+        {
+            "schema": AUTHORIZATION_SCHEMA,
+            "authorizationId": str(row[0]),
+            "reservationId": str(row[1]),
+            "issuer": "campaign_factory",
+            "status": "authorized",
+            "issuedAt": str(row[2]),
+            "expiresAt": str(row[3]),
+            "scope": json.loads(str(row[4])),
+            "providerQuote": json.loads(str(row[5])),
+        },
+        secret=secret,
+    )
+    validate_provider_spend_authorization(payload)
+    return payload
 
 
 def record_provider_execution(
@@ -390,21 +504,62 @@ def record_provider_execution(
 
 
 def _reserved_total(conn: sqlite3.Connection, clause: str, value: str) -> float:
+    now = _iso(datetime.datetime.now(datetime.UTC))
     row = conn.execute(
         f"SELECT COALESCE(SUM(amount), 0) FROM {AUTHORIZATION_TABLE} "
         f"WHERE provider = 'higgsfield' AND unit = ? "
-        f"AND status IN ('authorized', 'consumed') AND {clause}",
-        (HIGGSFIELD_CREDIT_UNIT, value),
+        f"AND (status = 'consumed' OR (status = 'authorized' AND expires_at > ?)) "
+        f"AND {clause}",
+        (HIGGSFIELD_CREDIT_UNIT, now, value),
+    ).fetchone()
+    return float(row[0] or 0.0)
+
+
+def _active_provider_reservations(conn: sqlite3.Connection) -> float:
+    has_cost_table = (
+        conn.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'ai_cost_events'
+            """
+        ).fetchone()
+        is not None
+    )
+    consumed_clause = (
+        """
+        OR (
+          status = 'consumed'
+          AND NOT EXISTS (
+            SELECT 1 FROM ai_cost_events e
+            WHERE e.reservation_id = provider_spend_authorizations.reservation_id
+          )
+        )
+        """
+        if has_cost_table
+        else "OR status = 'consumed'"
+    )
+    now = _iso(datetime.datetime.now(datetime.UTC))
+    row = conn.execute(
+        f"""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM {AUTHORIZATION_TABLE}
+        WHERE provider = 'higgsfield'
+          AND unit = ?
+          AND ((status = 'authorized' AND expires_at > ?) {consumed_clause})
+        """,
+        (HIGGSFIELD_CREDIT_UNIT, now),
     ).fetchone()
     return float(row[0] or 0.0)
 
 
 def _kling_count(conn: sqlite3.Connection, day: str) -> int:
+    now = _iso(datetime.datetime.now(datetime.UTC))
     rows = conn.execute(
         f"SELECT scope_json FROM {AUTHORIZATION_TABLE} "
         "WHERE provider = 'higgsfield' AND unit = ? "
-        "AND status IN ('authorized', 'consumed') AND substr(issued_at, 1, 10) = ?",
-        (HIGGSFIELD_CREDIT_UNIT, day),
+        "AND (status = 'consumed' OR (status = 'authorized' AND expires_at > ?)) "
+        "AND substr(issued_at, 1, 10) = ?",
+        (HIGGSFIELD_CREDIT_UNIT, now, day),
     ).fetchall()
     return sum(
         1
