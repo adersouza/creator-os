@@ -130,7 +130,7 @@ def test_smoke_capacity_run_uses_real_isolated_state_and_atomic_receipt(
     assert receipt["lanes"]["contentforge_throughput"]["status"] in {
         "passed",
         "skipped",
-    }
+    }, receipt["lanes"]["contentforge_throughput"]
     assert receipt["externalEffects"] == {
         "paidProviderCalls": 0,
         "productionPathsTouched": False,
