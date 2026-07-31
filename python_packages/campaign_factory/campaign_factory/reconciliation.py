@@ -603,7 +603,18 @@ def _check_receipt_paths(
         ("threadsdash_exports", "id", "manifest_path", None, "campaign_id"),
     )
     for table, id_field, path_field, sha_field, subject_field in specs:
-        for row in _rows(conn, table):
+        rows = _rows(conn, table)
+        managed_audit_copies: set[tuple[str, str]] = set()
+        if table == "audit_reports":
+            for row in rows:
+                candidate = Path(str(row.get(path_field) or "")).expanduser()
+                if root_keyed_path(candidate, roots) is not None and is_regular_file(
+                    candidate
+                ):
+                    managed_audit_copies.add(
+                        (str(row.get(subject_field) or ""), sha256_file(candidate))
+                    )
+        for row in rows:
             receipt_id = str(row[id_field])
             subject_id = str(row.get(subject_field) or "")
             if not subject_id:
@@ -615,6 +626,11 @@ def _check_receipt_paths(
                     {"subjectField": subject_field},
                 )
             path = Path(str(row.get(path_field) or "")).expanduser()
+            immutable_audit_has_managed_copy = (
+                table == "audit_reports"
+                and is_regular_file(path)
+                and (subject_id, sha256_file(path)) in managed_audit_copies
+            )
             _check_registered_path(
                 findings,
                 known,
@@ -622,7 +638,7 @@ def _check_receipt_paths(
                 expected_sha=str(row.get(sha_field) or "") if sha_field else "",
                 subject_type=table,
                 subject_id=receipt_id,
-                external=False,
+                external=immutable_audit_has_managed_copy,
                 roots=roots,
             )
 
@@ -727,7 +743,10 @@ def _collect_other_database_paths(
                         expected_sha=expected_sha,
                         subject_type=f"{database_name}.{table}",
                         subject_id=str(row[id_field]),
-                        external=False,
+                        external=(
+                            database_name == "reel_factory"
+                            and table == "render_attempts"
+                        ),
                         roots=roots,
                     )
         finally:
