@@ -82,3 +82,8 @@ def test_secret_scan_allows_trufflehog_container_registry() -> None:
         "ghcr.io:443",
         "pkg-containers.githubusercontent.com:443",
     } <= _allowed_endpoints(secret_scan_job)
+
+
+def test_trivy_allows_vulnerability_database_registry() -> None:
+    trivy_job = _workflow_job(".github/workflows/security.yml", "trivy")
+    assert {"mirror.gcr.io:443"} <= _allowed_endpoints(trivy_job)
