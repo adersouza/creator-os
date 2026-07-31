@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shlex
 import shutil
 import sys
 import time
@@ -68,10 +70,155 @@ _DEFAULT_DATABASE_RESTORE_PATHS = {
     "reel_manifest": Path("state/reel_factory/manifest.sqlite"),
     "render_queue": Path("state/reel_factory/render_queue.sqlite"),
 }
+DEFAULT_INSTALLED_BACKUP_SCRIPT = Path.home() / ".creator-os/backup.sh"
 
 
 class RuntimeRestoreError(RuntimeError):
     pass
+
+
+def audit_backup_script_coverage(
+    backup_script: Path,
+    *,
+    source_root: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Report whether one installed script covers every canonical runtime root.
+
+    This is deliberately conservative: selecting a few children of a canonical
+    directory is not equivalent to backing up the directory. A script may either
+    invoke this reviewed backup tool or explicitly include every required root.
+    """
+
+    values = dict(os.environ if env is None else env)
+    paths = resolve_runtime_paths(source_root or ROOT, env=values)
+    selected = backup_script.expanduser()
+    required = (
+        ("campaign_factory_db", paths.campaign_factory_db, "STATE_ROOT"),
+        ("reference_factory_db", paths.reference_factory_db, "STATE_ROOT"),
+        ("reel_manifest_db", paths.reel_manifest_db, "STATE_ROOT"),
+        ("reel_render_queue_db", paths.reel_render_queue_db, "STATE_ROOT"),
+        ("artifact_root", paths.artifact_root, "ARTIFACT_ROOT"),
+        ("model_root", paths.model_root, "MODEL_ROOT"),
+        ("log_root", paths.log_root, "LOG_ROOT"),
+    )
+    base = {
+        "schema": "creator_os.backup_coverage_audit.v1",
+        "mode": "read_only",
+        "backupScript": str(selected),
+        "requiredCoverage": [
+            {"name": name, "path": str(path)} for name, path, _ in required
+        ],
+    }
+    if selected.is_symlink() or not selected.is_file():
+        return {
+            **base,
+            "status": "not_found",
+            "canonicalToolDelegation": False,
+            "coverage": [],
+            "missingCoverage": [name for name, *_ in required],
+        }
+
+    raw = selected.read_bytes()
+    text = raw.decode("utf-8", errors="replace")
+    operational_lines = [
+        line
+        for line in text.splitlines()
+        if line.strip()
+        and not line.lstrip().startswith("#")
+        and not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", line.strip())
+    ]
+    operational_text = "\n".join(operational_lines)
+    canonical_tool = any(
+        _line_invokes_reviewed_backup_tool(line) for line in operational_lines
+    )
+    coverage: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for name, path, variable in required:
+        explicit = canonical_tool or _script_explicitly_covers(
+            operational_text,
+            path=path,
+            variable=variable,
+            variable_root={
+                "STATE_ROOT": paths.state_root,
+                "ARTIFACT_ROOT": paths.artifact_root,
+                "MODEL_ROOT": paths.model_root,
+                "LOG_ROOT": paths.log_root,
+            }[variable],
+        )
+        coverage.append(
+            {
+                "name": name,
+                "path": str(path),
+                "covered": explicit,
+                "evidence": (
+                    "reviewed_backup_tool"
+                    if canonical_tool
+                    else "explicit_canonical_path"
+                    if explicit
+                    else "missing"
+                ),
+            }
+        )
+        if not explicit:
+            missing.append(name)
+    return {
+        **base,
+        "status": "ok" if not missing else "drift_detected",
+        "scriptSha256": hashlib.sha256(raw).hexdigest(),
+        "canonicalToolDelegation": canonical_tool,
+        "coverage": coverage,
+        "missingCoverage": missing,
+    }
+
+
+def _line_invokes_reviewed_backup_tool(line: str) -> bool:
+    try:
+        tokens = shlex.split(line, comments=True)
+    except ValueError:
+        return False
+    script_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if Path(token).name == "backup_runtime_state.py"
+        ),
+        None,
+    )
+    if script_index is None:
+        return False
+    prefix = tokens[:script_index]
+    while prefix and prefix[0] in {"exec", "env"}:
+        prefix.pop(0)
+    while prefix and "=" in prefix[0] and not prefix[0].startswith(("/", "./")):
+        prefix.pop(0)
+    if not prefix:
+        return True
+    command = Path(prefix[0]).name
+    if command in {"python", "python3", "uv"} or command.startswith("python3."):
+        return True
+    return command == "uv" and "run" in prefix
+
+
+def _script_explicitly_covers(
+    operational_text: str,
+    *,
+    path: Path,
+    variable: str,
+    variable_root: Path,
+) -> bool:
+    candidates = [str(path)]
+    if path == variable_root or path.is_relative_to(variable_root):
+        relative = path.relative_to(variable_root)
+        suffix = "" if relative == Path(".") else f"/{relative.as_posix()}"
+        candidates.extend((f"${variable}{suffix}", f"${{{variable}}}{suffix}"))
+    token_end = r"/?(?=[\s\"'\\]|$)"
+    return any(
+        re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(candidate)}{token_end}", operational_text
+        )
+        for candidate in candidates
+    )
 
 
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
@@ -711,6 +858,16 @@ def main() -> int:
         help="Verify an existing backup directory without touching live state",
     )
     parser.add_argument(
+        "--audit-installed-script",
+        nargs="?",
+        type=Path,
+        const=DEFAULT_INSTALLED_BACKUP_SCRIPT,
+        help=(
+            "Read-only coverage audit for an installed backup script "
+            "(defaults to ~/.creator-os/backup.sh)"
+        ),
+    )
+    parser.add_argument(
         "--restore",
         type=Path,
         help="Restore a verified backup into a new isolated destination",
@@ -753,6 +910,10 @@ def main() -> int:
         help="Required for restore writes; backup creation remains the default",
     )
     args = parser.parse_args()
+    if args.audit_installed_script:
+        result = audit_backup_script_coverage(args.audit_installed_script)
+        print(json.dumps(result, indent=2))
+        return 0 if result["status"] == "ok" else 2
     if args.verify:
         print(json.dumps(verify_backup(args.verify), indent=2))
         return 0

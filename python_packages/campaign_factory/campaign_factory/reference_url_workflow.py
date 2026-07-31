@@ -8,10 +8,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.provider_spend import (
+    build_paid_action_quote,
+    build_paid_action_spend_scope,
+)
 from reel_factory.worker_api import (
     canonicalize_reel_url,
     download_reel_url,
@@ -20,6 +25,12 @@ from reel_factory.worker_api import (
 
 from pipeline_contracts import validate_reference_video_motion_analysis
 
+from .all_provider_cost import (
+    begin_paid_action_attempt,
+    budget_limits_from_env,
+    issue_paid_action_authorization,
+    reconcile_paid_action_cost,
+)
 from .production_source_selection import resolve_reference_analysis_governance
 from .recreation_lifecycle import generate_recreation_anchor
 from .recreation_modes import plan_recreation
@@ -148,13 +159,30 @@ def run_reference_analysis(
             db_path=factory.settings.reference_factory_db,
             apply=apply,
         )
+        persisted_path = (reference.get("source") or {}).get("path")
+        reference_source = Path(str(persisted_path)) if persisted_path else source
+        reference_source_sha256 = _sha256(reference_source)
+        provider_rights = (
+            _require_reference_provider_rights(
+                db_path=factory.settings.reference_factory_db,
+                reference_id=str(reference["referenceId"]),
+                provider="gemini",
+                operation="reference_analysis",
+                source_sha256=reference_source_sha256,
+            )
+            if apply
+            else None
+        )
         structural_analysis = _analyze_reference_structure(
+            factory=factory,
             source=source,
             reference_id=str(reference["referenceId"]),
             overlay_inventory=dict(reference.get("overlayTextInventory") or {}),
+            governance_context=governance_context,
+            provider_rights=provider_rights,
+            apply=apply,
         )
         reference["structuralMotionAnalysis"] = structural_analysis
-        persisted_path = (reference.get("source") or {}).get("path")
         audio_source = Path(str(persisted_path)) if persisted_path else source
         reference_id = str(reference["referenceId"])
         audio = (
@@ -185,9 +213,13 @@ def run_reference_analysis(
             "through": through or "plan",
             "apply": apply,
             "providerCalls": int(structural_analysis.get("providerCalls") or 0),
-            "paidSpend": 0,
+            "paidSpend": (structural_analysis.get("cost") or {}).get("actualUsd"),
+            "paidSpendStatus": (structural_analysis.get("cost") or {}).get(
+                "reconciliationState"
+            ),
             "analysisProviderCalls": int(structural_analysis.get("providerCalls") or 0),
             "analysisCost": structural_analysis.get("cost"),
+            "providerRights": provider_rights,
             "download": download_evidence,
             "reference": reference,
             "audio": audio,
@@ -324,10 +356,27 @@ def _run_reference_factory(
 
 def _analyze_reference_structure(
     *,
+    factory: Any,
     source: Path,
     reference_id: str,
     overlay_inventory: dict[str, Any],
+    governance_context: dict[str, Any],
+    provider_rights: dict[str, Any] | None,
+    apply: bool,
 ) -> dict[str, Any]:
+    if not apply:
+        return {
+            "status": "planned",
+            "reason": "external_analysis_requires_apply",
+            "providerCalls": 0,
+            "cost": {
+                "quotedUsd": 0.0,
+                "actualUsd": 0.0,
+                "reconciliationState": "not_submitted",
+            },
+        }
+    if provider_rights is None or provider_rights.get("eligible") is not True:
+        raise PermissionError("reference_provider_rights_required")
     gemini = shutil.which("gemini")
     if not gemini:
         return {
@@ -337,30 +386,73 @@ def _analyze_reference_structure(
             "cost": None,
         }
     instruction = gemini_motion_analysis_instruction(reference_id)
+    source_sha256 = _sha256(source)
+    rights_fingerprint = str(provider_rights["rightsEvidenceFingerprint"])
+    paid_action = _authorize_gemini_structure_analysis(
+        factory,
+        reference_id=reference_id,
+        source_sha256=source_sha256,
+        rights_fingerprint=rights_fingerprint,
+        instruction=instruction,
+        governance_context=governance_context,
+    )
+    current_rights = _require_reference_provider_rights(
+        db_path=factory.settings.reference_factory_db,
+        reference_id=reference_id,
+        provider="gemini",
+        operation="reference_analysis",
+        source_sha256=source_sha256,
+    )
+    if current_rights["rightsEvidenceFingerprint"] != rights_fingerprint:
+        reconcile_paid_action_cost(
+            factory.conn,
+            event_id=str(paid_action["campaignLedgerEventId"]),
+            actual_usd=None,
+            unknown_reason="reference_rights_changed_after_authorization",
+        )
+        raise PermissionError("reference_rights_changed_after_authorization")
     prompt = f"@{{{source}}} {instruction}"
-    completed = subprocess.run(
-        [
-            gemini,
-            "--approval-mode",
-            "plan",
-            "--output-format",
-            "json",
-            "--include-directories",
-            str(source.parent),
-            "--prompt",
-            prompt,
-        ],
-        capture_output=True,
-        text=True,
-        cwd=source.parent,
-        timeout=300,
+    try:
+        completed = subprocess.run(
+            [
+                gemini,
+                "--model",
+                str(paid_action["model"]),
+                "--approval-mode",
+                "plan",
+                "--output-format",
+                "json",
+                "--include-directories",
+                str(source.parent),
+                "--prompt",
+                prompt,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=source.parent,
+            timeout=300,
+        )
+    except Exception:
+        reconcile_paid_action_cost(
+            factory.conn,
+            event_id=str(paid_action["campaignLedgerEventId"]),
+            actual_usd=None,
+            unknown_reason="provider_outcome_ambiguous",
+        )
+        raise
+    cost = reconcile_paid_action_cost(
+        factory.conn,
+        event_id=str(paid_action["campaignLedgerEventId"]),
+        actual_usd=None,
+        unknown_reason="provider_cost_not_exposed",
     )
     if completed.returncode != 0:
         return {
             "status": "unavailable",
             "reason": "gemini_cli_analysis_failed",
             "providerCalls": 1,
-            "cost": "not_exposed_by_cli",
+            "cost": cost,
+            "paidAction": paid_action,
         }
     try:
         response = json.loads(completed.stdout)
@@ -373,15 +465,164 @@ def _analyze_reference_structure(
             "status": "unavailable",
             "reason": "gemini_cli_analysis_invalid",
             "providerCalls": 1,
-            "cost": "not_exposed_by_cli",
+            "cost": cost,
+            "paidAction": paid_action,
         }
     return {
         "status": "ready",
         "providerCalls": 1,
-        "cost": "not_exposed_by_cli",
+        "cost": cost,
+        "paidAction": paid_action,
         "analysis": analysis,
         "overlayTextInventory": overlay_inventory,
         "overlayTextExcludedFromGenerationPrompt": True,
+    }
+
+
+def _require_reference_provider_rights(
+    *,
+    db_path: Path,
+    reference_id: str,
+    provider: str,
+    operation: str,
+    source_sha256: str,
+) -> dict[str, Any]:
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("uv is required for signed reference-rights verification")
+    completed = subprocess.run(
+        [
+            uv,
+            "run",
+            "--package",
+            "reference-factory",
+            "reference-factory",
+            "--db",
+            str(db_path),
+            "provider-rights-check",
+            "--reference-id",
+            reference_id,
+            "--provider",
+            provider,
+            "--operation",
+            operation,
+            "--source-sha256",
+            source_sha256,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=_source_root(),
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise PermissionError("reference_provider_rights_ineligible:" + detail[-1000:])
+    try:
+        receipt = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "Reference Factory rights check returned invalid JSON"
+        ) from exc
+    if (
+        receipt.get("eligible") is not True
+        or receipt.get("referenceId") != reference_id
+        or receipt.get("provider") != provider
+        or receipt.get("operation") != operation
+        or receipt.get("sourceSha256") != source_sha256
+        or not receipt.get("rightsEvidenceFingerprint")
+    ):
+        raise PermissionError("reference_provider_rights_receipt_invalid")
+    return receipt
+
+
+def _authorize_gemini_structure_analysis(
+    factory: Any,
+    *,
+    reference_id: str,
+    source_sha256: str,
+    rights_fingerprint: str,
+    instruction: str,
+    governance_context: dict[str, Any],
+) -> dict[str, Any]:
+    provider = "gemini"
+    model = str(
+        os.environ.get("CREATOR_OS_GEMINI_ANALYSIS_MODEL") or "gemini-2.5-flash"
+    )
+    quote_raw = str(os.environ.get("CREATOR_OS_GEMINI_ANALYSIS_QUOTE_USD") or "")
+    try:
+        quote_usd = float(quote_raw)
+    except ValueError as exc:
+        raise PermissionError("gemini_analysis_quote_usd_required") from exc
+    if quote_usd <= 0:
+        raise PermissionError("gemini_analysis_quote_usd_required")
+    request_core = {
+        "referenceId": reference_id,
+        "sourceSha256": source_sha256,
+        "rightsEvidenceFingerprint": rights_fingerprint,
+        "instructionSha256": hashlib.sha256(instruction.encode("utf-8")).hexdigest(),
+        "model": model,
+    }
+    request_fingerprint = hashlib.sha256(
+        json.dumps(request_core, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    scope = build_paid_action_spend_scope(
+        provider=provider,
+        provider_model=model,
+        action_type="reference_analysis",
+        creator_id=str(governance_context["creatorId"]),
+        campaign_id=str(governance_context["campaignId"]),
+        run_id=f"gemini_structure:{reference_id}",
+        input_fingerprints={
+            "reference_request": request_fingerprint,
+            "reference_source": source_sha256,
+            "rights_evidence": rights_fingerprint,
+        },
+        parameters={
+            "factory": "reference_factory",
+            "referenceId": reference_id,
+            "analysisKind": "motion_structure",
+        },
+    )
+    quote = build_paid_action_quote(
+        provider=provider,
+        model=model,
+        amount=quote_usd,
+        source="operator_configured_upper_bound",
+        pricing_version=str(
+            os.environ.get("CREATOR_OS_GEMINI_ANALYSIS_PRICING_VERSION")
+            or "gemini_cli.v1"
+        ),
+    )
+    secret = str(os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET") or "")
+    authorization = issue_paid_action_authorization(
+        factory.conn,
+        scope=scope,
+        quote=quote,
+        secret=secret,
+        limits=budget_limits_from_env(provider=provider, run_cap_usd=quote_usd),
+        governance_context=governance_context,
+    )
+    attempt_id = f"refattempt_{uuid.uuid4().hex}"
+    event_id = begin_paid_action_attempt(
+        factory.conn,
+        authorization=authorization,
+        secret=secret,
+        attempt_id=attempt_id,
+    )
+    return {
+        "schema": "campaign_factory.reference_paid_action_context.v1",
+        "authorizationId": authorization["authorizationId"],
+        "attemptId": attempt_id,
+        "campaignLedgerEventId": event_id,
+        "provider": provider,
+        "model": model,
+        "actionType": "reference_analysis",
+        "referenceId": reference_id,
+        "referenceSourceSha256": source_sha256,
+        "rightsEvidenceFingerprint": rights_fingerprint,
+        "requestFingerprint": request_fingerprint,
+        "spendRequestFingerprint": scope["requestFingerprint"],
+        "attemptPersistedBeforeExternalEffect": True,
     }
 
 

@@ -70,6 +70,7 @@ from .reference_lifecycle import (
     REFERENCE_EVENT_TYPES,
     record_pattern_lifecycle_event,
     record_reference_lifecycle_event,
+    require_reference_provider_rights,
 )
 from .reference_prompt_generation import export_video_prompts, generate_video_prompts
 from .review import build_shortlist, export_gold, label_reference, review_batch
@@ -181,6 +182,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lifecycle.add_argument("--effective-at", default=None)
     lifecycle.add_argument("--expires-at", default=None)
+
+    provider_rights = sub.add_parser(
+        "provider-rights-check",
+        help="Verify signed exact-byte rights for one external reference operation",
+    )
+    provider_rights.add_argument("--reference-id", required=True)
+    provider_rights.add_argument("--provider", required=True)
+    provider_rights.add_argument("--operation", required=True)
+    provider_rights.add_argument("--source-sha256", required=True)
 
     pattern_lifecycle = sub.add_parser(
         "pattern-lifecycle",
@@ -729,6 +739,16 @@ def main(argv: list[str] | None = None) -> int:
                     evidence_type=args.evidence_type,
                     effective_at=args.effective_at,
                     expires_at=args.expires_at,
+                )
+            )
+        elif args.command == "provider-rights-check":
+            print_json(
+                require_reference_provider_rights(
+                    conn,
+                    reference_id=args.reference_id,
+                    provider=args.provider,
+                    operation=args.operation,
+                    expected_source_sha256=args.source_sha256,
                 )
             )
         elif args.command == "pattern-lifecycle":

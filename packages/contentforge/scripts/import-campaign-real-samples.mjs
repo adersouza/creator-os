@@ -1,4 +1,5 @@
 import { copyFile, mkdir, readdir, readFile, writeFile } from "fs/promises";
+import { createHash } from "node:crypto";
 import path from "path";
 
 const DEST = path.resolve("test/fixtures/campaign-factory/real");
@@ -57,8 +58,10 @@ async function importSamples(paths, options) {
     usedIndexes.add(nextIndex);
     await copyFile(source, dest);
     var file = path.basename(dest);
+    var sha256 = createHash("sha256").update(await readFile(dest)).digest("hex");
     byFile.set(file, {
       file,
+      sha256,
       sourceType: options.sourceType,
       expectedUploadReady: options.expectedUploadReady,
       expectedWarningCodes: options.expectedWarningCodes,

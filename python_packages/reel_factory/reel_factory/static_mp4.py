@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,10 +48,16 @@ def render_static_mp4(
     audio_intent_path = output.with_suffix(output.suffix + ".audio_intent.json")
     if not dry_run:
         output.parent.mkdir(parents=True, exist_ok=True)
-        _run(command, timeout=180)
-        quality = _quality(output)
-        if quality["status"] != "passed":
-            raise RuntimeError(f"static MP4 quality failed: {quality}")
+        partial = _partial_output_path(output)
+        command = _build_ffmpeg_command(request, still=still, output=partial)
+        try:
+            _run(command, timeout=180)
+            quality = _quality(partial)
+            if quality["status"] != "passed":
+                raise RuntimeError(f"static MP4 quality failed: {quality}")
+            os.replace(partial, output)
+        finally:
+            partial.unlink(missing_ok=True)
         audio_intent_path = write_audio_intent(
             output,
             mode=request.audio_mode,
@@ -75,6 +83,18 @@ def render_static_mp4(
         "humanReviewRequired": True,
         "dryRun": dry_run,
     }
+
+
+def _partial_output_path(output: Path) -> Path:
+    descriptor, raw_path = tempfile.mkstemp(
+        prefix=f".{output.stem}.",
+        suffix=f".partial{output.suffix}",
+        dir=output.parent,
+    )
+    os.close(descriptor)
+    partial = Path(raw_path)
+    partial.unlink()
+    return partial
 
 
 def _validate_request(request: StaticMp4Request, *, still: Path) -> None:

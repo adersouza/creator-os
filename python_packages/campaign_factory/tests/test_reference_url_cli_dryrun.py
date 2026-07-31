@@ -184,10 +184,42 @@ def test_gemini_structure_analysis_is_contract_valid_and_read_only(
         "requiresReferenceVideoConditioning": True,
     }
     observed: dict[str, object] = {}
+    factory = SimpleNamespace(
+        conn=object(),
+        settings=SimpleNamespace(reference_factory_db=tmp_path / "reference.sqlite"),
+    )
+    rights = {
+        "eligible": True,
+        "rightsEvidenceFingerprint": "e" * 64,
+    }
     monkeypatch.setattr(
         workflow.shutil,
         "which",
         lambda command: "/usr/local/bin/gemini" if command == "gemini" else None,
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_authorize_gemini_structure_analysis",
+        lambda *_args, **_kwargs: {
+            "campaignLedgerEventId": "cost-event-1",
+            "model": "gemini-2.5-flash",
+        },
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_require_reference_provider_rights",
+        lambda **_kwargs: rights,
+    )
+    monkeypatch.setattr(
+        workflow,
+        "reconcile_paid_action_cost",
+        lambda *_args, **_kwargs: {
+            "schema": "campaign_factory.unified_paid_action_ledger.v1",
+            "eventId": "cost-event-1",
+            "quotedUsd": 0.25,
+            "actualUsd": None,
+            "reconciliationState": "unknown",
+        },
     )
 
     def fake_run(command, **kwargs):
@@ -201,19 +233,52 @@ def test_gemini_structure_analysis_is_contract_valid_and_read_only(
 
     monkeypatch.setattr(workflow.subprocess, "run", fake_run)
     result = workflow._analyze_reference_structure(
+        factory=factory,
         source=source,
         reference_id="ref_url_example",
         overlay_inventory={
             "status": "observed",
             "observations": [{"text": "OLD OVERLAY"}],
         },
+        governance_context={"creatorId": "creator-1", "campaignId": "campaign-1"},
+        provider_rights=rights,
+        apply=True,
     )
     assert result["status"] == "ready"
     assert result["analysis"]["structure"]["timeline"][1]["endSeconds"] == 7.0
     assert result["overlayTextExcludedFromGenerationPrompt"] is True
     assert "--approval-mode" in observed["command"]
     assert "plan" in observed["command"]
+    assert observed["command"][observed["command"].index("--model") + 1] == (
+        "gemini-2.5-flash"
+    )
     assert observed["kwargs"]["cwd"] == tmp_path
+
+
+def test_gemini_structure_analysis_dry_run_makes_no_provider_or_spend_call(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "reference.mp4"
+    source.write_bytes(b"video")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("dry-run must not authorize spend or call Gemini")
+
+    monkeypatch.setattr(workflow, "_authorize_gemini_structure_analysis", forbidden)
+    monkeypatch.setattr(workflow.subprocess, "run", forbidden)
+    result = workflow._analyze_reference_structure(
+        factory=SimpleNamespace(),
+        source=source,
+        reference_id="ref_url_example",
+        overlay_inventory={},
+        governance_context={},
+        provider_rights=None,
+        apply=False,
+    )
+
+    assert result["status"] == "planned"
+    assert result["providerCalls"] == 0
+    assert result["cost"]["reconciliationState"] == "not_submitted"
 
 
 def test_reference_rights_block_before_download_or_analysis(

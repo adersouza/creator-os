@@ -17,21 +17,21 @@ The canonical table/write-owner split and handoff-saga rules are in
 the corresponding machine-readable registry is
 `packages/pipeline_contracts/pipeline_contracts/ownership_registry.v1.json`.
 
-## Repository Closure Snapshot — 2026-07-30
+## Repository Closure Snapshot — 2026-07-31
 
 The three-mode simplification is complete and frozen at merge
 `289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983` through PR
-[#557](https://github.com/adersouza/creator-os/pull/557). The current promoted
-code-bearing integration baseline is
-`0336fea1b59e53fffceb1bc9d6449f01698aa56a` through PR
-[#575](https://github.com/adersouza/creator-os/pull/575).
+[#557](https://github.com/adersouza/creator-os/pull/557). Current source,
+release, and protected-runtime SHAs must be read from Git, exact-SHA workflow
+evidence, and the authenticated promotion receipt; this durable map does not
+hard-code a moving runtime SHA.
 
 | Layer | Status |
 |---|---|
 | Architecture | **COMPLETE** — three public creation modes |
-| Implementation | **COMPLETE** — merged through PR #575 |
-| Hosted source verification | **COMPLETE** — PR and exact-target release/security evidence passed for `0336fea1` |
-| Runtime promotion | **COMPLETE** — protected runtime promoted to exact `0336fea1` and passed full verification plus 9/9 live-read-only health |
+| Implementation | **COMPLETE** — current source is `origin/main` |
+| Hosted source verification | **REQUIRED PER SHA** — use exact PR and target release/security evidence |
+| Runtime promotion | **REQUIRED PER SHA** — use the authenticated promotion receipt and live-read-only health report |
 | Live visual qualification | **PENDING** — one bounded paid `recreate_reel` run |
 | ThreadsDashboard handoff qualification | **PENDING** — only after exact-final operator review |
 

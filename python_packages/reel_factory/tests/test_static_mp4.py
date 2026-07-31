@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -64,3 +65,26 @@ def test_static_mp4_apply_renders_and_writes_native_audio_intent(
     assert intent["policy"] == "embedded_trending_required"
     assert intent["gates"]["allow_draft_export"] is True
     assert intent["gates"]["allow_publish"] is False
+    assert not list(tmp_path.glob(".*.partial.mp4"))
+
+
+def test_static_mp4_failed_render_preserves_existing_final_and_cleans_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = _still(tmp_path / "still.png")
+    output = tmp_path / "static.mp4"
+    output.write_bytes(b"existing-approved-bytes")
+
+    def fail_after_partial(command, **_kwargs):
+        Path(command[-1]).write_bytes(b"partial-output")
+        return SimpleNamespace(returncode=1, stderr="render failed", stdout="")
+
+    monkeypatch.setattr("reel_factory.static_mp4.subprocess.run", fail_after_partial)
+
+    with pytest.raises(RuntimeError, match="render failed"):
+        render_static_mp4(
+            StaticMp4Request(still_path=still, output_path=output), dry_run=False
+        )
+
+    assert output.read_bytes() == b"existing-approved-bytes"
+    assert not list(tmp_path.glob(".*.partial.mp4"))

@@ -89,6 +89,12 @@ async function createFixture(relativePath, options) {
 
 export async function generateCampaignFactoryFixtures() {
   await ensureDirs();
+  var readableCaption = await createTextOverlay("readable-caption.png", {
+    text: "BIG HOOK",
+    width: 880,
+    height: 310,
+    fontSize: 112,
+  });
   var whiteCaption = await createTextOverlay("white-caption.png", { text: "BIG HOOK" });
   var edgeCaption = await createTextOverlay("edge-caption.png", { text: "EDGE HOOK", width: 1000 });
   var lowContrastCaption = await createTextOverlay("low-contrast-caption.png", { text: "LOW CONTRAST", color: "#3f3f3f" });
@@ -97,9 +103,9 @@ export async function generateCampaignFactoryFixtures() {
   await createFixture("good/campaign_factory_avconvert_render.mp4", {
     lavfi: "testsrc=size=1080x1920:rate=30",
     duration: 1.2,
-    overlay: whiteCaption,
-    overlayX: 120,
-    overlayY: 840,
+    overlay: readableCaption,
+    overlayX: 100,
+    overlayY: 800,
   });
   await createFixture("good/iphone_reel_upload_ready.mp4", {
     lavfi: "smptebars=size=1080x1920:rate=30",

@@ -12,17 +12,21 @@ import path from "node:path";
 import { snapshotTrustedMediaAnalyzerRegistry } from "../lib/analyzer-registry.js";
 import { verifyAnalyzerValidationManifest } from "../lib/analyzer-validation-manifest.js";
 
-const PRODUCED_AT = "2026-07-22T12:00:00Z";
+const PRODUCED_AT = "2026-07-31T08:00:00Z";
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 
-test("fails closed while executable analyzer qualification is blocked", async function () {
-  await assert.rejects(
-    snapshotTrustedMediaAnalyzerRegistry({
-      producedAt: PRODUCED_AT,
-      repositoryRoot: ROOT,
-    }),
-    /executable qualification is blocked:expected_verdict_mismatches:2,missing_real_samples:2/,
-  );
+test("loads production authority after executable qualification passes", async function () {
+  var registry = await snapshotTrustedMediaAnalyzerRegistry({
+    producedAt: PRODUCED_AT,
+    repositoryRoot: ROOT,
+  });
+
+  assert.equal(registry.schema, "creator_os.analyzer_registry.v2");
+  assert.equal(registry.analyzers.length, 9);
+  assert.ok(registry.analyzers.every(function (item) {
+    return item.validationDataset.datasetId === "contentforge.production_authority.v2"
+      && item.authorityReview.decision === "approved";
+  }));
 });
 
 test("requires an explicit snapshot timestamp", async function () {
@@ -49,23 +53,23 @@ test("keeps v1 snapshots available only for historical verification", async func
 test("fails closed when production authority has expired", async function () {
   await assert.rejects(
     snapshotTrustedMediaAnalyzerRegistry({
-      producedAt: "2027-01-21T00:00:00Z",
+      producedAt: "2027-02-01T00:00:00Z",
       repositoryRoot: ROOT,
     }),
-    /executable qualification is blocked/,
+    /production authority expired/,
   );
 });
 
 test("rejects replayed production authority after its renewal time", async function () {
   var originalNow = Date.now;
-  Date.now = function () { return Date.parse("2027-01-21T00:00:00Z"); };
+  Date.now = function () { return Date.parse("2027-02-01T00:00:00Z"); };
   try {
     await assert.rejects(
       snapshotTrustedMediaAnalyzerRegistry({
         producedAt: PRODUCED_AT,
         repositoryRoot: ROOT,
       }),
-      /executable qualification is blocked/,
+      /production authority expired/,
     );
   } finally {
     Date.now = originalNow;

@@ -9,6 +9,7 @@ import pytest
 from reel_factory.db_migrations import (
     QUEUE_BASE_SCHEMA,
     Migration,
+    migration_readiness_report,
     run_manifest_migrations,
     run_migrations,
     run_queue_migrations,
@@ -101,6 +102,98 @@ def test_legacy_manifest_upgrades_columns_and_filename(tmp_path: Path) -> None:
 
     assert tuple(row) == ("output.mp4", None, None)
     assert upgraded.conn.execute("PRAGMA user_version").fetchone()[0] == 9
+
+
+def test_manifest_migration_readiness_uses_copy_and_preserves_source(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "manifest.sqlite"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL
+        );
+        CREATE TABLE videos (
+          video_id TEXT PRIMARY KEY, source_path TEXT NOT NULL,
+          source_video_hash TEXT NOT NULL, source_duration_sec REAL NOT NULL,
+          ingested_at INTEGER NOT NULL
+        );
+        CREATE TABLE variations (
+          job_key TEXT PRIMARY KEY, video_id TEXT NOT NULL, recipe TEXT NOT NULL,
+          recipe_params_json TEXT NOT NULL, caption_text TEXT NOT NULL,
+          caption_hash TEXT NOT NULL, output_path TEXT NOT NULL,
+          output_hash TEXT NOT NULL, output_size_bytes INTEGER NOT NULL,
+          duration_sec REAL NOT NULL, audio TEXT NOT NULL, encoded_at INTEGER NOT NULL,
+          encoder TEXT NOT NULL, status TEXT NOT NULL
+        );
+        CREATE TABLE render_attempts (
+          attempt_id TEXT PRIMARY KEY, job_key TEXT NOT NULL, attempt_no INTEGER NOT NULL,
+          status TEXT NOT NULL, temp_path TEXT NOT NULL, final_path TEXT NOT NULL,
+          ffmpeg_cmd TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER,
+          error_message TEXT
+        );
+        CREATE TABLE analysis_cache (
+          cache_key TEXT PRIMARY KEY, source_hash TEXT NOT NULL, analyzer TEXT NOT NULL,
+          payload_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        PRAGMA user_version=8;
+        """
+    )
+    conn.close()
+    before = db_path.read_bytes()
+    before_mtime = db_path.stat().st_mtime_ns
+
+    report = migration_readiness_report(db_path, database_kind="manifest")
+
+    assert report["status"] == "ready"
+    assert report["sourceUserVersion"] == 8
+    assert report["targetUserVersion"] == 9
+    assert report["migratedCopyUserVersion"] == 9
+    assert report["sourceBytesPreserved"] is True
+    assert [row["version"] for row in report["migrationLedger"]] == [8, 9]
+    assert db_path.read_bytes() == before
+    assert db_path.stat().st_mtime_ns == before_mtime
+    with sqlite3.connect(db_path) as unchanged:
+        assert unchanged.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert (
+            unchanged.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type='table' AND name='reel_schema_migrations'"
+            ).fetchone()
+            is None
+        )
+
+
+def test_queue_migration_readiness_uses_copy_and_preserves_source(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "render_queue.sqlite"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(QUEUE_BASE_SCHEMA)
+    conn.execute("PRAGMA user_version=0")
+    conn.commit()
+    conn.close()
+    before = db_path.read_bytes()
+
+    report = migration_readiness_report(db_path, database_kind="queue")
+
+    assert report["status"] == "ready"
+    assert report["sourceUserVersion"] == 0
+    assert report["targetUserVersion"] == 3
+    assert report["migratedCopyUserVersion"] == 3
+    assert report["sourceBytesPreserved"] is True
+    assert [row["version"] for row in report["migrationLedger"]] == [1, 2, 3]
+    assert db_path.read_bytes() == before
+    with sqlite3.connect(db_path) as unchanged:
+        assert unchanged.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert (
+            unchanged.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type='table' AND name='reel_queue_schema_migrations'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_manifest_migration_failure_retries_and_checksum_drift_is_blocked(

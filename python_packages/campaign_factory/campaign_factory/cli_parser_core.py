@@ -13,9 +13,24 @@ def register_core_commands(sub) -> None:
         help="report or explicitly repair database/filesystem byte drift",
     )
     reconcile_sub = reconcile.add_subparsers(dest="reconcile_cmd", required=True)
-    reconcile_sub.add_parser("report")
+    reconcile_report = reconcile_sub.add_parser("report")
+    reconcile_report.add_argument(
+        "--summary",
+        action="store_true",
+        help="emit bounded counts and examples instead of every finding",
+    )
+    reconcile_report.add_argument(
+        "--examples-per-class",
+        type=int,
+        default=3,
+        help="bounded examples retained per finding class in --summary output",
+    )
     reconcile_repair = reconcile_sub.add_parser("repair")
     reconcile_repair.add_argument("--case", required=True)
+    reconcile_repair.add_argument(
+        "--fingerprint",
+        help="exact fingerprint from the preview; blocks stale repair input",
+    )
     reconcile_repair.add_argument("--operator", required=True)
     reconcile_repair.add_argument("--reason", required=True)
     reconcile_repair.add_argument("--apply", action="store_true")

@@ -23,6 +23,8 @@ from .local_model_benchmark import (
     PromotionPolicy,
 )
 
+CANARY_PRODUCED_AT = "2026-07-31T08:00:00Z"
+
 
 def _read_registry(path: Path) -> dict[str, Any]:
     resolved = path.expanduser().resolve()
@@ -172,7 +174,7 @@ def run_canary(
         "productionWritesAllowed": False,
         "provenance": {
             "producer": "reel_factory.benchmark_evidence_canary",
-            "producedAt": "2026-07-22T12:00:00Z",
+            "producedAt": CANARY_PRODUCED_AT,
             "sourceReferences": [
                 {
                     "recordId": "benchmark-canary-input",
@@ -196,7 +198,7 @@ def run_canary(
         ],
         "provenance": {
             "producer": "reel_factory.benchmark_evidence_canary",
-            "producedAt": "2026-07-22T12:00:00Z",
+            "producedAt": CANARY_PRODUCED_AT,
             "sourceReferences": [
                 {
                     "recordId": "benchmark-canary-input",
@@ -217,7 +219,7 @@ def run_canary(
         "sourceAssetFingerprints": [input_fingerprint],
         "provenance": {
             "producer": "reel_factory.benchmark_evidence_canary",
-            "producedAt": "2026-07-22T12:00:00Z",
+            "producedAt": CANARY_PRODUCED_AT,
             "sourceReferences": [
                 {
                     "recordId": identity_profile["profileId"],
@@ -376,7 +378,7 @@ def run_canary(
                     "mediaSha256": output_sha256,
                     "sourcePath": str(source),
                     "sourceSha256": input_fingerprint,
-                    "producedAt": "2026-07-22T12:00:00Z",
+                    "producedAt": CANARY_PRODUCED_AT,
                     "overlaysExist": False,
                     "analyzerRegistry": registry,
                 }

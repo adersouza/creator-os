@@ -5,9 +5,17 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal
+
+from creator_os_core.sqlite import connect_sqlite
+
+MANIFEST_SCHEMA_VERSION = 9
+QUEUE_SCHEMA_VERSION = 3
 
 MANIFEST_BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -508,6 +516,104 @@ def run_queue_migrations(conn: sqlite3.Connection) -> None:
             ),
         ),
     )
+
+
+def migration_readiness_report(
+    source_path: Path,
+    *,
+    database_kind: Literal["manifest", "queue"],
+) -> dict[str, Any]:
+    """Prove migrations on a temporary SQLite copy without mutating the source."""
+
+    selected = source_path.expanduser()
+    if selected.is_symlink() or not selected.is_file():
+        raise FileNotFoundError(f"migration source is not a regular file: {selected}")
+    source = selected.resolve()
+    before_stat = source.stat()
+    before_sha = _sha256_path(source)
+    if database_kind == "manifest":
+        runner = run_manifest_migrations
+        ledger = "reel_schema_migrations"
+        target_version = MANIFEST_SCHEMA_VERSION
+    elif database_kind == "queue":
+        runner = run_queue_migrations
+        ledger = "reel_queue_schema_migrations"
+        target_version = QUEUE_SCHEMA_VERSION
+    else:
+        raise ValueError(f"unsupported database kind: {database_kind}")
+
+    with tempfile.TemporaryDirectory(prefix="creator-os-reel-migration-") as raw:
+        copy_path = Path(raw) / source.name
+        with connect_sqlite(source, readonly=True, wal=False) as source_conn:
+            source_version = int(
+                source_conn.execute("PRAGMA user_version").fetchone()[0]
+            )
+            with connect_sqlite(copy_path, wal=False) as copy_conn:
+                source_conn.backup(copy_conn)
+        with connect_sqlite(copy_path, wal=False) as migrated:
+            runner(migrated)
+            migrated_version = int(
+                migrated.execute("PRAGMA user_version").fetchone()[0]
+            )
+            quick_check = str(migrated.execute("PRAGMA quick_check").fetchone()[0])
+            foreign_key_violations = [
+                tuple(row) for row in migrated.execute("PRAGMA foreign_key_check")
+            ]
+            ledger_rows = [
+                {
+                    "migrationId": str(row["migration_id"]),
+                    "version": int(row["version"]),
+                    "status": str(row["status"]),
+                    "checksum": str(row["checksum"]),
+                }
+                for row in migrated.execute(
+                    f"""
+                    SELECT migration_id, version, status, checksum
+                    FROM {ledger}
+                    ORDER BY version
+                    """
+                )
+            ]
+
+    after_stat = source.stat()
+    after_sha = _sha256_path(source)
+    preserved = (
+        before_sha == after_sha
+        and before_stat.st_size == after_stat.st_size
+        and before_stat.st_mtime_ns == after_stat.st_mtime_ns
+    )
+    if not preserved:
+        raise RuntimeError("reel_migration_readiness_source_changed")
+    if (
+        migrated_version != target_version
+        or quick_check != "ok"
+        or foreign_key_violations
+        or any(row["status"] != "applied" for row in ledger_rows)
+    ):
+        raise RuntimeError("reel_migration_readiness_postcondition_failed")
+    return {
+        "schema": "creator_os.reel_database_migration_readiness.v1",
+        "mode": "copied_database_only",
+        "databaseKind": database_kind,
+        "sourcePath": str(source),
+        "sourceSha256": before_sha,
+        "sourceUserVersion": source_version,
+        "targetUserVersion": target_version,
+        "migratedCopyUserVersion": migrated_version,
+        "quickCheck": quick_check,
+        "foreignKeyViolationCount": len(foreign_key_violations),
+        "migrationLedger": ledger_rows,
+        "sourceBytesPreserved": preserved,
+        "status": "ready",
+    }
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _apply_manifest_baseline(conn: sqlite3.Connection) -> None:

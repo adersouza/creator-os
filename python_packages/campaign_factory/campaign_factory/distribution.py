@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from datetime import time as datetime_time
@@ -62,6 +63,20 @@ def _normalize_schedule_mode(value: str | None) -> str:
         raise ValueError(
             f"unknown schedule mode {value!r}; expected draft, preview, or live"
         )
+    return normalized
+
+
+def _normalize_story_cta_text(value: str | None) -> str:
+    normalized = " ".join((value or "peep highlights").strip().lower().split())
+    if "dm me" in normalized or "link" in normalized:
+        raise ValueError("Story CTA text cannot mention DMs or links")
+    if any(
+        unicodedata.category(char) == "So"
+        or char in {"\u200d", "\ufe0e", "\ufe0f"}
+        or 0x1F1E6 <= ord(char) <= 0x1F1FF
+        for char in normalized
+    ):
+        raise ValueError("Story CTA text cannot contain emoji")
     return normalized
 
 
@@ -151,6 +166,8 @@ class DistributionRepository:
         now = self._utc_now()
         plan_id = self._new_id("dist")
         distribution_surface = _normalize_distribution_surface(surface)
+        if distribution_surface == "story_cta":
+            cta_text = _normalize_story_cta_text(cta_text)
         asset_content_surface = self._normalize_content_surface(
             asset.get("content_surface")
         )
@@ -676,7 +693,7 @@ class DistributionRepository:
                         reason_code="cta_followup",
                         smart_link=(profile or {}).get("defaultSmartLink"),
                         cta_text=(profile or {}).get("storyCtaText")
-                        or "new post is up",
+                        or "peep highlights",
                     )
                     planned.append(story_plan)
             surface_counts: dict[str, int] = {}

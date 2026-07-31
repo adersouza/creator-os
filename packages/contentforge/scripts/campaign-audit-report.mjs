@@ -1,4 +1,5 @@
 import { access, appendFile, copyFile, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
+import { createHash } from "node:crypto";
 import path from "path";
 import { POST } from "../lib/similarity.js";
 import { LEGACY_FINAL_DIR, UPLOADS_DIR } from "../lib/paths.js";
@@ -162,6 +163,7 @@ async function auditFixture(fixture, index, source) {
 function normalizeRealFixture(entry) {
   return {
     file: "real/" + entry.file,
+    sha256: entry.sha256,
     expected: {
       uploadReady: entry.expectedUploadReady,
       mustIncludeWarningCodes: entry.expectedWarningCodes || [],
@@ -178,6 +180,9 @@ function validateRealManifest(manifest, manifestPath) {
     var prefix = (manifestPath || "real_samples.json") + " samples[" + index + "]";
     if (typeof sample.file !== "string" || !sample.file.trim()) {
       throw new Error(prefix + ".file is required");
+    }
+    if (!/^[a-f0-9]{64}$/.test(sample.sha256 || "")) {
+      throw new Error(prefix + ".sha256 must be an exact SHA-256");
     }
     if (!allowedSourceTypes.has(sample.sourceType)) {
       throw new Error(prefix + ".sourceType is invalid");
@@ -352,7 +357,11 @@ export async function buildCampaignAuditReport(options = {}) {
   var results = [];
   for (var i = 0; i < fixtures.length; i++) {
     var item = fixtures[i];
-    if (!(await exists(path.join(ROOT, item.fixture.file)))) {
+    var fixturePath = path.join(ROOT, item.fixture.file);
+    if (!(await exists(fixturePath))) {
+      if (item.source === "real" && options.requireRealSamples === true) {
+        throw new Error(`real sample bytes missing:${item.fixture.file}`);
+      }
       results.push({
         source: item.source,
         file: item.fixture.file,
@@ -361,6 +370,13 @@ export async function buildCampaignAuditReport(options = {}) {
         mismatches: [],
       });
       continue;
+    }
+    if (
+      item.source === "real"
+      && createHash("sha256").update(await readFile(fixturePath)).digest("hex")
+        !== item.fixture.sha256
+    ) {
+      throw new Error(`real sample SHA-256 mismatch:${item.fixture.file}`);
     }
     results.push(await auditFixture(item.fixture, i, item.source));
   }
@@ -414,6 +430,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   buildCampaignAuditReport({
     generate: !hasFlag("--no-generate"),
     limit: positiveIntegerOption("--limit"),
+    requireRealSamples: hasFlag("--require-real-samples"),
   })
     .then(async (report) => {
       if (hasFlag("--write-history")) {

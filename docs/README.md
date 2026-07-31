@@ -45,6 +45,8 @@ the durable system map, dated pipeline state, and active operating policy.
   promotion evidence.
 - [`architecture/tooling_hardening.md`](architecture/tooling_hardening.md) —
   verification and dependency rules.
+- [`architecture/creator_os_complete_audit_map.md`](architecture/creator_os_complete_audit_map.md)
+  — active 26-area ownership and completion index.
 
 ## Active Operations
 
@@ -54,6 +56,8 @@ the durable system map, dated pipeline state, and active operating policy.
   Audio Radar refresh.
 - [`operations/creative_quality_review.md`](operations/creative_quality_review.md)
   — provider contract and human review boundary.
+- [`operations/daily_orchestration.md`](operations/daily_orchestration.md)
+  — fail-closed recurring production planning.
 - [`operations/learning_cohort_daily.md`](operations/learning_cohort_daily.md)
   — fixed-cohort daily controller.
 - [`operations/reference_refresh.md`](operations/reference_refresh.md) —

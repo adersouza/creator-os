@@ -16,6 +16,7 @@ assert SPEC and SPEC.loader
 backup_module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(backup_module)
 backup_runtime_state = backup_module.backup_runtime_state
+audit_backup_script_coverage = backup_module.audit_backup_script_coverage
 verify_backup = backup_module.verify_backup
 restore_runtime_state = backup_module.restore_runtime_state
 
@@ -25,6 +26,80 @@ def _sqlite_db(path: Path) -> None:
     with sqlite3.connect(path) as conn:
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
         conn.execute("INSERT INTO items (name) VALUES ('ok')")
+
+
+def _runtime_env(tmp_path: Path) -> dict[str, str]:
+    return {
+        "HOME": str(tmp_path / "home"),
+        "CREATOR_OS_STATE_ROOT": str(tmp_path / "state"),
+        "CREATOR_OS_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
+        "CREATOR_OS_MODEL_ROOT": str(tmp_path / "models"),
+        "CREATOR_OS_LOG_ROOT": str(tmp_path / "logs"),
+    }
+
+
+def test_backup_coverage_audit_detects_partial_canonical_root_selection(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "backup.sh"
+    script.write_text(
+        """#!/bin/bash
+STATE_ROOT="${CREATOR_OS_STATE_ROOT:-$HOME/.creator-os/state}"
+ARTIFACT_ROOT="${CREATOR_OS_ARTIFACT_ROOT:-$HOME/.creator-os/artifacts}"
+MODEL_ROOT="${CREATOR_OS_MODEL_ROOT:-$HOME/.creator-os/models}"
+LOG_ROOT="${CREATOR_OS_LOG_ROOT:-$HOME/.creator-os/logs}"
+sqlite3 "$STATE_ROOT/reel_factory/manifest.sqlite" ".backup out.sqlite"
+rsync -a "$ARTIFACT_ROOT/media/runtime_campaigns/" out/
+rsync -a "$MODEL_ROOT/reel_factory/" out/
+rsync -a "$LOG_ROOT/" out/
+""",
+        encoding="utf-8",
+    )
+
+    result = audit_backup_script_coverage(script, env=_runtime_env(tmp_path))
+
+    assert result["status"] == "drift_detected"
+    assert result["canonicalToolDelegation"] is False
+    assert set(result["missingCoverage"]) == {
+        "campaign_factory_db",
+        "reference_factory_db",
+        "reel_render_queue_db",
+        "artifact_root",
+        "model_root",
+    }
+    assert result["coverage"][-1]["covered"] is True
+
+
+def test_backup_coverage_audit_accepts_reviewed_canonical_backup_tool(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "backup.sh"
+    script.write_text(
+        '#!/bin/bash\npython3 "/reviewed/scripts/backup_runtime_state.py"\n',
+        encoding="utf-8",
+    )
+
+    result = audit_backup_script_coverage(script, env=_runtime_env(tmp_path))
+
+    assert result["status"] == "ok"
+    assert result["canonicalToolDelegation"] is True
+    assert result["missingCoverage"] == []
+    assert all(item["covered"] for item in result["coverage"])
+
+
+def test_backup_coverage_audit_does_not_treat_copying_tool_as_delegation(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "backup.sh"
+    script.write_text(
+        'cp "/reviewed/scripts/backup_runtime_state.py" "/tmp/evidence/"\n',
+        encoding="utf-8",
+    )
+
+    result = audit_backup_script_coverage(script, env=_runtime_env(tmp_path))
+
+    assert result["canonicalToolDelegation"] is False
+    assert result["status"] == "drift_detected"
 
 
 def test_backup_runtime_state_vacuums_dbs_and_copies_runtime_dirs(tmp_path: Path):

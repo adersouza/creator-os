@@ -1514,7 +1514,7 @@ def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> N
     registry_script = """
 import { isolatedQualifiedAnalyzerRegistry } from "./packages/contentforge/test/support/qualified-analyzer-registry.js";
 const result = await isolatedQualifiedAnalyzerRegistry({
-  producedAt: "2026-07-22T12:00:00Z",
+  producedAt: "2026-07-31T08:00:00Z",
   repositoryRoot: process.argv[1],
 });
 process.stdout.write(JSON.stringify(result));
