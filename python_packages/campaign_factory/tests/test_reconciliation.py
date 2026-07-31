@@ -224,6 +224,95 @@ def test_immutable_render_attempt_keeps_historical_external_path(
         cf.close()
 
 
+def test_quarantined_asset_no_longer_conflicts_with_active_path(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        directory = cf.settings.campaigns_dir / "stacey" / "reconcile"
+        directory.mkdir(parents=True)
+        source_path = directory / "source.mp4"
+        source_path.write_bytes(b"source")
+        source_id = _source(cf, source_path)
+        campaign_id = cf.conn.execute(
+            "SELECT campaign_id FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()[0]
+        shared = directory / "shared.mp4"
+        shared.write_bytes(b"active")
+        active_sha = hashlib.sha256(shared.read_bytes()).hexdigest()
+        stale_sha = hashlib.sha256(b"stale").hexdigest()
+        now = "2026-07-30T00:00:00+00:00"
+        for asset_id, digest in (
+            ("asset_active", active_sha),
+            ("asset_stale", stale_sha),
+        ):
+            cf.conn.execute(
+                """
+                INSERT INTO rendered_assets
+                (id, campaign_id, source_asset_id, content_hash, output_path,
+                 campaign_path, filename, audit_status, review_state, created_at,
+                 updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'draft', ?, ?)
+                """,
+                (
+                    asset_id,
+                    campaign_id,
+                    source_id,
+                    digest,
+                    str(shared),
+                    str(shared),
+                    shared.name,
+                    now,
+                    now,
+                ),
+            )
+            blob_id = f"blob_{asset_id}"
+            cf.conn.execute(
+                """
+                INSERT INTO generation_output_blobs
+                (id, content_sha256, byte_size, media_type, created_at)
+                VALUES (?, ?, 6, 'video', ?)
+                """,
+                (blob_id, digest, now),
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO generation_attempts
+                (id, campaign_id, source_asset_id, rendered_asset_id,
+                 output_blob_id, model_id, motion_task, attempted_output_path,
+                 duplicate_disposition, created_at)
+                VALUES (?, ?, ?, ?, ?, 'test', 'legacy_unknown', ?,
+                        'legacy_reference', ?)
+                """,
+                (
+                    f"attempt_{asset_id}",
+                    campaign_id,
+                    source_id,
+                    asset_id,
+                    blob_id,
+                    str(shared),
+                    now,
+                ),
+            )
+        cf.conn.execute(
+            """
+            INSERT INTO quarantined_assets
+            (id, campaign_id, rendered_asset_id, reason, excluded_from_metrics,
+             created_at)
+            VALUES ('quarantine_stale', ?, 'asset_stale', 'identity conflict', 1, ?)
+            """,
+            (campaign_id, now),
+        )
+        cf.conn.commit()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["findingClass"] == "multiple_files_claiming_conflicting_identity"
+            and item["subjectId"] == str(shared)
+            for item in report["findings"]
+        )
+    finally:
+        cf.close()
+
+
 def test_reconciliation_summary_is_bounded_sorted_and_actionable(
     tmp_path: Path,
 ) -> None:

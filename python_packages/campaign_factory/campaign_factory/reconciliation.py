@@ -146,12 +146,16 @@ def reconciliation_report(
             _remember_registered_path(
                 known_paths,
                 Path(str(row.get("output_path") or "")).expanduser(),
-                expected_sha=str(row.get("content_hash") or ""),
+                expected_sha="",
                 subject_type="rendered_asset",
                 subject_id=str(row["id"]),
             )
 
-    _collect_generation_attempt_paths(conn, known_paths)
+    _collect_generation_attempt_paths(
+        conn,
+        known_paths,
+        ignored_rendered_ids=set(rendered_by_id) - active_rendered_ids,
+    )
     _collect_other_database_paths(settings, findings, known_paths, roots)
     _check_receipt_paths(conn, findings, known_paths, roots)
     _check_path_identity_conflicts(findings, known_paths)
@@ -512,7 +516,10 @@ def _remember_registered_path(
 
 
 def _collect_generation_attempt_paths(
-    conn: sqlite3.Connection, known: dict[Path, list[dict[str, Any]]]
+    conn: sqlite3.Connection,
+    known: dict[Path, list[dict[str, Any]]],
+    *,
+    ignored_rendered_ids: set[str],
 ) -> None:
     blobs = {
         str(row["id"]): str(row.get("content_sha256") or "")
@@ -525,7 +532,11 @@ def _collect_generation_attempt_paths(
         _remember_registered_path(
             known,
             path,
-            expected_sha=blobs.get(str(row.get("output_blob_id") or ""), ""),
+            expected_sha=(
+                ""
+                if str(row.get("rendered_asset_id") or "") in ignored_rendered_ids
+                else blobs.get(str(row.get("output_blob_id") or ""), "")
+            ),
             subject_type="generation_attempt",
             subject_id=str(row["id"]),
         )
