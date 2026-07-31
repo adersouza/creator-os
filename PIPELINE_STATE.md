@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last reconciled:** 2026-07-29
+**Last reconciled:** 2026-07-30
 **Durable architecture:** [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md)
 
 This is the concise handoff document for a new ChatGPT or Codex session. Share
@@ -15,12 +15,12 @@ operation.
 | Layer | Current evidence |
 |---|---|
 | Three-mode feature baseline | PR [#557](https://github.com/adersouza/creator-os/pull/557) merged as `289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983` |
-| Authoritative current source | query `git rev-parse origin/main`; documentation-only commits may advance beyond the feature baseline |
-| PR-head verification | affected, hygiene, and secret-scan checks succeeded |
-| Exact current-SHA release/security | pending unless separately run against the final current source SHA |
-| Machine runtime | clean detached checkout at prior SHA `817235bd1689e34e4f508c784a2251c3aa7fd16b` |
-| Source/runtime alignment | not aligned; guarded promotion and runtime-health verification remain pending |
-| Cleanup state | at reconciliation, no unrelated development worktrees or feature branches remained |
+| Authoritative current source | query `git rev-parse origin/main`; the promoted code-bearing baseline is PR [#575](https://github.com/adersouza/creator-os/pull/575) at `0336fea1b59e53fffceb1bc9d6449f01698aa56a` |
+| PR-head verification | affected, hygiene, and secret-scan checks succeeded for the promotion target |
+| Exact target-SHA release/security | succeeded for `0336fea1b59e53fffceb1bc9d6449f01698aa56a` |
+| Machine runtime | clean detached checkout at exact `0336fea1b59e53fffceb1bc9d6449f01698aa56a` |
+| Source/runtime alignment | code aligned at promotion; later documentation-only commits may advance `origin/main` without changing runtime behavior |
+| Cleanup state | no disposable Creator OS topic worktrees or branches remained; the developer checkout and protected runtime were retained |
 
 Run this before relying on the snapshot:
 
@@ -31,9 +31,17 @@ scripts/creator-os status --json
 /Users/aderdesouza/Developer/creator-os-runtime/scripts/creator-os status --json
 ```
 
-## Pre-Promotion Runtime Health Snapshot
+## Promoted Runtime Health Snapshot
 
-The 2026-07-29 local status check confirmed:
+Promotion `d23ecca3-a8de-4ac9-ad17-9015942fa3a1` moved the protected runtime
+from `71b1cf15af78c63b3023cc70647c8467502f83d9` to exact
+`0336fea1b59e53fffceb1bc9d6449f01698aa56a`. The authenticated receipt is:
+
+```text
+~/.creator-os/state/runtime_promotions/receipts/d23ecca3-a8de-4ac9-ad17-9015942fa3a1.json
+```
+
+The 2026-07-30 guarded promotion confirmed:
 
 - clean, known checkout identity;
 - virtual-environment entrypoints bound to their checkout;
@@ -46,13 +54,16 @@ The 2026-07-29 local status check confirmed:
   cohort campaign;
 - the latest focused state backup passed integrity verification, and runtime
   backup preserves historical symlinks without dereferencing retired targets;
-- runtime remains clean at `817235bd1689e34e4f508c784a2251c3aa7fd16b`;
-- merged source is now `289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983`,
-  so the next runtime operation is an explicit guarded promotion.
+- full `make runtime-verify` passed;
+- all 9 required live-read-only health checks passed;
+- runtime remains clean at `0336fea1b59e53fffceb1bc9d6449f01698aa56a`;
+- the promotion made zero provider calls and zero production-state writes;
+- an authenticated rollback bundle and backup manifest retain the prior
+  `71b1cf15af78c63b3023cc70647c8467502f83d9` runtime.
 
-Provider readiness and the ThreadsDashboard handshake were `NOT_RUN` in this
-snapshot because only local read-only status was requested. Do not infer a live
-provider or product seam pass.
+This proves promotion and read-only runtime health. It does not prove a paid
+provider generation, ThreadsDashboard draft handoff, scheduling, publication,
+or performance result.
 
 ## Creator Identity And Inventory Snapshot
 
@@ -126,16 +137,19 @@ Historical receipts, rows, media, hashes, and lineage remain readable.
 
 The runtime read-only Audio Radar status at reconciliation time reported:
 
-- 17 active/resolved active tracks;
-- 38 playable cache objects;
-- 130,559,347 cached bytes;
-- 135 catalog rows;
+- 29 active/resolved active tracks;
+- 50 playable cache objects;
+- 138,051,921 cached bytes;
+- 147 catalog rows;
 - one retained production selection;
 - zero publication-linked performance rollups.
 
-The latest recorded refresh was partial because provider availability is
-independent by design. A partial provider result does not falsely age or prune
-the library.
+The latest completed refresh,
+`audio_promotion_20260731T012258Z`, explicitly promoted 12 operator-authorized
+TikTok reference audios: all 12 were cataloged, downloaded, activated, and
+verified playable. It created no new selection. External rights evidence was
+not recorded, so that evidence remains required before a use whose policy
+demands it.
 
 Refresh before relying on these counts:
 
