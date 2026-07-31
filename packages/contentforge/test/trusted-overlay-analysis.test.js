@@ -116,6 +116,28 @@ test("fails closed for an unsupported OCR engine instead of using heuristic evid
   assert.match(result.unavailableFrames[0].error, /Unsupported OCR engine/);
 });
 
+test("ignores low-confidence two-character OCR hallucinations", async function () {
+  var result = await runTrustedCaptionOverlayAudit({
+    filePath: "/read-only/output.mp4",
+    durationSeconds: 3,
+  }, providers(function ({ timeSec }) {
+    return {
+      available: true,
+      engine: "tesseract",
+      engineVersion: "5.5.2",
+      preprocessing: ["original"],
+      boxes: [measuredBox("6h", timeSec, {
+        confidence: 25,
+        box: { x: 130, y: 558, w: 96, h: 82 },
+      })],
+    };
+  }));
+
+  assert.equal(result.available, true);
+  assert.equal(result.frames.every(function (frame) { return frame.boxes.length === 0; }), true);
+  assert.equal(result.safeZone.passed, true);
+});
+
 test("blocks safe-zone and measured face overlap without inventing body geometry", async function () {
   var faceTrackBoxes = [0.4, 1.4, 2.4].map(function (timeSeconds) {
     return {
