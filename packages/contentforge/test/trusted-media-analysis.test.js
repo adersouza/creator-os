@@ -93,11 +93,11 @@ async function registry(producedAt) {
 }
 
 test("production analysis rejects isolated unit-test analyzer authority", async function () {
-  var analyzerRegistry = await registry("2026-07-22T20:00:00Z");
+  var analyzerRegistry = await registry("2026-07-31T07:30:00Z");
   await assert.rejects(
     analyzeTrustedMediaProduction({
       mediaPath: path.join(ROOT, "package.json"),
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry,
       repositoryRoot: ROOT,
     }),
@@ -116,7 +116,7 @@ function humanReview(analysis, overrides = {}) {
     subjectSha256: analysis.subject.mediaSha256,
     sourceSha256: analysis.subject.sourceSha256,
     reviewer: "operator-fixture",
-    reviewedAt: "2026-07-22T20:01:00Z",
+    reviewedAt: "2026-07-31T07:31:00Z",
     rubricVersion: "1.0.0",
     samplingEvidence: {
       analysisId: analysis.analysisId,
@@ -536,8 +536,8 @@ test("produces deterministic raw observations from exact media", async function 
     var args = {
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
-      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      producedAt: "2026-07-31T07:30:00Z",
+      analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
     };
@@ -614,8 +614,8 @@ test("preserves exact legacy analyzer-set readability", async function () {
     var analysis = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
-      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      producedAt: "2026-07-31T07:30:00Z",
+      analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
     });
@@ -640,9 +640,9 @@ test("fails closed on substituted output and reports missing audio as unavailabl
       analyzeTrustedMedia({
         mediaPath: media,
         expectedMediaSha256: "b".repeat(64),
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         overlaysExist: true,
-        analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+        analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
         repositoryRoot: ROOT,
         runner: fixtureRunner({ withAudio: false, lipSyncMode: "missing_face" }),
       }),
@@ -650,8 +650,8 @@ test("fails closed on substituted output and reports missing audio as unavailabl
     );
     var measured = await analyzeTrustedMedia({
       mediaPath: media,
-      producedAt: "2026-07-22T20:00:00Z",
-      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      producedAt: "2026-07-31T07:30:00Z",
+      analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
       repositoryRoot: ROOT,
       runner: fixtureRunner({ withAudio: false, lipSyncMode: "missing_face" }),
     });
@@ -677,11 +677,11 @@ test("fails closed on substituted output and reports missing audio as unavailabl
 
 test("quarantines caller-authored overlay evidence and blocks failed pixel extraction", async function () {
   await withFixture(async function ({ media }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     await assert.rejects(
       analyzeTrustedMedia({
         mediaPath: media,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         overlaysExist: true,
         overlayEvidence: {
           mediaSha256: createHash("sha256").update("measured media bytes").digest("hex"),
@@ -695,7 +695,7 @@ test("quarantines caller-authored overlay evidence and blocks failed pixel extra
     );
     var measured = await analyzeTrustedMedia({
       mediaPath: media,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       overlaysExist: true,
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
@@ -723,7 +723,7 @@ test("quarantines caller-authored overlay evidence and blocks failed pixel extra
 
 test("rejects symlinked media/source and detects input mutation during analysis", async function () {
   await withFixture(async function ({ root, media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var mediaLink = path.join(root, "media-link.mp4");
     var sourceLink = path.join(root, "source-link.png");
     await symlink(media, mediaLink);
@@ -732,7 +732,7 @@ test("rejects symlinked media/source and detects input mutation during analysis"
       analyzeTrustedMedia({
         mediaPath: mediaLink,
         sourcePath: source,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: exactRegistry,
         repositoryRoot: ROOT,
         runner: fixtureRunner(),
@@ -743,7 +743,7 @@ test("rejects symlinked media/source and detects input mutation during analysis"
       analyzeTrustedMedia({
         mediaPath: media,
         sourcePath: sourceLink,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: exactRegistry,
         repositoryRoot: ROOT,
         runner: fixtureRunner(),
@@ -763,7 +763,7 @@ test("rejects symlinked media/source and detects input mutation during analysis"
       analyzeTrustedMedia({
         mediaPath: media,
         sourcePath: source,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: exactRegistry,
         repositoryRoot: ROOT,
         runner: mutatingRunner,
@@ -775,11 +775,11 @@ test("rejects symlinked media/source and detects input mutation during analysis"
 
 test("scores discontinuity from robust outlier candidates instead of ordinary p95 motion", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var uniformMotion = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner({
@@ -801,7 +801,7 @@ test("scores discontinuity from robust outlier candidates instead of ordinary p9
     var oneCut = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner({
@@ -826,7 +826,7 @@ test("scores discontinuity from robust outlier candidates instead of ordinary p9
     var oneBriefOutlier = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner({
@@ -846,7 +846,7 @@ test("scores discontinuity from robust outlier candidates instead of ordinary p9
 
 test("speaking QC fails closed without audio, speech activity, or a usable face track", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     for (var scenario of [
       { runner: fixtureRunner({ withAudio: false }), reason: "audio_stream_missing" },
       { runner: fixtureRunner({ lipSyncMode: "missing_speech" }), reason: "speech_activity_missing" },
@@ -855,7 +855,7 @@ test("speaking QC fails closed without audio, speech activity, or a usable face 
       var analysis = await analyzeTrustedMedia({
         mediaPath: media,
         sourcePath: source,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: exactRegistry,
         repositoryRoot: ROOT,
         runner: scenario.runner,
@@ -883,7 +883,7 @@ test("speaking QC fails closed without audio, speech activity, or a usable face 
 
 test("lip-sync measurement rejects missing landmarks, undersampling, and false correlations", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     for (var scenario of [
       { mode: "missing_landmarks", reason: "mouth_landmark_evidence_unavailable" },
       { mode: "insufficient_samples", reason: "insufficient_lip_sync_samples" },
@@ -892,7 +892,7 @@ test("lip-sync measurement rejects missing landmarks, undersampling, and false c
       var unavailable = await analyzeTrustedMedia({
         mediaPath: media,
         sourcePath: source,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: exactRegistry,
         repositoryRoot: ROOT,
         runner: fixtureRunner({ lipSyncMode: scenario.mode }),
@@ -907,7 +907,7 @@ test("lip-sync measurement rejects missing landmarks, undersampling, and false c
     var falseCorrelation = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner({ lipSyncMode: "false_correlation" }),
@@ -927,11 +927,11 @@ test("lip-sync measurement rejects missing landmarks, undersampling, and false c
 
 test("pixel OCR blocks undeclared burned UI while preserving declared-overlay identity", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var undeclared = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       overlaysExist: false,
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
@@ -964,7 +964,7 @@ test("pixel OCR blocks undeclared burned UI while preserving declared-overlay id
     var declared = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       overlaysExist: true,
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
@@ -982,7 +982,7 @@ test("pixel OCR blocks undeclared burned UI while preserving declared-overlay id
     var dangling = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       overlaysExist: true,
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
@@ -1003,12 +1003,12 @@ test("pixel OCR blocks undeclared burned UI while preserving declared-overlay id
 
 test("speaking QC accepts measured alignment and rejects a measured lip-sync offset", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     async function receiptFor(runner) {
       var analysis = await analyzeTrustedMedia({
         mediaPath: media,
         sourcePath: source,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: exactRegistry,
         repositoryRoot: ROOT,
         runner,
@@ -1043,8 +1043,8 @@ test("adapts measured local lip sync and complete human review", async function 
     var analysis = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
-      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      producedAt: "2026-07-31T07:30:00Z",
+      analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
     });
@@ -1073,11 +1073,11 @@ test("adapts measured local lip sync and complete human review", async function 
 
 test("builds a fingerprint-bound v2 receipt and rejects incomplete or substituted reviews", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var analysis = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
@@ -1151,11 +1151,11 @@ test("builds a fingerprint-bound v2 receipt and rejects incomplete or substitute
 
 test("reruns exact analyzers and rejects plausible recomputed-fingerprint forgeries", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var firstAnalysis = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
@@ -1216,11 +1216,11 @@ test("reruns exact analyzers and rejects plausible recomputed-fingerprint forger
 
 test("authenticated review decisions and blinding remain decisive", async function () {
   await withFixture(async function ({ media, source }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var analysis = await analyzeTrustedMedia({
       mediaPath: media,
       sourcePath: source,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
@@ -1293,8 +1293,8 @@ test("public analyze-media CLI rejects isolated test authority", async function 
     var requestPath = path.join(root, "request.json");
     await writeFile(requestPath, JSON.stringify({
       mediaPath: path.join(ROOT, "package.json"),
-      producedAt: "2026-07-22T20:00:00Z",
-      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      producedAt: "2026-07-31T07:30:00Z",
+      analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
     }));
     await assert.rejects(
       run("node", [
@@ -1311,7 +1311,7 @@ test("public analyze-media CLI rejects isolated test authority", async function 
 
 test("fails closed on registry implementation drift and analysis tampering", async function () {
   await withFixture(async function ({ media }) {
-    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var exactRegistry = await registry("2026-07-31T07:30:00Z");
     var missingHumanReview = deepClone(exactRegistry);
     missingHumanReview.analyzers = missingHumanReview.analyzers.filter(function (item) {
       return item.analyzerId !== "reel_factory.structured_human_media_review";
@@ -1324,7 +1324,7 @@ test("fails closed on registry implementation drift and analysis tampering", asy
     await assert.rejects(
       analyzeTrustedMedia({
         mediaPath: media,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: missingHumanReview,
         repositoryRoot: ROOT,
         runner: fixtureRunner(),
@@ -1343,7 +1343,7 @@ test("fails closed on registry implementation drift and analysis tampering", asy
     await assert.rejects(
       analyzeTrustedMedia({
         mediaPath: media,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: missingPolicy,
         repositoryRoot: ROOT,
         runner: fixtureRunner(),
@@ -1355,7 +1355,7 @@ test("fails closed on registry implementation drift and analysis tampering", asy
     await assert.rejects(
       analyzeTrustedMedia({
         mediaPath: media,
-        producedAt: "2026-07-22T20:00:00Z",
+        producedAt: "2026-07-31T07:30:00Z",
         analyzerRegistry: drifted,
         repositoryRoot: ROOT,
         runner: fixtureRunner(),
@@ -1364,7 +1364,7 @@ test("fails closed on registry implementation drift and analysis tampering", asy
     );
     var analysis = await analyzeTrustedMedia({
       mediaPath: media,
-      producedAt: "2026-07-22T20:00:00Z",
+      producedAt: "2026-07-31T07:30:00Z",
       analyzerRegistry: exactRegistry,
       repositoryRoot: ROOT,
       runner: fixtureRunner(),
@@ -1390,8 +1390,8 @@ test("measures a real ffmpeg MP4 without provider or model calls", async functio
     ]);
     var analysis = await analyzeTrustedMedia({
       mediaPath: media,
-      producedAt: "2026-07-22T20:00:00Z",
-      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      producedAt: "2026-07-31T07:30:00Z",
+      analyzerRegistry: await registry("2026-07-31T07:30:00Z"),
       repositoryRoot: ROOT,
     });
     var mediaResult = analysis.rawObservations.find(function (item) {

@@ -719,6 +719,22 @@ def test_recovery_request_reuses_exact_authorization_and_quote(tmp_path: Path) -
     )
 
 
+def test_completed_generation_is_review_ready_not_approved() -> None:
+    finalized = production_batch_results.finalize_production_batch(
+        {
+            "requested": 1,
+            "quotedProviderCredits": 0,
+            "jobs": [{"jobId": "job-1"}],
+        },
+        [{"jobId": "job-1", "status": "completed"}],
+        apply=True,
+    )
+
+    assert finalized["summary"]["completed"] == 1
+    assert finalized["summary"]["reviewReady"] == 1
+    assert finalized["summary"]["approved"] == 0
+
+
 def test_reference_analysis_is_bounded_and_retains_private_identity(
     tmp_path: Path,
 ) -> None:

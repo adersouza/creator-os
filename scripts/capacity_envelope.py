@@ -49,7 +49,7 @@ from reel_factory.render_queue import RenderQueue
 SCHEMA = "creator_os.capacity_envelope.v1"
 POLICY_VERSION = "capacity-envelope-policy.v1"
 FIXTURE_VERSION = "capacity-envelope-fixture.v1"
-FIXED_TIME = "2026-07-30T12:00:00Z"
+FIXED_TIME = "2026-07-31T08:00:00Z"
 ASSET_BYTES = 256
 FILE_SHARD_SIZE = 1_000
 
@@ -661,6 +661,9 @@ def _contentforge_lane(media: dict[str, Any]) -> dict[str, Any]:
     contentforge_root = ROOT / "packages/contentforge"
     if not (contentforge_root / "node_modules/ajv").is_dir():
         raise LaneSkipped("contentforge_dependencies_unavailable")
+    authority = json.loads(
+        (contentforge_root / "analyzer-authority.v2.json").read_text(encoding="utf-8")
+    )
     started = time.perf_counter()
     try:
         response = run_contentforge(
@@ -669,7 +672,7 @@ def _contentforge_lane(media: dict[str, Any]) -> dict[str, Any]:
             {
                 "mediaPath": str(source),
                 "mediaSha256": str(media["sourceSha256"]),
-                "producedAt": FIXED_TIME,
+                "producedAt": authority["qualifiedAt"],
                 "overlaysExist": False,
             },
             timeout=240,

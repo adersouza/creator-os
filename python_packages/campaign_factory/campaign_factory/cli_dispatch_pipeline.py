@@ -47,7 +47,11 @@ from .learning_cohort import (
 from .production_higgsfield_authorization import provider_control_reconciliation
 from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
-from .reconciliation import reconciliation_report, repair_reconciliation_case
+from .reconciliation import (
+    reconciliation_report,
+    repair_reconciliation_case,
+    summarize_reconciliation_report,
+)
 from .recreation_anchor_approval import approve_recreation_anchor
 from .recreation_lifecycle import explain_recreation_job, record_recreation_review
 from .recreation_prompting import build_openai_prompt_pack
@@ -81,7 +85,14 @@ from .variation_stage import run_variation_stage
 def dispatch_pipeline_commands(args, cf, settings) -> int | None:
     if args.cmd == "reconcile":
         if args.reconcile_cmd == "report":
-            print_json(reconciliation_report(cf.conn, settings))
+            report = reconciliation_report(cf.conn, settings)
+            print_json(
+                summarize_reconciliation_report(
+                    report, examples_per_class=args.examples_per_class
+                )
+                if args.summary
+                else report
+            )
         else:
             print_json(
                 repair_reconciliation_case(
@@ -91,6 +102,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     operator=args.operator,
                     reason=args.reason,
                     apply=args.apply,
+                    expected_fingerprint=args.fingerprint,
                 )
             )
         return 0

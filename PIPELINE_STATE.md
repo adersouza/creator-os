@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last reconciled:** 2026-07-30
+**Last reconciled:** 2026-07-31
 **Durable architecture:** [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md)
 
 This is the concise handoff document for a new ChatGPT or Codex session. Share
@@ -15,11 +15,11 @@ operation.
 | Layer | Current evidence |
 |---|---|
 | Three-mode feature baseline | PR [#557](https://github.com/adersouza/creator-os/pull/557) merged as `289dcf27ecca1a2ba81ddb6b7ddeb2c970d21983` |
-| Authoritative current source | query `git rev-parse origin/main`; the promoted code-bearing baseline is PR [#575](https://github.com/adersouza/creator-os/pull/575) at `0336fea1b59e53fffceb1bc9d6449f01698aa56a` |
-| PR-head verification | affected, hygiene, and secret-scan checks succeeded for the promotion target |
-| Exact target-SHA release/security | succeeded for `0336fea1b59e53fffceb1bc9d6449f01698aa56a` |
-| Machine runtime | clean detached checkout at exact `0336fea1b59e53fffceb1bc9d6449f01698aa56a` |
-| Source/runtime alignment | code aligned at promotion; later documentation-only commits may advance `origin/main` without changing runtime behavior |
+| Authoritative current source | query `git rev-parse origin/main` |
+| PR-head verification | query the checks attached to the exact current source SHA |
+| Exact target-SHA release/security | query the release/security runs attached to the exact current source SHA |
+| Machine runtime | query `scripts/creator-os status --json` and the latest authenticated promotion receipt |
+| Source/runtime alignment | compare the reported runtime SHA with `origin/main`; never infer alignment from dates or branch names |
 | Cleanup state | no disposable Creator OS topic worktrees or branches remained; the developer checkout and protected runtime were retained |
 
 Run this before relying on the snapshot:
@@ -31,7 +31,7 @@ scripts/creator-os status --json
 /Users/aderdesouza/Developer/creator-os-runtime/scripts/creator-os status --json
 ```
 
-## Promoted Runtime Health Snapshot
+## Last documented promoted runtime health snapshot
 
 Promotion `d23ecca3-a8de-4ac9-ad17-9015942fa3a1` moved the protected runtime
 from `71b1cf15af78c63b3023cc70647c8467502f83d9` to exact

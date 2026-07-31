@@ -14,7 +14,7 @@
     "fixtures:campaign-factory:real": "node scripts/import-campaign-real-samples.mjs",
     "fixtures:campaign-factory:discover": "node scripts/campaign-corpus-discover.mjs",
     "fixtures:campaign-factory:feedback": "node scripts/campaign-sample-feedback.mjs",
-    "audit:campaign-factory:calibrate": "node scripts/campaign-audit-report.mjs --json --fail-on-mismatch",
+    "audit:campaign-factory:calibrate": "node scripts/campaign-audit-report.mjs --json --fail-on-mismatch --require-real-samples",
     "audit:campaign-factory:report": "node scripts/campaign-audit-report.mjs --markdown",
     "audit:campaign-factory:html": "node scripts/campaign-audit-report.mjs --html",
     "audit:campaign-factory:record": "node scripts/campaign-audit-report.mjs --markdown --write-history",

@@ -3,20 +3,24 @@
   "samples": [
     {
       "file": "real_sample_01.mp4",
+      "sha256": "8e19096020ea94978e9c379fc0840c9328e69bd8715aa4ff47bf1eb14354b7e2",
       "sourceType": "third_party_editor",
       "expectedUploadReady": false,
       "expectedWarningCodes": [],
-      "expectedBlockingCodes": ["forensics_bad_dimensions"],
-      "operatorNotes": "Local Downloads sample; H.264 MP4 but not 9:16 short-form dimensions.",
+      "expectedBlockingCodes": [
+        "forensics_bad_dimensions"
+      ],
+      "operatorNotes": "Existing Creator OS sample; H.264 576x1024 is below the 720x1280 delivery floor.",
       "acceptedByPlatform": "unknown"
     },
     {
-      "file": "real_sample_02.mp4",
-      "sourceType": "third_party_editor",
+      "file": "real_sample_03.mp4",
+      "sha256": "be3a33d8725353b96182e194ee6bf99cc7183cdbc119804232db51e2085927d3",
+      "sourceType": "campaign_factory",
       "expectedUploadReady": true,
       "expectedWarningCodes": [],
       "expectedBlockingCodes": [],
-      "operatorNotes": "Local Downloads social export sample; H.264/AAC 720x1280.",
+      "operatorNotes": "Approved Higgsfield Seedance 2 passive-motion bakeoff output; H.264 720x1280, no audio stream.",
       "acceptedByPlatform": "unknown"
     }
   ]

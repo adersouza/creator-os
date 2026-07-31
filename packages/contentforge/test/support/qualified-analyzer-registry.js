@@ -22,7 +22,7 @@ function fingerprint(value) {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
-function reviewedMaterial(policy, registration, dataset) {
+function reviewedMaterial(policy, registration, dataset, qualifiedAt) {
   return {
     analyzerId: registration.analyzerId,
     analyzerVersion: registration.analyzerVersion,
@@ -34,7 +34,7 @@ function reviewedMaterial(policy, registration, dataset) {
     thresholdsFingerprint: policy.thresholdsFingerprint,
     falsePositiveBudget: policy.falsePositiveBudget,
     falseNegativeBudget: policy.falseNegativeBudget,
-    lastQualification: policy.lastQualification,
+    lastQualification: qualifiedAt,
     nextRenewal: policy.nextRenewal,
     approvedUseCases: policy.approvedUseCases,
     unsupportedUseCases: policy.unsupportedUseCases,
@@ -82,7 +82,7 @@ export async function isolatedQualifiedAnalyzerRegistry({
     var key = `${registration.analyzerId}@${registration.analyzerVersion}`;
     var policy = policies.get(key);
     if (!policy) throw new Error(`isolated analyzer policy missing:${key}`);
-    var material = reviewedMaterial(policy, registration, dataset);
+    var material = reviewedMaterial(policy, registration, dataset, producedAt);
     return {
       ...registration,
       model: policy.model,
@@ -91,7 +91,7 @@ export async function isolatedQualifiedAnalyzerRegistry({
       thresholdsFingerprint: policy.thresholdsFingerprint,
       falsePositiveBudget: policy.falsePositiveBudget,
       falseNegativeBudget: policy.falseNegativeBudget,
-      lastQualification: policy.lastQualification,
+      lastQualification: producedAt,
       nextRenewal: policy.nextRenewal,
       approvedUseCases: policy.approvedUseCases,
       unsupportedUseCases: policy.unsupportedUseCases,
@@ -100,7 +100,7 @@ export async function isolatedQualifiedAnalyzerRegistry({
       authorityReview: {
         reviewId: `unit_test_authority_${registration.analyzerId.replaceAll(".", "_")}`,
         decision: "approved",
-        reviewedAt: policy.lastQualification,
+        reviewedAt: producedAt,
         approvedChangeClasses: ["initial_authority"],
         reviewedMaterialFingerprint: fingerprint(material),
       },

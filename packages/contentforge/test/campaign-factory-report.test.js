@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "child_process";
-import { mkdtemp, readFile, writeFile } from "fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { generateCampaignFactoryFixtures } from "../scripts/generate-campaign-fixtures.mjs";
@@ -57,6 +57,7 @@ test("Campaign Factory calibration report includes metrics", async function (t) 
     samples: [
       {
         file: "missing_real_sample.mp4",
+        sha256: "0".repeat(64),
         sourceType: "iphone",
         expectedUploadReady: true,
         expectedWarningCodes: [],
@@ -145,6 +146,7 @@ test("Campaign Factory sample feedback updates a temporary manifest", async func
     samples: [
       {
         file: "real_sample_99.mp4",
+        sha256: "0".repeat(64),
         sourceType: "unknown",
         expectedUploadReady: true,
         expectedWarningCodes: [],
@@ -179,6 +181,7 @@ test("Campaign Factory real sample manifest rejects incomplete calibration label
     samples: [
       {
         file: "real_sample_99.mp4",
+        sha256: "0".repeat(64),
         sourceType: "unknown",
         expectedUploadReady: true,
         expectedWarningCodes: [],
@@ -195,4 +198,58 @@ test("Campaign Factory real sample manifest rejects incomplete calibration label
     }),
     /operatorNotes/
   );
+});
+
+test("Campaign Factory real sample qualification binds exact local bytes", async function () {
+  var dir = await mkdtemp(path.join(tmpdir(), "contentforge-byte-bound-manifest-"));
+  var manifestPath = path.join(dir, "real_samples.json");
+  await generateCampaignFactoryFixtures();
+  var realDir = path.resolve("test/fixtures/campaign-factory/real");
+  var localFixture = `real_sample_binding_${process.pid}.mp4`;
+  await mkdir(realDir, { recursive: true });
+  await copyFile(
+    path.resolve("test/fixtures/campaign-factory/good/iphone_reel_upload_ready.mp4"),
+    path.join(realDir, localFixture),
+  );
+  var sample = {
+    file: localFixture,
+    sha256: "0".repeat(64),
+    sourceType: "campaign_factory",
+    expectedUploadReady: false,
+    expectedWarningCodes: [],
+    expectedBlockingCodes: [],
+    operatorNotes: "Exact-byte mismatch test",
+    acceptedByPlatform: "unknown"
+  };
+  await writeFile(manifestPath, JSON.stringify({
+    schema: "contentforge.campaign_factory_real_samples.v1",
+    samples: [sample]
+  }, null, 2));
+
+  try {
+    await assert.rejects(
+      () => buildCampaignAuditReport({
+        generate: false,
+        realManifestPath: manifestPath,
+        requireRealSamples: true,
+      }),
+      /real sample SHA-256 mismatch/
+    );
+
+    sample.file = "missing_real_sample.mp4";
+    await writeFile(manifestPath, JSON.stringify({
+      schema: "contentforge.campaign_factory_real_samples.v1",
+      samples: [sample]
+    }, null, 2));
+    await assert.rejects(
+      () => buildCampaignAuditReport({
+        generate: false,
+        realManifestPath: manifestPath,
+        requireRealSamples: true,
+      }),
+      /real sample bytes missing/
+    );
+  } finally {
+    await rm(path.join(realDir, localFixture), { force: true });
+  }
 });

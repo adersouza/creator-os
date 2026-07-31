@@ -84,7 +84,12 @@ def test_exact_capacity_tier_definitions_cannot_be_inferred_from_smoke() -> None
 
 def test_smoke_capacity_run_uses_real_isolated_state_and_atomic_receipt(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv(
+        "CREATOR_OS_EVIDENCE_AUTH_SECRET",
+        "capacity-test-evidence-auth-secret-v1",
+    )
     workspace = tmp_path / "capacity-workspace"
 
     receipt = capacity.run_capacity_benchmark(
@@ -127,10 +132,9 @@ def test_smoke_capacity_run_uses_real_isolated_state_and_atomic_receipt(
         "failure_recovery",
     ):
         assert receipt["lanes"][required_pass]["status"] == "passed"
-    assert receipt["lanes"]["contentforge_throughput"]["status"] in {
-        "passed",
-        "skipped",
-    }
+    assert receipt["lanes"]["contentforge_throughput"]["status"] == "passed", receipt[
+        "lanes"
+    ]["contentforge_throughput"]
     assert receipt["externalEffects"] == {
         "paidProviderCalls": 0,
         "productionPathsTouched": False,

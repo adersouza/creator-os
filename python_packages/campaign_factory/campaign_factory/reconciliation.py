@@ -140,6 +140,63 @@ def reconciliation_report(
     }
 
 
+def summarize_reconciliation_report(
+    report: dict[str, Any], *, examples_per_class: int = 3
+) -> dict[str, Any]:
+    """Return a bounded, deterministic operator view of a full report."""
+
+    if examples_per_class < 0 or examples_per_class > 20:
+        raise ValueError("examples_per_class must be between 0 and 20")
+    findings = sorted(
+        report.get("findings") or [],
+        key=lambda item: (str(item["findingClass"]), str(item["caseId"])),
+    )
+    repair_actions: dict[str, int] = {}
+    examples: dict[str, list[dict[str, Any]]] = {}
+    repairable = 0
+    for finding in findings:
+        finding_class = str(finding["findingClass"])
+        if finding.get("repairSupported"):
+            repairable += 1
+            action = str(finding.get("repairAction") or "unspecified")
+            repair_actions[action] = repair_actions.get(action, 0) + 1
+        selected = examples.setdefault(finding_class, [])
+        if len(selected) < examples_per_class:
+            selected.append(
+                {
+                    "caseId": finding["caseId"],
+                    "fingerprint": finding["fingerprint"],
+                    "subjectType": finding["subjectType"],
+                    "subjectId": finding["subjectId"],
+                    "repairSupported": bool(finding.get("repairSupported")),
+                    "repairAction": finding.get("repairAction"),
+                    "evidence": finding.get("evidence") or {},
+                }
+            )
+    return {
+        "schema": "creator_os.artifact_reconciliation_summary.v1",
+        "mode": "read_only",
+        "observedAt": report.get("observedAt"),
+        "database": report.get("database"),
+        "managedRoots": report.get("managedRoots") or {},
+        "findingCount": len(findings),
+        "repairableFindingCount": repairable,
+        "manualReviewFindingCount": len(findings) - repairable,
+        "counts": {
+            key: int(value)
+            for key, value in sorted((report.get("counts") or {}).items())
+        },
+        "repairActions": dict(sorted(repair_actions.items())),
+        "examplesPerClass": examples_per_class,
+        "examples": {key: examples[key] for key in sorted(examples)},
+        "fullReportOmitted": True,
+        "repairGuard": (
+            "Preview one case, then apply with its exact case ID and fingerprint; "
+            "missing bytes are quarantined in state and are never reconstructed."
+        ),
+    }
+
+
 def repair_reconciliation_case(
     conn: sqlite3.Connection,
     settings: Any,
@@ -148,9 +205,12 @@ def repair_reconciliation_case(
     operator: str,
     reason: str,
     apply: bool,
+    expected_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     if not operator.strip() or not reason.strip():
         raise ValueError("operator and reason are required")
+    if apply and not expected_fingerprint:
+        raise ValueError("case fingerprint is required when applying a repair")
     prior_by_case = (
         conn.execute(
             "SELECT * FROM artifact_reconciliation_repairs WHERE case_id = ?",
@@ -160,9 +220,15 @@ def repair_reconciliation_case(
         else None
     )
     if prior_by_case:
+        if (
+            expected_fingerprint
+            and str(prior_by_case["case_fingerprint"]) != expected_fingerprint
+        ):
+            raise ValueError("case fingerprint does not match the repair receipt")
         return {
             "schema": "creator_os.artifact_reconciliation_repair_plan.v1",
             "caseId": case_id,
+            "caseFingerprint": str(prior_by_case["case_fingerprint"]),
             "action": prior_by_case["action"],
             "operator": operator.strip(),
             "reason": reason.strip(),
@@ -176,11 +242,14 @@ def repair_reconciliation_case(
     if len(matches) != 1:
         raise ValueError("case must resolve to exactly one current finding")
     finding = matches[0]
+    if expected_fingerprint and finding["fingerprint"] != expected_fingerprint:
+        raise ValueError("case fingerprint no longer matches the current finding")
     if not finding["repairSupported"]:
         raise ValueError(f"repair is not supported for {finding['findingClass']}")
     plan = {
         "schema": "creator_os.artifact_reconciliation_repair_plan.v1",
         "case": finding,
+        "caseFingerprint": finding["fingerprint"],
         "action": finding["repairAction"],
         "operator": operator.strip(),
         "reason": reason.strip(),

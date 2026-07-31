@@ -1461,6 +1461,7 @@ function plausibleOcrBox(box) {
   var areaRatio = (width * height) / (frameWidth * frameHeight);
   var heightRatio = height / frameHeight;
   var confidence = Number(box.confidence || 0);
+  if (textLength < 3 && confidence < 55) return false;
   var highConfidenceSmallText = textLength >= 3 && heightRatio >= 0.008 && confidence >= 90;
   var readableScale = heightRatio >= 0.035 ||
     (heightRatio >= 0.015 && confidence >= 55) ||

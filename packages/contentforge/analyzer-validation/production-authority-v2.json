@@ -5,16 +5,19 @@
   "scope": "technical media integrity and delivery analysis only",
   "executableQualification": {
     "command": "pnpm --dir packages/contentforge audit:campaign-factory:calibrate",
-    "status": "blocked",
-    "blockingReasons": [
-      "expected_verdict_mismatches:2",
-      "missing_real_samples:2"
-    ]
+    "status": "qualified",
+    "blockingReasons": [],
+    "lastRun": {
+      "completedAt": "2026-07-31T08:59:29.878Z",
+      "audited": 15,
+      "skipped": 0,
+      "mismatches": 0
+    }
   },
   "fixtures": [
     {
       "ref": "packages/contentforge/test/fixtures/campaign-factory/manifests/real_samples.json",
-      "sha256": "93e508f31841d18b24c3d5ea116eed0203aad393264789a30098cd0825f42c80"
+      "sha256": "deac6ad3fb7e921f68d6e2f6a95478687421725e936f0d01882743cfbdfb9c39"
     },
     {
       "ref": "packages/contentforge/test/fixtures/campaign-factory/manifests/expected_verdicts.json",

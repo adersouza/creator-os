@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from campaign_factory.db import init_db
+from campaign_factory.distribution import _normalize_story_cta_text
 from campaign_test_support import (
     add_rendered_asset,
     isolate_account_groups,
@@ -20,6 +21,15 @@ def _plan_count(cf, rendered_asset_id: str = "asset_1") -> int:
         (rendered_asset_id,),
     ).fetchone()
     return int(row["n"])
+
+
+def test_story_cta_copy_is_lowercase_and_emoji_free() -> None:
+    assert _normalize_story_cta_text(None) == "peep highlights"
+    assert _normalize_story_cta_text("  BIO!!  ") == "bio!!"
+    with pytest.raises(ValueError, match="DMs or links"):
+        _normalize_story_cta_text("Link in bio")
+    with pytest.raises(ValueError, match="emoji"):
+        _normalize_story_cta_text("peep highlights ✨")
 
 
 def test_create_distribution_plan_is_idempotent_for_same_target(tmp_path: Path):
