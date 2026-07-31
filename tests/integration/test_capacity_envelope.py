@@ -132,9 +132,9 @@ def test_smoke_capacity_run_uses_real_isolated_state_and_atomic_receipt(
         "failure_recovery",
     ):
         assert receipt["lanes"][required_pass]["status"] == "passed"
-    assert receipt["lanes"]["contentforge_throughput"]["status"] == "passed", (
-        receipt["lanes"]["contentforge_throughput"]
-    )
+    assert receipt["lanes"]["contentforge_throughput"]["status"] == "passed", receipt[
+        "lanes"
+    ]["contentforge_throughput"]
     assert receipt["externalEffects"] == {
         "paidProviderCalls": 0,
         "productionPathsTouched": False,
