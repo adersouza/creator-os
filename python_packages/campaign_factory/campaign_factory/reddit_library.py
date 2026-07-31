@@ -446,18 +446,29 @@ def build_reddit_library_report(
     for account in accounts:
         username = str(_value(account, "username") or "")
         target = int(_value(account, "daily_target", "dailyTarget") or 8) * 7
-        scheduled = {
-            str(_value(task, "id"))
-            for task in tasks
-            if str(_value(task, "account_username", "accountUsername") or "")
-            == username
-            and _value(task, "handoff_status", "handoffStatus")
-            not in {"cancelled", "completed"}
-            and _when(_value(task, "scheduled_for", "scheduledFor"))
-            and now
-            <= _when(_value(task, "scheduled_for", "scheduledFor"))
-            <= now + timedelta(days=7)
-        }
+        scheduled: set[str] = set()
+        claimed: list[tuple[datetime, int, str]] = []
+        for task in tasks:
+            if (
+                str(_value(task, "account_username", "accountUsername") or "")
+                != username
+                or _value(task, "handoff_status", "handoffStatus") == "cancelled"
+            ):
+                continue
+            task_scheduled = _when(_value(task, "scheduled_for", "scheduledFor"))
+            if task_scheduled is None:
+                continue
+            if _value(
+                task, "handoff_status", "handoffStatus"
+            ) != "completed" and now <= task_scheduled <= now + timedelta(days=7):
+                scheduled.add(str(_value(task, "id")))
+            claimed.append(
+                (
+                    task_scheduled,
+                    int(_value(task, "spacing_minutes", "spacingMinutes") or 1),
+                    str(_value(task, "subreddit_name", "subreddit") or ""),
+                )
+            )
         ready_candidates = sorted(
             (
                 {
@@ -474,17 +485,6 @@ def build_reddit_library_report(
                 str(item.get("subreddit") or ""),
             ),
         )
-        claimed = [
-            {
-                "scheduled": _when(_value(task, "scheduled_for", "scheduledFor")),
-                "spacing": int(_value(task, "spacing_minutes", "spacingMinutes") or 1),
-                "subreddit": str(_value(task, "subreddit_name", "subreddit") or ""),
-            }
-            for task in tasks
-            if str(_value(task, "account_username", "accountUsername") or "")
-            == username
-            and _value(task, "handoff_status", "handoffStatus") != "cancelled"
-        ]
         ready_slots = 0
         for item in ready_candidates:
             scheduled_at = _when(item.get("scheduledFor"))
@@ -497,26 +497,19 @@ def build_reddit_library_report(
                 _value(rule, "frequency_limit_minutes", "frequencyLimitMinutes") or 1
             )
             if any(
-                existing["scheduled"]
-                and (
-                    abs((existing["scheduled"] - scheduled_at).total_seconds())
-                    < max(spacing, int(existing["spacing"])) * 60
+                (
+                    abs((existing_time - scheduled_at).total_seconds())
+                    < max(spacing, existing_spacing) * 60
                     or (
-                        existing["subreddit"].lower() == subreddit_name.lower()
-                        and abs((existing["scheduled"] - scheduled_at).total_seconds())
+                        existing_subreddit.lower() == subreddit_name.lower()
+                        and abs((existing_time - scheduled_at).total_seconds())
                         < frequency * 60
                     )
                 )
-                for existing in claimed
+                for existing_time, existing_spacing, existing_subreddit in claimed
             ):
                 continue
-            claimed.append(
-                {
-                    "scheduled": scheduled_at,
-                    "spacing": spacing,
-                    "subreddit": subreddit_name,
-                }
-            )
+            claimed.append((scheduled_at, spacing, subreddit_name))
             ready_slots += 1
         total = len(scheduled) + ready_slots
         coverage[username] = {
@@ -557,3 +550,94 @@ def build_reddit_library_report(
         },
     }
     return {**core, "reportFingerprint": payload_fingerprint(core)}
+
+
+def archive_reddit_assets(
+    factory: Any,
+    *,
+    campaign_slug: str,
+    state: dict[str, Any],
+    asset_ids: list[str],
+    operator: str,
+    reason: str,
+    as_of: str | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    requested = sorted(
+        {str(value).strip() for value in asset_ids if str(value).strip()}
+    )
+    if not requested:
+        raise ValueError("reddit_archive_asset_ids_required")
+    actor = str(operator or "").strip()
+    why = str(reason or "").strip()
+    if not actor or not why:
+        raise ValueError("reddit_archive_operator_and_reason_required")
+    report = build_reddit_library_report(
+        factory,
+        campaign_slug=campaign_slug,
+        state=state,
+        as_of=as_of,
+    )
+    cards = {
+        card["assetId"]: (view, card)
+        for view, values in report["views"].items()
+        for card in values
+    }
+    allowed = {"Used", "Exhausted", "Rejected/Quarantined"}
+    blocked = {
+        asset_id: cards.get(asset_id, ("missing", {}))[0]
+        for asset_id in requested
+        if cards.get(asset_id, ("missing", {}))[0] not in allowed
+    }
+    if blocked:
+        raise ValueError(
+            "reddit_archive_assets_not_eligible:"
+            + ",".join(f"{asset_id}={view}" for asset_id, view in blocked.items())
+        )
+    receipt_core = {
+        "schema": "campaign_factory.reddit_archive_receipt.v1",
+        "campaignSlug": campaign_slug,
+        "assetIds": requested,
+        "operator": actor,
+        "reason": why,
+        "archivedAt": as_of or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+    receipt = {
+        **receipt_core,
+        "receiptFingerprint": payload_fingerprint(receipt_core),
+        "applied": bool(apply),
+    }
+    if not apply:
+        return receipt
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    with factory.conn:
+        for asset_id in requested:
+            row = factory.conn.execute(
+                "SELECT metadata_json FROM rendered_assets "
+                "WHERE id = ? AND campaign_id = ?",
+                (asset_id, campaign["id"]),
+            ).fetchone()
+            if not row:
+                raise ValueError(f"reddit_archive_asset_missing:{asset_id}")
+            metadata = _record(row["metadata_json"])
+            metadata["redditArchived"] = receipt
+            factory.conn.execute(
+                "UPDATE rendered_assets SET metadata_json = ?, updated_at = ? "
+                "WHERE id = ? AND campaign_id = ?",
+                (
+                    json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                    receipt_core["archivedAt"],
+                    asset_id,
+                    campaign["id"],
+                ),
+            )
+            factory.domains.events.record_event(
+                "reddit_asset_archived",
+                campaign_id=str(campaign["id"]),
+                rendered_asset_id=asset_id,
+                status="success",
+                message="Reddit working-shelf asset archived",
+                metadata=receipt,
+                commit=False,
+            )
+    return receipt

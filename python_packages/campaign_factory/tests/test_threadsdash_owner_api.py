@@ -123,3 +123,35 @@ def test_delivery_media_rejects_changed_bytes_before_owner_api(
             ingest_secret="secret",
             bucket="media",
         )
+
+
+def test_reddit_library_snapshot_uses_signed_owner_api(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        threadsdash_owner_api,
+        "_signed_json_request",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or {
+                "schema": "threadsdashboard.reddit_library_state.v1",
+                "accounts": [],
+                "subreddits": [],
+                "tasks": [],
+                "contentOwners": [],
+            }
+        ),
+    )
+    monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
+
+    result = threadsdash_owner_api.fetch_reddit_library_snapshot(
+        user_id="user_1",
+        ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
+        ingest_secret="secret",
+    )
+
+    assert captured["body"] == {
+        "operation": "library_snapshot",
+        "userId": "user_1",
+    }
+    assert str(captured["url"]).endswith("/api/campaign-factory/reddit/handoff")
+    assert result["schema"] == "threadsdashboard.reddit_library_state.v1"

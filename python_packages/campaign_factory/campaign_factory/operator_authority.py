@@ -33,7 +33,12 @@ _HANDOFF_COMMANDS: Final = {
     "closed-loop-proof",
     "reddit-handoff",
 }
-_PAID_COMMANDS: Final = {"create", "stills", "orchestrate-daily"}
+_PAID_COMMANDS: Final = {
+    "create",
+    "stills",
+    "orchestrate-daily",
+    "reddit-weekly-generate",
+}
 _RUNTIME_COMMANDS: Final = {"serve", "runtime-promotion"}
 _DESTRUCTIVE_WORDS: Final = {"delete", "remove", "purge", "revoke", "cancel"}
 _LEGACY_MUTATIONS: Final = {
@@ -54,6 +59,8 @@ _LEGACY_MUTATIONS: Final = {
     "sync-performance",
     "sync-threadsdash-assignments",
     "reddit-assign",
+    "reddit-weekly",
+    "reddit-library-archive",
 }
 _READ_ONLY_COMMANDS: Final = {
     "account-tiers",

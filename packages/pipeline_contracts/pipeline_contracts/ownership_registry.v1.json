@@ -1,6 +1,6 @@
 {
   "schema": "creator_os.state_ownership_registry.v1",
-  "version": 3,
+  "version": 4,
   "contractPackage": {
     "name": "@creator-os/pipeline-contracts",
     "version": "4.2.0"
@@ -168,7 +168,8 @@
         "reel_manifest_and_artifact_metadata",
         "reel_analysis_and_provider_receipts",
         "reel_caption_banks_and_review_sidecars",
-        "reference_intake_and_pattern_artifacts"
+        "reference_intake_and_pattern_artifacts",
+        "reddit_research_and_handoff_artifacts"
       ],
       "allowedWriters": [
         "campaign_factory",
@@ -343,9 +344,9 @@
     "schema": "creator_os.persistence_ownership_registry.v1",
     "inventoryCommand": "uv run python scripts/inventory-persistence.py",
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
-    "directSqlWriterInventorySha256": "0887452a978e41657f783b15fc936a2403ed49d4e9549de67bb612f77173a739",
+    "directSqlWriterInventorySha256": "763ad567c7b97f7bb22920a6dfc6c146e712dd0eb01d4f924a5c5680c982656e",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
-    "persistentJsonWriterInventorySha256": "476349cbb246b98ebec2dad64d4c519207a04a3762f86b9d52bcc4026fd2be1c",
+    "persistentJsonWriterInventorySha256": "acfd74186416bf413a0cb4559956dc821c0bfea11edb3f4ceb94e9cc1068199f",
     "policyInheritance": [
       "store policy applies to every discovered record",
       "record policy applies to every discovered field unless a stricter field rule applies",
@@ -614,6 +615,31 @@
         "deletionBehavior": "owner-domain archival or explicit rights-governed repair",
         "receiptBinding": "reference ID, content hash, and promotion fingerprint",
         "repairPath": "Reference Factory intake or promotion reconciliation"
+      },
+      {
+        "family": "reddit_research_and_handoff_artifacts",
+        "patterns": [
+          "**/exports/reddit/*.json",
+          "**/reddit_trend_briefs/*.json",
+          "**/reddit_weekly/**/weekly-plan-*.json"
+        ],
+        "ownerDomain": "campaign_factory",
+        "legalWriters": [
+          "python_packages/campaign_factory/campaign_factory/reddit_handoff.py",
+          "python_packages/campaign_factory/campaign_factory/reddit_weekly.py"
+        ],
+        "legalReaders": [
+          "campaign_factory",
+          "threadsdashboard_signed_ingest_api"
+        ],
+        "fields": "versioned Reddit research, exact approved handoff, and weekly coverage plan payloads",
+        "mutability": "content-addressed or append-only",
+        "allowedValues": "versioned schema plus exact fingerprints and SHA bindings",
+        "stateTransitionOwner": "campaign_factory_reddit_operations",
+        "retention": "through handoff reconciliation and historical content-family retention",
+        "deletionBehavior": "archive working-shelf visibility; retain canonical task and publication history",
+        "receiptBinding": "brief, plan, approval, export, media SHA, and idempotency fingerprints",
+        "repairPath": "reddit library reconciliation and explicit archive command"
       }
     ]
   },

@@ -603,6 +603,53 @@ def register_core_commands(sub) -> None:
     reddit_library.add_argument("--campaign", required=True)
     reddit_library.add_argument("--state", type=Path, required=True)
     reddit_library.add_argument("--as-of")
+    reddit_archive = sub.add_parser(
+        "reddit-library-archive",
+        help="preview or archive eligible assets without deleting media or history",
+    )
+    reddit_archive.add_argument("--campaign", required=True)
+    reddit_archive.add_argument("--state", type=Path, required=True)
+    reddit_archive.add_argument("--asset", action="append", required=True)
+    reddit_archive.add_argument("--operator", required=True)
+    reddit_archive.add_argument("--reason", required=True)
+    reddit_archive.add_argument("--as-of")
+    reddit_archive.add_argument("--apply", action="store_true")
+    reddit_weekly = sub.add_parser(
+        "reddit-weekly",
+        help="research active subreddits and prepare the next seven-day content plan",
+    )
+    reddit_weekly.add_argument("--campaign", required=True)
+    reddit_weekly.add_argument("--state", type=Path)
+    reddit_weekly.add_argument("--user-id")
+    reddit_weekly.add_argument("--as-of")
+    reddit_weekly.add_argument("--limit", type=int, default=25)
+    reddit_weekly.add_argument(
+        "--no-download-references",
+        action="store_false",
+        dest="download_references",
+    )
+    reddit_weekly.set_defaults(download_references=True)
+    reddit_weekly.add_argument(
+        "--threadsdash-ingest-url",
+        default=os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
+    )
+    reddit_weekly.add_argument(
+        "--threadsdash-ingest-secret",
+        default=os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
+    )
+    reddit_weekly_generate = sub.add_parser(
+        "reddit-weekly-generate",
+        help="dry-run or execute one reviewed weekly Reddit generation request",
+    )
+    reddit_weekly_generate.add_argument("--plan", type=Path, required=True)
+    reddit_weekly_generate.add_argument("--request-id", required=True)
+    reddit_weekly_generate.add_argument("--reviewed-by", required=True)
+    reddit_weekly_generate.add_argument("--apply", action="store_true")
+    reddit_weekly_generate.add_argument("--enable-paid-generation", action="store_true")
+    reddit_weekly_generate.add_argument("--budget-cap-credits", type=float)
+    reddit_weekly_generate.add_argument("--wait", action="store_true")
+    reddit_weekly_generate.add_argument("--download", action="store_true")
     export.add_argument(
         "--review-only",
         action="store_true",

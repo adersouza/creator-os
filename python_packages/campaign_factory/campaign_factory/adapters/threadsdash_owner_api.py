@@ -159,6 +159,29 @@ def submit_reddit_handoff(
     )
 
 
+def fetch_reddit_library_snapshot(
+    *,
+    user_id: str,
+    ingest_url: str | None,
+    ingest_secret: str | None,
+) -> dict[str, Any]:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        raise ValueError("reddit_library_snapshot_user_id_required")
+    return _signed_json_request(
+        url=reddit_handoff_url(owner_api_ingest_url(ingest_url)),
+        secret=owner_api_secret(ingest_secret),
+        body={
+            "operation": "library_snapshot",
+            "userId": normalized_user_id,
+        },
+        idempotency_key=(
+            "reddit-library-snapshot:"
+            + hashlib.sha256(normalized_user_id.encode("utf-8")).hexdigest()
+        ),
+    )
+
+
 def reconcile_draft_handoff(
     *,
     export_id: str,

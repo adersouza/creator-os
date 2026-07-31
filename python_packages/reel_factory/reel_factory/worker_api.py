@@ -81,6 +81,7 @@ from .observed_profiles import (
 from .observed_profiles import render_observed_profile as render_observed_profile
 from .observed_profiles import renderer_runtime_receipt as renderer_runtime_receipt
 from .observed_profiles import toolchain_receipt as toolchain_receipt
+from .perceptual import media_identity as media_identity
 from .reel_url_import import (
     canonicalize_reel_url as canonicalize_reel_url,
 )

@@ -66,6 +66,39 @@ def _metadata(asset: dict[str, Any]) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _enforce_family_account_ownership(
+    factory: Any,
+    *,
+    campaign_id: str,
+    asset_id: str,
+    identity: dict[str, str],
+    account_username: str,
+) -> None:
+    identity_values = {
+        value
+        for key, value in identity.items()
+        if key != "contentFingerprint" and value
+    }
+    for row in factory.conn.execute(
+        "SELECT * FROM rendered_assets WHERE campaign_id = ? AND id <> ?",
+        (campaign_id, asset_id),
+    ).fetchall():
+        related = asset_identity(dict(row))
+        if not identity_values.intersection(
+            value
+            for key, value in related.items()
+            if key != "contentFingerprint" and value
+        ):
+            continue
+        metadata = _metadata(dict(row))
+        proposed = metadata.get("redditProposedAssignment")
+        owner = metadata.get("redditCommittedAccount") or (
+            proposed.get("newAccount") if isinstance(proposed, dict) else None
+        )
+        if owner and _normalize_account(owner) != account_username:
+            raise ValueError("reddit_family_account_ownership_conflict")
+
+
 def set_reddit_proposed_assignment(
     factory: Any,
     *,
@@ -88,6 +121,14 @@ def set_reddit_proposed_assignment(
     identity = asset_identity(asset)
     if not identity.get("sourceFamilyId") or not identity.get("perceptualClusterId"):
         raise ValueError("reddit_asset_lineage_missing")
+    normalized = _normalize_account(account_username)
+    _enforce_family_account_ownership(
+        factory,
+        campaign_id=str(campaign["id"]),
+        asset_id=rendered_asset_id,
+        identity=identity,
+        account_username=normalized,
+    )
     metadata = _metadata(asset)
     if metadata.get("redditReservationReceipt") or metadata.get(
         "redditCommittedAccount"
@@ -96,7 +137,6 @@ def set_reddit_proposed_assignment(
 
     previous = metadata.get("redditProposedAssignment")
     previous = previous if isinstance(previous, dict) else {}
-    normalized = _normalize_account(account_username)
     if previous.get("newAccount") == normalized:
         return previous
     core = {
@@ -394,6 +434,13 @@ def build_reddit_handoff_review(
         raise ValueError("reddit_verification_evidence_required")
 
     account_username = _normalize_account(account.get("username"))
+    _enforce_family_account_ownership(
+        factory,
+        campaign_id=str(campaign["id"]),
+        asset_id=asset_id,
+        identity=identity,
+        account_username=account_username,
+    )
     metadata = _metadata(asset)
     proposed = metadata.get("redditProposedAssignment")
     committed = metadata.get("redditCommittedAccount")
@@ -677,6 +724,8 @@ def build_reddit_trend_brief(
         "firstCommentPolicy": spec.get("firstCommentPolicy"),
         "concepts": concepts,
         "referencePostIds": list(spec.get("referencePostIds") or []),
+        "researchEvidence": dict(spec.get("researchEvidence") or {}),
+        "ruleChange": dict(spec.get("ruleChange") or {}),
         "generationStyle": ORGANIC_AMATEUR_STYLE,
         "createdAt": created_at or _utc_now(),
     }

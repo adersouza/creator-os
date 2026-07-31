@@ -17,7 +17,10 @@ from campaign_factory.reddit_handoff import (
     set_reddit_proposed_assignment,
     write_reddit_manual_handoff,
 )
-from campaign_factory.reddit_library import build_reddit_library_report
+from campaign_factory.reddit_library import (
+    archive_reddit_assets,
+    build_reddit_library_report,
+)
 
 from pipeline_contracts import validate_reddit_manual_handoff
 
@@ -213,6 +216,34 @@ def test_reddit_handoff_fails_closed_without_lineage(tmp_path: Path) -> None:
         "metadata_json": "{}",
     }
     with pytest.raises(ValueError, match="lineage_missing"):
+        build_reddit_handoff_review(factory, campaign_slug="reddit-pilot", spec=_spec())
+
+
+def test_reddit_handoff_rejects_family_owned_by_another_account(
+    tmp_path: Path,
+) -> None:
+    factory = _factory(tmp_path)
+    metadata = {
+        "sourceFamilyId": "family-1",
+        "perceptualFingerprint": "pdq:variant-2",
+        "perceptualClusterId": "cluster-2",
+        "redditProposedAssignment": {
+            "newAccount": "u/Adventurous-bill-745",
+        },
+    }
+    factory.conn.execute(
+        """
+        INSERT INTO rendered_assets
+        (id, campaign_id, output_path, content_hash, metadata_json,
+         caption_generation_json, review_state, source_asset_id, created_at, updated_at)
+        SELECT 'asset-2', campaign_id, output_path, ?, ?, caption_generation_json,
+               review_state, source_asset_id, created_at, updated_at
+        FROM rendered_assets WHERE id = 'asset-1'
+        """,
+        ("b" * 64, json.dumps(metadata)),
+    )
+
+    with pytest.raises(ValueError, match="family_account_ownership_conflict"):
         build_reddit_handoff_review(factory, campaign_slug="reddit-pilot", spec=_spec())
 
 
@@ -489,3 +520,46 @@ def test_reddit_library_views_and_coverage_are_computed_from_canonical_state(
         "asset-1"
     ]
     assert held["cleanupManifest"]["automaticDeletion"] is False
+
+
+def test_reddit_library_archive_is_non_destructive_and_state_derived(
+    tmp_path: Path,
+) -> None:
+    factory = _factory(tmp_path)
+    state = {"accounts": [], "subreddits": [], "contentOwners": [], "tasks": []}
+
+    preview = archive_reddit_assets(
+        factory,
+        campaign_slug="reddit-pilot",
+        state=state,
+        asset_ids=["asset-1"],
+        operator="operator",
+        reason="Keep the weekly shelf trim.",
+        as_of="2026-07-31T12:00:00Z",
+    )
+    assert preview["applied"] is False
+    assert Path(
+        factory.domains.publishability.rendered_asset("asset-1")["output_path"]
+    ).is_file()
+
+    applied = archive_reddit_assets(
+        factory,
+        campaign_slug="reddit-pilot",
+        state=state,
+        asset_ids=["asset-1"],
+        operator="operator",
+        reason="Keep the weekly shelf trim.",
+        as_of="2026-07-31T12:00:00Z",
+        apply=True,
+    )
+    assert applied["applied"] is True
+    report = build_reddit_library_report(
+        factory,
+        campaign_slug="reddit-pilot",
+        state=state,
+        as_of="2026-07-31T12:00:00Z",
+    )
+    assert [card["assetId"] for card in report["views"]["Archived"]] == ["asset-1"]
+    assert Path(
+        factory.domains.publishability.rendered_asset("asset-1")["output_path"]
+    ).is_file()
