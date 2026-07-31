@@ -15,6 +15,7 @@ provide:
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import tempfile
@@ -23,7 +24,15 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-__all__ = ["atomic_write_json", "atomic_write_text", "file_lock"]
+__all__ = ["atomic_write_json", "atomic_write_text", "file_lock", "sha256_file"]
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def atomic_write_text(path: Path | str, text: str, *, encoding: str = "utf-8") -> None:

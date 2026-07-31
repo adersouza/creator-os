@@ -17,6 +17,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 from urllib.parse import urlsplit, urlunsplit
 
+from .fileops import sha256_file as _sha256_file
+
 DEFAULT_MAX_JSON_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 
@@ -394,11 +396,3 @@ def _regular_file(path: Path) -> bool:
     except OSError:
         return False
     return stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
