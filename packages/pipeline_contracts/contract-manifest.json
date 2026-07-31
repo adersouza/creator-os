@@ -77,6 +77,8 @@
     "pipeline_contracts/schemas/recommendation_accuracy_report.v1.schema.json": "35527677be0cee55886baadc105508e02d6b594619071d5053c77c2b48fea83f",
     "pipeline_contracts/schemas/recommendation_next_batch.v1.example.json": "54f09985f25d948eee0dc2d73e741df86ecf3c389f02a078cb705b50bb578846",
     "pipeline_contracts/schemas/recommendation_next_batch.v1.schema.json": "6f881d0578b54b9bcb6a020c51d7643423a652fbd520992fa97304549416b739",
+    "pipeline_contracts/schemas/reddit_manual_handoff.v1.example.json": "90018df8b2d379e7d5ab875e05bc6be65ee7ebdc825ce90bbb49b4603d2c9a35",
+    "pipeline_contracts/schemas/reddit_manual_handoff.v1.schema.json": "21321defe8a8a9266b8374788dd7b76ee2bdf87b0100cf9cf7dd06e198774ed9",
     "pipeline_contracts/schemas/reference_factory_knowledge_pack.v1.example.json": "336ba9c02f3ce35c59d8607c1e74754b5841d6b0a960d495d4b56106bec73776",
     "pipeline_contracts/schemas/reference_factory_knowledge_pack.v1.schema.json": "8f485b2a2879e109bcab228d110748a905100f77ec06990731f59e76be0e47cc",
     "pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json": "f82dc773f62ac42d8f8476839bcfd3ced6bc9fe130be15e30127727f75ed551e",
@@ -102,7 +104,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "7d9c66590fa7d917616b6b11a9597ad423af5496e67cb5d81671cb39411f3a09",
-    "typescript/index.ts": "aa1a0d408ede48730a5ab5c8fce0bf57b0686c1f3bf6be69106e6248f55fb26c"
+    "typescript/generated-schemas.ts": "0a2bd3d36e0e89a66ff2dec89ebedcd6b6afd42ffd01bf42dce9d670eaca81ca",
+    "typescript/index.ts": "4ac6f9eed6a498a02572c17707e300f4fd0e56f4fc7e52d8daef205bf0d337bf"
   }
 }

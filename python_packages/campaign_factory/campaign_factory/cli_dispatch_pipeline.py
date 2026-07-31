@@ -14,6 +14,7 @@ from .adapters.threadsdash_draft_readiness import (
     verify_threadsdash_export,
 )
 from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
+from .adapters.threadsdash_owner_api import fetch_reddit_library_snapshot
 from .asset_inventory import explain_asset, inventory_report
 from .cli_support import (
     decision_ledger_kwargs,
@@ -50,6 +51,23 @@ from .reconciliation import reconciliation_report, repair_reconciliation_case
 from .recreation_anchor_approval import approve_recreation_anchor
 from .recreation_lifecycle import explain_recreation_job, record_recreation_review
 from .recreation_prompting import build_openai_prompt_pack
+from .reddit_handoff import (
+    build_reddit_daily_schedule,
+    build_reddit_handoff_review,
+    build_reddit_manual_handoff,
+    build_reddit_trend_brief,
+    deliver_reddit_manual_handoff,
+    record_reddit_reservation_receipt,
+    set_reddit_proposed_assignment,
+    write_reddit_manual_handoff,
+    write_reddit_trend_brief,
+)
+from .reddit_library import archive_reddit_assets, build_reddit_library_report
+from .reddit_weekly import (
+    RedditResearchClient,
+    prepare_reddit_weekly_plan,
+    run_reddit_generation_request,
+)
 from .reference_url_workflow import run_reference_analysis
 from .state_ownership import explain_state, reconcile_bridge
 from .trial_reels import (
@@ -103,6 +121,134 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         return 0
     if args.cmd == "control-check":
         print_json(operator_control_check(settings))
+        return 0
+    if args.cmd == "reddit-brief":
+        spec = load_json_object(str(args.spec))
+        brief = build_reddit_trend_brief(spec or {})
+        path = (
+            write_reddit_trend_brief(cf, campaign_slug=args.campaign, brief=brief)
+            if args.apply
+            else None
+        )
+        print_json({"brief": brief, "artifactPath": str(path) if path else None})
+        return 0
+    if args.cmd == "reddit-assign":
+        print_json(
+            set_reddit_proposed_assignment(
+                cf,
+                campaign_slug=args.campaign,
+                rendered_asset_id=args.asset,
+                account_username=args.account,
+                operator=args.operator,
+                reason=args.reason,
+                apply=args.apply,
+            )
+        )
+        return 0
+    if args.cmd == "reddit-handoff":
+        spec = load_json_object(str(args.spec)) or {}
+        if not args.apply:
+            print_json(
+                build_reddit_handoff_review(cf, campaign_slug=args.campaign, spec=spec)
+            )
+            return 0
+        payload = build_reddit_manual_handoff(
+            cf, campaign_slug=args.campaign, spec=spec
+        )
+        path = write_reddit_manual_handoff(
+            cf, campaign_slug=args.campaign, payload=payload
+        )
+        delivery = None
+        if args.deliver:
+            delivery = deliver_reddit_manual_handoff(
+                payload,
+                ingest_url=args.threadsdash_ingest_url,
+                ingest_secret=args.threadsdash_ingest_secret,
+            )
+            record_reddit_reservation_receipt(
+                cf,
+                campaign_slug=args.campaign,
+                payload=payload,
+                delivery=delivery,
+            )
+        print_json(
+            {
+                "payload": payload,
+                "artifactPath": str(path),
+                "delivery": delivery,
+            }
+        )
+        return 0
+    if args.cmd == "reddit-schedule":
+        print_json(
+            build_reddit_daily_schedule(
+                args.date,
+                include_optional=args.include_optional,
+            )
+        )
+        return 0
+    if args.cmd == "reddit-library":
+        print_json(
+            build_reddit_library_report(
+                cf,
+                campaign_slug=args.campaign,
+                state=load_json_object(str(args.state)) or {},
+                as_of=args.as_of,
+            )
+        )
+        return 0
+    if args.cmd == "reddit-library-archive":
+        print_json(
+            archive_reddit_assets(
+                cf,
+                campaign_slug=args.campaign,
+                state=load_json_object(str(args.state)) or {},
+                asset_ids=args.asset,
+                operator=args.operator,
+                reason=args.reason,
+                as_of=args.as_of,
+                apply=args.apply,
+            )
+        )
+        return 0
+    if args.cmd == "reddit-weekly":
+        state = (
+            load_json_object(str(args.state))
+            if args.state
+            else fetch_reddit_library_snapshot(
+                user_id=args.user_id,
+                ingest_url=args.threadsdash_ingest_url,
+                ingest_secret=args.threadsdash_ingest_secret,
+            )
+        )
+        client = RedditResearchClient.from_env()
+        print_json(
+            prepare_reddit_weekly_plan(
+                cf,
+                campaign_slug=args.campaign,
+                state=state or {},
+                research_provider=lambda name: client.subreddit_snapshot(
+                    name, limit=args.limit
+                ),
+                as_of=args.as_of,
+                download_references=args.download_references,
+            )
+        )
+        return 0
+    if args.cmd == "reddit-weekly-generate":
+        print_json(
+            run_reddit_generation_request(
+                cf,
+                plan=load_json_object(str(args.plan)) or {},
+                request_id=args.request_id,
+                reviewed_by=args.reviewed_by,
+                apply=args.apply,
+                enable_paid_generation=args.enable_paid_generation,
+                budget_cap_credits=args.budget_cap_credits,
+                wait=args.wait,
+                download=args.download,
+            )
+        )
         return 0
     if args.cmd == "recreation-anchor-approve":
         print_json(

@@ -31,8 +31,14 @@ _HANDOFF_COMMANDS: Final = {
     "export-threadsdash",
     "bridge",
     "closed-loop-proof",
+    "reddit-handoff",
 }
-_PAID_COMMANDS: Final = {"create", "stills", "orchestrate-daily"}
+_PAID_COMMANDS: Final = {
+    "create",
+    "stills",
+    "orchestrate-daily",
+    "reddit-weekly-generate",
+}
 _RUNTIME_COMMANDS: Final = {"serve", "runtime-promotion"}
 _DESTRUCTIVE_WORDS: Final = {"delete", "remove", "purge", "revoke", "cancel"}
 _LEGACY_MUTATIONS: Final = {
@@ -52,6 +58,9 @@ _LEGACY_MUTATIONS: Final = {
     "sync-creative-plan-progress",
     "sync-performance",
     "sync-threadsdash-assignments",
+    "reddit-assign",
+    "reddit-weekly",
+    "reddit-library-archive",
 }
 _READ_ONLY_COMMANDS: Final = {
     "account-tiers",
@@ -69,6 +78,8 @@ _READ_ONLY_COMMANDS: Final = {
     "parent-factory-discoverability-loss-analysis",
     "parent-factory-post-gate-fresh-batch-proof",
     "recommended-inventory-request-plan",
+    "reddit-schedule",
+    "reddit-library",
     "account-plan",
     "assignment-eligibility",
     "export-readiness",

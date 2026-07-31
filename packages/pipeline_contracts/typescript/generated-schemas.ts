@@ -13151,6 +13151,395 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	redditManualHandoff: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reddit.manual_handoff.v1",
+	  "title": "Reddit Manual Handoff v1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "userId",
+	    "creator",
+	    "account",
+	    "destination",
+	    "asset",
+	    "content",
+	    "rules",
+	    "scheduling",
+	    "approval",
+	    "trendBrief",
+	    "reuseException",
+	    "idempotencyKey",
+	    "exportFingerprint",
+	    "exportedAt"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reddit.manual_handoff.v1"
+	    },
+	    "userId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "creator": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "name"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "name": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "account": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "username"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "username": {
+	          "type": "string",
+	          "pattern": "^u/[A-Za-z0-9_-]{3,32}$"
+	        }
+	      }
+	    },
+	    "destination": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "subreddit",
+	        "canonicalUrl"
+	      ],
+	      "properties": {
+	        "subreddit": {
+	          "type": "string",
+	          "pattern": "^r/[A-Za-z0-9_]{2,21}$"
+	        },
+	        "canonicalUrl": {
+	          "type": "string",
+	          "format": "uri",
+	          "pattern": "^https://(www\\.)?reddit\\.com/r/"
+	        }
+	      }
+	    },
+	    "asset": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "sourceFamilyId",
+	        "perceptualFingerprint",
+	        "perceptualClusterId",
+	        "mediaUrl",
+	        "mediaSha256",
+	        "mediaType"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sourceFamilyId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "perceptualFingerprint": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "perceptualClusterId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "mediaUrl": {
+	          "type": "string",
+	          "format": "uri"
+	        },
+	        "mediaSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "mediaType": {
+	          "enum": [
+	            "image",
+	            "gallery",
+	            "gif",
+	            "video"
+	          ]
+	        }
+	      }
+	    },
+	    "content": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "title",
+	        "firstComment",
+	        "nsfw",
+	        "spoiler",
+	        "flair"
+	      ],
+	      "properties": {
+	        "title": {
+	          "type": "string",
+	          "minLength": 1,
+	          "maxLength": 300
+	        },
+	        "firstComment": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "maxLength": 10000
+	        },
+	        "nsfw": {
+	          "type": "boolean"
+	        },
+	        "spoiler": {
+	          "type": "boolean"
+	        },
+	        "flair": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "maxLength": 120
+	        }
+	      }
+	    },
+	    "rules": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "snapshot",
+	        "snapshotHash",
+	        "reviewedAt",
+	        "reviewedBy",
+	        "reviewApproved",
+	        "verificationEvidence",
+	        "accountRestrictionState"
+	      ],
+	      "properties": {
+	        "snapshot": {
+	          "type": "object"
+	        },
+	        "snapshotHash": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "reviewedAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "reviewedBy": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "reviewApproved": {
+	          "const": true
+	        },
+	        "verificationEvidence": {
+	          "type": "object"
+	        },
+	        "accountRestrictionState": {
+	          "enum": [
+	            "active",
+	            "limited",
+	            "restricted",
+	            "unknown"
+	          ]
+	        }
+	      }
+	    },
+	    "scheduling": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "scheduledFor",
+	        "windowStart",
+	        "windowEnd",
+	        "spacingMinutes",
+	        "queuePosition",
+	        "dailyTarget"
+	      ],
+	      "properties": {
+	        "scheduledFor": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "windowStart": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "windowEnd": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "spacingMinutes": {
+	          "type": "integer",
+	          "minimum": 1,
+	          "maximum": 1440
+	        },
+	        "queuePosition": {
+	          "type": "integer",
+	          "minimum": 1,
+	          "maximum": 30
+	        },
+	        "dailyTarget": {
+	          "type": "integer",
+	          "minimum": 1,
+	          "maximum": 10
+	        }
+	      }
+	    },
+	    "approval": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "fingerprint",
+	        "receipt"
+	      ],
+	      "properties": {
+	        "fingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "receipt": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "schema",
+	            "decision",
+	            "approvedBy",
+	            "approvedAt",
+	            "binding",
+	            "bindingFingerprint",
+	            "sourceCreativeApprovalId",
+	            "sourceCreativeApprovalFingerprint"
+	          ],
+	          "properties": {
+	            "schema": {
+	              "const": "campaign_factory.reddit_task_approval.v1"
+	            },
+	            "decision": {
+	              "const": "approved"
+	            },
+	            "approvedBy": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "approvedAt": {
+	              "type": "string",
+	              "format": "date-time"
+	            },
+	            "binding": {
+	              "type": "object"
+	            },
+	            "bindingFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "sourceCreativeApprovalId": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "sourceCreativeApprovalFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "reuseException": {
+	      "oneOf": [
+	        {
+	          "type": "null"
+	        },
+	        {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "approvedBy",
+	            "approvedAt",
+	            "reason",
+	            "priorTaskId",
+	            "derivedMediaSha256",
+	            "derivedPerceptualFingerprint",
+	            "transformReceiptFingerprint",
+	            "approvalFingerprint"
+	          ],
+	          "properties": {
+	            "approvedBy": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "approvedAt": {
+	              "type": "string",
+	              "format": "date-time"
+	            },
+	            "reason": {
+	              "type": "string",
+	              "minLength": 1,
+	              "maxLength": 500
+	            },
+	            "priorTaskId": {
+	              "type": "string",
+	              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+	            },
+	            "derivedMediaSha256": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "derivedPerceptualFingerprint": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "transformReceiptFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "approvalFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            }
+	          }
+	        }
+	      ]
+	    },
+	    "trendBrief": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": true
+	    },
+	    "idempotencyKey": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "exportFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "exportedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
 	referenceFactoryKnowledgePack: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "reference_factory.knowledge_pack.v1",
@@ -17025,6 +17414,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "providerSpendAuthorizationV2", filename: "provider_spend_authorization.v2.schema.json", id: "https://creator-os.local/schemas/provider_spend_authorization.v2.schema.json" },
 	{ key: "recommendationAccuracyReport", filename: "recommendation_accuracy_report.v1.schema.json", id: "campaign_factory.recommendation_accuracy_report.v1" },
 	{ key: "recommendationNextBatch", filename: "recommendation_next_batch.v1.schema.json", id: "campaign_factory.recommendations.next_batch.v1" },
+	{ key: "redditManualHandoff", filename: "reddit_manual_handoff.v1.schema.json", id: "reddit.manual_handoff.v1" },
 	{ key: "referenceFactoryKnowledgePack", filename: "reference_factory_knowledge_pack.v1.schema.json", id: "reference_factory.knowledge_pack.v1" },
 	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
