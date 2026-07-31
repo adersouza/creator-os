@@ -61,11 +61,37 @@ def reconciliation_report(
     findings: list[dict[str, Any]] = []
     known_paths: dict[Path, list[dict[str, Any]]] = {}
     rendered = _rows(conn, "rendered_assets")
+    quarantined_rendered = {
+        str(row["rendered_asset_id"])
+        for row in _rows(conn, "quarantined_assets")
+        if row.get("rendered_asset_id")
+    }
+    active_rendered = [
+        row
+        for row in rendered
+        if str(row["id"]) not in quarantined_rendered and not _is_operator_removed(row)
+    ]
+    active_rendered_ids = {str(row["id"]) for row in active_rendered}
     rendered_by_id = {str(row["id"]): row for row in rendered}
 
     for row in _rows(conn, "source_assets"):
         path = Path(str(row.get("stored_path") or "")).expanduser()
         lifecycle = _source_lifecycle(conn, str(row["id"]))
+        if lifecycle and lifecycle.get("lifecycle_state") in {
+            "quarantined",
+            "rejected",
+            "superseded",
+            "archived",
+            "deleted",
+        }:
+            _remember_registered_path(
+                known_paths,
+                path,
+                expected_sha=str(row.get("content_hash") or ""),
+                subject_type="source_asset",
+                subject_id=str(row["id"]),
+            )
+            continue
         external = bool(
             lifecycle and lifecycle.get("storage_policy") == "external_reference"
         )
@@ -87,7 +113,11 @@ def reconciliation_report(
                 str(row["id"]),
                 {"path": str(path), "repair": "run_source_lifecycle_backfill"},
             )
-        elif external and lifecycle.get("backup_state") != "managed":
+        elif (
+            external
+            and lifecycle.get("backup_state") != "managed"
+            and root_keyed_path(path, roots) is None
+        ):
             _add(
                 findings,
                 "external_reference_outside_backup_coverage",
@@ -99,7 +129,7 @@ def reconciliation_report(
                 },
             )
 
-    for row in rendered:
+    for row in active_rendered:
         path = Path(str(row.get("output_path") or "")).expanduser()
         _check_registered_path(
             findings,
@@ -111,13 +141,28 @@ def reconciliation_report(
             external=False,
             roots=roots,
         )
+    for row in rendered:
+        if str(row["id"]) not in active_rendered_ids:
+            _remember_registered_path(
+                known_paths,
+                Path(str(row.get("output_path") or "")).expanduser(),
+                expected_sha=str(row.get("content_hash") or ""),
+                subject_type="rendered_asset",
+                subject_id=str(row["id"]),
+            )
 
+    _collect_generation_attempt_paths(conn, known_paths)
     _collect_other_database_paths(settings, findings, known_paths, roots)
     _check_receipt_paths(conn, findings, known_paths, roots)
     _check_path_identity_conflicts(findings, known_paths)
-    _check_stale_evidence(conn, findings, rendered_by_id)
+    _check_stale_evidence(
+        conn,
+        findings,
+        rendered_by_id,
+        ignored_asset_ids=set(rendered_by_id) - active_rendered_ids,
+    )
     _check_reservations(conn, findings)
-    _check_final_evidence(conn, findings, rendered)
+    _check_final_evidence(conn, findings, active_rendered)
     _scan_managed_files(
         findings,
         known_paths,
@@ -430,6 +475,33 @@ def _check_registered_path(
     roots: dict[str, Path],
 ) -> None:
     absolute = Path(os.path.abspath(os.fspath(path)))
+    _remember_registered_path(
+        known,
+        absolute,
+        expected_sha=expected_sha,
+        subject_type=subject_type,
+        subject_id=subject_id,
+    )
+    _check_registered_path_bytes(
+        findings,
+        absolute=absolute,
+        expected_sha=expected_sha,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        external=external,
+        roots=roots,
+    )
+
+
+def _remember_registered_path(
+    known: dict[Path, list[dict[str, Any]]],
+    path: Path,
+    *,
+    expected_sha: str,
+    subject_type: str,
+    subject_id: str,
+) -> None:
+    absolute = Path(os.path.abspath(os.fspath(path)))
     known.setdefault(absolute, []).append(
         {
             "subjectType": subject_type,
@@ -437,6 +509,46 @@ def _check_registered_path(
             "expectedSha256": expected_sha,
         }
     )
+
+
+def _collect_generation_attempt_paths(
+    conn: sqlite3.Connection, known: dict[Path, list[dict[str, Any]]]
+) -> None:
+    blobs = {
+        str(row["id"]): str(row.get("content_sha256") or "")
+        for row in _rows(conn, "generation_output_blobs")
+    }
+    for row in _rows(conn, "generation_attempts"):
+        path = Path(str(row.get("attempted_output_path") or "")).expanduser()
+        if not str(path).strip():
+            continue
+        _remember_registered_path(
+            known,
+            path,
+            expected_sha=blobs.get(str(row.get("output_blob_id") or ""), ""),
+            subject_type="generation_attempt",
+            subject_id=str(row["id"]),
+        )
+
+
+def _is_operator_removed(row: dict[str, Any]) -> bool:
+    try:
+        metadata = json.loads(str(row.get("metadata_json") or "{}"))
+    except (TypeError, ValueError):
+        return False
+    return str(metadata.get("lifecycleStatus") or "").lower() == "operator_removed"
+
+
+def _check_registered_path_bytes(
+    findings: list[dict[str, Any]],
+    *,
+    absolute: Path,
+    expected_sha: str,
+    subject_type: str,
+    subject_id: str,
+    external: bool,
+    roots: dict[str, Path],
+) -> None:
     if not absolute.is_absolute() or not is_regular_file(absolute):
         _add(
             findings,
@@ -542,7 +654,6 @@ def _collect_other_database_paths(
             (
                 ("videos", "video_id", "source_path", "source_video_hash"),
                 ("variations", "job_key", "output_path", "output_hash"),
-                ("render_attempts", "attempt_id", "temp_path", None),
                 ("render_attempts", "attempt_id", "final_path", None),
                 ("prompt_runs", "prompt_run_id", "prompt_json_path", None),
                 ("prompt_runs", "prompt_run_id", "lineage_path", None),
@@ -595,13 +706,25 @@ def _collect_other_database_paths(
                     row = dict(raw)
                     if not str(row.get(path_field) or "").strip():
                         continue
+                    path = Path(str(row[path_field])).expanduser()
+                    expected_sha = str(row.get(hash_field) or "") if hash_field else ""
+                    if database_name == "reference_factory" and (
+                        table == "public_posts"
+                        or (table == "source_files" and not expected_sha)
+                    ):
+                        _remember_registered_path(
+                            known,
+                            path,
+                            expected_sha=expected_sha,
+                            subject_type=f"{database_name}.{table}",
+                            subject_id=str(row[id_field]),
+                        )
+                        continue
                     _check_registered_path(
                         findings,
                         known,
-                        path=Path(str(row[path_field])).expanduser(),
-                        expected_sha=str(row.get(hash_field) or "")
-                        if hash_field
-                        else "",
+                        path=path,
+                        expected_sha=expected_sha,
                         subject_type=f"{database_name}.{table}",
                         subject_id=str(row[id_field]),
                         external=False,
@@ -632,6 +755,8 @@ def _check_stale_evidence(
     conn: sqlite3.Connection,
     findings: list[dict[str, Any]],
     rendered_by_id: dict[str, dict[str, Any]],
+    *,
+    ignored_asset_ids: set[str],
 ) -> None:
     for table, finding_class in (
         ("approval_decisions", "approval_against_stale_bytes"),
@@ -647,6 +772,8 @@ def _check_stale_evidence(
                     str(row["id"]),
                     {"renderedAssetId": row.get("rendered_asset_id")},
                 )
+                continue
+            if str(rendered["id"]) in ignored_asset_ids:
                 continue
             subject_sha = str(row.get("subject_sha256") or "")
             final_sha = str(rendered.get("content_hash") or "")
@@ -852,6 +979,8 @@ def _check_managed_file(
         "thumbs.db",
     }:
         return
+    if _is_declared_support_artifact(path, root_key=root_key):
+        return
     media = path.suffix.lower() in MEDIA_SUFFIXES
     finding_class = (
         "provider_output_retained_not_registered"
@@ -872,6 +1001,43 @@ def _check_managed_file(
         repair_supported=media,
         repair_action="move_orphan_to_quarantine" if media else None,
     )
+
+
+def _is_declared_support_artifact(path: Path, *, root_key: str) -> bool:
+    parts = set(path.parts)
+    if root_key == "creative_approvals" or root_key == "reel_factory/01_captions":
+        return True
+    if root_key == "campaigns":
+        if ".audio-cache" in parts:
+            return True
+        lanes = parts & {
+            "01_reel_inputs",
+            "02_rendered",
+            "03_contentforge_audits",
+            "05_threadsdash_exports",
+            "06_reports",
+        }
+        return bool(lanes) and (
+            path.suffix.lower() not in MEDIA_SUFFIXES
+            or bool(
+                lanes
+                & {"03_contentforge_audits", "05_threadsdash_exports", "06_reports"}
+            )
+        )
+    if root_key != "reference_factory":
+        return False
+    reference_lanes = {
+        "learning",
+        "thumbnails",
+        "url_intake",
+        "curated",
+        "tiktok",
+    }
+    if parts & reference_lanes or any(
+        part.startswith(("import_", "dryrun_")) for part in path.parts
+    ):
+        return True
+    return "frame_samples" in parts and path.suffix.lower() not in MEDIA_SUFFIXES
 
 
 def _add(

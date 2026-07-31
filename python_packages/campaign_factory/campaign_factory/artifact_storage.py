@@ -73,6 +73,9 @@ def managed_roots(settings: Any) -> dict[str, Path]:
         .resolve(),
         "reference_factory": Path(settings.reference_reels_root).expanduser().resolve(),
         "reel_factory": Path(settings.reel_factory_root).expanduser().resolve(),
+        "reel_factory_artifacts": Path(settings.reel_factory_artifacts_dir)
+        .expanduser()
+        .resolve(),
     }
 
 

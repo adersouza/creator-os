@@ -105,6 +105,14 @@ def test_reconciliation_report_is_read_only_and_finds_byte_drift(
             if finding["evidence"].get("path") == str(unknown_receipt)
         )
         assert receipt_finding["repairSupported"] is False
+        evidence_cache = cf.settings.reference_reels_root / "thumbnails" / "cache.jpg"
+        evidence_cache.parent.mkdir(parents=True, exist_ok=True)
+        evidence_cache.write_bytes(b"cache")
+        rescanned = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["evidence"].get("path") == str(evidence_cache)
+            for item in rescanned["findings"]
+        )
     finally:
         cf.close()
 
@@ -260,6 +268,20 @@ def test_failed_exact_sha_audit_is_not_final_evidence(tmp_path: Path) -> None:
 
         assert finding["evidence"]["hasExactApproval"] is True
         assert finding["evidence"]["hasExactAudit"] is False
+        repair_reconciliation_case(
+            cf.conn,
+            cf.settings,
+            case_id=finding["caseId"],
+            expected_fingerprint=finding["fingerprint"],
+            operator="operator",
+            reason="failed exact audit cannot remain final",
+            apply=True,
+        )
+        assert not any(
+            item["findingClass"] == "registered_asset_without_final_evidence"
+            and item["subjectId"] == "rendered_failed_audit"
+            for item in reconciliation_report(cf.conn, cf.settings)["findings"]
+        )
     finally:
         cf.close()
 
@@ -390,6 +412,38 @@ def test_missing_source_repair_tombstones_state_without_deleting_evidence(
                 (source_id,),
             ).fetchone()[0]
             == 1
+        )
+        assert not any(
+            item["subjectId"] == source_id
+            for item in reconciliation_report(cf.conn, cf.settings)["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_managed_external_source_does_not_claim_missing_backup(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        path = cf.settings.campaigns_dir / "stacey" / "reconcile" / "source.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"managed")
+        source_id = _source(cf, path)
+        cf.conn.execute(
+            """
+            UPDATE source_asset_lifecycle
+            SET storage_policy = 'external_reference', backup_state = 'unknown'
+            WHERE source_asset_id = ?
+            """,
+            (source_id,),
+        )
+        cf.conn.commit()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+
+        assert not any(
+            item["findingClass"] == "external_reference_outside_backup_coverage"
+            and item["subjectId"] == source_id
+            for item in report["findings"]
         )
     finally:
         cf.close()
