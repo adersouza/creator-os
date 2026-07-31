@@ -26,6 +26,7 @@ from .core import (
 )
 from .generation_execution_plan import GenerationExecutionPlan
 from .persistence import utc_now
+from .production_prompts import LOW_EFFORT_REEL_VISUAL_DIRECTION
 from .provider_spend import (
     consume_provider_spend_authorization,
     issue_provider_spend_authorization,
@@ -1057,8 +1058,8 @@ def _write_prompt_pack(
     guidance_text = _learned_prompt_guidance_text(guidance)
     payload = {
         "higgsfieldGridPrompt": (
-            "Create a realistic vertical social photo with natural lighting, "
-            "stable styling, clear wardrobe detail, and coherent phone-camera framing."
+            "Create one realistic vertical social photo. "
+            f"{LOW_EFFORT_REEL_VISUAL_DIRECTION}"
             f"{guidance_text}"
         ),
         "klingMotionPrompt": (

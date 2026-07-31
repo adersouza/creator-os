@@ -101,6 +101,10 @@ Higgsfield/Soul ID still prompt:
 - The active prompt requests one standalone 9:16 image.
 - Legacy grid/fanout tooling must be explicitly selected and is not the default operator path.
 - The externally provided Soul ID handles identity.
+- Default to a deliberately casual, believable handheld selfie: close arm-length or mirror framing in an ordinary bedroom, bathroom, car seat, couch, living room, or simple outdoor setting.
+- Favor cute fitted everyday clothing, playful/coy/pouty/warm/teasing expressions, attractive flirtatious posing within the approved wardrobe and exposure policy, natural household lighting, slight off-center composition, and lived-in background detail.
+- Selected static mirror compositions may hold the camera in front of part of the face while preserving enough visible identity evidence.
+- Use spontaneous snapshot energy; polished editorial lighting and cinematic staging require explicit creative direction.
 - The prompt describes the desired visible result: outfit, garment fit, garment placement, pose, framing, camera, lighting, environment, style, and generic panel consistency.
 - The prompt can apply the selected deterministic enhancement profile to body emphasis and garment fit.
 - The prompt does not describe detailed reference identity traits such as hair, ethnicity, or tattoos. Use the exact age phrase 19 years old; Soul ID handles identity externally.

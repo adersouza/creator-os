@@ -559,7 +559,7 @@ def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) ->
             "seedancePrompt": "Seedance calm motion.",
             "klingPrompt": "Kling calm motion.",
             "promptPlanning": {
-                "builderVersion": "creator_os_openai_prompt_builder.v3",
+                "builderVersion": "creator_os_openai_prompt_builder.v4",
                 "requestFingerprint": str(kwargs["creator_image"]),
                 "cost": {"status": "not_exposed", "usd": None},
             },

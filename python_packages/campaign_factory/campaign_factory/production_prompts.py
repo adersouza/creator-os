@@ -14,6 +14,19 @@ PROMPT_CARD_SCHEMA: Final = "campaign_factory.creative_direction_prompt_card.v1"
 COMPILED_PROMPT_SCHEMA: Final = "campaign_factory.compiled_passive_prompt.v1"
 UNKNOWN: Final = "unknown"
 
+LOW_EFFORT_REEL_VISUAL_DIRECTION: Final = (
+    "Favor a deliberately casual, believable handheld selfie aesthetic for Reel "
+    "stills: close arm-length framing or a mirror self-portrait in an ordinary "
+    "bedroom, bathroom, car seat, couch, living room, or simple outdoor setting. "
+    "Use cute fitted everyday clothing, playful, coy, pouty, warm, or teasing "
+    "expressions, attractive flirtatious posing within the approved wardrobe and "
+    "exposure policy, natural household lighting, slight off-center composition, "
+    "and ordinary lived-in background detail. Selected static mirror compositions "
+    "may hold the camera in front of part of the face while preserving enough "
+    "visible identity evidence. Use spontaneous snapshot energy and reserve polished "
+    "editorial lighting or cinematic staging for an explicit request."
+)
+
 INTENT_PROMPTS: Final[dict[str, str]] = {
     "passive_selfie": (
         "Natural eye and gaze movement, subtle head movement, one purposeful hair "

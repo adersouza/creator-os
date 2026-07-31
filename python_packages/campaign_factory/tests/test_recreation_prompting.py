@@ -101,7 +101,11 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert pack["identityPolicy"]["hairColorInvented"] is False
     assert pack["identityPolicy"]["tattoosInvented"] is False
     planning = pack["promptPlanning"]
-    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v3"
+    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v4"
+    request_text = json.dumps(observed["payload"], ensure_ascii=False).lower()
+    assert "deliberately casual, believable handheld selfie" in request_text
+    assert "cute fitted everyday clothing" in request_text
+    assert "camera in front of part of the face" in request_text
     assert planning["requestFingerprint"]
     assert planning["responseId"] == "resp_test"
     assert planning["usage"] == {
