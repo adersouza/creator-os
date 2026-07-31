@@ -74,8 +74,8 @@ def _unresolved_prior_handoffs(
         FROM learning_cohort_assignments
         WHERE cohort_id = ? AND day_index < ?
           AND approval_state = 'approved'
-          AND publish_state != 'published'
-          AND schedule_state != 'blocked_rejected'
+          AND publish_state NOT IN ('published', 'cancelled')
+          AND schedule_state NOT IN ('blocked_rejected', 'cancelled')
         ORDER BY day_index, surface""",
         (COHORT_ID, day_index),
     ).fetchall()

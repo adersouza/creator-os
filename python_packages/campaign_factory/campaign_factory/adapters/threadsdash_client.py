@@ -585,7 +585,7 @@ class SupabaseRestClient:
         safe_statuses = {408, 425, 429}
         # Statuses where the request *may* have been processed before the
         # error/timeout surfaced; only retried for idempotent requests.
-        ambiguous_statuses = {409, 500, 502, 503, 504}
+        ambiguous_statuses = {409, 500, 502, 503, 504, 522}
         transient_statuses = (
             safe_statuses | ambiguous_statuses if retry_ambiguous else safe_statuses
         )

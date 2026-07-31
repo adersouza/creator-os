@@ -108,6 +108,29 @@ def sync_performance_snapshots(
             campaign_ids=[campaign["id"], campaign_slug],
             limit=limit,
         )
+        cohort_handoff_rows: list[dict[str, Any]] = []
+        if campaign_slug == COHORT_ID:
+            draft_ids = [
+                str(row["draft_id"])
+                for row in factory.conn.execute(
+                    """SELECT draft_id FROM learning_cohort_assignments
+                    WHERE cohort_id = ? AND approval_state = 'approved'
+                      AND draft_id IS NOT NULL""",
+                    (COHORT_ID,),
+                ).fetchall()
+            ]
+            if draft_ids:
+                cohort_handoff_rows = client.select(
+                    "posts",
+                    {
+                        "select": (
+                            "id,status,handoff_status,published_at,permalink,"
+                            "instagram_post_id,metadata"
+                        ),
+                        "id": f"in.({','.join(sorted(set(draft_ids)))})",
+                        "limit": str(len(set(draft_ids))),
+                    },
+                )
         tracked_rows = []
         tracked_snapshot_count = 0
         inserted = 0
@@ -589,7 +612,9 @@ def sync_performance_snapshots(
         )
         factory.conn.commit()
         cohort_publish_writeback = (
-            sync_learning_cohort_publish_state(factory.conn)
+            sync_learning_cohort_publish_state(
+                factory.conn, threadsdash_posts=cohort_handoff_rows
+            )
             if campaign_slug == COHORT_ID
             else None
         )

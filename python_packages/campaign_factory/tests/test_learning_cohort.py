@@ -590,6 +590,77 @@ def test_publish_sync_fails_closed_on_asset_or_assignment_conflict(
         cf.close()
 
 
+def test_publish_sync_closes_exact_cancelled_threadsdash_handoff(
+    tmp_path: Path,
+) -> None:
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        assignment = dict(
+            cf.conn.execute(
+                """SELECT * FROM learning_cohort_assignments
+                WHERE surface = 'regular_reel' ORDER BY day_index LIMIT 1"""
+            ).fetchone()
+        )
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET draft_id = 'cancelled_draft', approval_state = 'approved',
+                generation_state = 'draft_ingested',
+                schedule_state = 'ready_for_manual_publish'
+            WHERE id = ?""",
+            (assignment["id"],),
+        )
+        cf.conn.commit()
+        post = {
+            "id": "cancelled_draft",
+            "status": "deleted",
+            "handoff_status": "expired",
+            "published_at": None,
+            "permalink": None,
+            "instagram_post_id": None,
+            "metadata": {
+                "cancellation": {
+                    "auditLogId": "audit_1",
+                    "cancelledAt": "2026-07-28T08:01:19+00:00",
+                    "classification": "SAFE_STALE_CANCEL",
+                    "qstashLookup": "not_found_404",
+                    "terminalState": "deleted",
+                }
+            },
+        }
+
+        first = sync_learning_cohort_publish_state(cf.conn, threadsdash_posts=[post])
+        second = sync_learning_cohort_publish_state(cf.conn, threadsdash_posts=[post])
+        row = dict(
+            cf.conn.execute(
+                "SELECT * FROM learning_cohort_assignments WHERE id = ?",
+                (assignment["id"],),
+            ).fetchone()
+        )
+
+        assert first["status"] == "synced"
+        assert first["assignmentsChanged"] == 1
+        assert first["terminalHandoffs"] == [
+            {
+                "assignmentId": assignment["id"],
+                "draftId": "cancelled_draft",
+                "status": "cancelled",
+                "auditLogId": "audit_1",
+                "cancelledAt": "2026-07-28T08:01:19+00:00",
+                "classification": "SAFE_STALE_CANCEL",
+                "qstashLookup": "not_found_404",
+            }
+        ]
+        assert second["assignmentsChanged"] == 0
+        assert row["publish_state"] == "cancelled"
+        assert row["schedule_state"] == "cancelled"
+        assert row["metric_1h_state"] == "not_required"
+        assert row["metric_24h_state"] == "not_required"
+        assert row["metric_72h_state"] == "not_required"
+    finally:
+        cf.close()
+
+
 def test_metric_sync_fails_closed_without_learning_cutover(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

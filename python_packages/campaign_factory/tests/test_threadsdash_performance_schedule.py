@@ -51,7 +51,8 @@ def test_sync_threadsdash_performance_defaults_to_ten_thousand_posts():
             "SUPABASE_URL": "https://example.supabase.co",
             "SUPABASE_SERVICE_ROLE_KEY": "service-role",
             "LEARNING_LOOP_CUTOVER": "2026-07-09T00:00:00+00:00",
-        }
+        },
+        run_id="run_1",
     )
 
     assert command[-2:] == ["--limit", "10000"]
@@ -96,6 +97,7 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
         )
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module.uuid, "uuid4", lambda: type("U", (), {"hex": "run_1"})())
 
     result = module.main(
         env={
@@ -118,6 +120,8 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
             "uv",
             "run",
             "campaign-factory",
+            "--idempotency-key",
+            "performance-sync:may:run_1",
             "sync-performance",
             "--campaign",
             "may",
