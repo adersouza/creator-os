@@ -28,6 +28,7 @@ class Settings:
     reel_factory_root: Path = Path(
         os.environ.get("REEL_FACTORY_ROOT", CREATOR_OS_REEL_FACTORY_ROOT)
     )
+    reel_factory_artifacts_dir: Path = _UNSET_PATH
     reel_manifest_db: Path = _UNSET_PATH
     reel_render_queue_db: Path = _UNSET_PATH
     contentforge_root: Path = Path(
@@ -89,7 +90,13 @@ class Settings:
             if reference_root_is_override
             else os.environ.get("REFERENCE_FACTORY_DB") or _PATHS.reference_factory_db
         )
+        reel_factory_artifacts_dir = (
+            self.reel_factory_root
+            if reel_root_is_override
+            else _PATHS.artifact_root / "reel_factory"
+        )
         for field_name, value in (
+            ("reel_factory_artifacts_dir", reel_factory_artifacts_dir),
             ("db_path", campaign_factory_db),
             ("reel_manifest_db", reel_manifest_db),
             ("reel_render_queue_db", reel_render_queue_db),

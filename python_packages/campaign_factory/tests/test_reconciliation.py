@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -105,6 +106,216 @@ def test_reconciliation_report_is_read_only_and_finds_byte_drift(
             if finding["evidence"].get("path") == str(unknown_receipt)
         )
         assert receipt_finding["repairSupported"] is False
+        evidence_cache = cf.settings.reference_reels_root / "thumbnails" / "cache.jpg"
+        evidence_cache.parent.mkdir(parents=True, exist_ok=True)
+        evidence_cache.write_bytes(b"cache")
+        rescanned = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["evidence"].get("path") == str(evidence_cache)
+            for item in rescanned["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_immutable_audit_path_is_covered_by_exact_managed_copy(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        source_path = cf.settings.campaigns_dir / "stacey" / "reconcile" / "source.mp4"
+        source_path.parent.mkdir(parents=True)
+        source_path.write_bytes(b"source")
+        source_id = _source(cf, source_path)
+        campaign_id = cf.conn.execute(
+            "SELECT campaign_id FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()[0]
+        output = source_path.parent / "rendered.mp4"
+        output.write_bytes(b"rendered")
+        output_sha = hashlib.sha256(output.read_bytes()).hexdigest()
+        now = "2026-07-30T00:00:00+00:00"
+        cf.conn.execute(
+            """
+            INSERT INTO rendered_assets
+            (id, campaign_id, source_asset_id, content_hash, output_path,
+             campaign_path, filename, audit_status, review_state, created_at,
+             updated_at)
+            VALUES ('rendered_audit_copy', ?, ?, ?, ?, ?, ?, 'pending',
+                    'pending', ?, ?)
+            """,
+            (
+                campaign_id,
+                source_id,
+                output_sha,
+                str(output),
+                str(output),
+                output.name,
+                now,
+                now,
+            ),
+        )
+        external = tmp_path / "reports" / "audit.json"
+        external.parent.mkdir()
+        external.write_bytes(b'{"status":"passed"}')
+        managed = source_path.parent / "audit-copy.json"
+        managed.write_bytes(external.read_bytes())
+        for audit_id, report_path in (
+            ("audit_original", external),
+            ("audit_managed_copy", managed),
+        ):
+            cf.conn.execute(
+                """
+                INSERT INTO audit_reports
+                (id, campaign_id, rendered_asset_id, subject_sha256, report_path,
+                 score, status, overall_verdict, failed_checks_json, created_at)
+                VALUES (?, ?, 'rendered_audit_copy', ?, ?, 100, 'passed',
+                        'passed', '[]', ?)
+                """,
+                (audit_id, campaign_id, output_sha, str(report_path), now),
+            )
+        cf.conn.commit()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+
+        assert not any(
+            item["findingClass"] == "absolute_path_outside_managed_roots"
+            and item["subjectId"] == "audit_original"
+            for item in report["findings"]
+        )
+        external.unlink()
+        missing_original = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["findingClass"] == "database_row_with_missing_file"
+            and item["subjectId"] == "audit_original"
+            for item in missing_original["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_immutable_render_attempt_keeps_historical_external_path(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        external = tmp_path / "historical-render.mp4"
+        external.write_bytes(b"rendered")
+        manifest = sqlite3.connect(cf.settings.reel_manifest_db)
+        manifest.execute(
+            """
+            CREATE TABLE render_attempts (
+                attempt_id TEXT PRIMARY KEY,
+                final_path TEXT NOT NULL
+            )
+            """
+        )
+        manifest.execute(
+            "INSERT INTO render_attempts VALUES ('attempt-1', ?)", (str(external),)
+        )
+        manifest.commit()
+        manifest.close()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["findingClass"] == "absolute_path_outside_managed_roots"
+            and item["subjectId"] == "attempt-1"
+            for item in report["findings"]
+        )
+
+        external.unlink()
+        missing = reconciliation_report(cf.conn, cf.settings)
+        assert any(
+            item["findingClass"] == "database_row_with_missing_file"
+            and item["subjectId"] == "attempt-1"
+            for item in missing["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_quarantined_asset_no_longer_conflicts_with_active_path(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        directory = cf.settings.campaigns_dir / "stacey" / "reconcile"
+        directory.mkdir(parents=True)
+        source_path = directory / "source.mp4"
+        source_path.write_bytes(b"source")
+        source_id = _source(cf, source_path)
+        campaign_id = cf.conn.execute(
+            "SELECT campaign_id FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()[0]
+        shared = directory / "shared.mp4"
+        shared.write_bytes(b"active")
+        active_sha = hashlib.sha256(shared.read_bytes()).hexdigest()
+        stale_sha = hashlib.sha256(b"stale").hexdigest()
+        now = "2026-07-30T00:00:00+00:00"
+        for asset_id, digest in (
+            ("asset_active", active_sha),
+            ("asset_stale", stale_sha),
+        ):
+            cf.conn.execute(
+                """
+                INSERT INTO rendered_assets
+                (id, campaign_id, source_asset_id, content_hash, output_path,
+                 campaign_path, filename, audit_status, review_state, created_at,
+                 updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'draft', ?, ?)
+                """,
+                (
+                    asset_id,
+                    campaign_id,
+                    source_id,
+                    digest,
+                    str(shared),
+                    str(shared),
+                    shared.name,
+                    now,
+                    now,
+                ),
+            )
+            blob_id = f"blob_{asset_id}"
+            cf.conn.execute(
+                """
+                INSERT INTO generation_output_blobs
+                (id, content_sha256, byte_size, media_type, created_at)
+                VALUES (?, ?, 6, 'video', ?)
+                """,
+                (blob_id, digest, now),
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO generation_attempts
+                (id, campaign_id, source_asset_id, rendered_asset_id,
+                 output_blob_id, model_id, motion_task, attempted_output_path,
+                 duplicate_disposition, created_at)
+                VALUES (?, ?, ?, ?, ?, 'test', 'legacy_unknown', ?,
+                        'legacy_reference', ?)
+                """,
+                (
+                    f"attempt_{asset_id}",
+                    campaign_id,
+                    source_id,
+                    asset_id,
+                    blob_id,
+                    str(shared),
+                    now,
+                ),
+            )
+        cf.conn.execute(
+            """
+            INSERT INTO quarantined_assets
+            (id, campaign_id, rendered_asset_id, reason, excluded_from_metrics,
+             created_at)
+            VALUES ('quarantine_stale', ?, 'asset_stale', 'identity conflict', 1, ?)
+            """,
+            (campaign_id, now),
+        )
+        cf.conn.commit()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["findingClass"] == "multiple_files_claiming_conflicting_identity"
+            and item["subjectId"] == str(shared)
+            for item in report["findings"]
+        )
     finally:
         cf.close()
 
@@ -260,6 +471,20 @@ def test_failed_exact_sha_audit_is_not_final_evidence(tmp_path: Path) -> None:
 
         assert finding["evidence"]["hasExactApproval"] is True
         assert finding["evidence"]["hasExactAudit"] is False
+        repair_reconciliation_case(
+            cf.conn,
+            cf.settings,
+            case_id=finding["caseId"],
+            expected_fingerprint=finding["fingerprint"],
+            operator="operator",
+            reason="failed exact audit cannot remain final",
+            apply=True,
+        )
+        assert not any(
+            item["findingClass"] == "registered_asset_without_final_evidence"
+            and item["subjectId"] == "rendered_failed_audit"
+            for item in reconciliation_report(cf.conn, cf.settings)["findings"]
+        )
     finally:
         cf.close()
 
@@ -390,6 +615,38 @@ def test_missing_source_repair_tombstones_state_without_deleting_evidence(
                 (source_id,),
             ).fetchone()[0]
             == 1
+        )
+        assert not any(
+            item["subjectId"] == source_id
+            for item in reconciliation_report(cf.conn, cf.settings)["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_managed_external_source_does_not_claim_missing_backup(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        path = cf.settings.campaigns_dir / "stacey" / "reconcile" / "source.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"managed")
+        source_id = _source(cf, path)
+        cf.conn.execute(
+            """
+            UPDATE source_asset_lifecycle
+            SET storage_policy = 'external_reference', backup_state = 'unknown'
+            WHERE source_asset_id = ?
+            """,
+            (source_id,),
+        )
+        cf.conn.commit()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+
+        assert not any(
+            item["findingClass"] == "external_reference_outside_backup_coverage"
+            and item["subjectId"] == source_id
+            for item in report["findings"]
         )
     finally:
         cf.close()
