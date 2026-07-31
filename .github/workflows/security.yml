@@ -100,6 +100,7 @@ jobs:
             uploads.github.com:443
             results-receiver.actions.githubusercontent.com:443
             ghcr.io:443
+            mirror.gcr.io:443
             pkg-containers.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -127,7 +128,7 @@ jobs:
       - name: Gate Trivy HIGH/CRITICAL findings
         if: steps.trivy-sarif.outcome == 'failure'
         run: |
-          echo "Trivy found HIGH/CRITICAL findings. Review trivy-results.sarif and add explicit ignores only for accepted false positives."
+          echo "Trivy scan failed. Inspect the scan log for infrastructure errors and review trivy-results.sarif when it exists."
           exit 1
 
   dependency-review:
