@@ -208,6 +208,38 @@ def test_reddit_handoff_rejects_changed_approval_bound_field(tmp_path: Path) -> 
         build_reddit_manual_handoff(factory, campaign_slug="reddit-pilot", spec=spec)
 
 
+def test_reddit_reuse_exception_binds_transformed_media_identity(
+    tmp_path: Path,
+) -> None:
+    factory = _factory(tmp_path)
+    asset = factory.domains.publishability.rendered_asset("asset-1")
+    exception_core = {
+        "approvedBy": "operator",
+        "approvedAt": "2026-07-30T22:04:00Z",
+        "reason": "Reviewed transformed derivative for controlled reuse.",
+        "priorTaskId": "11111111-1111-4111-8111-111111111111",
+        "derivedMediaSha256": asset["content_hash"],
+        "derivedPerceptualFingerprint": "pdq:asset-1",
+        "transformReceiptFingerprint": "d" * 64,
+    }
+    spec = _spec()
+    spec["reuseException"] = {
+        **exception_core,
+        "approvalFingerprint": _sha(exception_core),
+    }
+
+    review = build_reddit_handoff_review(
+        factory, campaign_slug="reddit-pilot", spec=spec
+    )
+    assert review["approvalBinding"]["reuseException"]["priorTaskId"] == (
+        "11111111-1111-4111-8111-111111111111"
+    )
+
+    spec["reuseException"]["derivedMediaSha256"] = "e" * 64
+    with pytest.raises(ValueError, match="reuse_exception_media_sha_mismatch"):
+        build_reddit_handoff_review(factory, campaign_slug="reddit-pilot", spec=spec)
+
+
 def test_reddit_handoff_fails_closed_without_lineage(tmp_path: Path) -> None:
     factory = _factory(tmp_path)
     original = factory.domains.publishability.rendered_asset("asset-1")

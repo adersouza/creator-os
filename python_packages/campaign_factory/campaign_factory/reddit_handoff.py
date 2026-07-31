@@ -472,7 +472,29 @@ def build_reddit_handoff_review(
             "reason": _required_text(
                 reuse_exception.get("reason"), "reuse_exception_reason"
             ),
+            "priorTaskId": _required_text(
+                reuse_exception.get("priorTaskId"), "reuse_exception_prior_task_id"
+            ),
+            "derivedMediaSha256": _required_text(
+                reuse_exception.get("derivedMediaSha256"),
+                "reuse_exception_derived_media_sha256",
+            ).lower(),
+            "derivedPerceptualFingerprint": _required_text(
+                reuse_exception.get("derivedPerceptualFingerprint"),
+                "reuse_exception_derived_perceptual_fingerprint",
+            ),
+            "transformReceiptFingerprint": _required_text(
+                reuse_exception.get("transformReceiptFingerprint"),
+                "reuse_exception_transform_receipt_fingerprint",
+            ).lower(),
         }
+        if exception_core["derivedMediaSha256"] != actual_sha:
+            raise ValueError("reddit_reuse_exception_media_sha_mismatch")
+        if (
+            exception_core["derivedPerceptualFingerprint"]
+            != identity["perceptualFingerprint"]
+        ):
+            raise ValueError("reddit_reuse_exception_perceptual_fingerprint_mismatch")
         if reuse_exception.get("approvalFingerprint") != _fingerprint(exception_core):
             raise ValueError("reddit_reuse_exception_approval_mismatch")
         reuse_exception = {

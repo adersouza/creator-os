@@ -10,6 +10,7 @@ from campaign_factory.reddit_weekly import (
     _generation_requests,
     _register_reddit_still,
     build_weekly_briefs,
+    run_reddit_generation_request,
 )
 from campaign_test_support import make_factory
 from creator_os_core.evidence_attestation import payload_fingerprint
@@ -308,5 +309,27 @@ def test_generated_still_registration_preserves_family_and_account(
             "u/Serious_material571"
         )
         assert metadata["perceptualFingerprint"].startswith("phash64:")
+
+        plan_core = {
+            "schema": "campaign_factory.reddit_weekly_plan.v1",
+            "campaignSlug": "reddit-pilot",
+            "generationRequests": [request],
+        }
+        replay = run_reddit_generation_request(
+            factory,
+            plan={
+                **plan_core,
+                "planFingerprint": payload_fingerprint(plan_core),
+            },
+            request_id=request["requestId"],
+            reviewed_by="operator",
+            apply=True,
+            enable_paid_generation=True,
+            budget_cap_credits=10,
+            wait=True,
+            download=True,
+        )
+        assert replay["status"] == "already_registered"
+        assert [row["id"] for row in replay["registeredRedditAssets"]] == [asset["id"]]
     finally:
         factory.close()

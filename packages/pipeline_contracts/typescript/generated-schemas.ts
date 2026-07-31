@@ -13474,6 +13474,10 @@ export const generatedPipelineContractSchemas = {
 	            "approvedBy",
 	            "approvedAt",
 	            "reason",
+	            "priorTaskId",
+	            "derivedMediaSha256",
+	            "derivedPerceptualFingerprint",
+	            "transformReceiptFingerprint",
 	            "approvalFingerprint"
 	          ],
 	          "properties": {
@@ -13489,6 +13493,20 @@ export const generatedPipelineContractSchemas = {
 	              "type": "string",
 	              "minLength": 1,
 	              "maxLength": 500
+	            },
+	            "priorTaskId": {
+	              "type": "string",
+	              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+	            },
+	            "derivedMediaSha256": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "derivedPerceptualFingerprint": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "transformReceiptFingerprint": {
+	              "$ref": "#/$defs/sha256"
 	            },
 	            "approvalFingerprint": {
 	              "$ref": "#/$defs/sha256"

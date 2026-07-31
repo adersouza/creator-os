@@ -69,6 +69,14 @@ def _list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list | tuple) else []
 
 
+def _json_object(value: Any) -> dict[str, Any]:
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return _object(parsed)
+
+
 def _canonical_rules(value: Any) -> list[dict[str, Any]]:
     rows = []
     for item in _list(value):
@@ -792,6 +800,60 @@ def _register_reddit_still(
     )
 
 
+def _registered_generation_assets(
+    factory: Any,
+    *,
+    campaign_slug: str,
+    request: Mapping[str, Any],
+    repair_assignment: bool,
+) -> list[dict[str, Any]]:
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    rows = factory.conn.execute(
+        """
+        SELECT * FROM rendered_assets
+        WHERE campaign_id = ? AND recipe = 'reddit_trend_soul_still'
+        ORDER BY created_at, id
+        """,
+        (campaign["id"],),
+    ).fetchall()
+    matched = [
+        dict(row)
+        for row in rows
+        if _json_object(row["metadata_json"]).get("redditGenerationRequestId")
+        == request["requestId"]
+    ]
+    for asset in matched:
+        metadata = _json_object(asset["metadata_json"])
+        proposed = _object(metadata.get("redditProposedAssignment"))
+        owner = str(
+            metadata.get("redditCommittedAccount") or proposed.get("newAccount") or ""
+        )
+        expected_owner = str(request["accountUsername"])
+        if owner:
+            if owner.lower() != expected_owner.lower():
+                raise ValueError("reddit_generation_request_account_conflict")
+            continue
+        if not repair_assignment:
+            continue
+        set_reddit_proposed_assignment(
+            factory,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=str(asset["id"]),
+            account_username=expected_owner,
+            operator="reddit_weekly_generation",
+            reason="Recovered the existing account-bound Reddit generation request.",
+            apply=True,
+        )
+    return [
+        dict(
+            factory.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = ?", (asset["id"],)
+            ).fetchone()
+        )
+        for asset in matched
+    ]
+
+
 def run_reddit_generation_request(
     factory: Any,
     *,
@@ -821,6 +883,27 @@ def run_reddit_generation_request(
     )
     if not request:
         raise ValueError("reddit_generation_request_not_found")
+    campaign_slug = str(plan["campaignSlug"])
+    registered = _registered_generation_assets(
+        factory,
+        campaign_slug=campaign_slug,
+        request=request,
+        repair_assignment=apply,
+    )
+    if registered:
+        return {
+            "schema": "campaign_factory.reddit_generation_run.v1",
+            "requestId": request_id,
+            "referenceReviewedBy": _required_text(
+                reviewed_by, "reddit_reference_reviewer"
+            ),
+            "apply": apply,
+            "status": "already_registered",
+            "frontGeneration": None,
+            "registeredRedditAssets": registered,
+            "humanReviewRequired": True,
+            "handoffCreationAllowed": False,
+        }
     reference = (
         Path(_required_text(request.get("referenceLocalPath"), "reddit_reference_path"))
         .expanduser()
@@ -831,7 +914,7 @@ def run_reddit_generation_request(
     reviewer = _required_text(reviewed_by, "reddit_reference_reviewer")
     result = run_front_generation_stage(
         factory,
-        campaign_slug=str(plan["campaignSlug"]),
+        campaign_slug=campaign_slug,
         reference_image_path=reference,
         creator=str(request["creatorId"]),
         execution_plan=build_generation_execution_plan("soul_static"),
@@ -843,7 +926,7 @@ def run_reddit_generation_request(
         wait=wait,
         download=download,
     )
-    registered: list[dict[str, Any]] = []
+    newly_registered: list[dict[str, Any]] = []
     if apply:
         soul_stage = next(
             (
@@ -868,10 +951,10 @@ def run_reddit_generation_request(
                 _object(static_stage.get("result")).get("candidates")
             )
         for candidate in candidate_rows:
-            registered.append(
+            newly_registered.append(
                 _register_reddit_still(
                     factory,
-                    campaign_slug=str(plan["campaignSlug"]),
+                    campaign_slug=campaign_slug,
                     candidate=_object(candidate),
                     request=request,
                 )
@@ -881,8 +964,9 @@ def run_reddit_generation_request(
         "requestId": request_id,
         "referenceReviewedBy": reviewer,
         "apply": apply,
+        "status": "generated" if apply else "planned",
         "frontGeneration": result,
-        "registeredRedditAssets": registered,
+        "registeredRedditAssets": newly_registered,
         "humanReviewRequired": True,
         "handoffCreationAllowed": False,
     }
