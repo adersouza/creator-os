@@ -35,7 +35,17 @@ _PASSIVE_COMPILED_FIXTURE = (
 _OPENAI_RECREATION_FIXTURE = (
     "The image is the approved creator identity for a calm short animation. "
     "Invent one attractive, realistic 9:16 scene and pose that will animate well "
-    "with calm eye, head, breathing, hair, and small hand movements. Return an "
+    "with calm eye, head, breathing, hair, and small hand movements. Default visual "
+    "direction: Favor a deliberately casual, believable handheld selfie aesthetic "
+    "for Reel stills: close arm-length framing or a mirror self-portrait in an "
+    "ordinary bedroom, bathroom, car seat, couch, living room, or simple outdoor "
+    "setting. Use cute fitted everyday clothing, playful, coy, pouty, warm, or "
+    "teasing expressions, attractive flirtatious posing within the approved wardrobe "
+    "and exposure policy, natural household lighting, slight off-center composition, "
+    "and ordinary lived-in background detail. Selected static mirror compositions "
+    "may hold the camera in front of part of the face while preserving enough visible "
+    "identity evidence. Use spontaneous snapshot energy and reserve polished "
+    "editorial lighting or cinematic staging for an explicit request. Return an "
     "anchorPrompt for Higgsfield Soul 2, a detailed Seedance 2 Fast prompt, a "
     "Kling 3 Turbo prompt with a 2500-character maximum, and a chronological "
     "timeline. Intent: passive_selfie. The anchor prompt describes adult-coded "
@@ -110,6 +120,11 @@ def _definition(
     cost_behavior: str,
     regression_fixtures: tuple[str, ...],
     approved_material_fingerprint: str,
+    approved_at: str = _EFFECTIVE,
+    approval_evidence: str = (
+        "operator_accepted_passive_kling_seedance_product_decision"
+    ),
+    effective_at: str = _EFFECTIVE,
 ) -> dict[str, Any]:
     return prompt_definition(
         prompt_id=prompt_id,
@@ -127,11 +142,11 @@ def _definition(
         approval={
             "state": "approved",
             "approvedBy": "creator_os_operator_baseline",
-            "approvedAt": "2026-07-26T00:00:00+00:00",
-            "evidence": "operator_accepted_passive_kling_seedance_product_decision",
+            "approvedAt": approved_at,
+            "evidence": approval_evidence,
             "materialFingerprint": approved_material_fingerprint,
         },
-        effective_at=_EFFECTIVE,
+        effective_at=effective_at,
         cost_behavior=cost_behavior,
         regression_fixtures=regression_fixtures,
     )
@@ -205,11 +220,11 @@ PROMPT_REGISTRY = prompt_registry(
         ),
         _definition(
             prompt_id="campaign.openai_recreation_pack",
-            version="3",
+            version="5",
             purpose="OpenAI-authored Soul anchor and provider motion prompts",
             provider="openai",
             models=("gpt-5",),
-            template_version="creator_os_openai_prompt_builder.v3",
+            template_version="creator_os_openai_prompt_builder.v5",
             builder_source={
                 "identity": "approved_creator_image",
                 "reference": "authorized_reel_frames_optional",
@@ -223,7 +238,7 @@ PROMPT_REGISTRY = prompt_registry(
             cost_behavior="paid_provider_call",
             regression_fixtures=(
                 regression_fixture_hash(
-                    fixture_id="campaign.openai_recreation_pack.no_reference.v3",
+                    fixture_id="campaign.openai_recreation_pack.no_reference.v5",
                     inputs={
                         "intent": "passive_selfie",
                         "hasReferenceVideo": False,
@@ -231,11 +246,14 @@ PROMPT_REGISTRY = prompt_registry(
                     compiled_prompt=_OPENAI_RECREATION_FIXTURE,
                 ),
             ),
-            approved_material_fingerprint="719220245186951fad4a038dd9e6ec991e1800b5dc276c453d2cdefdb83ff8d0",
+            approved_material_fingerprint="63d8ae58a2008f62ad33b99a640108918c657b24c64c4ab5f73d7579570cce20",
+            approved_at="2026-07-30T22:25:00-04:00",
+            approval_evidence="operator_approved_low_effort_reel_visual_direction",
+            effective_at="2026-07-30T22:25:00-04:00",
         ),
         _definition(
             prompt_id="campaign.recreation_provider_compile",
-            version="1",
+            version="3",
             purpose="bind recreation prompt pack to one provider model",
             provider="any",
             models=("*",),
@@ -251,7 +269,7 @@ PROMPT_REGISTRY = prompt_registry(
             cost_behavior="local_compile",
             regression_fixtures=(
                 regression_fixture_hash(
-                    fixture_id="campaign.recreation_provider_compile.kling.v1",
+                    fixture_id="campaign.recreation_provider_compile.kling.v3",
                     inputs={
                         "promptPackFingerprint": "c" * 64,
                         "providerModel": "kling3_0",
@@ -259,7 +277,10 @@ PROMPT_REGISTRY = prompt_registry(
                     compiled_prompt="Calm provider-specific recreation motion.",
                 ),
             ),
-            approved_material_fingerprint="0080fd514ac6ded39a61af35da4a18d9a7dd0a3e0f761939af996200098871f3",
+            approved_material_fingerprint="c4ac76b4c77a67943210c5d9304ea1b8c86890d56340381af0c64067628c9372",
+            approved_at="2026-07-30T22:25:00-04:00",
+            approval_evidence="operator_approved_low_effort_reel_visual_direction",
+            effective_at="2026-07-30T22:25:00-04:00",
         ),
         _definition(
             prompt_id="campaign.derived_still_edit",

@@ -506,8 +506,10 @@ def test_failed_job_resolution_is_scoped_to_asset_identity(tmp_path: Path) -> No
         cf.close()
 
 
+@pytest.mark.parametrize("status_code", [503, 522])
 def test_supabase_rest_client_retries_transient_http_error(
     monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
 ) -> None:
     calls = {"count": 0}
 
@@ -526,7 +528,7 @@ def test_supabase_rest_client_retries_transient_http_error(
         if calls["count"] == 1:
             raise HTTPError(
                 "https://example.supabase.co",
-                503,
+                status_code,
                 "temporary",
                 {},
                 io.BytesIO(b"try again"),

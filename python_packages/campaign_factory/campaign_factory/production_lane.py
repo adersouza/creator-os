@@ -48,6 +48,7 @@ from .production_audio_library import (
     audio_fit_tags as _audio_fit_tags,
 )
 from .production_batch_identity import deterministic_seed as _deterministic_seed
+from .production_batch_results import _motion_stage_result, run_production_hard_qc
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
@@ -58,7 +59,6 @@ from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
 from .production_batch_results import probe_production_video as _probe_production_video
-from .production_batch_results import run_production_hard_qc
 from .production_creative_evidence import (
     build_job_creative_evidence,
     persist_asset_creative_evidence,
@@ -78,7 +78,12 @@ from .production_higgsfield_authorization import (
 from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
 )
+from .production_motion_recipe import (
+    RECREATE_INTENTS as _RECREATE_INTENTS,
+)
+from .production_motion_recipe import build_production_motion_recipe
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
+from .production_prompts import build_reel_creative_context
 from .production_source_selection import (
     active_production_identity,
     bind_source_governance,
@@ -97,7 +102,6 @@ from .provider_spend import (
     record_provider_execution,
 )
 from .recreate_reel import (
-    RECREATE_REEL_STAGE,
     analyze_reference_reel,
     build_recreation_prompt,
     fulfill_reference_audio,
@@ -105,7 +109,6 @@ from .recreate_reel import (
 )
 from .recreation_prompting import compile_video_prompt
 
-SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
 _OPERATOR_VISUAL_SELECTION_COMPLETE = True
 _SUPPORTED_PASSIVE_INTENTS: Final = frozenset(
     {
@@ -116,7 +119,6 @@ _SUPPORTED_PASSIVE_INTENTS: Final = frozenset(
         "animate_existing",
     }
 )
-_RECREATE_INTENTS: Final = frozenset({"recreate_reel"})
 _AUDIO_ALIASES: Final = {
     "embedded_trending": "embedded_trending_required",
     "reference_audio_required": "original_embedded",
@@ -272,6 +274,7 @@ def fulfill_production_audio(
     )
     receipt = fulfilled.embedding_receipt
     receipt["creativeContext"] = {
+        **dict(job.get("creativeContext") or {}),
         "creator": job.get("creator"),
         "creatorIdentityProfile": job.get("creatorIdentityProfile"),
         "account": job.get("accountGroup"),
@@ -324,107 +327,6 @@ def fulfill_production_audio(
     }
 
 
-def _motion_stage_result(generation_result: dict[str, Any]) -> dict[str, Any]:
-    nested = generation_result.get("result")
-    if isinstance(nested, dict) and (
-        nested.get("schema") == "campaign_factory.motion_generation_stage_run.v1"
-        or "registeredAsset" in nested
-    ):
-        return nested
-    return generation_result
-
-
-def build_production_motion_recipe(
-    *,
-    creator: str,
-    intent: str,
-    execution: str,
-    source_sha256: str,
-) -> dict[str, Any]:
-    if not (creator_slug := creator.strip().lower().replace(" ", "_")):
-        raise ValueError("creator is required")
-    if intent not in _INTENT_PROMPTS:
-        raise ValueError(f"intent {intent!r} is not in the production motion catalog")
-    if execution == "cloud" and intent in _RECREATE_INTENTS:
-        mode = "recreate_reel"
-        stages = ({**RECREATE_REEL_STAGE},)
-        model_id = str(stages[0]["modelId"])
-        status = "experimental"
-        visual_selection_required = True
-    elif execution == "cloud":
-        mode = "calm_animation"
-        stage = {
-            "modelId": "higgsfield_kling3_turbo_i2v",
-            "providerModel": "kling3_0_turbo",
-            "recipeId": "higgsfield_passive_selfie",
-            "durationSeconds": 5,
-            "resolution": "720p",
-            "mode": "turbo",
-            "providerAudioControl": "unavailable",
-            "requiredOutputAudioStreams": 0,
-        }
-        stages = ({**stage, "task": "image_to_video"},)
-        model_id = str(stages[0]["modelId"])
-        status = "supported"
-        visual_selection_required = False
-    else:
-        raise ValueError("production create requires Higgsfield cloud execution")
-    core = {
-        "schema": SCHEMA,
-        "recipeId": f"{execution}_{intent}_creator_motion_v2",
-        "status": status,
-        "creator": creator_slug,
-        "intent": intent,
-        "mode": mode,
-        "modelId": model_id,
-        "stages": [dict(stage) for stage in stages],
-        "sourceSha256": source_sha256,
-        "paidProviderFallbackAllowed": False,
-        "researchSelectionRequired": False,
-        "operatorVisualSelectionRequired": visual_selection_required,
-        "provider": "higgsfield",
-    }
-    return {**core, "recipeFingerprint": _fingerprint(core)}
-
-
-def validate_production_motion_recipe(
-    recipe: dict[str, Any], *, model_id: str, source_sha256: str
-) -> dict[str, Any]:
-    core = dict(recipe)
-    claimed = str(core.pop("recipeFingerprint", ""))
-    if (
-        core.get("schema") != SCHEMA
-        or core.get("status") not in {"supported", "experimental"}
-        or core.get("modelId") != model_id
-        or core.get("sourceSha256") != source_sha256
-        or core.get("researchSelectionRequired") is not False
-        or core.get("operatorVisualSelectionRequired")
-        != (core.get("status") == "experimental")
-        or core.get("provider") != "higgsfield"
-        or core.get("paidProviderFallbackAllowed") is not False
-        or claimed != _fingerprint(core)
-    ):
-        raise PermissionError("production_motion_recipe_invalid")
-    return recipe
-
-
-def bind_production_motion_recipe(
-    recipe: Mapping[str, Any] | None,
-    *,
-    model_id: str,
-    source_sha256: str,
-    research_admission: Any,
-) -> bool:
-    if recipe is None:
-        return False
-    if research_admission is not None:
-        raise PermissionError("mixed_local_production_and_research_evidence")
-    validate_production_motion_recipe(
-        dict(recipe), model_id=model_id, source_sha256=source_sha256
-    )
-    return True
-
-
 def plan_production_batch(
     factory: Any,
     *,
@@ -443,6 +345,7 @@ def plan_production_batch(
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
     prompt_call_authorized: bool = False,
+    creation_mode: str | None = None,
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
     campaign: str | None = None,
@@ -455,6 +358,18 @@ def plan_production_batch(
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     if intent in _RECREATE_INTENTS and int(count) != 1:
         raise ValueError("recreate_reel currently supports exactly one output")
+    resolved_creation_mode = creation_mode or (
+        "recreate_reel" if intent in _RECREATE_INTENTS else "calm_animation"
+    )
+    if (intent in _RECREATE_INTENTS and resolved_creation_mode != "recreate_reel") or (
+        intent not in _RECREATE_INTENTS
+        and resolved_creation_mode not in {"static_reel", "calm_animation"}
+    ):
+        raise ValueError("creation mode and content intent are incompatible")
+    creative_context = build_reel_creative_context(
+        mode=resolved_creation_mode,
+        intent=intent,
+    )
     if recreation_attempt_id is not None and (
         not recreation_attempt_id.strip() or len(recreation_attempt_id.strip()) > 100
     ):
@@ -679,6 +594,13 @@ def plan_production_batch(
                 intent=intent,
                 reference_video=reference_video_path,
                 external_call_authorized=prompt_call_authorized,
+                cost_connection=factory.conn,
+                campaign_id=str(source["campaign_id"]),
+                run_id=(
+                    f"production_prompt:{creator_slug}:{intent}:"
+                    f"{source_sha[:16]}:{seed}"
+                ),
+                governance_context=dict(source["creatorGovernance"]),
             )
             prompt_packs[source_sha] = prompt_pack
             prompt_card, compiled_prompt = compile_video_prompt(
@@ -731,6 +653,7 @@ def plan_production_batch(
                 "seed": seed,
                 "prompt": compiled_prompt["text"],
                 "promptCard": prompt_card["promptCardFingerprint"],
+                "creativeContext": creative_context["contextFingerprint"],
                 "model": recipe["modelId"],
                 "speechAudio": speech_sha,
                 "motionReference": motion_reference_sha,
@@ -797,6 +720,7 @@ def plan_production_batch(
                 "sourceApproval": source.get("sourceApproval"),
                 "creator": creator_slug,
                 "creatorIdentityProfile": soul_id,
+                "creativeContext": creative_context,
                 "_creatorGovernance": source["creatorGovernance"],
                 "_referenceGovernance": reference_governance,
                 "intent": intent,
@@ -868,6 +792,8 @@ def plan_production_batch(
         "schema": "campaign_factory.production_batch.v1",
         "creator": creator_slug,
         "intent": intent,
+        "mode": resolved_creation_mode,
+        "creativeContext": creative_context,
         "execution": execution,
         "requested": int(count),
         "maxConcurrency": 2,
@@ -900,6 +826,7 @@ def run_production_batch(
     reference_talking: bool = False,
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
+    creation_mode: str | None = None,
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
     campaign: str | None = None,
@@ -921,6 +848,7 @@ def run_production_batch(
         selected_source_asset_ids=selected_source_asset_ids,
         prompt_pack_provider=prompt_pack_provider,
         prompt_call_authorized=apply,
+        creation_mode=creation_mode,
         recreation_anchor_approval_path=recreation_anchor_approval_path,
         recreation_attempt_id=recreation_attempt_id,
         campaign=campaign,

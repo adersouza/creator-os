@@ -160,6 +160,34 @@ def test_daily_cycle_fails_closed_on_unresolved_prior_handoff(
         cf.close()
 
 
+def test_daily_cycle_ignores_durably_cancelled_prior_handoff(
+    tmp_path: Path,
+) -> None:
+    module = load_module()
+    cf = factory(tmp_path)
+    try:
+        prepare(cf)
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET draft_id = 'cancelled_draft', approval_state = 'approved',
+                schedule_state = 'cancelled', publish_state = 'cancelled'
+            WHERE cohort_id = ? AND day_index = 1 AND surface = 'regular_reel'""",
+            (COHORT_ID,),
+        )
+        cf.conn.commit()
+
+        report = module.run_daily_cycle(
+            cf.conn,
+            now=datetime.fromisoformat("2026-07-12T08:30:00-04:00"),
+            apply=False,
+        )
+
+        assert report["status"] == "ready_to_queue"
+        assert "unresolvedPriorHandoffs" not in report
+    finally:
+        cf.close()
+
+
 def test_campaign_scope_is_exact() -> None:
     module = load_module()
 

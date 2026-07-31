@@ -3,6 +3,32 @@ from __future__ import annotations
 from typing import Any
 
 
+def default_metric_names_for_surface(surface: str) -> list[str]:
+    if surface == "story":
+        return [
+            "views",
+            "reach",
+            "replies",
+            "navigation",
+            "follows",
+            "shares",
+            "total_interactions",
+        ]
+    if surface == "reel":
+        return [
+            "views",
+            "reach",
+            "likes",
+            "comments",
+            "shares",
+            "saved",
+            "ig_reels_avg_watch_time",
+            "reels_skip_rate",
+            "ig_reels_video_view_total_time",
+        ]
+    return ["views", "reach", "likes", "comments", "shares", "saved"]
+
+
 def int_metric(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> int | None:
     value = metric_value(row, meta, *keys)
     if value is None or value == "":

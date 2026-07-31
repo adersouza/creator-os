@@ -772,7 +772,11 @@ def record_learning_cohort_publish(
     return _transition_result(conn, assignment_id, "publish_recorded")
 
 
-def sync_learning_cohort_publish_state(conn: sqlite3.Connection) -> dict[str, Any]:
+def sync_learning_cohort_publish_state(
+    conn: sqlite3.Connection,
+    *,
+    threadsdash_posts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Reconcile approved cohort drafts from canonical performance snapshots.
 
     ThreadsDashboard keeps the draft row identity when a Notify Publish handoff
@@ -808,8 +812,80 @@ def sync_learning_cohort_publish_state(conn: sqlite3.Connection) -> dict[str, An
     changed = 0
     candidates = 0
     conflicts: list[dict[str, Any]] = []
+    terminal_handoffs: list[dict[str, Any]] = []
+    posts_by_id = {
+        str(post.get("id")): post
+        for post in (threadsdash_posts or [])
+        if post.get("id")
+    }
     now = _utc_now()
     for assignment in assignments:
+        draft_id = str(assignment["draft_id"])
+        threadsdash_post = posts_by_id.get(draft_id)
+        if threadsdash_post and threadsdash_post.get("status") == "deleted":
+            metadata = _json_object(threadsdash_post.get("metadata"))
+            cancellation = _json_object(metadata.get("cancellation"))
+            publication_fields = [
+                field
+                for field in ("published_at", "permalink", "instagram_post_id")
+                if threadsdash_post.get(field)
+            ]
+            evidence_missing = [
+                field
+                for field in ("auditLogId", "cancelledAt")
+                if not cancellation.get(field)
+            ]
+            if cancellation.get("terminalState") != "deleted":
+                evidence_missing.append("terminalState")
+            if publication_fields or evidence_missing:
+                conflicts.append(
+                    {
+                        "assignmentId": assignment["id"],
+                        "draftId": draft_id,
+                        "blockingReasons": [
+                            *(
+                                ["deleted_post_has_publication_evidence"]
+                                if publication_fields
+                                else []
+                            ),
+                            *(
+                                ["terminal_cancellation_evidence_missing"]
+                                if evidence_missing
+                                else []
+                            ),
+                        ],
+                    }
+                )
+                continue
+            terminal_handoffs.append(
+                {
+                    "assignmentId": assignment["id"],
+                    "draftId": draft_id,
+                    "status": "cancelled",
+                    "auditLogId": cancellation["auditLogId"],
+                    "cancelledAt": cancellation["cancelledAt"],
+                    "classification": cancellation.get("classification"),
+                    "qstashLookup": cancellation.get("qstashLookup"),
+                }
+            )
+            if (
+                assignment.get("publish_state") != "cancelled"
+                or assignment.get("schedule_state") != "cancelled"
+                or assignment.get("metric_1h_state") != "not_required"
+                or assignment.get("metric_24h_state") != "not_required"
+                or assignment.get("metric_72h_state") != "not_required"
+            ):
+                conn.execute(
+                    """UPDATE learning_cohort_assignments
+                    SET publish_state = 'cancelled', schedule_state = 'cancelled',
+                        metric_1h_state = 'not_required',
+                        metric_24h_state = 'not_required',
+                        metric_72h_state = 'not_required', updated_at = ?
+                    WHERE id = ? AND cohort_id = ?""",
+                    (now, assignment["id"], COHORT_ID),
+                )
+                changed += 1
+            continue
         snapshot_row = conn.execute(
             """SELECT * FROM performance_snapshots
             WHERE post_id = ? AND status = 'published'
@@ -886,6 +962,7 @@ def sync_learning_cohort_publish_state(conn: sqlite3.Connection) -> dict[str, An
         "assignmentsChecked": len(assignments),
         "publishedCandidates": candidates,
         "assignmentsChanged": changed,
+        "terminalHandoffs": terminal_handoffs,
         "conflicts": conflicts,
     }
 

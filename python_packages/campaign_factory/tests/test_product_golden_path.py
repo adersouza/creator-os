@@ -32,9 +32,32 @@ from campaign_factory.production_lane import (
     plan_production_batch,
     run_production_batch,
 )
-from campaign_factory.production_prompts import CREATOR_SOUL_IDS
+from campaign_factory.production_prompts import (
+    CREATOR_SOUL_IDS,
+    build_reel_creative_context,
+)
 from campaign_factory.production_quality_policy import production_quality_policy
 from PIL import Image
+
+
+def test_reel_creative_context_makes_each_mode_purpose_explicit() -> None:
+    static = build_reel_creative_context(mode="static_reel", intent="passive_selfie")
+    calm = build_reel_creative_context(mode="calm_animation", intent="flirty_portrait")
+    recreate = build_reel_creative_context(mode="recreate_reel", intent="recreate_reel")
+
+    assert static["visualStyleId"] == "low_effort_selfie_reels.v1"
+    assert calm["stylePolicy"] == "operator_low_effort_selfie_default"
+    assert recreate["stylePolicy"] == "authorized_reference_is_style_authority"
+    assert (
+        len(
+            {
+                static["contextFingerprint"],
+                calm["contextFingerprint"],
+                recreate["contextFingerprint"],
+            }
+        )
+        == 3
+    )
 
 
 def _production_factory(
@@ -517,8 +540,9 @@ def test_production_create_rejects_retired_local_wan_lane(tmp_path: Path) -> Non
 
 
 def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) -> None:
+    factory = _production_factory(tmp_path)
     batch = plan_production_batch(
-        _production_factory(tmp_path),
+        factory,
         creator="stacey",
         intent="passive_selfie",
         count=3,
@@ -559,15 +583,16 @@ def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) ->
             "seedancePrompt": "Seedance calm motion.",
             "klingPrompt": "Kling calm motion.",
             "promptPlanning": {
-                "builderVersion": "creator_os_openai_prompt_builder.v3",
+                "builderVersion": "creator_os_openai_prompt_builder.v5",
                 "requestFingerprint": str(kwargs["creator_image"]),
                 "cost": {"status": "not_exposed", "usd": None},
             },
             "cache": {"status": "miss", "providerCallMade": True},
         }
 
+    factory = _production_factory(tmp_path)
     batch = plan_production_batch(
-        _production_factory(tmp_path),
+        factory,
         creator="stacey",
         intent="passive_selfie",
         count=3,
@@ -579,6 +604,19 @@ def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) ->
 
     assert len(calls) == 2
     assert all(call["external_call_authorized"] is False for call in calls)
+    assert all(call["cost_connection"] is factory.conn for call in calls)
+    assert all(call["campaign_id"] for call in calls)
+    assert all(
+        str(call["run_id"]).startswith("production_prompt:stacey:passive_selfie:")
+        for call in calls
+    )
+    assert all(call["governance_context"]["governanceFingerprint"] for call in calls)
+    assert batch["creativeContext"]["visualStyleId"] == "low_effort_selfie_reels.v1"
+    assert all(
+        job["creativeContext"]["contextFingerprint"]
+        == batch["creativeContext"]["contextFingerprint"]
+        for job in batch["jobs"]
+    )
     assert {job["prompt"] for job in batch["jobs"]} == {"Kling calm motion."}
     assert all(
         job["promptCard"]["openaiPromptPackFingerprint"] == "f" * 64

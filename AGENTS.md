@@ -169,6 +169,37 @@ If a run adds fake UI, inspect the saved `.higgsfield.json` prompt before
 retrying and remove the triggering words first. Do not keep repeating the same
 prompt shape and hoping the next seed fixes it.
 
+### Low-Effort Reel Visual Direction
+
+For Soul stills intended for `static_reel` or generic `calm_animation`, default
+to an intentionally casual, believable handheld selfie rather than a polished
+editorial image:
+
+- close arm-length selfies and mirror self-portraits;
+- ordinary bedrooms, bathrooms, cars, couches, living rooms, balconies, or
+  simple outdoor settings;
+- cute fitted everyday tops, tanks, tees, hoodies, dresses, gym sets, shorts,
+  or skirts;
+- playful, coy, pouty, warm, or teasing expressions and attractive,
+  flirtatious poses within the approved wardrobe/exposure policy;
+- natural household or window light, slight off-center framing, mild snapshot
+  imperfection, and lived-in background detail.
+
+Selected static mirror compositions may place the handheld camera in front of
+part of the face when enough identity evidence remains visible. Keep the words
+`phone`, `iPhone`, and app/UI language out of Higgsfield prompts; describe this
+as "the camera held in front of part of the face." If that composition is not a
+safe motion anchor, use it as a locked `static_reel` instead of forcing
+animation. Overlay copy remains a separate Reel Factory step and never belongs
+in the Higgsfield prompt.
+
+Every creation plan carries `campaign_factory.reel_creative_context.v1`.
+Interpret its context in this order: explicit mode purpose, operator house style,
+approved creator/Soul identity, exact approved source or authorized reference,
+then approved learning refinements. `recreate_reel` treats its authorized
+reference as the visual-style authority; learning may refine selection but
+cannot replace the selected mode or operator direction.
+
 ### Reference → Soul Variant Generation (Original + Sexy)
 
 Settled house recipe for turning one reference image into postable

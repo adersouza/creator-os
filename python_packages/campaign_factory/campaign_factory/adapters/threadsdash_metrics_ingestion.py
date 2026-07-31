@@ -38,6 +38,9 @@ from .threadsdash_metric_observations import (
     record_immutable_performance_observation as _record_immutable_performance_observation,
 )
 from .threadsdash_metric_values import (
+    default_metric_names_for_surface as _default_metric_names_for_surface,
+)
+from .threadsdash_metric_values import (
     int_metric as _int_metric,
 )
 from .threadsdash_metric_values import (
@@ -108,6 +111,29 @@ def sync_performance_snapshots(
             campaign_ids=[campaign["id"], campaign_slug],
             limit=limit,
         )
+        cohort_handoff_rows: list[dict[str, Any]] = []
+        if campaign_slug == COHORT_ID:
+            draft_ids = [
+                str(row["draft_id"])
+                for row in factory.conn.execute(
+                    """SELECT draft_id FROM learning_cohort_assignments
+                    WHERE cohort_id = ? AND approval_state = 'approved'
+                      AND draft_id IS NOT NULL""",
+                    (COHORT_ID,),
+                ).fetchall()
+            ]
+            if draft_ids:
+                cohort_handoff_rows = client.select(
+                    "posts",
+                    {
+                        "select": (
+                            "id,status,handoff_status,published_at,permalink,"
+                            "instagram_post_id,metadata"
+                        ),
+                        "id": f"in.({','.join(sorted(set(draft_ids)))})",
+                        "limit": str(len(set(draft_ids))),
+                    },
+                )
         tracked_rows = []
         tracked_snapshot_count = 0
         inserted = 0
@@ -589,7 +615,9 @@ def sync_performance_snapshots(
         )
         factory.conn.commit()
         cohort_publish_writeback = (
-            sync_learning_cohort_publish_state(factory.conn)
+            sync_learning_cohort_publish_state(
+                factory.conn, threadsdash_posts=cohort_handoff_rows
+            )
             if campaign_slug == COHORT_ID
             else None
         )
@@ -1463,35 +1491,3 @@ def _metric_contract_metadata(
         "metricNames": normalized_names
         or _default_metric_names_for_surface(normalized_surface),
     }
-
-
-def _default_metric_names_for_surface(surface: str) -> list[str]:
-    if surface == "story":
-        return [
-            "views",
-            "reach",
-            "replies",
-            "navigation",
-            "follows",
-            "shares",
-            "total_interactions",
-        ]
-    if surface == "reel":
-        return [
-            "views",
-            "reach",
-            "likes",
-            "comments",
-            "shares",
-            "saved",
-            "ig_reels_avg_watch_time",
-            "reels_skip_rate",
-            "ig_reels_video_view_total_time",
-        ]
-    return ["views", "reach", "likes", "comments", "shares", "saved"]
-
-
-def _nested_dict(value: Any, key: str) -> dict[str, Any] | None:
-    if isinstance(value, dict) and isinstance(value.get(key), dict):
-        return value[key]
-    return None

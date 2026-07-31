@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -51,7 +52,10 @@ def configured_campaigns(env: Mapping[str, str]) -> list[str]:
 
 
 def build_sync_command(
-    env: Mapping[str, str], campaign: str | None = None
+    env: Mapping[str, str],
+    campaign: str | None = None,
+    *,
+    run_id: str | None = None,
 ) -> list[str]:
     missing = [name for name in REQUIRED_ENV if not env.get(name)]
     if missing:
@@ -64,13 +68,17 @@ def build_sync_command(
         ) from exc
     if limit <= 0:
         raise ValueError("CAMPAIGN_FACTORY_SYNC_LIMIT must be a positive integer")
+    selected_campaign = campaign or configured_campaigns(env)[0]
+    selected_run_id = run_id or uuid.uuid4().hex
     return [
         "uv",
         "run",
         "campaign-factory",
+        "--idempotency-key",
+        f"performance-sync:{selected_campaign}:{selected_run_id}",
         "sync-performance",
         "--campaign",
-        campaign or configured_campaigns(env)[0],
+        selected_campaign,
         "--user-id",
         env["THREADSDASH_USER_ID"],
         "--supabase-url",
@@ -112,7 +120,11 @@ def main(
     environment = dict(env or os.environ)
     try:
         campaigns = configured_campaigns(environment)
-        commands = [build_sync_command(environment, campaign) for campaign in campaigns]
+        run_id = uuid.uuid4().hex
+        commands = [
+            build_sync_command(environment, campaign, run_id=run_id)
+            for campaign in campaigns
+        ]
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
