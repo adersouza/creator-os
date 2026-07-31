@@ -29,6 +29,7 @@ from pipeline_contracts import (
     validate_provider_spend_authorization,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
+    validate_reddit_manual_handoff,
     validate_reference_factory_knowledge_pack,
     validate_reference_video_motion_analysis,
     validate_reference_video_remix_plan,
@@ -88,6 +89,7 @@ def test_named_validators_accept_examples():
         load_example("recommendation_accuracy_report")
     )
     validate_threadsdash_handshake(load_example("threadsdash_handshake"))
+    validate_reddit_manual_handoff(load_example("reddit_manual_handoff"))
 
 
 def test_provider_spend_v1_retains_historical_combined_create_receipts() -> None:

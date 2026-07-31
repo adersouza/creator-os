@@ -24,6 +24,7 @@ import {
 	validatePostMetricHistoryRead,
 	validateReferenceVideoMotionAnalysis,
 	validateReferenceVideoRemixPlan,
+	validateRedditManualHandoff,
 	validateRendererEquivalenceReceiptV2,
 	validateRepurposingPlan,
 	validateRecommendationAccuracyReport,
@@ -106,6 +107,15 @@ describe("TypeScript pipeline contract validators", () => {
 
 	it("validates structural reference-video analysis", () => {
 		expect(validateReferenceVideoMotionAnalysis(example("reference_video_motion_analysis"))).toEqual([]);
+	});
+
+	it("validates the Reddit manual handoff contract", () => {
+		const payload = example("reddit_manual_handoff");
+		expect(validateRedditManualHandoff(payload)).toEqual([]);
+		delete payload.approval.receipt.bindingFingerprint;
+		expect(validateRedditManualHandoff(payload)).toEqual(
+			expect.arrayContaining([expect.stringContaining("bindingFingerprint")]),
+		);
 	});
 
 	it("reads historical remix plans without authorizing execution", () => {

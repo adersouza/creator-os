@@ -556,6 +556,53 @@ def register_core_commands(sub) -> None:
             "explicit compatibility rollback."
         ),
     )
+    reddit_brief = sub.add_parser(
+        "reddit-brief",
+        help="build a versioned Reddit rules/trend brief from reviewed research",
+    )
+    reddit_brief.add_argument("--campaign", required=True)
+    reddit_brief.add_argument("--spec", type=Path, required=True)
+    reddit_brief.add_argument("--apply", action="store_true")
+    reddit_assign = sub.add_parser(
+        "reddit-assign",
+        help="preview or audit a proposed Reddit account assignment",
+    )
+    reddit_assign.add_argument("--campaign", required=True)
+    reddit_assign.add_argument("--asset", required=True)
+    reddit_assign.add_argument("--account", required=True)
+    reddit_assign.add_argument("--operator", required=True)
+    reddit_assign.add_argument("--reason", required=True)
+    reddit_assign.add_argument("--apply", action="store_true")
+    reddit_handoff = sub.add_parser(
+        "reddit-handoff",
+        help="review or export one approved manual Reddit task",
+    )
+    reddit_handoff.add_argument("--campaign", required=True)
+    reddit_handoff.add_argument("--spec", type=Path, required=True)
+    reddit_handoff.add_argument("--apply", action="store_true")
+    reddit_handoff.add_argument("--deliver", action="store_true")
+    reddit_handoff.add_argument(
+        "--threadsdash-ingest-url",
+        default=os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
+    )
+    reddit_handoff.add_argument(
+        "--threadsdash-ingest-secret",
+        default=os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
+    )
+    reddit_schedule = sub.add_parser(
+        "reddit-schedule",
+        help="show the fixed Eastern-time Reddit manual posting windows",
+    )
+    reddit_schedule.add_argument("--date", required=True)
+    reddit_schedule.add_argument("--include-optional", action="store_true")
+    reddit_library = sub.add_parser(
+        "reddit-library",
+        help="derive Reddit working-shelf views and seven-day coverage",
+    )
+    reddit_library.add_argument("--campaign", required=True)
+    reddit_library.add_argument("--state", type=Path, required=True)
+    reddit_library.add_argument("--as-of")
     export.add_argument(
         "--review-only",
         action="store_true",

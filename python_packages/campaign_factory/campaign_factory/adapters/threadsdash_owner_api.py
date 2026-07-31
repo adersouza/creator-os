@@ -26,6 +26,7 @@ from .threadsdash_handoff_evidence import (
 INGEST_MAX_ATTEMPTS = 3
 INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 UPLOAD_TICKET_PATH = "/api/campaign-factory/media/upload-ticket"
+REDDIT_HANDOFF_PATH = "/api/campaign-factory/reddit/handoff"
 
 
 def owner_api_secret(value: str | None) -> str:
@@ -53,6 +54,11 @@ def owner_api_ingest_url(value: str | None) -> str:
 def upload_ticket_url(ingest_url: str) -> str:
     parsed = urlparse(owner_api_ingest_url(ingest_url))
     return urlunparse((parsed.scheme, parsed.netloc, UPLOAD_TICKET_PATH, "", "", ""))
+
+
+def reddit_handoff_url(ingest_url: str) -> str:
+    parsed = urlparse(owner_api_ingest_url(ingest_url))
+    return urlunparse((parsed.scheme, parsed.netloc, REDDIT_HANDOFF_PATH, "", "", ""))
 
 
 def _signed_json_request(
@@ -137,6 +143,20 @@ def submit_draft_handoff(
         "acknowledgment": acknowledgment,
         "idempotencyKey": key,
     }
+
+
+def submit_reddit_handoff(
+    payload: dict[str, Any],
+    *,
+    ingest_url: str | None,
+    ingest_secret: str | None,
+) -> dict[str, Any]:
+    return _signed_json_request(
+        url=reddit_handoff_url(owner_api_ingest_url(ingest_url)),
+        secret=owner_api_secret(ingest_secret),
+        body=payload,
+        idempotency_key=f"reddit-manual-handoff:{payload['idempotencyKey']}",
+    )
 
 
 def reconcile_draft_handoff(

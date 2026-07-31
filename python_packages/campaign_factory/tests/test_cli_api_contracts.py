@@ -290,6 +290,7 @@ def test_contract_schema_examples_validate():
         "repurposing_plan.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
         "recommendation_next_batch.v1.example.json",
+        "reddit_manual_handoff.v1.example.json",
         "reference_video_motion_analysis.v1.example.json",
         "reference_video_remix_plan.v1.example.json",
         "reference_factory_knowledge_pack.v1.example.json",

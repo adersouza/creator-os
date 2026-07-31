@@ -73,6 +73,8 @@ export const ANALYZER_REGISTRY_V2_SCHEMA_ID =
 	generatedPipelineContractSchemas.analyzerRegistryV2.$id;
 export const RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA_ID =
 	generatedPipelineContractSchemas.rendererEquivalenceReceiptV2.$id;
+export const REDDIT_MANUAL_HANDOFF_SCHEMA_ID =
+	generatedPipelineContractSchemas.redditManualHandoff.$id;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -171,6 +173,8 @@ export const analyzerRegistrySchema =
 	generatedPipelineContractSchemas.analyzerRegistry;
 export const rendererEquivalenceReceiptV2Schema =
 	generatedPipelineContractSchemas.rendererEquivalenceReceiptV2;
+export const redditManualHandoffSchema =
+	generatedPipelineContractSchemas.redditManualHandoff;
 
 export const audioCatalogExportSchema =
 	generatedPipelineContractSchemas.audioCatalogExport;
@@ -1230,6 +1234,14 @@ export function validateRendererEquivalenceReceiptV2(value: unknown): string[] {
 		errors.push("renderer equivalence receipt fingerprint does not match canonical receipt");
 	}
 	return errors;
+}
+
+export function validateRedditManualHandoff(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.redditManualHandoff,
+		value,
+		"reddit manual handoff",
+	);
 }
 
 function canonicalFingerprint(value: unknown): string {

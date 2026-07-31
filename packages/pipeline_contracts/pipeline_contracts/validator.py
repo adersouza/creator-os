@@ -91,6 +91,7 @@ RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA = "renderer_equivalence_receipt.v1.schema
 RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA = "renderer_equivalence_receipt.v2.schema.json"
 RENDERER_EQUIVALENCE_RECEIPT_SCHEMA = RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA
 EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA = "experiment_assignment_receipt.v1.schema.json"
+REDDIT_MANUAL_HANDOFF_SCHEMA = "reddit_manual_handoff.v1.schema.json"
 
 SCHEMA_NAMES = {
     "analyzer_registry": ANALYZER_REGISTRY_SCHEMA,
@@ -172,6 +173,7 @@ SCHEMA_NAMES = {
     "renderer_equivalence_receipt_v1": RENDERER_EQUIVALENCE_RECEIPT_V1_SCHEMA,
     "renderer_equivalence_receipt_v2": RENDERER_EQUIVALENCE_RECEIPT_V2_SCHEMA,
     "experiment_assignment_receipt": EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA,
+    "reddit_manual_handoff": REDDIT_MANUAL_HANDOFF_SCHEMA,
 }
 
 
@@ -407,6 +409,10 @@ def _canonical_fingerprint(value: Any) -> str:
 
 def validate_experiment_assignment_receipt(value: Any) -> None:
     validate_contract(value, EXPERIMENT_ASSIGNMENT_RECEIPT_SCHEMA)
+
+
+def validate_reddit_manual_handoff(value: Any) -> None:
+    validate_contract(value, REDDIT_MANUAL_HANDOFF_SCHEMA)
 
 
 def schema_path(name: str) -> Path:
@@ -729,6 +735,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "renderer_equivalence_receipt.v1.example.json": validate_renderer_equivalence_receipt,
         "renderer_equivalence_receipt.v2.example.json": validate_renderer_equivalence_receipt_v2,
         "experiment_assignment_receipt.v1.example.json": validate_experiment_assignment_receipt,
+        "reddit_manual_handoff.v1.example.json": validate_reddit_manual_handoff,
     }
     checks = []
     for filename, validator in validators.items():
