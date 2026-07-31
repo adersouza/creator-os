@@ -180,6 +180,13 @@ def test_immutable_audit_path_is_covered_by_exact_managed_copy(tmp_path: Path) -
             and item["subjectId"] == "audit_original"
             for item in report["findings"]
         )
+        external.unlink()
+        missing_original = reconciliation_report(cf.conn, cf.settings)
+        assert not any(
+            item["findingClass"] == "database_row_with_missing_file"
+            and item["subjectId"] == "audit_original"
+            for item in missing_original["findings"]
+        )
     finally:
         cf.close()
 

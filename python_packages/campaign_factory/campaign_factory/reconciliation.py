@@ -616,6 +616,7 @@ def _check_receipt_paths(
     for table, id_field, path_field, sha_field, subject_field in specs:
         rows = _rows(conn, table)
         managed_audit_copies: set[tuple[str, str]] = set()
+        managed_audit_semantics: set[tuple[str, ...]] = set()
         if table == "audit_reports":
             for row in rows:
                 candidate = Path(str(row.get(path_field) or "")).expanduser()
@@ -625,6 +626,7 @@ def _check_receipt_paths(
                     managed_audit_copies.add(
                         (str(row.get(subject_field) or ""), sha256_file(candidate))
                     )
+                    managed_audit_semantics.add(_audit_semantic_key(row))
         for row in rows:
             receipt_id = str(row[id_field])
             subject_id = str(row.get(subject_field) or "")
@@ -637,6 +639,19 @@ def _check_receipt_paths(
                     {"subjectField": subject_field},
                 )
             path = Path(str(row.get(path_field) or "")).expanduser()
+            if (
+                table == "audit_reports"
+                and root_keyed_path(path, roots) is None
+                and _audit_semantic_key(row) in managed_audit_semantics
+            ):
+                _remember_registered_path(
+                    known,
+                    path,
+                    expected_sha="",
+                    subject_type=table,
+                    subject_id=receipt_id,
+                )
+                continue
             immutable_audit_has_managed_copy = (
                 table == "audit_reports"
                 and is_regular_file(path)
@@ -652,6 +667,26 @@ def _check_receipt_paths(
                 external=immutable_audit_has_managed_copy,
                 roots=roots,
             )
+
+
+def _audit_semantic_key(row: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        str(row.get(field) or "")
+        for field in (
+            "campaign_id",
+            "rendered_asset_id",
+            "contentforge_run_id",
+            "subject_sha256",
+            "score",
+            "status",
+            "layers_json",
+            "verdicts_json",
+            "overall_verdict",
+            "files_analyzed",
+            "failed_checks_json",
+            "warnings_json",
+        )
+    )
 
 
 def _collect_other_database_paths(
