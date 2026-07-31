@@ -661,6 +661,9 @@ def _contentforge_lane(media: dict[str, Any]) -> dict[str, Any]:
     contentforge_root = ROOT / "packages/contentforge"
     if not (contentforge_root / "node_modules/ajv").is_dir():
         raise LaneSkipped("contentforge_dependencies_unavailable")
+    authority = json.loads(
+        (contentforge_root / "analyzer-authority.v2.json").read_text(encoding="utf-8")
+    )
     started = time.perf_counter()
     try:
         response = run_contentforge(
@@ -669,7 +672,7 @@ def _contentforge_lane(media: dict[str, Any]) -> dict[str, Any]:
             {
                 "mediaPath": str(source),
                 "mediaSha256": str(media["sourceSha256"]),
-                "producedAt": FIXED_TIME,
+                "producedAt": authority["qualifiedAt"],
                 "overlaysExist": False,
             },
             timeout=240,
