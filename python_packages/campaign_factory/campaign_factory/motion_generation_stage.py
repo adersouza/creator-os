@@ -71,7 +71,7 @@ from .motion_worker_process import (
     invoke_motion_worker as _invoke_worker,
 )
 from .persistence import utc_now
-from .production_lane import bind_production_motion_recipe
+from .production_motion_recipe import bind_production_motion_recipe
 from .production_quality_policy import initial_motion_blockers, production_asset_policy
 from .provider_spend import consume_provider_spend_authorization
 from .provider_spend_v2 import (

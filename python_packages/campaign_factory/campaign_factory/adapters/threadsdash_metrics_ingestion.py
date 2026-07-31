@@ -38,6 +38,9 @@ from .threadsdash_metric_observations import (
     record_immutable_performance_observation as _record_immutable_performance_observation,
 )
 from .threadsdash_metric_values import (
+    default_metric_names_for_surface as _default_metric_names_for_surface,
+)
+from .threadsdash_metric_values import (
     int_metric as _int_metric,
 )
 from .threadsdash_metric_values import (
@@ -1488,35 +1491,3 @@ def _metric_contract_metadata(
         "metricNames": normalized_names
         or _default_metric_names_for_surface(normalized_surface),
     }
-
-
-def _default_metric_names_for_surface(surface: str) -> list[str]:
-    if surface == "story":
-        return [
-            "views",
-            "reach",
-            "replies",
-            "navigation",
-            "follows",
-            "shares",
-            "total_interactions",
-        ]
-    if surface == "reel":
-        return [
-            "views",
-            "reach",
-            "likes",
-            "comments",
-            "shares",
-            "saved",
-            "ig_reels_avg_watch_time",
-            "reels_skip_rate",
-            "ig_reels_video_view_total_time",
-        ]
-    return ["views", "reach", "likes", "comments", "shares", "saved"]
-
-
-def _nested_dict(value: Any, key: str) -> dict[str, Any] | None:
-    if isinstance(value, dict) and isinstance(value.get(key), dict):
-        return value[key]
-    return None
