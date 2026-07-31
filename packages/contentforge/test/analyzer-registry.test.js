@@ -12,7 +12,7 @@ import path from "node:path";
 import { snapshotTrustedMediaAnalyzerRegistry } from "../lib/analyzer-registry.js";
 import { verifyAnalyzerValidationManifest } from "../lib/analyzer-validation-manifest.js";
 
-const PRODUCED_AT = "2026-07-31T08:00:00Z";
+const PRODUCED_AT = "2026-07-31T09:00:00Z";
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 
 test("loads production authority after executable qualification passes", async function () {
