@@ -59,6 +59,40 @@ from campaign_test_support import (
     set_test_source_prompt,
 )
 
+from pipeline_contracts import load_example
+
+
+def add_media_preparation_receipt(cf, tmp_path: Path) -> None:
+    row = dict(
+        cf.conn.execute(
+            "SELECT content_hash, metadata_json FROM rendered_assets WHERE id = 'asset_1'"
+        ).fetchone()
+    )
+    receipt = load_example("visual_derivative_receipt")
+    receipt["profile"].update({"id": "tilt_crop_dark", "observedSource": "spoofzy"})
+    receipt["accepted"][0]["output"]["sha256"] = row["content_hash"]
+    receipt_path = tmp_path / "asset_1.visual_derivative_receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    metadata = json.loads(row["metadata_json"] or "{}")
+    metadata.update(
+        {
+            "observedProfile": "tilt_crop_dark@1",
+            "visualDerivativeReceipt": {
+                "path": str(receipt_path),
+                "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+                "toolchainFingerprint": receipt["toolchain"]["fingerprint"],
+                "sourceSha256": receipt["source"]["sha256"],
+                "outputSha256": row["content_hash"],
+                "acceptedIndex": 1,
+            },
+        }
+    )
+    cf.conn.execute(
+        "UPDATE rendered_assets SET metadata_json = ? WHERE id = 'asset_1'",
+        (json.dumps(metadata, sort_keys=True),),
+    )
+    cf.conn.commit()
+
 
 def test_global_kill_switch_blocks_outbound_threadsdash_draft_export(
     monkeypatch: pytest.MonkeyPatch,
@@ -512,6 +546,11 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
     )
     monkeypatch.setattr(
         threadsdash_delivery_adapter,
+        "_attach_media_preparation_evidence",
+        lambda _payload: None,
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
         "_negotiate_threadsdash_draft_payload",
         negotiate,
     )
@@ -732,6 +771,7 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
     )
     try:
         add_rendered_asset(cf, tmp_path)
+        add_media_preparation_receipt(cf, tmp_path)
         add_audit_report(cf)
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
@@ -880,6 +920,7 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
     )
     try:
         add_rendered_asset(cf, tmp_path)
+        add_media_preparation_receipt(cf, tmp_path)
         add_audit_report(cf)
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
@@ -1075,6 +1116,7 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)
+        add_media_preparation_receipt(cf, tmp_path)
         add_audit_report(cf)
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(

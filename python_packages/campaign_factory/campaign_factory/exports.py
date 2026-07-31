@@ -332,6 +332,9 @@ def export_manifest(
                 if latest_audit
                 else None,
                 "tags": [f"campaign:{campaign['slug']}", f"recipe:{row['recipe']}"],
+                # Producer-private evidence used to bind the exact final bytes at
+                # handoff. shared_handoff_payload strips underscore-prefixed keys.
+                "_metadata": json_load(row.get("metadata_json"), {}),
             }
         )
     payload = {

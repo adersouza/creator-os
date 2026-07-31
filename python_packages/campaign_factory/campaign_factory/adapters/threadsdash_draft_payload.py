@@ -8,9 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
-from ..caption_outcome import (
-    build_caption_outcome_context,
-)
+from ..caption_outcome import build_caption_outcome_context
 from ..core import (
     CampaignFactory,
     _normalize_distribution_surface,
@@ -18,10 +16,7 @@ from ..core import (
     normalize_content_surface,
     utc_now,
 )
-from ..lineage_v2 import (
-    finalize_lineage_v2,
-    lineage_v2_is_valid,
-)
+from ..lineage_v2 import finalize_lineage_v2, lineage_v2_is_valid
 from .threadsdash_audio_policy import (
     audio_intent_allows_live as _audio_intent_allows_live,
 )
@@ -32,7 +27,10 @@ from .threadsdash_draft_integrity import (
     verify_rendered_media_asset,
     with_content_fingerprint,
 )
-from .threadsdash_handoff_evidence import attach_handoff_evidence
+from .threadsdash_handoff_evidence import (
+    attach_handoff_evidence,
+    media_preparation_evidence,
+)
 from .threadsdash_inventory_reservations import (
     active_inventory_reservation as _active_inventory_reservation,
 )
@@ -58,9 +56,7 @@ DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
 _STDLIB_URLOPEN = urlopen
 
-from .threadsdash_client import (
-    _text_hash,
-)
+from .threadsdash_client import _text_hash
 from .threadsdash_draft_destinations import (
     draft_destinations_for_asset as _draft_destinations_for_asset,
 )
@@ -85,6 +81,7 @@ def build_draft_payloads(
     enable_variation: bool = False,
     publish_mode: str | None = None,
     review_only: bool = False,
+    require_media_preparation: bool = False,
     draft_payload_schema: str = DEFAULT_DRAFT_PAYLOAD_SCHEMA,
 ) -> dict[str, Any]:
     normalized_draft_payload_schema = _normalize_draft_payload_schema(
@@ -130,7 +127,6 @@ def build_draft_payloads(
                 "selected rendered assets are not exportable in this campaign: "
                 + ", ".join(missing_ids)
             )
-        # The signed dashboard request must describe only the selected batch.
         # Keeping the campaign-wide manifest here can exceed the production
         # request limit and also misrepresents the exact export boundary.
         manifest = {
@@ -202,6 +198,11 @@ def build_draft_payloads(
                 destination_file_path,
                 approved_hash=actual_asset_hash,
                 is_derivative=bool(variation_assignment),
+            )
+            preparation_evidence = (
+                media_preparation_evidence(asset, final_sha256=destination_content_hash)
+                if export_id and require_media_preparation
+                else None
             )
             media_id = f"media_{uuid.uuid4().hex[:12]}"
             media_item = {
@@ -368,6 +369,7 @@ def build_draft_payloads(
                 "sourceAssetId": asset["sourceAssetId"],
                 "renderedAssetId": asset["renderedAssetId"],
                 "contentHash": destination_content_hash,
+                "mediaPreparation": preparation_evidence,
                 "parentContentHash": expected_asset_hash
                 if variation_assignment
                 else None,

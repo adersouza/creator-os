@@ -54,6 +54,7 @@ from .threadsdash_export_saga import prepare_export, set_export_state
 from .threadsdash_handoff_evidence import (
     attach_handoff_evidence,
     handoff_idempotency_key,
+    media_preparation_evidence,
 )
 from .threadsdash_handshake import (
     HANDSHAKE_SCHEMA_V1,
@@ -127,6 +128,27 @@ def _bind_export_governance(
         if expected_fingerprints is None:
             metadata["creator_governance"] = context
     return fingerprints
+
+
+def _attach_media_preparation_evidence(payload: dict[str, Any]) -> None:
+    assets = {
+        str(asset.get("renderedAssetId") or ""): asset
+        for asset in (payload.get("manifest") or {}).get("assets") or []
+        if isinstance(asset, dict)
+    }
+    for draft in payload.get("drafts") or []:
+        asset = assets.get(str(draft.get("renderedAssetId") or ""))
+        if asset is None:
+            raise ValueError("media preparation asset is missing")
+        draft["mediaPreparation"] = media_preparation_evidence(
+            asset, final_sha256=str(draft.get("contentHash") or "")
+        )
+        attach_handoff_evidence(
+            draft,
+            schema=str(payload.get("schema") or ""),
+            campaign_id=str(draft.get("campaignId") or ""),
+            source_asset_id=str(draft.get("sourceAssetId") or ""),
+        )
 
 
 def _campaign_factory_manifest_blockers(
@@ -576,6 +598,8 @@ def export_threadsdash(
             _validate_exact_creative_approvals(
                 factory, payload, campaign_slug=campaign_slug
             )
+            _attach_media_preparation_evidence(payload)
+            validate_threadsdash_draft_payload_strict(payload)
             contract_negotiation = _negotiate_threadsdash_draft_payload(
                 payload_schema=str(payload.get("schema") or ""),
                 ingest_url=threadsdash_ingest_url,
