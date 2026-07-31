@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from .fileops import sha256_file as _sha256_file
+
 SCHEMA: Final = "creator_os.recreation_anchor_approval.v1"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _RECEIPT_FIELDS: Final = {
@@ -275,11 +277,3 @@ def _fingerprint(value: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

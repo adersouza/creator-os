@@ -5,7 +5,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from creator_os_core.fileops import atomic_write_json, atomic_write_text, file_lock
+from creator_os_core.fileops import (
+    atomic_write_json,
+    atomic_write_text,
+    file_lock,
+    sha256_file,
+)
 from creator_os_core.local_api_auth import authorize_local_api_request
 from creator_os_core.media_probe import probe_video_stream
 from creator_os_core.runtime_guards import (
@@ -31,6 +36,14 @@ def test_atomic_writes_and_nonblocking_lock(tmp_path: Path) -> None:
     with file_lock(target):
         with pytest.raises(BlockingIOError), file_lock(target, blocking=False):
             pass
+
+
+def test_sha256_file(tmp_path: Path) -> None:
+    target = tmp_path / "payload"
+    target.write_bytes(b"creator-os")
+    assert sha256_file(target) == (
+        "9a284c1b5e2bd6127133a373e4306198fd1d4179e544bdc7fd2d1d26ecc16d23"
+    )
 
 
 def test_sqlite_connection_and_idempotent_columns(tmp_path: Path) -> None:

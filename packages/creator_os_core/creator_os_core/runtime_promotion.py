@@ -25,6 +25,7 @@ from .evidence_attestation import (
     verify_evidence_attestation,
 )
 from .fileops import atomic_write_json, file_lock
+from .fileops import sha256_file as _sha256_file
 
 SCHEMA: Final = "creator_os.runtime_promotion_receipt.v1"
 APPROVAL_SCHEMA: Final = "creator_os.runtime_promotion_approval.v1"
@@ -265,14 +266,6 @@ def _is_commit(value: Any) -> bool:
         and len(value) == 40
         and all(character in "0123456789abcdef" for character in value)
     )
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _rollback_instructions(
