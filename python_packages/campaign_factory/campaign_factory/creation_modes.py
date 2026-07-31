@@ -152,6 +152,7 @@ def run_creation_batch(
                 reference_talking=reference_talking,
                 selected_source_asset_ids=source_asset_ids,
                 prompt_pack_provider=prompt_pack_provider,
+                creation_mode=mode,
                 recreation_anchor_approval_path=recreation_anchor_approval_path,
                 recreation_attempt_id=recreation_attempt_id,
                 campaign=campaign,
@@ -710,6 +711,7 @@ def _run_static_reel_batch(
         accounts=accounts,
         audio_preference=audio_preference,
         selected_source_asset_ids=source_asset_ids,
+        creation_mode="static_reel",
         campaign=campaign,
     )
     plan.update(

@@ -26,7 +26,10 @@ from .core import (
 )
 from .generation_execution_plan import GenerationExecutionPlan
 from .persistence import utc_now
-from .production_prompts import LOW_EFFORT_REEL_VISUAL_DIRECTION
+from .production_prompts import (
+    LOW_EFFORT_REEL_VISUAL_DIRECTION,
+    build_reel_creative_context,
+)
 from .provider_spend import (
     consume_provider_spend_authorization,
     issue_provider_spend_authorization,
@@ -1057,13 +1060,17 @@ def _write_prompt_pack(
     guidance = _learned_prompt_guidance(reference_pattern)
     guidance_text = _learned_prompt_guidance_text(guidance)
     payload = {
+        "creativeContext": build_reel_creative_context(
+            mode="static_reel",
+            intent="passive_selfie",
+        ),
         "higgsfieldGridPrompt": (
             "Create one realistic vertical social photo. "
             f"{LOW_EFFORT_REEL_VISUAL_DIRECTION}"
             f"{guidance_text}"
         ),
         "klingMotionPrompt": (
-            f"Use the supplied accepted 9:16 start image as the source frame for a short realistic {scene} phone video. "
+            f"Use the supplied accepted 9:16 start image as the source frame for a short realistic {scene} handheld creator video. "
             "Preserve the person, outfit, setting, pose family, camera angle, and lighting while adding subtle handheld motion, "
             "natural breathing, small posture movement, and restrained fabric motion."
             f"{guidance_text}"

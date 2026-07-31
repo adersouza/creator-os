@@ -100,8 +100,10 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert pack["providerPlans"]["seedance"]["resolution"] == "480p"
     assert pack["identityPolicy"]["hairColorInvented"] is False
     assert pack["identityPolicy"]["tattoosInvented"] is False
+    assert pack["creativeContext"]["mode"] == "calm_animation"
+    assert pack["creativeContext"]["visualStyleId"] == "low_effort_selfie_reels.v1"
     planning = pack["promptPlanning"]
-    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v4"
+    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v5"
     request_text = json.dumps(observed["payload"], ensure_ascii=False).lower()
     assert "deliberately casual, believable handheld selfie" in request_text
     assert "cute fitted everyday clothing" in request_text

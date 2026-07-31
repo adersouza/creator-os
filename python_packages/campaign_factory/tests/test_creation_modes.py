@@ -160,6 +160,7 @@ def test_calm_animation_forwards_selected_source_assets(
         )
 
         assert captured["selected_source_asset_ids"] == (str(source["id"]),)
+        assert captured["creation_mode"] == "calm_animation"
     finally:
         cf.close()
 

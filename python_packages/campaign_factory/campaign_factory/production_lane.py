@@ -79,6 +79,7 @@ from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
 )
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
+from .production_prompts import build_reel_creative_context
 from .production_source_selection import (
     active_production_identity,
     bind_source_governance,
@@ -272,6 +273,7 @@ def fulfill_production_audio(
     )
     receipt = fulfilled.embedding_receipt
     receipt["creativeContext"] = {
+        **dict(job.get("creativeContext") or {}),
         "creator": job.get("creator"),
         "creatorIdentityProfile": job.get("creatorIdentityProfile"),
         "account": job.get("accountGroup"),
@@ -443,6 +445,7 @@ def plan_production_batch(
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
     prompt_call_authorized: bool = False,
+    creation_mode: str | None = None,
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
     campaign: str | None = None,
@@ -455,6 +458,18 @@ def plan_production_batch(
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     if intent in _RECREATE_INTENTS and int(count) != 1:
         raise ValueError("recreate_reel currently supports exactly one output")
+    resolved_creation_mode = creation_mode or (
+        "recreate_reel" if intent in _RECREATE_INTENTS else "calm_animation"
+    )
+    if (intent in _RECREATE_INTENTS and resolved_creation_mode != "recreate_reel") or (
+        intent not in _RECREATE_INTENTS
+        and resolved_creation_mode not in {"static_reel", "calm_animation"}
+    ):
+        raise ValueError("creation mode and content intent are incompatible")
+    creative_context = build_reel_creative_context(
+        mode=resolved_creation_mode,
+        intent=intent,
+    )
     if recreation_attempt_id is not None and (
         not recreation_attempt_id.strip() or len(recreation_attempt_id.strip()) > 100
     ):
@@ -679,6 +694,13 @@ def plan_production_batch(
                 intent=intent,
                 reference_video=reference_video_path,
                 external_call_authorized=prompt_call_authorized,
+                cost_connection=factory.conn,
+                campaign_id=str(source["campaign_id"]),
+                run_id=(
+                    f"production_prompt:{creator_slug}:{intent}:"
+                    f"{source_sha[:16]}:{seed}"
+                ),
+                governance_context=dict(source["creatorGovernance"]),
             )
             prompt_packs[source_sha] = prompt_pack
             prompt_card, compiled_prompt = compile_video_prompt(
@@ -731,6 +753,7 @@ def plan_production_batch(
                 "seed": seed,
                 "prompt": compiled_prompt["text"],
                 "promptCard": prompt_card["promptCardFingerprint"],
+                "creativeContext": creative_context["contextFingerprint"],
                 "model": recipe["modelId"],
                 "speechAudio": speech_sha,
                 "motionReference": motion_reference_sha,
@@ -797,6 +820,7 @@ def plan_production_batch(
                 "sourceApproval": source.get("sourceApproval"),
                 "creator": creator_slug,
                 "creatorIdentityProfile": soul_id,
+                "creativeContext": creative_context,
                 "_creatorGovernance": source["creatorGovernance"],
                 "_referenceGovernance": reference_governance,
                 "intent": intent,
@@ -868,6 +892,8 @@ def plan_production_batch(
         "schema": "campaign_factory.production_batch.v1",
         "creator": creator_slug,
         "intent": intent,
+        "mode": resolved_creation_mode,
+        "creativeContext": creative_context,
         "execution": execution,
         "requested": int(count),
         "maxConcurrency": 2,
@@ -900,6 +926,7 @@ def run_production_batch(
     reference_talking: bool = False,
     selected_source_asset_ids: tuple[str, ...] | None = None,
     prompt_pack_provider: Callable[..., dict[str, Any]] | None = None,
+    creation_mode: str | None = None,
     recreation_anchor_approval_path: Path | None = None,
     recreation_attempt_id: str | None = None,
     campaign: str | None = None,
@@ -921,6 +948,7 @@ def run_production_batch(
         selected_source_asset_ids=selected_source_asset_ids,
         prompt_pack_provider=prompt_pack_provider,
         prompt_call_authorized=apply,
+        creation_mode=creation_mode,
         recreation_anchor_approval_path=recreation_anchor_approval_path,
         recreation_attempt_id=recreation_attempt_id,
         campaign=campaign,

@@ -961,6 +961,11 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(
         assert "cute fitted everyday clothing" in joined
         assert "camera in front of part of the face" in joined
         assert (
+            prompt_pack["creativeContext"]["visualStyleId"]
+            == "low_effort_selfie_reels.v1"
+        )
+        assert "phone video" not in joined
+        assert (
             cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
         )
         assert (

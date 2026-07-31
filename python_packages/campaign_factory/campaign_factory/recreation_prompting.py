@@ -34,11 +34,14 @@ from .all_provider_cost import (
     reconcile_paid_action_cost,
 )
 from .cli_support import _load_env_file
-from .production_prompts import LOW_EFFORT_REEL_VISUAL_DIRECTION
+from .production_prompts import (
+    LOW_EFFORT_REEL_VISUAL_DIRECTION,
+    build_reel_creative_context,
+)
 from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
-PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v4"
+PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v5"
 _API_URL: Final = "https://api.openai.com/v1/responses"
 _ANCHOR_FORBIDDEN: Final = (
     "phone",
@@ -90,6 +93,10 @@ def build_openai_prompt_pack(
     )
     selected_model = model or os.environ.get("CREATOR_OS_OPENAI_PROMPT_MODEL", "gpt-5")
     instruction = _instruction(intent, bool(video))
+    creative_context = build_reel_creative_context(
+        mode="recreate_reel" if video else "calm_animation",
+        intent=intent,
+    )
     image_sha256 = _sha256(image)
     video_sha256 = _sha256(video) if video else None
     prompt_inputs = {
@@ -97,10 +104,11 @@ def build_openai_prompt_pack(
         "intent": intent,
         "creatorImageSha256": image_sha256,
         "referenceVideoSha256": video_sha256,
+        "creativeContextFingerprint": creative_context["contextFingerprint"],
     }
     prompt_governance = bind_campaign_prompt(
         prompt_id="campaign.openai_recreation_pack",
-        version="4",
+        version="5",
         provider="openai",
         model=selected_model,
         compiled_prompt=instruction,
@@ -114,6 +122,7 @@ def build_openai_prompt_pack(
         "model": selected_model,
         "creatorImageSha256": image_sha256,
         "referenceVideoSha256": video_sha256,
+        "creativeContext": creative_context,
         "instruction": instruction,
         "promptInputs": prompt_inputs,
         "responseSchema": _response_schema(),
@@ -291,6 +300,7 @@ def build_openai_prompt_pack(
         "referenceVideo": (
             {"sha256": video_sha256, "path": str(video)} if video else None
         ),
+        "creativeContext": creative_context,
         "anchorPrompt": anchor_prompt,
         "seedancePrompt": seedance_prompt,
         "klingPrompt": kling_prompt,
@@ -398,7 +408,7 @@ def compile_video_prompt(
     card["promptCardFingerprint"] = _fingerprint(card)
     governance = bind_campaign_prompt(
         prompt_id="campaign.recreation_provider_compile",
-        version="2",
+        version="3",
         provider=(
             "higgsfield"
             if provider_model in {"kling3_0_turbo", "seedance_2_0"}

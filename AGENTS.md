@@ -193,6 +193,13 @@ safe motion anchor, use it as a locked `static_reel` instead of forcing
 animation. Overlay copy remains a separate Reel Factory step and never belongs
 in the Higgsfield prompt.
 
+Every creation plan carries `campaign_factory.reel_creative_context.v1`.
+Interpret its context in this order: explicit mode purpose, operator house style,
+approved creator/Soul identity, exact approved source or authorized reference,
+then approved learning refinements. `recreate_reel` treats its authorized
+reference as the visual-style authority; learning may refine selection but
+cannot replace the selected mode or operator direction.
+
 ### Reference → Soul Variant Generation (Original + Sexy)
 
 Settled house recipe for turning one reference image into postable

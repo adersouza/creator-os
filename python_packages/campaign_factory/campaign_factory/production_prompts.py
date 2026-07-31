@@ -12,6 +12,7 @@ from .prompt_registry import bind_campaign_prompt
 
 PROMPT_CARD_SCHEMA: Final = "campaign_factory.creative_direction_prompt_card.v1"
 COMPILED_PROMPT_SCHEMA: Final = "campaign_factory.compiled_passive_prompt.v1"
+REEL_CREATIVE_CONTEXT_SCHEMA: Final = "campaign_factory.reel_creative_context.v1"
 UNKNOWN: Final = "unknown"
 
 LOW_EFFORT_REEL_VISUAL_DIRECTION: Final = (
@@ -26,6 +27,21 @@ LOW_EFFORT_REEL_VISUAL_DIRECTION: Final = (
     "visible identity evidence. Use spontaneous snapshot energy and reserve polished "
     "editorial lighting or cinematic staging for an explicit request."
 )
+
+MODE_PURPOSES: Final[dict[str, str]] = {
+    "static_reel": (
+        "Turn one exact approved creator still into a locked low-effort-looking "
+        "Reel without changing the visual identity or composition."
+    ),
+    "calm_animation": (
+        "Add restrained, believable motion to one exact approved creator still "
+        "while preserving identity, clothing, setting, and casual selfie energy."
+    ),
+    "recreate_reel": (
+        "Recreate one authorized reference Reel's broad action, timing, framing, "
+        "camera behavior, and performance energy with the approved creator identity."
+    ),
+}
 
 INTENT_PROMPTS: Final[dict[str, str]] = {
     "passive_selfie": (
@@ -91,6 +107,42 @@ def _fingerprint(value: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def build_reel_creative_context(*, mode: str, intent: str) -> dict[str, Any]:
+    """Return the operator-owned creative purpose carried by every Reel mode."""
+
+    if mode not in MODE_PURPOSES:
+        raise ValueError(f"unsupported Creator OS mode: {mode}")
+    reference_driven = mode == "recreate_reel"
+    core: dict[str, Any] = {
+        "schema": REEL_CREATIVE_CONTEXT_SCHEMA,
+        "mode": mode,
+        "intent": intent,
+        "purpose": MODE_PURPOSES[mode],
+        "stylePolicy": (
+            "authorized_reference_is_style_authority"
+            if reference_driven
+            else "operator_low_effort_selfie_default"
+        ),
+        "visualStyleId": (
+            "authorized_reference_recreation.v1"
+            if reference_driven
+            else "low_effort_selfie_reels.v1"
+        ),
+        "visualDirection": (
+            "Follow the authorized reference Reel's visible style and structure."
+            if reference_driven
+            else LOW_EFFORT_REEL_VISUAL_DIRECTION
+        ),
+        "identityPolicy": "Soul ID and the exact approved creator image supply identity.",
+        "overlayPolicy": "Burned overlay copy is added later by Reel Factory.",
+        "learningPolicy": (
+            "Approved learning may refine selection but cannot replace mode purpose "
+            "or operator creative direction."
+        ),
+    }
+    return {**core, "contextFingerprint": _fingerprint(core)}
 
 
 def _fact(facts: dict[str, Any], key: str) -> Any:
