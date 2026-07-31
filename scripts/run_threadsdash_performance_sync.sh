@@ -20,19 +20,6 @@ source "$ENV_FILE"
 : "${REFERENCE_FACTORY_DB:?REFERENCE_FACTORY_DB is required}"
 : "${CAMPAIGN_FACTORY_SYNC_CAMPAIGNS:?CAMPAIGN_FACTORY_SYNC_CAMPAIGNS is required}"
 
-campaign="$(python3 - <<'PY'
-import json
-import os
-
-campaigns = json.loads(os.environ["CAMPAIGN_FACTORY_SYNC_CAMPAIGNS"])
-if campaigns != ["stacey_learning_cohort_v1"]:
-    raise SystemExit(
-        "performance-sync campaign scope must be exactly stacey_learning_cohort_v1"
-    )
-print(campaigns[0])
-PY
-)"
-
 if [ ! -f "$CAMPAIGN_FACTORY_DB" ]; then
   echo "performance-sync database missing: $CAMPAIGN_FACTORY_DB" >&2
   exit 2
@@ -41,10 +28,37 @@ if [ ! -f "$REFERENCE_FACTORY_DB" ]; then
   echo "performance-sync reference database missing: $REFERENCE_FACTORY_DB" >&2
   exit 2
 fi
-if ! sqlite3 "$CAMPAIGN_FACTORY_DB" \
-  "SELECT 1 FROM campaigns WHERE slug = '$campaign' LIMIT 1;" | grep -qx 1; then
-  echo "performance-sync campaign missing from configured database: $campaign ($CAMPAIGN_FACTORY_DB)" >&2
-  exit 2
-fi
 
+active_campaigns="$(python3 - "$CAMPAIGN_FACTORY_DB" <<'PY'
+import json
+import os
+import sqlite3
+import sys
+
+campaigns = json.loads(os.environ["CAMPAIGN_FACTORY_SYNC_CAMPAIGNS"])
+if not isinstance(campaigns, list) or not campaigns:
+    raise SystemExit("performance-sync requires at least one configured campaign")
+conn = sqlite3.connect(sys.argv[1])
+try:
+    active = []
+    for campaign in campaigns:
+        row = conn.execute(
+            """SELECT COALESCE(cg.lifecycle_status, 'created')
+               FROM campaigns c
+               LEFT JOIN campaign_governance cg ON cg.campaign_id = c.id
+               WHERE c.slug = ?""",
+            (campaign,),
+        ).fetchone()
+        if row is None:
+            raise SystemExit(f"performance-sync campaign missing: {campaign}")
+        if row[0] not in {"cancelled", "archived"}:
+            active.append(campaign)
+    if not active:
+        raise SystemExit("performance-sync has no active configured campaigns")
+    print(json.dumps(active, separators=(",", ":")))
+finally:
+    conn.close()
+PY
+)"
+export CAMPAIGN_FACTORY_SYNC_CAMPAIGNS="$active_campaigns"
 exec python3 scripts/sync_threadsdash_performance.py "$@"

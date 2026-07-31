@@ -302,7 +302,7 @@ class AccountPlanningRepository:
             (asset["source_asset_id"],),
         ).fetchone()
         latest_audit = self.conn.execute(
-            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
             (asset["id"],),
         ).fetchone()
         enriched = dict(asset)

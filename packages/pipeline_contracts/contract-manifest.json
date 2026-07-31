@@ -27,7 +27,7 @@
     "pipeline_contracts/schemas/contentforge_campaign_audit_response.v1.example.json": "da9e642698e03863e7b3b6c26a5721c5ae19a454dfc1e44db5e48aab0489d0b6",
     "pipeline_contracts/schemas/contentforge_campaign_audit_response.v1.schema.json": "118a39989697e92985e44976138a23eea5fdaae1eae4e6bc889cbaa40c74fdbf",
     "pipeline_contracts/schemas/creative_approval.v1.schema.json": "d8cdd3b83a265c73c09e59fa1abdaaf2f003c6d5cdf007d17d4fad586b9e8fda",
-    "pipeline_contracts/schemas/creative_approval.v2.schema.json": "e1c36ce3c5b7d6ba71239dbc803b798e153b504d2b8096f0ebd1a41b4f0fa043",
+    "pipeline_contracts/schemas/creative_approval.v2.schema.json": "00ffe304738b934b0928ffeb04234b5636fcba0089344c18e84686f3e518a21e",
     "pipeline_contracts/schemas/creative_plan.v1.example.json": "3a17c6b508f8c883fc20b2f90fddcea00102db73614b35d91252304c60a51d3a",
     "pipeline_contracts/schemas/creative_plan.v1.schema.json": "df7d2b9a637bc4652b29af47437ff8107528a96c7a0d1d4b28194339f10009fc",
     "pipeline_contracts/schemas/creator_identity_profile.v1.schema.json": "9a01b9e61b698f0a848400bb33a77bb57e0926dd899e799cb5315b5bc1818a86",
@@ -104,7 +104,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "0a2bd3d36e0e89a66ff2dec89ebedcd6b6afd42ffd01bf42dce9d670eaca81ca",
+    "typescript/generated-schemas.ts": "d193cc7b338fb9d41297356e7ec0ed5460fa36b570b4f6a8c94edf1f39e067c8",
     "typescript/index.ts": "4ac6f9eed6a498a02572c17707e300f4fd0e56f4fc7e52d8daef205bf0d337bf"
   }
 }

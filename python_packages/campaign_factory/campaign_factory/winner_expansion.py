@@ -533,7 +533,7 @@ class WinnerExpansionRepository:
 
     def latest_variant_audit_result(self, variant_asset_id: str) -> dict[str, Any]:
         row = self.conn.execute(
-            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
             (variant_asset_id,),
         ).fetchone()
         if not row or not row["report_path"]:
@@ -612,7 +612,7 @@ class WinnerExpansionRepository:
 
     def variant_inventory_quality_risk(self, parent_asset_id: str) -> str:
         row = self.conn.execute(
-            "SELECT score, status, overall_verdict FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT score, status, overall_verdict FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
             (parent_asset_id,),
         ).fetchone()
         if not row:

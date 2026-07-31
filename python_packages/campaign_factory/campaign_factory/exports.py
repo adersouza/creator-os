@@ -171,7 +171,7 @@ def export_manifest(
     for row in rows:
         row = dict(row)
         latest_audit = self.conn.execute(
-            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
             (row["id"],),
         ).fetchone()
         audit_summary = {}

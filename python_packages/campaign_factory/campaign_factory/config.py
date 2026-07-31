@@ -53,12 +53,7 @@ class Settings:
             _PATHS.artifact_root / "campaign_factory" / "campaigns",
         )
     )
-    creative_approvals_dir: Path = Path(
-        os.environ.get(
-            "CAMPAIGN_FACTORY_CREATIVE_APPROVALS",
-            _PATHS.artifact_root / "campaign_factory" / "creative_approvals",
-        )
-    )
+    creative_approvals_dir: Path = _UNSET_PATH
 
     def __post_init__(self) -> None:
         campaign_root_is_override = self.root != CREATOR_OS_CAMPAIGN_FACTORY_ROOT
@@ -95,12 +90,23 @@ class Settings:
             if reel_root_is_override
             else _PATHS.artifact_root / "reel_factory"
         )
+        creative_approvals_dir = Path(
+            os.environ.get("CAMPAIGN_FACTORY_CREATIVE_APPROVALS")
+            or (
+                self.root / "creative_approvals"
+                if campaign_root_is_override
+                else _PATHS.artifact_root
+                / "campaign_factory"
+                / "creative_approvals"
+            )
+        )
         for field_name, value in (
             ("reel_factory_artifacts_dir", reel_factory_artifacts_dir),
             ("db_path", campaign_factory_db),
             ("reel_manifest_db", reel_manifest_db),
             ("reel_render_queue_db", reel_render_queue_db),
             ("reference_factory_db", reference_factory_db),
+            ("creative_approvals_dir", creative_approvals_dir),
         ):
             if getattr(self, field_name) == _UNSET_PATH:
                 object.__setattr__(self, field_name, value.expanduser().resolve())

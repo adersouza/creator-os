@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from campaign_asset_test_support import add_audit_report
@@ -20,6 +22,7 @@ from campaign_factory.creative_approval import (
     APPROVAL_ATTESTATION_ISSUER,
     CreativeApprovalError,
     CreativeApprovalStore,
+    _validate_higgsfield_ledger_for_approval,
     asset_requires_creative_approval,
     build_and_record_creative_approval_v2,
     canonical_asset_approval_bindings,
@@ -76,6 +79,163 @@ def _evidence_secret(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_higgsfield_paid_asset_binds_exact_provider_execution(tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"source")
+    output = tmp_path / "output.mp4"
+    output.write_bytes(b"output")
+    request_fingerprint = hashlib.sha256(b"provider-request").hexdigest()
+    source_binding = {"path": str(source), "sha256": _sha(source)}
+    output_binding = {"path": str(output), "sha256": _sha(output)}
+    provider_receipt = {
+        "schema": "reel_factory.higgsfield_production_receipt.v1",
+        "status": "completed",
+        "authorizationId": "auth-higgsfield-1",
+        "providerRequestFingerprint": request_fingerprint,
+        "model": "kling3_0_turbo",
+        "generationId": "generation-higgsfield-1",
+        "soulId": "soul-stacey-1",
+        "source": source_binding,
+        "finalOutput": output_binding,
+    }
+    provider_path = tmp_path / "higgsfield-receipt.json"
+    provider_path.write_text(json.dumps(provider_receipt, sort_keys=True))
+    recipe = {
+        "schema": "campaign_factory.production_motion_recipe.v1",
+        "recipeId": "cloud-passive-selfie-v2",
+        "creator": "stacey",
+        "intent": "passive_selfie",
+        "modelId": "higgsfield_kling3_turbo_i2v",
+        "provider": "higgsfield",
+    }
+    paid_evidence = {
+        "schema": "campaign_factory.higgsfield_paid_generation_evidence.v1",
+        "provider": "higgsfield",
+        "authorizationId": "auth-higgsfield-1",
+        "providerPlanFingerprint": request_fingerprint,
+        "providerModel": "kling3_0_turbo",
+        "generationId": "generation-higgsfield-1",
+        "soulId": "soul-stacey-1",
+        "costEventIds": ["cost-higgsfield-1"],
+        "source": source_binding,
+        "output": output_binding,
+        "providerReceipt": {"path": str(provider_path), "sha256": _sha(provider_path)},
+    }
+    asset = {
+        "id": "asset-higgsfield-1",
+        "campaign_id": "campaign-1",
+        "source_asset_id": "source-asset-1",
+        "content_hash": output_binding["sha256"],
+        "output_path": str(output),
+        "frame_type": "generated_motion",
+        "metadata_json": json.dumps(
+            {
+                "schema": "campaign_factory.motion_generation_asset.v1",
+                "modelId": "higgsfield_kling3_turbo_i2v",
+                "generationInput": source_binding,
+                "productionMotionRecipe": recipe,
+                "paidGeneration": True,
+                "paidGenerationEvidence": paid_evidence,
+            },
+            sort_keys=True,
+        ),
+    }
+
+    bindings = canonical_asset_approval_bindings(asset)
+
+    assert bindings["executionEvidence"]["provider"] == "higgsfield"
+    assert bindings["executionEvidence"]["providerEvidence"]["sha256"] == _sha(
+        provider_path
+    )
+    assert bindings["input"] == source_binding
+    assert bindings["output"] == output_binding
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """
+        CREATE TABLE provider_spend_authorizations (
+          authorization_id TEXT PRIMARY KEY, reservation_id TEXT, provider TEXT,
+          campaign_id TEXT, request_fingerprint TEXT, scope_json TEXT, status TEXT
+        );
+        CREATE TABLE ai_cost_events (
+          id TEXT PRIMARY KEY, reservation_id TEXT, campaign_id TEXT,
+          provider TEXT, metadata_json TEXT
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO provider_spend_authorizations VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "auth-higgsfield-1",
+            "reservation-higgsfield-1",
+            "higgsfield",
+            "campaign-1",
+            request_fingerprint,
+            json.dumps({"requestFingerprint": request_fingerprint}),
+            "consumed",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO ai_cost_events VALUES (?, ?, ?, ?, ?)",
+        (
+            "cost-higgsfield-1",
+            "reservation-higgsfield-1",
+            "campaign-1",
+            "higgsfield",
+            json.dumps(
+                {
+                    "authorizationId": "auth-higgsfield-1",
+                    "jobId": "generation-higgsfield-1",
+                    "requestFingerprint": request_fingerprint,
+                    "model": "kling3_0_turbo",
+                }
+            ),
+        ),
+    )
+    paid_evidence["reservationId"] = "reservation-higgsfield-1"
+    asset["metadata_json"] = json.dumps(
+        {
+            **json.loads(asset["metadata_json"]),
+            "paidGenerationEvidence": paid_evidence,
+        },
+        sort_keys=True,
+    )
+    _validate_higgsfield_ledger_for_approval(
+        SimpleNamespace(conn=conn), asset, bindings
+    )
+
+    fabricated = {
+        **bindings,
+        "executionEvidence": {
+            **bindings["executionEvidence"],
+            "authorizationId": "fabricated-authorization",
+        },
+    }
+    with pytest.raises(
+        CreativeApprovalError,
+        match="creative_approval_higgsfield_authorization_missing",
+    ):
+        _validate_higgsfield_ledger_for_approval(
+            SimpleNamespace(conn=conn), asset, fabricated
+        )
+
+    conn.execute("DELETE FROM ai_cost_events")
+    with pytest.raises(
+        CreativeApprovalError, match="creative_approval_higgsfield_cost_missing"
+    ):
+        _validate_higgsfield_ledger_for_approval(
+            SimpleNamespace(conn=conn), asset, bindings
+        )
+
+    provider_receipt["generationId"] = "substituted-generation"
+    provider_path.write_text(json.dumps(provider_receipt, sort_keys=True))
+    with pytest.raises(
+        CreativeApprovalError,
+        match="creative_approval_provider_execution_evidence_missing_or_substituted",
+    ):
+        canonical_asset_approval_bindings(asset)
 
 
 def _fingerprint(payload: dict) -> str:

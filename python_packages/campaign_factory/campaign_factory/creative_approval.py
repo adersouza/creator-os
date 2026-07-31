@@ -375,6 +375,78 @@ def _validate_execution_evidence(
         raise CreativeApprovalError("creative_approval_execution_class_invalid")
     if model_binding["id"].startswith("local_"):
         raise CreativeApprovalError("creative_approval_paid_model_mismatch")
+    if value.get("provider") == "higgsfield":
+        expected_keys = {
+            "class",
+            "provider",
+            "providerModel",
+            "requestFingerprint",
+            "authorizationId",
+            "generationId",
+            "soulId",
+            "providerEvidence",
+            "source",
+            "output",
+            "costEventIds",
+        }
+        if set(value) != expected_keys:
+            raise CreativeApprovalError("creative_approval_paid_evidence_invalid")
+        provider_model = _required_text(value.get("providerModel"), "provider_model")
+        request_fingerprint = _sha(
+            value.get("requestFingerprint"), "provider_request_fingerprint"
+        )
+        authorization_id = _required_text(
+            value.get("authorizationId"), "provider_authorization_id"
+        )
+        generation_id = _required_text(
+            value.get("generationId"), "provider_generation_id"
+        )
+        soul_id = _required_text(value.get("soulId"), "provider_soul_id")
+        source = _verify_bound_file(value.get("source"), "provider_source")
+        output = _verify_bound_file(value.get("output"), "provider_output")
+        cost_event_ids = value.get("costEventIds")
+        if (
+            source != input_binding
+            or output != output_binding
+            or not isinstance(cost_event_ids, list)
+            or not cost_event_ids
+            or any(not isinstance(item, str) or not item for item in cost_event_ids)
+        ):
+            raise CreativeApprovalError(
+                "creative_approval_higgsfield_execution_binding_mismatch"
+            )
+        provider_payload, provider_file = _load_bound_json(
+            value.get("providerEvidence"), "provider_execution_evidence"
+        )
+        receipt_source = provider_payload.get("source")
+        receipt_output = provider_payload.get("finalOutput")
+        if (
+            provider_payload.get("schema")
+            != "reel_factory.higgsfield_production_receipt.v1"
+            or provider_payload.get("status") != "completed"
+            or provider_payload.get("authorizationId") != authorization_id
+            or provider_payload.get("providerRequestFingerprint")
+            != request_fingerprint
+            or provider_payload.get("model") != provider_model
+            or provider_payload.get("generationId") != generation_id
+            or provider_payload.get("soulId") != soul_id
+            or not isinstance(receipt_source, dict)
+            or {
+                "path": receipt_source.get("path"),
+                "sha256": receipt_source.get("sha256"),
+            }
+            != source
+            or not isinstance(receipt_output, dict)
+            or {
+                "path": receipt_output.get("path"),
+                "sha256": receipt_output.get("sha256"),
+            }
+            != output
+        ):
+            raise CreativeApprovalError(
+                "creative_approval_higgsfield_execution_binding_mismatch"
+            )
+        return {**value, "providerEvidence": provider_file}
     expected_keys = {
         "class",
         "provider",
@@ -707,13 +779,82 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
         paid_evidence = metadata.get("paidGenerationEvidence")
         if not isinstance(paid_evidence, dict):
             raise CreativeApprovalError("creative_approval_paid_evidence_missing")
-        identity = paid_evidence.get("creatorIdentityProfile")
-        intent = paid_evidence.get("contentIntent")
-        recipe = paid_evidence.get("generationRecipe")
-        execution_evidence = paid_evidence.get("executionEvidence")
-        selected_model_fingerprint = _sha(
-            paid_evidence.get("modelFingerprint"), "asset_model_fingerprint"
+        higgsfield_evidence = (
+            paid_evidence.get("schema")
+            == "campaign_factory.higgsfield_paid_generation_evidence.v1"
         )
+        if higgsfield_evidence:
+            production_recipe = metadata.get("productionMotionRecipe")
+            if not isinstance(production_recipe, dict):
+                raise CreativeApprovalError("creative_approval_paid_recipe_missing")
+            soul_id = _required_text(paid_evidence.get("soulId"), "asset_soul_id")
+            creator_key = _required_text(
+                production_recipe.get("creator"), "asset_creator_key"
+            )
+            source_record = _verify_bound_file(
+                paid_evidence.get("source"), "asset_provider_source"
+            )
+            output_record = _verify_bound_file(
+                paid_evidence.get("output"), "asset_provider_output"
+            )
+            identity = {
+                "schema": "creator_os.creator_identity_profile.v1",
+                "profileId": f"higgsfield-soul-{soul_id}",
+                "creatorKey": creator_key,
+                "soulId": soul_id,
+            }
+            intent = {
+                "schema": "creator_os.content_intent.v1",
+                "intentId": f"higgsfield-{production_recipe.get('intent')}-{str(paid_evidence.get('providerPlanFingerprint'))[:24]}",
+                "creatorIdentityProfileId": identity["profileId"],
+                "sourceAssetFingerprints": [source_record["sha256"]],
+            }
+            recipe = production_recipe
+            provider_model = _required_text(
+                paid_evidence.get("providerModel"), "asset_provider_model"
+            )
+            request_fingerprint = _sha(
+                paid_evidence.get("providerPlanFingerprint"),
+                "asset_provider_request_fingerprint",
+            )
+            provider_receipt = paid_evidence.get("providerReceipt")
+            if not isinstance(provider_receipt, dict):
+                raise CreativeApprovalError(
+                    "creative_approval_provider_evidence_missing"
+                )
+            execution_evidence = {
+                "class": "paid_provider",
+                "provider": "higgsfield",
+                "providerModel": provider_model,
+                "requestFingerprint": request_fingerprint,
+                "authorizationId": _required_text(
+                    paid_evidence.get("authorizationId"), "asset_authorization_id"
+                ),
+                "generationId": _required_text(
+                    paid_evidence.get("generationId"), "asset_generation_id"
+                ),
+                "soulId": soul_id,
+                "providerEvidence": provider_receipt,
+                "source": source_record,
+                "output": output_record,
+                "costEventIds": list(paid_evidence.get("costEventIds") or []),
+            }
+            selected_model_fingerprint = _fingerprint(
+                {
+                    "provider": "higgsfield",
+                    "providerModel": provider_model,
+                    "creatorOsModelId": model_id,
+                    "soulId": soul_id,
+                }
+            )
+        else:
+            identity = paid_evidence.get("creatorIdentityProfile")
+            intent = paid_evidence.get("contentIntent")
+            recipe = paid_evidence.get("generationRecipe")
+            execution_evidence = paid_evidence.get("executionEvidence")
+            selected_model_fingerprint = _sha(
+                paid_evidence.get("modelFingerprint"), "asset_model_fingerprint"
+            )
         if not all(
             isinstance(value, dict)
             for value in (identity, intent, recipe, execution_evidence)
@@ -797,7 +938,15 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(paid_evidence, dict)
         assert isinstance(execution_evidence, dict)
         spend_record = paid_evidence.get("spendRecord")
-        if (
+        if higgsfield_evidence:
+            if (
+                input_binding != execution_evidence.get("source")
+                or output_binding != execution_evidence.get("output")
+                or recipe.get("modelId") != model_id
+                or recipe.get("provider") != "higgsfield"
+            ):
+                raise CreativeApprovalError("creative_approval_paid_lineage_mismatch")
+        elif (
             identity.get("schema") != "creator_os.creator_identity_profile.v1"
             or intent.get("schema") != "creator_os.content_intent.v1"
             or intent.get("creatorIdentityProfileId") != identity.get("profileId")
@@ -847,6 +996,89 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
     if prompt_source is not None:
         bindings["promptSource"] = prompt_source
     return bindings
+
+
+def _validate_higgsfield_ledger_for_approval(
+    factory: Any,
+    asset: dict[str, Any],
+    canonical: dict[str, Any],
+) -> None:
+    """Bind Higgsfield approval to Campaign Factory's authoritative ledgers."""
+
+    execution = canonical.get("executionEvidence")
+    if not isinstance(execution, dict) or execution.get("provider") != "higgsfield":
+        return
+    metadata = _asset_metadata(asset)
+    paid = metadata.get("paidGenerationEvidence")
+    if not isinstance(paid, dict):
+        raise CreativeApprovalError("creative_approval_higgsfield_ledger_missing")
+    authorization_id = str(execution.get("authorizationId") or "")
+    reservation_id = str(paid.get("reservationId") or "")
+    request_fingerprint = str(execution.get("requestFingerprint") or "")
+    campaign_id = str(asset.get("campaign_id") or asset.get("campaignId") or "")
+    authorization = factory.conn.execute(
+        """
+        SELECT authorization_id, reservation_id, provider, campaign_id,
+               request_fingerprint, scope_json, status
+        FROM provider_spend_authorizations WHERE authorization_id = ?
+        """,
+        (authorization_id,),
+    ).fetchone()
+    if authorization is None:
+        raise CreativeApprovalError(
+            "creative_approval_higgsfield_authorization_missing"
+        )
+    try:
+        scope = json.loads(str(authorization[5] or "{}"))
+    except json.JSONDecodeError as exc:
+        raise CreativeApprovalError(
+            "creative_approval_higgsfield_authorization_invalid"
+        ) from exc
+    if (
+        str(authorization[0]) != authorization_id
+        or str(authorization[1]) != reservation_id
+        or str(authorization[2]) != "higgsfield"
+        or str(authorization[3] or "") != campaign_id
+        or str(authorization[4]) != request_fingerprint
+        or str(authorization[6]) != "consumed"
+        or not isinstance(scope, dict)
+        or scope.get("requestFingerprint") != request_fingerprint
+    ):
+        raise CreativeApprovalError(
+            "creative_approval_higgsfield_authorization_mismatch"
+        )
+    generation_id = str(execution.get("generationId") or "")
+    provider_model = str(execution.get("providerModel") or "")
+    cost_ids = execution.get("costEventIds")
+    assert isinstance(cost_ids, list)
+    for cost_id in cost_ids:
+        cost = factory.conn.execute(
+            """
+            SELECT id, reservation_id, campaign_id, provider, metadata_json
+            FROM ai_cost_events WHERE id = ?
+            """,
+            (cost_id,),
+        ).fetchone()
+        if cost is None:
+            raise CreativeApprovalError("creative_approval_higgsfield_cost_missing")
+        try:
+            cost_metadata = json.loads(str(cost[4] or "{}"))
+        except json.JSONDecodeError as exc:
+            raise CreativeApprovalError(
+                "creative_approval_higgsfield_cost_invalid"
+            ) from exc
+        if (
+            str(cost[0]) != cost_id
+            or str(cost[1]) != reservation_id
+            or str(cost[2] or "") != campaign_id
+            or str(cost[3]) != "higgsfield"
+            or not isinstance(cost_metadata, dict)
+            or cost_metadata.get("authorizationId") != authorization_id
+            or cost_metadata.get("jobId") != generation_id
+            or cost_metadata.get("requestFingerprint") != request_fingerprint
+            or cost_metadata.get("model") != provider_model
+        ):
+            raise CreativeApprovalError("creative_approval_higgsfield_cost_mismatch")
 
 
 def _canonical_ordinary_asset_approval_bindings(
@@ -1062,6 +1294,7 @@ def build_and_record_creative_approval_v2(
     ) != asset.get("content_hash"):
         raise CreativeApprovalError("creative_approval_current_sha_audit_missing")
     canonical = canonical_asset_approval_bindings(asset)
+    _validate_higgsfield_ledger_for_approval(factory, asset, canonical)
     report_path = Path(
         str(current_audit.get("reportPath") or current_audit.get("report_path") or "")
     ).expanduser()

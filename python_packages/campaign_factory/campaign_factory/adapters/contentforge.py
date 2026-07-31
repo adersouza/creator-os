@@ -624,10 +624,6 @@ def _audit_asset(
     }
     report_path = dirs["audits"] / f"{asset['id']}_{run_id}.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    if status == "approved_candidate":
-        approved_dest = dirs["approved"] / media_path.name
-        if media_path.exists() and not approved_dest.exists():
-            shutil.copy2(media_path, approved_dest)
     audit_id = new_id("audit")
     factory.conn.execute(
         """
