@@ -54,6 +54,8 @@ from campaign_factory.adapters.threadsdash_handoff_evidence import (
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 
+from pipeline_contracts import load_example
+
 sys.path.insert(
     0, str(Path(__file__).parents[2] / "python_packages/campaign_factory/tests")
 )
@@ -689,6 +691,36 @@ def export_real_asset(
     synced_context = json.loads(asset["caption_outcome_context_json"])
     add_audit_report(cf, asset["id"])
     mark_publishable_qc(cf, asset["id"])
+    row = dict(
+        cf.conn.execute(
+            "SELECT content_hash, metadata_json FROM rendered_assets WHERE id = ?",
+            (asset["id"],),
+        ).fetchone()
+    )
+    receipt = load_example("visual_derivative_receipt")
+    receipt["profile"].update({"id": "tilt_crop_dark", "observedSource": "spoofzy"})
+    receipt["accepted"][0]["output"]["sha256"] = row["content_hash"]
+    receipt_path = tmp_path / f"{asset['id']}.visual_derivative_receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    metadata = json.loads(row["metadata_json"] or "{}")
+    metadata.update(
+        {
+            "observedProfile": "tilt_crop_dark@1",
+            "visualDerivativeReceipt": {
+                "path": str(receipt_path),
+                "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+                "toolchainFingerprint": receipt["toolchain"]["fingerprint"],
+                "sourceSha256": receipt["source"]["sha256"],
+                "outputSha256": row["content_hash"],
+                "acceptedIndex": 1,
+            },
+        }
+    )
+    cf.conn.execute(
+        "UPDATE rendered_assets SET metadata_json = ? WHERE id = ?",
+        (json.dumps(metadata, sort_keys=True), asset["id"]),
+    )
+    cf.conn.commit()
     final_asset = dict(
         cf.conn.execute(
             "SELECT * FROM rendered_assets WHERE id = ?", (asset["id"],)
