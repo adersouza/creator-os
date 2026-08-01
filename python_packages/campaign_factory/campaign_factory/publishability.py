@@ -12,6 +12,7 @@ from .ai_disclosure import AI_DISCLOSURE_BLOCKER, AiDisclosurePublishabilityMixi
 from .asset_evidence import final_artifact_integrity_for_publishability
 from .caption_outcome import clean_without_overlay_fallback, load_context_json
 from .caption_policy import (
+    CONTEXTUAL_INSTAGRAM_POST_CAPTIONS,
     SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
     WARNING_CLASS_HARD_BLOCKER,
     WARNING_CLASS_OPERATOR_OVERRIDABLE,
@@ -884,17 +885,28 @@ class PublishabilityRepository(
         return "recoverableByCaptionRewrite"
 
     def suggest_simple_instagram_post_caption(
-        self, *, asset_id: str, current_caption: str, burned_caption: str
+        self,
+        *,
+        asset_id: str,
+        current_caption: str,
+        burned_caption: str,
+        context: dict[str, Any] | None = None,
     ) -> str:
+        context_text = json.dumps(
+            context or {}, ensure_ascii=False, sort_keys=True
+        ).lower()
+        pool: tuple[str, ...] = SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
+        for tokens, candidates in CONTEXTUAL_INSTAGRAM_POST_CAPTIONS:
+            if any(token in context_text for token in tokens):
+                pool = candidates
+                break
         start = int(hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:8], 16) % len(
-            SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
+            pool
         )
         current_normalized = " ".join(current_caption.lower().split())
         burned_normalized = " ".join(burned_caption.lower().split())
-        for offset in range(len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)):
-            suggestion = SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL[
-                (start + offset) % len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)
-            ]
+        for offset in range(len(pool)):
+            suggestion = pool[(start + offset) % len(pool)]
             normalized = suggestion.lower()
             if normalized == current_normalized or normalized == burned_normalized:
                 continue
@@ -908,7 +920,7 @@ class PublishabilityRepository(
             discoverability = self.discoverability_safe_content_contract(suggestion)
             if quality.get("passed") and discoverability.get("discoverabilitySafe"):
                 return suggestion
-        return SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL[0]
+        return pool[0]
 
     def publishability_check(
         self,

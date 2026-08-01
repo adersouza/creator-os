@@ -383,20 +383,29 @@ class StoryManagementRepository:
         if black_bar_check.get("warning"):
             warnings.append(str(black_bar_check["warning"]))
         quality = self.story_quality_metadata(asset)
-        safe_zone_score = self.bounded_score(
-            quality.get("story_safe_zone_score") or quality.get("storySafeZoneScore"),
-            default=100,
-        )
-        focal_score = self.bounded_score(
-            quality.get("story_focal_safety_score")
-            or quality.get("storyFocalSafetyScore"),
-            default=100,
-        )
-        text_score = self.bounded_score(
-            quality.get("story_text_readability_score")
-            or quality.get("storyTextReadabilityScore"),
-            default=100,
-        )
+        safe_zone_value = quality.get("story_safe_zone_score")
+        if safe_zone_value is None:
+            safe_zone_value = quality.get("storySafeZoneScore")
+        focal_value = quality.get("story_focal_safety_score")
+        if focal_value is None:
+            focal_value = quality.get("storyFocalSafetyScore")
+        text_value = quality.get("story_text_readability_score")
+        if text_value is None:
+            text_value = quality.get("storyTextReadabilityScore")
+        safe_zone_score = self.bounded_score(safe_zone_value, default=0)
+        focal_score = self.bounded_score(focal_value, default=0)
+        text_score = self.bounded_score(text_value, default=0)
+        missing_measurements = [
+            name
+            for name, value in (
+                ("story_safe_zone_score", safe_zone_value),
+                ("story_focal_safety_score", focal_value),
+                ("story_text_readability_score", text_value),
+            )
+            if value is None
+        ]
+        if missing_measurements:
+            failures.append("story_quality_measurements_missing")
         contains_text = self._truthy(
             quality.get("containsRenderedText") or quality.get("contains_rendered_text")
         )
@@ -439,6 +448,8 @@ class StoryManagementRepository:
             "story_safe_zone_score": safe_zone_score,
             "story_focal_safety_score": focal_score,
             "story_text_readability_score": text_score,
+            "storyQualityMeasurementsPresent": not missing_measurements,
+            "missingQualityMeasurements": missing_measurements,
             "sourceLineageBlockers": source_blockers,
             "storySourceNative": not source_blockers,
             "storyNoTextRequired": no_text_check["required"],

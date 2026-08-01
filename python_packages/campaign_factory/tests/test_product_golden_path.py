@@ -781,6 +781,15 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
         True,
     )
     factory = _production_factory(tmp_path)
+    factory.domains.audio_operations = SimpleNamespace(
+        attach_cover_frame_to_rendered_asset=lambda _asset_id, **kwargs: {
+            "coverFrame": {
+                "seconds": kwargs["seconds"],
+                "reason": kwargs["reason"],
+                "selected_by": kwargs["operator"],
+            }
+        }
+    )
     video, audio = _fixture_media(tmp_path)
     monkeypatch.setattr(
         "campaign_factory.production_lane._execute_higgsfield_provider_job",
@@ -814,6 +823,7 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
             "renderedAssetId": kwargs["rendered_asset_id"],
             "auditReportId": "audit-final",
             "reviewReady": True,
+            "coverCandidates": [{"timeSec": 0.5, "score": 91, "warnings": []}],
         },
     )
 
@@ -836,7 +846,9 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
         "renderedAssetId": "generated-asset",
         "auditReportId": "audit-final",
         "reviewReady": True,
+        "coverCandidates": [{"timeSec": 0.5, "score": 91, "warnings": []}],
     }
+    assert batch["results"][0]["result"]["coverFrame"]["seconds"] == 0.5
     receipt = completed["receipt"]
     intent = receipt["audioIntent"]
     row = factory.conn.execute(

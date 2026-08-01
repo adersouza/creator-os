@@ -236,6 +236,7 @@ def audit_final_asset(
         "warnings": report.get("warnings") or [],
         "error": report.get("error"),
         "readinessSummary": report.get("readinessSummary") or {},
+        "coverCandidates": report.get("coverCandidates") or [],
         "reviewReady": review_ready,
     }
 
@@ -691,6 +692,7 @@ def _audit_asset(
         "warnings": warnings,
         "error": error_message,
         "readinessSummary": response.get("readinessSummary"),
+        "coverCandidates": response.get("coverCandidates") or [],
         "layers": response.get("layers") or {},
         "verdicts": response.get("verdicts") or {},
         "verdictCodes": response.get("verdictCodes") or {},

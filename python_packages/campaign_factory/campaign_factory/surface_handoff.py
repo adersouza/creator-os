@@ -587,6 +587,21 @@ class SurfaceHandoffRepository:
                         or [],
                         "visualQualityStatus": story_quality.get("visualQualityStatus")
                         or "passed",
+                        "storyQualityMeasurementsPresent": bool(
+                            story_quality.get("storyQualityMeasurementsPresent")
+                        ),
+                        "storyGeometry": story_quality.get("geometry") or {},
+                        "storyBlackBarCheck": story_quality.get("storyBlackBarCheck")
+                        or {},
+                        "storySafeZoneScore": story_quality.get(
+                            "story_safe_zone_score"
+                        ),
+                        "storyFocalSafetyScore": story_quality.get(
+                            "story_focal_safety_score"
+                        ),
+                        "storyTextReadabilityScore": story_quality.get(
+                            "story_text_readability_score"
+                        ),
                     }
                 )
         return {

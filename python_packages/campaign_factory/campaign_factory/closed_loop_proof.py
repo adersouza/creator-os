@@ -186,7 +186,7 @@ def discover_creator_account_context(
     groups = client.select(
         "account_groups",
         {
-            "select": "id,name,account_ids,user_id",
+            "select": "id,name,account_ids,user_id,voice_profile,content_strategy",
             "user_id": f"eq.{user_id}",
         },
     )
@@ -500,6 +500,8 @@ def _account_resolution_payload(
         "username": username,
         "groupId": group.get("id"),
         "groupName": group.get("name"),
+        "voiceProfile": group.get("voice_profile"),
+        "contentStrategy": group.get("content_strategy"),
         "resolutionPath": resolution_path,
         "raw": _safe_account_summary(account),
     }

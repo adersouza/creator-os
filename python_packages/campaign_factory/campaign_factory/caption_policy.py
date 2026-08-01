@@ -40,3 +40,27 @@ SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL = (
     "soft launch",
     "posting this one",
 )
+
+CONTEXTUAL_INSTAGRAM_POST_CAPTIONS = (
+    (("pool", "swim", "water"), ("pool day", "needed this swim", "water always wins")),
+    (
+        ("gym", "workout", "fitness"),
+        ("post workout check", "gym fit today", "after the workout"),
+    ),
+    (
+        ("mirror", "outfit", "fullbody"),
+        ("mirror said yes", "today's fit", "this look won"),
+    ),
+    (
+        ("car", "passenger", "driver"),
+        ("passenger seat thoughts", "car selfie", "on the way"),
+    ),
+    (
+        ("beach", "ocean", "vacation"),
+        ("needed this view", "beach day", "out of office"),
+    ),
+    (
+        ("bedroom", "late_night", "indoor_selfie"),
+        ("late night thoughts", "staying in", "one more selfie"),
+    ),
+)

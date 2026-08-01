@@ -2873,6 +2873,44 @@ def test_story_quality_gate_blocks_black_bars(tmp_path: Path):
         cf.close()
 
 
+def test_story_quality_gate_fails_closed_without_measurements(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        asset = add_story_quality_asset(
+            cf, tmp_path, asset_id="asset_story_missing_measurements"
+        )
+        generation = json.loads(asset["caption_generation_json"] or "{}")
+        generation.pop("storyQuality", None)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = ?",
+            (json.dumps(generation), asset["id"]),
+        )
+        cf.conn.commit()
+
+        result = cf.domains.story_management.story_quality_gate_v1(asset["id"])
+
+        assert result["story_quality_gate_passed"] is False
+        assert "story_quality_measurements_missing" in result["failureReasons"]
+        assert result["storyQualityMeasurementsPresent"] is False
+    finally:
+        cf.close()
+
+
+def test_post_caption_repair_uses_persisted_scene_context(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        suggestion = cf.domains.publishability.suggest_simple_instagram_post_caption(
+            asset_id="pool-asset",
+            current_caption="",
+            burned_caption="pov: when he says he likes girls who swim",
+            context={"captionSelectionContext": {"sceneTags": ["pool", "swim"]}},
+        )
+
+        assert suggestion in {"pool day", "needed this swim", "water always wins"}
+    finally:
+        cf.close()
+
+
 @pytest.mark.parametrize(
     "asset_id,quality_metadata,reason",
     [
