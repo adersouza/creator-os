@@ -44,7 +44,10 @@ def test_settings_root_override_isolates_creative_approval_receipts(
 ) -> None:
     settings = Settings(root=tmp_path)
 
-    assert settings.creative_approvals_dir == (tmp_path / "creative_approvals").resolve()
+    assert (
+        settings.creative_approvals_dir == (tmp_path / "creative_approvals").resolve()
+    )
+
 
 MONOREPO_ROOT = Path(__file__).resolve().parents[3]
 

@@ -56,6 +56,8 @@ EXPERIMENT_VARIABLES = frozenset(
         "observed_profile",
     }
 )
+
+
 def _fingerprint(value: object) -> str:
     return hashlib.sha256(_json(value).encode()).hexdigest()
 

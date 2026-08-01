@@ -90,13 +90,10 @@ def select_observed_profile(
         bool(traits.get(key)) for key in ("burnedCaption", "captionBurned")
     )
     visible_text = burned_caption or any(
-        bool(traits.get(key))
-        for key in ("visibleText", "ocrTextPresent")
+        bool(traits.get(key)) for key in ("visibleText", "ocrTextPresent")
     )
     media_type = str(traits.get("mediaType") or traits.get("media_type") or "").lower()
-    eligible = (
-        [] if synchronized or burned_caption else list(OBSERVED_PROFILE_SEQUENCE)
-    )
+    eligible = [] if synchronized or burned_caption else list(OBSERVED_PROFILE_SEQUENCE)
     blockers: dict[str, list[str]] = {}
     if synchronized:
         blockers = {

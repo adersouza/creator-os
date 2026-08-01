@@ -95,9 +95,7 @@ class Settings:
             or (
                 self.root / "creative_approvals"
                 if campaign_root_is_override
-                else _PATHS.artifact_root
-                / "campaign_factory"
-                / "creative_approvals"
+                else _PATHS.artifact_root / "campaign_factory" / "creative_approvals"
             )
         )
         for field_name, value in (

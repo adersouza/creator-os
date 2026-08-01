@@ -425,8 +425,7 @@ def _validate_execution_evidence(
             != "reel_factory.higgsfield_production_receipt.v1"
             or provider_payload.get("status") != "completed"
             or provider_payload.get("authorizationId") != authorization_id
-            or provider_payload.get("providerRequestFingerprint")
-            != request_fingerprint
+            or provider_payload.get("providerRequestFingerprint") != request_fingerprint
             or provider_payload.get("model") != provider_model
             or provider_payload.get("generationId") != generation_id
             or provider_payload.get("soulId") != soul_id

@@ -1392,9 +1392,7 @@ def test_profile_sequence_is_shared_and_opening_trim_requires_passive_video(
             media_metadata={"mediaType": "image"},
         )
         assert image["eligibleProfiles"] == list(OBSERVED_PROFILE_SEQUENCE[:3])
-        assert image["blockedProfiles"]["opening_trim@1"] == [
-            "passive_video_required"
-        ]
+        assert image["blockedProfiles"]["opening_trim@1"] == ["passive_video_required"]
         video = select_observed_profile(
             cf.conn,
             creator="stacey",
