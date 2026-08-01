@@ -712,13 +712,13 @@ def _fit_daily_caption(
     context: dict[str, Any],
     seed: int,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    from reel_factory.caption_scene_fit import (
+    from reel_factory.worker_api import (
+        CaptionSet,
+        apply_caption_fit_to_caption_set,
+        caption_hook_payload,
         classify_reel_scene_tags,
         infer_caption_topic_for_reel,
     )
-    from reel_factory.reel_pipeline_selection import apply_caption_fit_to_caption_set
-    from reel_factory.reel_pipeline_support import CaptionSet
-    from reel_factory.worker_api import caption_hook_payload
 
     if not items:
         return None, {}

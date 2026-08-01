@@ -230,6 +230,32 @@ def select_observed_profile_for_asset(
     )
 
 
+def resolve_observed_profile_for_asset(
+    conn: sqlite3.Connection,
+    *,
+    rendered_asset_id: str,
+    profile: str | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    if profile != "auto":
+        return profile, None
+    experiment = select_observed_profile_for_asset(
+        conn, rendered_asset_id=rendered_asset_id, purpose="experiment"
+    )
+    production = select_observed_profile_for_asset(
+        conn, rendered_asset_id=rendered_asset_id, purpose="production"
+    )
+    decision = (
+        experiment
+        if experiment["mode"] == "continue_active"
+        or production["selectedProfile"] is None
+        else production
+    )
+    selected = decision["selectedProfile"]
+    if selected is None:
+        raise ValueError(f"no observed profile is eligible: {decision['mode']}")
+    return str(selected), decision
+
+
 def observed_experiment_report(
     conn: sqlite3.Connection,
     *,

@@ -369,7 +369,15 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
                 contentforge_base_url=contentforge_base_url,
                 source_media_path=source_media_path,
             )
-        raise ValueError("variant_profile_required")
+        return self._generate_legacy_contentforge_variants(
+            parent_asset_id=parent_asset_id,
+            caption_version_id=caption_version_id,
+            count=count,
+            contentforge_preset=contentforge_preset,
+            contentforge_base_url=contentforge_base_url,
+            source_media_path=source_media_path,
+            contentforge_timeout_seconds=contentforge_timeout_seconds,
+        )
 
     def qualify_observed_renderer_control(
         self, *, rendered_asset_id: str

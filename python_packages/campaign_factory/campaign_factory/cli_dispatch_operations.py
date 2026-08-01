@@ -29,6 +29,7 @@ from .learning_governance import (
     rollback_learning_policy,
 )
 from .learning_readiness import closed_loop_learning_status
+from .observed_experiment_reporting import resolve_observed_profile_for_asset
 from .quality_calibration import track_q_calibration_status
 
 
@@ -111,34 +112,9 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         )
         return 0
     if args.cmd == "generate-variants":
-        profile_decision = None
-        profile = args.profile
-        if profile == "auto":
-            from .observed_experiment_reporting import (
-                select_observed_profile_for_asset,
-            )
-
-            experiment_decision = select_observed_profile_for_asset(
-                cf.conn,
-                rendered_asset_id=args.parent_asset_id,
-                purpose="experiment",
-            )
-            production_decision = select_observed_profile_for_asset(
-                cf.conn,
-                rendered_asset_id=args.parent_asset_id,
-                purpose="production",
-            )
-            profile_decision = (
-                experiment_decision
-                if experiment_decision["mode"] == "continue_active"
-                or production_decision["selectedProfile"] is None
-                else production_decision
-            )
-            profile = profile_decision["selectedProfile"]
-            if profile is None:
-                raise ValueError(
-                    f"no observed profile is eligible: {profile_decision['mode']}"
-                )
+        profile, profile_decision = resolve_observed_profile_for_asset(
+            cf.conn, rendered_asset_id=args.parent_asset_id, profile=args.profile
+        )
         if args.dry_run:
             plan = cf.domains.variant_lineage.variant_plan(
                 parent_asset_id=args.parent_asset_id,
