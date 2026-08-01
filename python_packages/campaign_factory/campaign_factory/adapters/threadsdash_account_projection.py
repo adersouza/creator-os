@@ -485,6 +485,7 @@ def sync_threadsdash_instagram_accounts(
             platform="instagram",
             external_id=str(row.get("id") or ""),
             model_id=model["id"],
+            account_group_id=str(row.get("group_id") or "") or None,
         )
         account = factory.domains.models.project_instagram_account_evidence(
             account["id"],
@@ -505,6 +506,7 @@ def sync_threadsdash_instagram_accounts(
                 "instagramAccountId": row.get("id"),
                 "username": username,
                 "displayName": display_name,
+                "accountGroupId": row.get("group_id"),
                 "syncCohort": row.get("sync_cohort"),
                 "accountState": {
                     "active": row.get("is_active"),

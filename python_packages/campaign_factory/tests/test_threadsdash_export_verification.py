@@ -1420,7 +1420,7 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
             payload["drafts"][0]["metadata"]["coverUrl"]
             == "https://cdn.example.com/stacey-cover.jpg"
         )
-        assert payload["drafts"][0]["metadata"]["thumbOffset"] == 1.4
+        assert payload["drafts"][0]["metadata"]["thumbOffset"] == 1400
     finally:
         cf.close()
 
@@ -2368,6 +2368,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
                     "id": "ig_stacey_1",
                     "username": "stacey_ben.x",
                     "display_name": "Stacey",
+                    "group_id": "group-stacey-main",
                     "is_active": True,
                     "status": "active",
                     "needs_reauth": False,
@@ -2385,6 +2386,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
                     "id": "ig_stacey_2",
                     "username": "bennett.lovee",
                     "display_name": "Stacey",
+                    "group_id": "group-stacey-main",
                     "is_active": True,
                     "status": "active",
                     "needs_reauth": False,
@@ -2436,7 +2438,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
             dict(row)
             for row in cf.conn.execute(
                 """
-                SELECT handle, external_id, oauth_granted_scopes_json,
+                SELECT handle, external_id, account_group_id, oauth_granted_scopes_json,
                        oauth_scopes_verified_at, trial_reels_capability,
                        trial_reels_capability_checked_at,
                        trial_reels_capability_reason
@@ -2454,6 +2456,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
             {
                 "handle": "bennett.lovee",
                 "external_id": "ig_stacey_2",
+                "account_group_id": "group-stacey-main",
                 "oauth_granted_scopes_json": None,
                 "oauth_scopes_verified_at": None,
                 "trial_reels_capability": "denied",
@@ -2463,6 +2466,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
             {
                 "handle": "stacey_ben.x",
                 "external_id": "ig_stacey_1",
+                "account_group_id": "group-stacey-main",
                 "oauth_granted_scopes_json": json.dumps(
                     ["instagram_basic", "instagram_content_publish"]
                 ),
@@ -2473,6 +2477,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
             },
         ]
         assert second["accounts"][0]["trialCapability"]["status"] == "eligible"
+        assert second["accounts"][0]["accountGroupId"] == "group-stacey-main"
         assert second["accounts"][1]["trialCapability"]["status"] == "denied"
     finally:
         cf.close()

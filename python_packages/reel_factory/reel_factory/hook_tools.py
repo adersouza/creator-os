@@ -21,10 +21,13 @@ try:
 except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
+fuzz: Any = None
 try:
-    from rapidfuzz import fuzz  # type: ignore
+    from rapidfuzz import fuzz as _rapidfuzz  # type: ignore
+
+    fuzz = _rapidfuzz
 except Exception:  # pragma: no cover - fallback for minimal envs
-    fuzz = None
+    pass
 
 FUZZY_DUPLICATE_THRESHOLD = 92
 SEMANTIC_DUPLICATE_THRESHOLD = 0.82

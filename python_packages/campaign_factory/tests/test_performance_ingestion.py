@@ -964,11 +964,31 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
             story_intent="casual_selfie",
             story_style="selfie",
         )
-        asset = cf.domains.rendered_asset(registered["renderedAssetId"])
+        asset_id = registered["renderedAssetId"]
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = ?",
+            (
+                json.dumps(
+                    {
+                        "story_asset_class": "story_selfie",
+                        "story_intent": "casual_selfie",
+                        "story_style": "selfie",
+                        "storyQuality": {
+                            "story_safe_zone_score": 100,
+                            "story_focal_safety_score": 100,
+                            "story_text_readability_score": 100,
+                        },
+                    }
+                ),
+                asset_id,
+            ),
+        )
+        cf.conn.commit()
+        asset = cf.domains.rendered_asset(asset_id)
         draft = cf.domains.surface_handoff.surface_draft_proof(
             creator="Stacey",
             campaign="stacey_story_metrics_proof",
-            rendered_asset_id=registered["renderedAssetId"],
+            rendered_asset_id=asset_id,
         )["drafts"][0]
         manifest = draft["handoffManifestV2"]
         assert manifest["contentSurface"] == "story"

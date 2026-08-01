@@ -1264,7 +1264,7 @@ def _draft_metadata(
         visual_qc_status = "unavailable"
     if identity_verification_status not in {"passed", "failed", "unavailable"}:
         identity_verification_status = "unavailable"
-    metadata = {
+    metadata: dict[str, Any] = {
         "campaign_factory": {
             "graph_id": draft.get("graphId") or draft.get("renderedAssetGraphId"),
             "campaign_graph_id": draft.get("campaignGraphId"),
@@ -1463,7 +1463,7 @@ def _draft_metadata(
         ):
             metadata["coverUrl"] = cover_frame.get("image_url").strip()
         if isinstance(cover_frame.get("seconds"), (int, float)):
-            metadata["thumbOffset"] = cover_frame.get("seconds")
+            metadata["thumbOffset"] = round(float(cover_frame["seconds"]) * 1000)
     if draft.get("smartLink"):
         metadata["campaign_factory_smart_link"] = draft.get("smartLink")
     if metadata["campaign_factory"].get("learning_cohort") is None:

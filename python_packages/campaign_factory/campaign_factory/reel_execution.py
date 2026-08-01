@@ -26,6 +26,20 @@ def _normalized_ids(values: list[str], name: str) -> list[str]:
     return normalized
 
 
+def _scene_hashtags(context: dict[str, Any]) -> list[str]:
+    text = json.dumps(context, ensure_ascii=False, sort_keys=True).lower()
+    for tokens, tags in (
+        (("pool", "swim", "water"), ["#poolday"]),
+        (("gym", "workout", "fitness"), ["#gymfit"]),
+        (("mirror", "outfit", "fullbody"), ["#outfitcheck"]),
+        (("car", "passenger", "driver"), ["#carselfie"]),
+        (("beach", "ocean", "vacation"), ["#beachday"]),
+    ):
+        if any(token in text for token in tokens):
+            return tags
+    return []
+
+
 class ReelExecutionRepository:
     def __init__(
         self,
@@ -696,9 +710,12 @@ class ReelExecutionRepository:
                     caption_hash_value = (
                         self._text_hash(caption_text) if caption_text else None
                     )
-                    caption_generation = self.caption_generation_for_clip(
-                        job["reel_clip_stem"]
-                    )
+                    caption_generation = {
+                        **self.caption_generation_for_clip(
+                            job["reel_clip_stem"], caption_text=caption_text
+                        ),
+                        **reel_lineage,
+                    }
                     lineage = {**caption_generation, **reel_lineage}
                     caption_context = self.caption_outcome_context_for_reel_output(
                         clip_stem=job["reel_clip_stem"],
@@ -721,6 +738,7 @@ class ReelExecutionRepository:
                             asset_id=rendered_id,
                             current_caption="",
                             burned_caption=caption_text,
+                            context=caption_generation,
                         )
                         caption_context["instagram_post_caption"] = post_caption
                         caption_context["instagram_post_caption_hash"] = (
@@ -735,7 +753,7 @@ class ReelExecutionRepository:
                                 post_caption
                             ),
                             "post_caption_style": "simple_native",
-                            "hashtags": [],
+                            "hashtags": _scene_hashtags(caption_generation),
                         }
                     caption_generation["captionHash"] = caption_hash_value
                     caption_generation["captionOutcomeContext"] = caption_context
@@ -893,7 +911,9 @@ class ReelExecutionRepository:
     def ratio_from_filename(self, filename: str) -> str:
         return "4:5" if "_4x5_" in filename else "9:16"
 
-    def caption_generation_for_clip(self, clip_stem: str) -> dict[str, Any]:
+    def caption_generation_for_clip(
+        self, clip_stem: str, *, caption_text: str = ""
+    ) -> dict[str, Any]:
         sidecar = self.settings.reel_factory_root / "01_captions" / f"{clip_stem}.json"
         if not sidecar.exists():
             return {}
@@ -943,6 +963,23 @@ class ReelExecutionRepository:
             generation_payload["audioRecommendations"] = (
                 reference_meta.get("audioRecommendations") or {}
             )
+        selected_meta = next(
+            (
+                item
+                for item in hook_metadata
+                if isinstance(item, dict)
+                and str(item.get("text") or "").strip() == caption_text.strip()
+            ),
+            next((item for item in hook_metadata if isinstance(item, dict)), None),
+        )
+        if selected_meta:
+            generation_payload["captionHook"] = selected_meta
+            lineage = selected_meta.get("captionLineage")
+            if isinstance(lineage, dict):
+                generation_payload["captionLineage"] = lineage
+                selection_context = lineage.get("captionSelectionContext")
+                if isinstance(selection_context, dict):
+                    generation_payload["captionSelectionContext"] = selection_context
         return generation_payload
 
     def caption_outcome_context_for_reel_output(
@@ -1177,7 +1214,7 @@ class ReelExecutionRepository:
         )
         reel_lineage = lineage if isinstance(lineage, dict) else {}
         caption_generation = {
-            **self.caption_generation_for_clip(clip_stem),
+            **self.caption_generation_for_clip(clip_stem, caption_text=caption_text),
             **reel_lineage,
             **existing_generation,
         }
@@ -1235,6 +1272,7 @@ class ReelExecutionRepository:
                 asset_id=str(asset["id"]),
                 current_caption="",
                 burned_caption=burned_caption,
+                context=caption_generation,
             )
             caption_context["instagram_post_caption"] = post_caption
             caption_context["instagram_post_caption_hash"] = self._text_hash(
@@ -1247,7 +1285,7 @@ class ReelExecutionRepository:
                 "instagramPostCaption": post_caption,
                 "instagram_post_caption_hash": self._text_hash(post_caption),
                 "post_caption_style": "simple_native",
-                "hashtags": [],
+                "hashtags": _scene_hashtags(caption_generation),
             }
         caption_generation["captionHash"] = caption_hash_value
         caption_generation["captionOutcomeContext"] = caption_context

@@ -346,7 +346,7 @@
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
     "directSqlWriterInventorySha256": "763ad567c7b97f7bb22920a6dfc6c146e712dd0eb01d4f924a5c5680c982656e",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
-    "persistentJsonWriterInventorySha256": "acfd74186416bf413a0cb4559956dc821c0bfea11edb3f4ceb94e9cc1068199f",
+    "persistentJsonWriterInventorySha256": "f6b6ece2e3f256158d7c9edbfe6aa88803e0afb855581fd72ffba32a7ca4103a",
     "policyInheritance": [
       "store policy applies to every discovered record",
       "record policy applies to every discovered field unless a stricter field rule applies",

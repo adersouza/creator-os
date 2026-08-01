@@ -380,7 +380,24 @@ def finalize_production_media(
     )
     if audit["reviewReady"] is not True:
         raise RuntimeError("final_contentforge_qc_failed")
-    return {"audioFulfillment": audio, "finalContentForgeAudit": audit}
+    selected_cover = max(
+        audit["coverCandidates"],
+        key=lambda candidate: (
+            float(candidate.get("score") or 0),
+            -float(candidate["timeSec"]),
+        ),
+    )
+    cover = factory.domains.audio_operations.attach_cover_frame_to_rendered_asset(
+        rendered_asset_id,
+        seconds=float(selected_cover["timeSec"]),
+        reason="contentforge_best_clean_candidate",
+        operator="contentforge",
+    )["coverFrame"]
+    return {
+        "audioFulfillment": audio,
+        "finalContentForgeAudit": audit,
+        "coverFrame": cover,
+    }
 
 
 def plan_production_batch(

@@ -1512,6 +1512,12 @@ def test_story_handoff_manifest_v2_includes_story_quality_proof_fields(tmp_path:
 
         assert readiness["assets"][0]["canHandoff"] is True
         assert manifest["storyQualityGatePassed"] is True
+        assert manifest["storyQualityMeasurementsPresent"] is True
+        assert manifest["storyGeometry"]["passed"] is True
+        assert manifest["storyBlackBarCheck"]["blackBarsDetected"] is False
+        assert manifest["storySafeZoneScore"] == 100
+        assert manifest["storyFocalSafetyScore"] == 100
+        assert manifest["storyTextReadabilityScore"] == 100
         assert manifest["storySourceNative"] is True
         assert manifest["storyNoTextRequired"] is True
         assert manifest["storyNoTextPassed"] is True

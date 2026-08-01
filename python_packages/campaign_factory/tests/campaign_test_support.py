@@ -21,6 +21,7 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
             contentforge_root=tmp_path / "contentforge",
             threadsdash_root=tmp_path / "ThreadsDashboard",
             campaigns_dir=tmp_path / "campaigns",
+            creative_approvals_dir=tmp_path / "creative_approvals",
         )
     )
 

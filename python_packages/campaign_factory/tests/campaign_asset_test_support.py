@@ -490,7 +490,10 @@ def add_story_quality_asset(
     image_path = write_rgb_png(tmp_path / f"{asset_id}.png", width, height, bars=bars)
     generation = json.loads(asset["caption_generation_json"] or "{}")
     if quality_metadata:
-        generation["storyQuality"] = quality_metadata
+        generation["storyQuality"] = {
+            **(generation.get("storyQuality") or {}),
+            **quality_metadata,
+        }
     story_asset_class = generation.get("story_asset_class") or "story_selfie"
     story_intent = generation.get("story_intent") or "casual_selfie"
     story_style = generation.get("story_style") or "selfie"
@@ -574,6 +577,11 @@ def add_surface_asset_fixture(
                 "story_asset_class": "story_selfie",
                 "story_intent": "casual_selfie",
                 "story_style": "selfie",
+                "storyQuality": {
+                    "story_safe_zone_score": 100,
+                    "story_focal_safety_score": 100,
+                    "story_text_readability_score": 100,
+                },
             }
         )
     now = "2026-06-06T00:00:00+00:00"

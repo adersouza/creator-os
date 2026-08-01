@@ -12,9 +12,10 @@ from .ai_disclosure import AI_DISCLOSURE_BLOCKER, AiDisclosurePublishabilityMixi
 from .asset_evidence import final_artifact_integrity_for_publishability
 from .caption_outcome import clean_without_overlay_fallback, load_context_json
 from .caption_policy import (
-    SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
     WARNING_CLASS_HARD_BLOCKER,
     WARNING_CLASS_OPERATOR_OVERRIDABLE,
+    caption_quality_recovery_class,
+    contextual_instagram_post_caption_pool,
     warning_class,
 )
 from .creative_approval import (
@@ -817,7 +818,7 @@ class PublishabilityRepository(
                 and discoverability_contract.get("discoverabilitySafe")
                 and not non_caption_blockers
             )
-            recovery_class = self.caption_quality_recovery_class(quality_reasons)
+            recovery_class = caption_quality_recovery_class(quality_reasons)
             if non_caption_blockers:
                 unrecoverable += 1
             elif recovery_class == "recoverableByHashtagTrim":
@@ -872,29 +873,22 @@ class PublishabilityRepository(
             "wouldWrite": False,
         }
 
-    def caption_quality_recovery_class(self, quality_reasons: list[str]) -> str:
-        reason_set = set(quality_reasons)
-        if reason_set and reason_set <= {
-            "instagram_post_caption_too_many_hashtags",
-            "instagram_post_caption_too_many_lines",
-        }:
-            return "recoverableByHashtagTrim"
-        if "instagram_post_caption_platform_risk" in reason_set:
-            return "recoverableByCTARemoval"
-        return "recoverableByCaptionRewrite"
-
     def suggest_simple_instagram_post_caption(
-        self, *, asset_id: str, current_caption: str, burned_caption: str
+        self,
+        *,
+        asset_id: str,
+        current_caption: str,
+        burned_caption: str,
+        context: dict[str, Any] | None = None,
     ) -> str:
+        pool = contextual_instagram_post_caption_pool(context)
         start = int(hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:8], 16) % len(
-            SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
+            pool
         )
         current_normalized = " ".join(current_caption.lower().split())
         burned_normalized = " ".join(burned_caption.lower().split())
-        for offset in range(len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)):
-            suggestion = SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL[
-                (start + offset) % len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)
-            ]
+        for offset in range(len(pool)):
+            suggestion = pool[(start + offset) % len(pool)]
             normalized = suggestion.lower()
             if normalized == current_normalized or normalized == burned_normalized:
                 continue
@@ -908,7 +902,7 @@ class PublishabilityRepository(
             discoverability = self.discoverability_safe_content_contract(suggestion)
             if quality.get("passed") and discoverability.get("discoverabilitySafe"):
                 return suggestion
-        return SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL[0]
+        return pool[0]
 
     def publishability_check(
         self,
