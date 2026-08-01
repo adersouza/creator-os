@@ -23,7 +23,10 @@ from .content_director import (
     _fingerprint as plan_fingerprint,
 )
 from .learning_governance import register_experiment_design
-from .observed_experiment_reporting import OBSERVED_MEASUREMENT_PLAN
+from .observed_experiment_reporting import (
+    OBSERVED_MEASUREMENT_PLAN,
+    select_observed_profile,
+)
 from .production_lane import plan_production_batch, run_production_batch
 
 OBSERVATION_BUCKETS = {
@@ -64,6 +67,41 @@ def _fingerprint(value: object) -> str:
     return hashlib.sha256(_json(value).encode()).hexdigest()
 
 
+def _learned_posting_hour(
+    conn: sqlite3.Connection, account_handle: str, weekday: int
+) -> dict[str, Any] | None:
+    account = conn.execute(
+        "SELECT id FROM accounts WHERE handle = ? ORDER BY id LIMIT 1",
+        (account_handle,),
+    ).fetchone()
+    account_ids = [account_handle]
+    if account and str(account["id"]) != account_handle:
+        account_ids.append(str(account["id"]))
+    placeholders = ",".join("?" for _ in account_ids)
+    row = conn.execute(
+        f"""
+        SELECT hour, SUM(sample_size) AS sample_size,
+               ROUND(SUM(performance_score * sample_size) * 1.0 /
+                     SUM(sample_size), 4) AS performance_score
+        FROM account_posting_windows
+        WHERE account_id IN ({placeholders}) AND weekday = ?
+          AND sample_size > 0 AND performance_score IS NOT NULL
+        GROUP BY hour
+        HAVING SUM(sample_size) >= 3
+        ORDER BY performance_score DESC, sample_size DESC, hour
+        LIMIT 1
+        """,
+        (*account_ids, weekday),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "hour": int(row["hour"]),
+        "sampleSize": int(row["sample_size"]),
+        "performanceScore": float(row["performance_score"]),
+    }
+
+
 def propose_schedule(
     conn: sqlite3.Connection,
     plan_id: str,
@@ -84,10 +122,17 @@ def propose_schedule(
         day_offset = next_day_by_account.get(account, 0)
         while True:
             candidate_date = horizon_start + timedelta(days=day_offset)
+            learned = _learned_posting_hour(conn, account, candidate_date.weekday())
             candidate = datetime.combine(
                 candidate_date,
                 time(
-                    hour=12 if candidate_date.weekday() >= 5 else 18,
+                    hour=(
+                        int(learned["hour"])
+                        if learned
+                        else 12
+                        if candidate_date.weekday() >= 5
+                        else 18
+                    ),
                     minute=30,
                 ),
                 tzinfo=zone,
@@ -100,8 +145,20 @@ def propose_schedule(
                 day_offset += 1
                 continue
             break
-        layer = "safe_deterministic_default"
-        source = "machine_local_content_director_policy"
+        layer = (
+            "measured_account_posting_window"
+            if learned
+            else "safe_deterministic_default"
+        )
+        source: str | dict[str, Any] = (
+            {
+                **learned,
+                "weekday": candidate_date.weekday(),
+                "memoryTable": "account_posting_windows",
+            }
+            if learned
+            else "machine_local_content_director_policy"
+        )
         proposal = {
             "schema": "creator_os.schedule_proposal.v1",
             "planId": plan["planId"],
@@ -113,7 +170,7 @@ def propose_schedule(
             "minimumGapHours": minimum_gap_hours,
             "sourceLayer": layer,
             "sourceEvidence": source,
-            "learnedTiming": False,
+            "learnedTiming": learned is not None,
             "threadsdashboardFinalAuthority": True,
             "status": "PROPOSED",
         }
@@ -159,11 +216,26 @@ def design_experiment(
     if len(items) < 2:
         raise ValueError("experiment requires at least two plan items")
     observed = assignment_method == "cross_account_blocked_rotation.v1"
+    profile_decision = None
     if observed:
         if changed_variable != "observed_profile":
             raise ValueError("cross-account rotation requires observed_profile")
         if len({item["target_account"] for item in items}) != 2:
             raise ValueError("observed-profile experiment requires two accounts")
+        if variants == ("control", "auto"):
+            profile_decision = select_observed_profile(
+                conn,
+                creator=str(plan["creator"]),
+                content_intent=str(items[0]["content_intent"]),
+                source_asset_id=items[0]["source_asset_id"],
+                purpose="experiment",
+            )
+            selected = profile_decision["selectedProfile"]
+            if selected is None:
+                raise ValueError(
+                    f"no observed profile is eligible: {profile_decision['mode']}"
+                )
+            variants = ("control", str(selected))
         if variants[0] != "control" or not variants[1].endswith("@1"):
             raise ValueError(
                 "observed-profile variants must be control and one @1 profile"
@@ -184,7 +256,11 @@ def design_experiment(
                 """,
                 (previous, plan["creator"]),
             ).fetchone()
-            if not decided:
+            skipped_by_eligibility = bool(
+                profile_decision
+                and previous in profile_decision.get("blockedProfiles", {})
+            )
+            if not decided and not skipped_by_eligibility:
                 raise ValueError(
                     f"previous observed-profile experiment is not decided: {previous}"
                 )
@@ -243,6 +319,7 @@ def design_experiment(
             else "two items show an observed difference only; not causal proof"
         ),
         "measurementPlan": OBSERVED_MEASUREMENT_PLAN if observed else None,
+        "profileDecision": profile_decision,
         "assignments": assignments,
         "status": "PROPOSED",
     }
@@ -274,7 +351,12 @@ def design_experiment(
                 seed,
                 receipt["requiredObservationCohort"],
                 receipt["minimumSampleWarning"],
-                _json({"measurementPlan": OBSERVED_MEASUREMENT_PLAN})
+                _json(
+                    {
+                        "measurementPlan": OBSERVED_MEASUREMENT_PLAN,
+                        "profileDecision": profile_decision,
+                    }
+                )
                 if observed
                 else "{}",
                 now,

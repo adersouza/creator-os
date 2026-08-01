@@ -111,28 +111,46 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         )
         return 0
     if args.cmd == "generate-variants":
+        profile_decision = None
+        profile = args.profile
+        if profile == "auto":
+            from .observed_experiment_reporting import (
+                select_observed_profile_for_asset,
+            )
+
+            profile_decision = select_observed_profile_for_asset(
+                cf.conn,
+                rendered_asset_id=args.parent_asset_id,
+                purpose="experiment",
+            )
+            profile = profile_decision["selectedProfile"]
+            if profile is None:
+                raise ValueError(
+                    f"no observed profile is eligible: {profile_decision['mode']}"
+                )
         if args.dry_run:
             plan = cf.domains.variant_lineage.variant_plan(
                 parent_asset_id=args.parent_asset_id,
                 caption_version_id=args.caption_version_id,
                 count=args.count,
-                profile=args.profile,
+                profile=profile,
             )
             plan["schema"] = "campaign_factory.generate_variants.preview.v1"
             plan["status"] = "dry_run"
+            plan["profileDecision"] = profile_decision
             print_json(plan)
         else:
-            print_json(
-                cf.domains.variant_lineage.generate_variants(
-                    parent_asset_id=args.parent_asset_id,
-                    caption_version_id=args.caption_version_id,
-                    count=args.count,
-                    profile=args.profile,
-                    attempt_limit=args.attempt_limit,
-                    contentforge_base_url=args.contentforge_base_url,
-                    source_media_path=args.source_media_path,
-                )
+            result = cf.domains.variant_lineage.generate_variants(
+                parent_asset_id=args.parent_asset_id,
+                caption_version_id=args.caption_version_id,
+                count=args.count,
+                profile=profile,
+                attempt_limit=args.attempt_limit,
+                contentforge_base_url=args.contentforge_base_url,
+                source_media_path=args.source_media_path,
             )
+            result["profileDecision"] = profile_decision
+            print_json(result)
         return 0
     if args.cmd == "bind-observed-caption":
         print_json(
