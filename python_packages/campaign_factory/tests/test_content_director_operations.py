@@ -98,6 +98,27 @@ def test_schedule_advances_each_account_independently(tmp_path: Path) -> None:
     )
 
 
+def test_schedule_consumes_measured_account_posting_window(tmp_path: Path) -> None:
+    conn, plan_id = _persisted(tmp_path, count=1)
+    conn.execute(
+        """
+        INSERT INTO account_posting_windows
+        (id, campaign_id, account_id, weekday, hour, sample_size,
+         performance_score, stats_json, updated_at)
+        VALUES ('learned_window', 'camp_1', 'account_1', 1, 21, 4, 88,
+                '{}', '2026-07-27T00:00:00Z')
+        """
+    )
+    conn.commit()
+
+    proposal = propose_schedule(conn, plan_id, apply=False)["proposals"][0]
+
+    assert datetime.fromisoformat(proposal["windowStart"]).hour == 21
+    assert proposal["learnedTiming"] is True
+    assert proposal["sourceLayer"] == "measured_account_posting_window"
+    assert proposal["sourceEvidence"]["sampleSize"] == 4
+
+
 def test_constrained_minimum_gap_can_use_every_other_day(tmp_path: Path) -> None:
     conn, plan_id = _persisted(tmp_path, count=3)
     result = propose_schedule(conn, plan_id, apply=False, minimum_gap_hours=48)

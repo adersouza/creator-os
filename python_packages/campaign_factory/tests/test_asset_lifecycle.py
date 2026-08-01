@@ -224,6 +224,55 @@ def test_prepare_reel_writes_video_and_caption_sidecar(tmp_path: Path):
         cf.close()
 
 
+def test_prepare_reel_does_not_reuse_source_job_for_new_caption_payload(
+    tmp_path: Path,
+):
+    folder = tmp_path / "inputs"
+    folder.mkdir()
+    (folder / "a.mp4").write_bytes(b"video")
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.asset_import.import_folder(
+            folder, campaign_slug="may", model_slug="model"
+        )
+        first = cf.domains.reel_execution.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=[{"text": "first hook", "captionPayloadHash": "payload-1"}],
+            recipes=["light"],
+            caption_color="white",
+        )
+        second = cf.domains.reel_execution.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=[{"text": "second hook", "captionPayloadHash": "payload-1"}],
+            recipes=["light"],
+            caption_color="white",
+        )
+        third = cf.domains.reel_execution.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=[{"text": "second hook", "captionPayloadHash": "payload-1"}],
+            recipes=["dark"],
+            caption_color="white",
+        )
+        fourth = cf.domains.reel_execution.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=[{"text": "second hook", "captionPayloadHash": "payload-1"}],
+            recipes=["dark"],
+            caption_color="yellow",
+        )
+
+        assert len(first["prepared"]) == 1
+        assert second["reusedExisting"] == []
+        assert len(second["prepared"]) == 1
+        assert second["prepared"][0]["id"] != first["prepared"][0]["id"]
+        assert (
+            json.loads(second["prepared"][0]["hooks_json"])[0]["text"] == "second hook"
+        )
+        assert third["reusedExisting"] == []
+        assert fourth["reusedExisting"] == []
+    finally:
+        cf.close()
+
+
 def test_prepare_reel_rotates_hook_order_across_sources(tmp_path: Path):
     folder = tmp_path / "inputs"
     folder.mkdir()

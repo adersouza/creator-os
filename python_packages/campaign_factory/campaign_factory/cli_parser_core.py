@@ -981,6 +981,7 @@ def register_core_commands(sub) -> None:
             "tilt_crop_dark@1",
             "light_editorial@1",
             "opening_trim@1",
+            "auto",
         ],
     )
     generate_variants.add_argument("--attempt-limit", type=int)

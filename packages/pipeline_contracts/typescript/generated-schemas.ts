@@ -4150,6 +4150,9 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        {
 	          "$ref": "#/$defs/paidExecutionEvidence"
+	        },
+	        {
+	          "$ref": "#/$defs/higgsfieldExecutionEvidence"
 	        }
 	      ]
 	    },
@@ -4311,6 +4314,67 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "executionReceiptEvidence": {
 	          "$ref": "#/$defs/file"
+	        }
+	      }
+	    },
+	    "higgsfieldExecutionEvidence": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "class",
+	        "provider",
+	        "providerModel",
+	        "requestFingerprint",
+	        "authorizationId",
+	        "generationId",
+	        "soulId",
+	        "providerEvidence",
+	        "source",
+	        "output",
+	        "costEventIds"
+	      ],
+	      "properties": {
+	        "class": {
+	          "const": "paid_provider"
+	        },
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "providerModel": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "requestFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "authorizationId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "generationId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "soulId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "providerEvidence": {
+	          "$ref": "#/$defs/file"
+	        },
+	        "source": {
+	          "$ref": "#/$defs/file"
+	        },
+	        "output": {
+	          "$ref": "#/$defs/file"
+	        },
+	        "costEventIds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
 	        }
 	      }
 	    },

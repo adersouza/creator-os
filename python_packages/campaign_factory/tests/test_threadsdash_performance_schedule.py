@@ -115,6 +115,10 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
     assert combined["schema"] == "creator_os.hourly_learning_sync.v1"
     assert combined["performanceSync"]["postsScanned"] == 2
     assert combined["learningFanout"]["fanout"]["reference"]["done"] == 1
+    assert combined["learningRefresh"] == {
+        "status": "skipped",
+        "reason": "no_eligible_snapshots",
+    }
     assert calls == [
         [
             "uv",
@@ -147,6 +151,49 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
             "may",
         ],
     ]
+
+
+def test_sync_refreshes_learning_after_eligible_fanout(monkeypatch, capsys):
+    module = load_sync_module()
+    calls: list[list[str]] = []
+    reports = iter(
+        [
+            {"schema": "campaign_factory.performance_sync.v1", "inserted": 1},
+            {
+                "schema": "creator_os.learning_fanout.v1",
+                "eligibleSnapshots": 1,
+                "fanout": {"reference": {"done": 1}},
+            },
+            {
+                "schema": "creator_os.learning_refresh.v1",
+                "apply": True,
+                "databaseWrites": 2,
+            },
+        ]
+    )
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps(next(reports)), stderr=""
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module.uuid, "uuid4", lambda: type("U", (), {"hex": "run_2"})())
+    result = module.main(
+        env={
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS": '["may"]',
+            "THREADSDASH_USER_ID": "user_1",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+            "LEARNING_LOOP_CUTOVER": "2026-07-09T00:00:00+00:00",
+        }
+    )
+
+    assert result == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["learningRefresh"]["databaseWrites"] == 2
+    assert calls[-1] == module.build_learning_refresh_command()
 
 
 def test_sync_threadsdash_performance_skips_bridge_when_sync_fails(monkeypatch):

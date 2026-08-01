@@ -192,9 +192,23 @@ def test_plan_dry_run_makes_no_writes_and_is_explainable(tmp_path: Path) -> None
     assert len(plan["items"]) == 5
     assert plan["decisionReceipt"]["resultingAllocation"] == {
         "CONTROLLED_VARIATION": 1,
-        "EXPLOIT": 3,
+        "DETERMINISTIC_DEFAULT": 3,
+        "MEASURED_WINNER": 0,
         "EXPLORE": 1,
     }
+    assert plan["decisionReceipt"]["observedProfileAllocation"] == {
+        "normal": 4,
+        "treatment": 1,
+        "profiles": {"mirror_crop_tone@1": 1, "tilt_crop_dark@1": 0},
+    }
+    treatment = next(
+        item
+        for item in plan["items"]
+        if item["explorationClass"] == "CONTROLLED_VARIATION"
+    )
+    assert (
+        treatment["observedProfileDecision"]["selectedProfile"] == "mirror_crop_tone@1"
+    )
     assert all(
         item["audioPolicy"] == "embedded_trending_required" for item in plan["items"]
     )

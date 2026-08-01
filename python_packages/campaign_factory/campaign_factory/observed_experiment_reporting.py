@@ -46,6 +46,215 @@ OBSERVED_MEASUREMENT_PLAN = {
     ],
 }
 
+OBSERVED_PROFILE_SEQUENCE = (
+    "mirror_crop_tone@1",
+    "tilt_crop_dark@1",
+    "light_editorial@1",
+    "opening_trim@1",
+)
+OBSERVED_SPLIT_PROFILES = OBSERVED_PROFILE_SEQUENCE
+
+
+def select_observed_profile(
+    conn: sqlite3.Connection,
+    *,
+    creator: str,
+    content_intent: str,
+    source_asset_id: str | None = None,
+    media_metadata: dict[str, Any] | None = None,
+    purpose: str = "experiment",
+) -> dict[str, Any]:
+    """Choose the next treatment from measured history without bypassing review."""
+    if purpose not in {"experiment", "production"}:
+        raise ValueError("observed profile purpose must be experiment or production")
+    notes: dict[str, Any] = {}
+    if source_asset_id:
+        source = conn.execute(
+            "SELECT notes, media_type FROM source_assets WHERE id = ?",
+            (source_asset_id,),
+        ).fetchone()
+        if source:
+            notes = _json_object(source["notes"])
+            notes.setdefault("mediaType", source["media_type"])
+    traits = {**notes, **(media_metadata or {})}
+    synchronized = content_intent.lower() in {
+        "talking",
+        "dance",
+        "motion_copy",
+        "recreate_reel",
+    } or any(
+        bool(traits.get(key))
+        for key in ("synchronizedContent", "referenceTalking", "lipSync")
+    )
+    burned_caption = any(
+        bool(traits.get(key)) for key in ("burnedCaption", "captionBurned")
+    )
+    visible_text = burned_caption or any(
+        bool(traits.get(key)) for key in ("visibleText", "ocrTextPresent")
+    )
+    media_type = str(traits.get("mediaType") or traits.get("media_type") or "").lower()
+    eligible = [] if synchronized or burned_caption else list(OBSERVED_PROFILE_SEQUENCE)
+    blockers: dict[str, list[str]] = {}
+    if synchronized:
+        blockers = {
+            profile: ["synchronized_content_ineligible"]
+            for profile in OBSERVED_PROFILE_SEQUENCE
+        }
+    elif burned_caption:
+        blockers = {
+            profile: ["source_burned_caption_ineligible"]
+            for profile in OBSERVED_PROFILE_SEQUENCE
+        }
+    if visible_text and "mirror_crop_tone@1" in eligible:
+        eligible.remove("mirror_crop_tone@1")
+        blockers["mirror_crop_tone@1"] = ["source_visible_text_blocks_mirror"]
+    if media_type != "video" and "opening_trim@1" in eligible:
+        eligible.remove("opening_trim@1")
+        blockers["opening_trim@1"] = ["passive_video_required"]
+
+    history = conn.execute(
+        """
+        SELECT id, status, variants_json, interpretation_json, created_at
+        FROM creative_plan_experiments
+        WHERE creator = ? AND content_intent = ?
+          AND changed_variable = 'observed_profile'
+        ORDER BY created_at, id
+        """,
+        (creator, content_intent),
+    ).fetchall()
+    records: list[dict[str, Any]] = []
+    for row in history:
+        variants = json.loads(row["variants_json"] or "[]")
+        profile = variants[1] if len(variants) == 2 else None
+        if profile not in OBSERVED_PROFILE_SEQUENCE:
+            continue
+        interpretation = _json_object(row["interpretation_json"])
+        decision = interpretation.get("operatorDecision")
+        records.append(
+            {
+                "experimentId": str(row["id"]),
+                "profile": profile,
+                "status": str(row["status"]),
+                "decision": (
+                    str(decision.get("decision"))
+                    if isinstance(decision, dict) and decision.get("decision")
+                    else None
+                ),
+            }
+        )
+
+    adopted = next(
+        (
+            record["profile"]
+            for record in reversed(records)
+            if record["decision"] == "adopt" and record["profile"] in eligible
+        ),
+        None,
+    )
+    active = next(
+        (
+            record["profile"]
+            for record in reversed(records)
+            if record["status"] != "DECIDED" and record["profile"] in eligible
+        ),
+        None,
+    )
+    decided = {record["profile"] for record in records if record["status"] == "DECIDED"}
+    stopped = any(record["decision"] == "stop" for record in records)
+    if purpose == "production":
+        selected = adopted
+        mode = "operator_adopted" if adopted else "normal_control"
+    elif stopped:
+        selected = None
+        mode = "operator_stopped"
+    else:
+        selected = active or next(
+            (profile for profile in eligible if profile not in decided), None
+        )
+        mode = "continue_active" if active else "next_unmeasured"
+        if selected is None:
+            mode = "sequence_complete"
+    receipt = {
+        "schema": "campaign_factory.observed_profile_policy.v1",
+        "creator": creator,
+        "contentIntent": content_intent,
+        "sourceAssetId": source_asset_id,
+        "purpose": purpose,
+        "selectedProfile": selected,
+        "mode": mode,
+        "normalControlRequired": purpose == "experiment" and selected is not None,
+        "treatmentRequired": purpose == "experiment" and selected is not None,
+        "eligibleProfiles": eligible,
+        "blockedProfiles": blockers,
+        "history": records,
+        "fingerprint": "",
+    }
+    receipt["fingerprint"] = _sha256(receipt)
+    return receipt
+
+
+def select_observed_profile_for_asset(
+    conn: sqlite3.Connection,
+    *,
+    rendered_asset_id: str,
+    purpose: str = "experiment",
+) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT r.source_asset_id, r.metadata_json, r.media_type, m.slug AS creator
+        FROM rendered_assets r
+        JOIN source_assets s ON s.id = r.source_asset_id
+        JOIN models m ON m.id = s.model_id
+        WHERE r.id = ?
+        """,
+        (rendered_asset_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError(f"rendered asset not found: {rendered_asset_id}")
+    metadata = _json_object(row["metadata_json"])
+    metadata.setdefault("mediaType", row["media_type"])
+    content_intent = str(
+        metadata.get("contentIntent")
+        or metadata.get("motionIntent")
+        or "passive_selfie"
+    ).lower()
+    if content_intent in {"ambient", "calm", "passive"}:
+        content_intent = "passive_selfie"
+    return select_observed_profile(
+        conn,
+        creator=str(row["creator"]),
+        content_intent=content_intent,
+        source_asset_id=str(row["source_asset_id"]),
+        media_metadata=metadata,
+        purpose=purpose,
+    )
+
+
+def resolve_observed_profile_for_asset(
+    conn: sqlite3.Connection,
+    *,
+    rendered_asset_id: str,
+    profile: str | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    if profile != "auto":
+        return profile, None
+    experiment = select_observed_profile_for_asset(
+        conn, rendered_asset_id=rendered_asset_id, purpose="experiment"
+    )
+    production = select_observed_profile_for_asset(
+        conn, rendered_asset_id=rendered_asset_id, purpose="production"
+    )
+    decision = (
+        experiment
+        if experiment["mode"] == "continue_active"
+        or production["selectedProfile"] is None
+        else production
+    )
+    selected = decision["selectedProfile"]
+    if selected is None:
+        raise ValueError(f"no observed profile is eligible: {decision['mode']}")
+    return str(selected), decision
+
 
 def observed_experiment_report(
     conn: sqlite3.Connection,
@@ -194,6 +403,13 @@ def record_observed_experiment_decision(
         != "creator_os.observed_profile_experiment_report.v1"
     ):
         raise ValueError("record a measured experiment report before deciding")
+    if normalized == "adopt" and (
+        _json_object(interpretation.get("interpretation")).get("status")
+        != "operator_review_eligible"
+    ):
+        raise ValueError("only an operator-review-eligible result can be adopted")
+    variants = json.loads(row["variants_json"] or "[]")
+    profile = variants[1] if len(variants) == 2 else None
     receipt = {
         "schema": "creator_os.observed_profile_experiment_decision.v1",
         "experimentId": experiment_id,
@@ -201,7 +417,8 @@ def record_observed_experiment_decision(
         "decision": normalized,
         "reason": reason,
         "reportFingerprint": interpretation["fingerprint"],
-        "productionUsageChanged": False,
+        "productionUsageChanged": normalized == "adopt",
+        "adoptedProfile": profile if normalized == "adopt" else None,
         "decidedAt": datetime.now(UTC).isoformat(),
     }
     interpretation["operatorDecision"] = receipt

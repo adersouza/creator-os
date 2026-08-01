@@ -24,6 +24,10 @@ from .caption_bank import (
     caption_hook_payload,
     load_or_build_caption_bank_store,
 )
+from .caption_scene_fit import classify_reel_scene_tags as classify_reel_scene_tags
+from .caption_scene_fit import (
+    infer_caption_topic_for_reel as infer_caption_topic_for_reel,
+)
 from .derived_stills import (
     DERIVED_STILL_SCHEMA as DERIVED_STILL_SCHEMA,
 )
@@ -82,6 +86,11 @@ from .observed_profiles import render_observed_profile as render_observed_profil
 from .observed_profiles import renderer_runtime_receipt as renderer_runtime_receipt
 from .observed_profiles import toolchain_receipt as toolchain_receipt
 from .perceptual import media_identity as media_identity
+from .reddit_gif import render_reddit_gif as render_reddit_gif
+from .reel_pipeline_selection import (
+    apply_caption_fit_to_caption_set as apply_caption_fit_to_caption_set,
+)
+from .reel_pipeline_support import CaptionSet as CaptionSet
 from .reel_url_import import (
     canonicalize_reel_url as canonicalize_reel_url,
 )

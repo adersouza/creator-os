@@ -16,7 +16,7 @@ from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from creator_os_core.fileops import atomic_write_json, sha256_file
-from reel_factory.worker_api import media_identity
+from reel_factory.worker_api import media_identity, render_reddit_gif
 
 from .core import new_id, sanitize_for_storage
 from .front_generation_stage import run_front_generation_stage
@@ -34,6 +34,8 @@ PLAN_SCHEMA = "campaign_factory.reddit_weekly_plan.v1"
 GENERATION_REQUEST_SCHEMA = "campaign_factory.reddit_generation_request.v1"
 _SUBREDDIT_RE = re.compile(r"^(?:r/)?([A-Za-z0-9_]{2,21})$")
 _IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+_GIF_SUFFIXES = (".gif",)
+_WINNER_LISTINGS = frozenset({"top_week", "hot"})
 
 
 def _fingerprint(value: Any) -> str:
@@ -120,6 +122,21 @@ def _media_url(post: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _media_type(post: Mapping[str, Any]) -> str:
+    if post.get("is_gallery"):
+        return "gallery"
+    reddit_video = _object(_object(post.get("secure_media")).get("reddit_video"))
+    destination = str(post.get("url_overridden_by_dest") or post.get("url") or "")
+    suffix = urlparse(destination).path.lower()
+    if bool(reddit_video.get("is_gif")) or suffix.endswith(_GIF_SUFFIXES):
+        return "gif"
+    if post.get("is_video"):
+        return "video"
+    if _media_url(post):
+        return "image"
+    return "link"
+
+
 def _post_record(post: Mapping[str, Any], *, listing: str, rank: int) -> dict[str, Any]:
     preview = _object(post.get("preview"))
     images = _list(preview.get("images"))
@@ -135,15 +152,7 @@ def _post_record(post: Mapping[str, Any], *, listing: str, rank: int) -> dict[st
             else None
         ),
         "mediaUrl": _media_url(post),
-        "mediaType": (
-            "image"
-            if _media_url(post)
-            else "gallery"
-            if post.get("is_gallery")
-            else "video"
-            if post.get("is_video")
-            else "link"
-        ),
+        "mediaType": _media_type(post),
         "flair": post.get("link_flair_text"),
         "score": int(post.get("score") or 0),
         "commentCount": int(post.get("num_comments") or 0),
@@ -151,8 +160,65 @@ def _post_record(post: Mapping[str, Any], *, listing: str, rank: int) -> dict[st
         "over18": bool(post.get("over_18")),
         "listing": listing,
         "rank": rank,
+        "listingRanks": {listing: rank},
         "dimensions": {"width": width, "height": height},
+        "stickied": bool(post.get("stickied")),
+        "distinguished": post.get("distinguished"),
+        "removedByCategory": post.get("removed_by_category"),
+        "author": str(post.get("author") or ""),
     }
+
+
+def _percentile(value: int, values: list[int]) -> float:
+    if len(values) <= 1:
+        return 1.0
+    below = sum(candidate < value for candidate in values)
+    equal = sum(candidate == value for candidate in values)
+    return (below + max(0, equal - 1) / 2) / (len(values) - 1)
+
+
+def _rank_winners(posts: list[dict[str, Any]], *, listing_limit: int) -> None:
+    eligible = [
+        post
+        for post in posts
+        if set(_object(post.get("listingRanks"))).intersection(_WINNER_LISTINGS)
+        and post.get("mediaUrl")
+        and post.get("mediaType") in {"image", "gif"}
+        and int(post.get("score") or 0) > 0
+        and not post.get("stickied")
+        and not post.get("distinguished")
+        and not post.get("removedByCategory")
+        and str(post.get("author") or "").lower() != "automoderator"
+    ]
+    scores = [int(post["score"]) for post in eligible]
+    comments = [int(post["commentCount"]) for post in eligible]
+    for post in posts:
+        ranks = _object(post.get("listingRanks"))
+        top_hot = set(ranks).intersection(_WINNER_LISTINGS)
+        is_eligible = post in eligible
+        upvote_percentile = (
+            _percentile(int(post["score"]), scores) if is_eligible else 0.0
+        )
+        comment_percentile = (
+            _percentile(int(post["commentCount"]), comments) if is_eligible else 0.0
+        )
+        best_rank = min((int(ranks[name]) for name in top_hot), default=listing_limit)
+        rank_strength = max(0.0, 1.0 - (best_rank - 1) / max(1, listing_limit))
+        listing_strength = (0.65 if len(top_hot) == 2 else 0.0) + 0.35 * rank_strength
+        post["listings"] = sorted(ranks)
+        post["upvotePercentile"] = round(upvote_percentile, 4)
+        post["winnerScore"] = round(
+            100
+            * (
+                0.75 * upvote_percentile
+                + 0.15 * listing_strength
+                + 0.10 * comment_percentile
+            ),
+            3,
+        )
+        post["winnerEligible"] = bool(
+            is_eligible and (len(eligible) < 5 or upvote_percentile >= 0.8)
+        )
 
 
 class RedditResearchClient:
@@ -242,12 +308,22 @@ class RedditResearchClient:
                     continue
                 candidate = _post_record(post, listing=listing, rank=rank)
                 current = posts.get(post_id)
-                if current is None or candidate["score"] > current["score"]:
+                if current is None:
                     posts[post_id] = candidate
+                else:
+                    current["listingRanks"] = {
+                        **_object(current.get("listingRanks")),
+                        listing: rank,
+                    }
+                    if candidate["score"] > current["score"]:
+                        candidate["listingRanks"] = current["listingRanks"]
+                        posts[post_id] = candidate
+        _rank_winners(list(posts.values()), listing_limit=int(limit))
         ordered = sorted(
             posts.values(),
             key=lambda item: (
-                item["listing"] != "top_week",
+                not bool(item.get("winnerEligible")),
+                -float(item.get("winnerScore") or 0),
                 -int(item["score"]),
                 -int(item["commentCount"]),
                 int(item["rank"]),
@@ -268,9 +344,20 @@ def _concepts(
     research: Mapping[str, Any],
     *,
     required_tags: list[str],
+    allowed_media_types: list[str],
 ) -> list[dict[str, Any]]:
     posts = [_object(item) for item in _list(research.get("posts"))]
-    visual = [post for post in posts if post.get("mediaUrl")]
+    allowed = {str(value).strip().lower() for value in allowed_media_types}
+    target_media_type = (
+        "image" if "image" in allowed else "gif" if "gif" in allowed else None
+    )
+    visual = [
+        post
+        for post in posts
+        if post.get("mediaUrl")
+        and post.get("winnerEligible")
+        and post.get("mediaType") in {"image", "gif"}
+    ]
     selected = (visual or posts)[:3]
     concepts: list[dict[str, Any]] = []
     while len(selected) < 3:
@@ -295,11 +382,21 @@ def _concepts(
             "referenceMediaType": post.get("mediaType"),
             "referenceDimensions": dimensions,
             "referenceReviewRequired": bool(post.get("mediaUrl")),
+            "targetMediaType": target_media_type,
             "titlePattern": (
                 "question" if "?" in str(post.get("title") or "") else "short_statement"
             ),
             "sourceTitle": post.get("title"),
             "sourceFlair": post.get("flair"),
+            "winnerEvidence": {
+                "listings": list(post.get("listings") or []),
+                "listingRanks": _object(post.get("listingRanks")),
+                "upvotes": int(post.get("score") or 0),
+                "comments": int(post.get("commentCount") or 0),
+                "upvotePercentile": float(post.get("upvotePercentile") or 0),
+                "winnerScore": float(post.get("winnerScore") or 0),
+                "selectionPolicy": "top_and_hot_high_upvotes.v1",
+            },
             "contentTags": sorted(
                 {
                     *required_tags,
@@ -349,11 +446,20 @@ def build_weekly_briefs(
             )
             if str(value).strip()
         ]
+        allowed_media_types = [
+            str(value).strip().lower()
+            for value in _list(_value(row, "allowed_media_types", "allowedMediaTypes"))
+            if str(value).strip()
+        ] or ["image"]
         catalog_rules = _object(_value(row, "rules_snapshot", "rulesSnapshot"))
         previous_official = _canonical_rules(catalog_rules.get("officialRules"))
         current_official = _canonical_rules(research.get("officialRules"))
         rule_changed = previous_official != current_official
-        concepts = _concepts(research, required_tags=required_tags)
+        concepts = _concepts(
+            research,
+            required_tags=required_tags,
+            allowed_media_types=allowed_media_types,
+        )
         patterns = [
             {
                 "postId": post.get("postId"),
@@ -362,10 +468,14 @@ def build_weekly_briefs(
                 "score": post.get("score"),
                 "commentCount": post.get("commentCount"),
                 "mediaType": post.get("mediaType"),
+                "listings": post.get("listings"),
+                "upvotePercentile": post.get("upvotePercentile"),
+                "winnerScore": post.get("winnerScore"),
                 "dimensions": post.get("dimensions"),
                 "flair": post.get("flair"),
             }
-            for post in _list(research.get("posts"))[:10]
+            for post in _list(research.get("posts"))
+            if post.get("winnerEligible")
         ] or [{"status": "no_posts_returned"}]
         brief = build_reddit_trend_brief(
             {
@@ -378,6 +488,15 @@ def build_weekly_briefs(
                     _value(row, "eligible_accounts", "eligibleAccounts")
                 ),
                 "requiredContentTags": required_tags,
+                "allowedMediaTypes": allowed_media_types,
+                "targetMediaType": (
+                    "image"
+                    if "image" in allowed_media_types
+                    else "gif"
+                    if "gif" in allowed_media_types
+                    else None
+                ),
+                "winnerSelectionPolicy": "top_and_hot_high_upvotes.v1",
                 "disallowedElements": _list(
                     _value(row, "prohibited_content", "prohibitedContent")
                 ),
@@ -534,6 +653,11 @@ def _generation_requests(
             remaining_by_account[username] -= 1
             positions[username] += 1
             progressed = True
+            target_media_type = str(
+                concept.get("targetMediaType")
+                or brief.get("targetMediaType")
+                or "image"
+            )
             core = {
                 "schema": GENERATION_REQUEST_SCHEMA,
                 "creatorId": creator_id,
@@ -547,10 +671,13 @@ def _generation_requests(
                 "contentFamilyId": family,
                 "referenceReviewRequired": bool(concept.get("referenceReviewRequired")),
                 "referenceMediaUrl": concept.get("referenceMediaUrl"),
+                "targetMediaType": target_media_type,
                 "referenceLocalPath": None,
                 "referenceMediaSha256": None,
                 "status": (
-                    "awaiting_reference_review"
+                    "blocked_unsupported_media_type"
+                    if target_media_type not in {"image", "gif"}
+                    else "awaiting_reference_review"
                     if concept.get("referenceMediaUrl")
                     else "blocked_no_visual_reference"
                 ),
@@ -711,18 +838,36 @@ def _register_reddit_still(
     if not source_asset:
         raise ValueError("reddit_generated_source_asset_missing")
     source = dict(source_asset)
-    path = Path(str(source["stored_path"])).expanduser().resolve()
-    digest = sha256_file(path)
-    if digest != str(source["content_hash"]):
+    source_path = Path(str(source["stored_path"])).expanduser().resolve()
+    source_digest = sha256_file(source_path)
+    if source_digest != str(source["content_hash"]):
         raise ValueError("reddit_generated_source_asset_sha_mismatch")
+    target_media_type = str(request.get("targetMediaType") or "image")
+    if target_media_type not in {"image", "gif"}:
+        raise ValueError("reddit_generation_target_media_type_unsupported")
+    gif_receipt = None
+    path = source_path
+    recipe = "reddit_trend_soul_still"
+    if target_media_type == "gif":
+        model_slug = factory.domains.reel_execution.model_slug_for_campaign(
+            campaign["id"]
+        )
+        output_dir = (
+            factory.domains.campaign_dirs(model_slug, campaign_slug)["rendered"]
+            / "reddit"
+        )
+        path = output_dir / f"{source_path.stem}_{source_digest[:12]}.gif"
+        gif_receipt = render_reddit_gif(source_path, path)
+        recipe = "reddit_trend_soul_gif"
+    digest = sha256_file(path)
     existing = factory.conn.execute(
         """
         SELECT * FROM rendered_assets
-        WHERE campaign_id = ? AND recipe = 'reddit_trend_soul_still'
+        WHERE campaign_id = ? AND recipe = ?
           AND content_hash = ?
         ORDER BY created_at, id LIMIT 1
         """,
-        (campaign["id"], digest),
+        (campaign["id"], recipe, digest),
     ).fetchone()
     if existing:
         return dict(existing)
@@ -731,6 +876,9 @@ def _register_reddit_still(
         **identity,
         "sourceFamilyId": request["contentFamilyId"],
         "generationSource": "reddit_weekly_winner_reference",
+        "redditTargetMediaType": target_media_type,
+        "redditGifRenderReceipt": gif_receipt,
+        "redditSourceStillSha256": source_digest,
         "redditGenerationRequestId": request["requestId"],
         "redditTrendBriefFingerprint": request["briefFingerprint"],
         "redditReferencePostId": _object(request.get("concept")).get("referencePostId"),
@@ -751,8 +899,8 @@ def _register_reddit_still(
          filename, media_type, content_surface, caption, caption_hash,
          caption_generation_json, recipe, target_ratio, metadata_json,
          audit_status, review_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'image', 'reddit', '', ?, ?,
-                'reddit_trend_soul_still', '9:16', ?, 'pending', 'review_ready',
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reddit', '', ?, ?,
+                ?, '9:16', ?, 'pending', 'review_ready',
                 ?, ?)
         """,
         (
@@ -763,6 +911,7 @@ def _register_reddit_still(
             str(path),
             str(path),
             path.name,
+            target_media_type,
             caption_hash,
             json.dumps(
                 sanitize_for_storage(
@@ -774,6 +923,7 @@ def _register_reddit_still(
                 ensure_ascii=False,
                 sort_keys=True,
             ),
+            recipe,
             json.dumps(
                 sanitize_for_storage(metadata),
                 ensure_ascii=False,
@@ -811,7 +961,7 @@ def _registered_generation_assets(
     rows = factory.conn.execute(
         """
         SELECT * FROM rendered_assets
-        WHERE campaign_id = ? AND recipe = 'reddit_trend_soul_still'
+        WHERE campaign_id = ? AND recipe IN ('reddit_trend_soul_still', 'reddit_trend_soul_gif')
         ORDER BY created_at, id
         """,
         (campaign["id"],),

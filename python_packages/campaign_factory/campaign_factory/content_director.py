@@ -16,6 +16,7 @@ from creator_os_core.sqlite import connect_sqlite
 
 from .config import get_settings
 from .learning_consumption import apply_learning_to_production_plan
+from .observed_experiment_reporting import select_observed_profile
 from .production_prompts import INTENT_PROMPTS
 
 POLICY_PATH = Path(__file__).with_name("config") / "content_director_policy.json"
@@ -379,9 +380,9 @@ def _exploration_classes(count: int, objective_policy: dict[str, Any]) -> list[s
     variation = round(count * float(objective_policy["controlledVariation"]))
     if explore + variation > count:
         explore = max(0, count - variation)
-    exploit = count - explore - variation
+    deterministic_default = count - explore - variation
     classes = (
-        ["EXPLOIT"] * exploit
+        ["DETERMINISTIC_DEFAULT"] * deterministic_default
         + ["CONTROLLED_VARIATION"] * variation
         + ["EXPLORE"] * explore
     )
@@ -458,6 +459,12 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             sources=compatible,
             base_prompt=base_prompt,
         )
+        exploration_class = classes[index]
+        if (
+            exploration_class == "DETERMINISTIC_DEFAULT"
+            and learning["finalChoiceChanged"]
+        ):
+            exploration_class = "MEASURED_WINNER"
         source = None
         if learning_sources:
             minimum_usage = min(
@@ -479,6 +486,17 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
         if request.max_credits is None:
             blocking.append("signed_spend_ceiling_missing")
         cost = float(policy["estimatedCreditsPerPassiveReel"])
+        observed_profile = select_observed_profile(
+            conn,
+            creator=creator,
+            content_intent=intent,
+            source_asset_id=str(source["id"]) if source else None,
+            purpose=(
+                "experiment"
+                if exploration_class == "CONTROLLED_VARIATION"
+                else "production"
+            ),
+        )
         item_core = {
             "index": index,
             "creator": creator,
@@ -517,7 +535,8 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
                 "batchTrackUniquenessRequired": True,
                 "batchSegmentUniquenessRequired": True,
             },
-            "explorationClass": classes[index],
+            "explorationClass": exploration_class,
+            "observedProfileDecision": observed_profile,
             "priority": count - index,
             "estimatedCost": {
                 "credits": cost,
@@ -593,8 +612,30 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             ],
         },
         "resultingAllocation": {
-            value: classes.count(value)
-            for value in ("EXPLOIT", "CONTROLLED_VARIATION", "EXPLORE")
+            value: sum(item["explorationClass"] == value for item in plan_items)
+            for value in (
+                "DETERMINISTIC_DEFAULT",
+                "MEASURED_WINNER",
+                "CONTROLLED_VARIATION",
+                "EXPLORE",
+            )
+        },
+        "observedProfileAllocation": {
+            "normal": sum(
+                item["observedProfileDecision"]["selectedProfile"] is None
+                for item in plan_items
+            ),
+            "treatment": sum(
+                item["observedProfileDecision"]["selectedProfile"] is not None
+                for item in plan_items
+            ),
+            "profiles": {
+                profile: sum(
+                    item["observedProfileDecision"]["selectedProfile"] == profile
+                    for item in plan_items
+                )
+                for profile in ("mirror_crop_tone@1", "tilt_crop_dark@1")
+            },
         },
         "blockedItems": blocked,
         "reason": "bounded deterministic planning from approved inventory",

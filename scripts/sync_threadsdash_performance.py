@@ -113,6 +113,19 @@ def build_fanout_command(
     ]
 
 
+def build_learning_refresh_command() -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        str(REPO_ROOT / "scripts" / "learning_refresh.py"),
+        "refresh",
+        "--apply",
+    ]
+
+
 def main(
     argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 ) -> int:
@@ -130,7 +143,11 @@ def main(
         return 2
     if "--dry-run" in args:
         for campaign, command in zip(campaigns, commands, strict=True):
-            for cmd in (command, build_fanout_command(environment, campaign)):
+            for cmd in (
+                command,
+                build_fanout_command(environment, campaign),
+                build_learning_refresh_command(),
+            ):
                 safe = [
                     "<redacted>"
                     if value == environment["SUPABASE_SERVICE_ROLE_KEY"]
@@ -164,11 +181,34 @@ def main(
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+        eligible_snapshots = int(fanout_report.get("eligibleSnapshots") or 0)
+        learning_refresh: dict[str, object]
+        if eligible_snapshots:
+            refreshed = subprocess.run(
+                build_learning_refresh_command(),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if refreshed.returncode != 0:
+                _forward_phase_output(refreshed)
+                return refreshed.returncode
+            try:
+                learning_refresh = _json_report(refreshed, phase="learning refresh")
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+        else:
+            learning_refresh = {
+                "status": "skipped",
+                "reason": "no_eligible_snapshots",
+            }
         reports.append(
             {
                 "campaign": campaign,
                 "performanceSync": performance_report,
                 "learningFanout": fanout_report,
+                "learningRefresh": learning_refresh,
             }
         )
     print(
@@ -178,6 +218,7 @@ def main(
                 "campaigns": reports,
                 "performanceSync": reports[0]["performanceSync"],
                 "learningFanout": reports[0]["learningFanout"],
+                "learningRefresh": reports[0]["learningRefresh"],
             },
             ensure_ascii=False,
             sort_keys=True,

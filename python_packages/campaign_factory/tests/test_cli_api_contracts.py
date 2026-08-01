@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import campaign_factory.app as app_module
-import campaign_factory.variant_lineage as variant_lineage_module
 import pytest
 from campaign_asset_test_support import add_audit_report, add_surface_asset_fixture
 from campaign_factory.adapters import contentforge as contentforge_adapter
@@ -38,6 +37,17 @@ from campaign_test_support import add_rendered_asset, make_factory
 from fastapi.testclient import TestClient
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_settings_root_override_isolates_creative_approval_receipts(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(root=tmp_path)
+
+    assert (
+        settings.creative_approvals_dir == (tmp_path / "creative_approvals").resolve()
+    )
+
 
 MONOREPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -887,8 +897,8 @@ def test_fresh_schedule_safe_production_plan_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_generate_variants_cli_failure_is_retry_safe_and_commits_no_variants(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_generate_variants_without_profile_fails_closed_and_commits_no_variants(
+    tmp_path: Path,
 ):
     cf = make_factory(tmp_path)
     try:
@@ -899,24 +909,14 @@ def test_generate_variants_cli_failure_is_retry_safe_and_commits_no_variants(
         )
         cf.conn.commit()
         cf.domains.variant_lineage.register_parent_reel("asset_1", operator="tester")
-        monkeypatch.setattr(
-            variant_lineage_module,
-            "run_contentforge",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("busy")),
-        )
-
-        result = cf.domains.variant_lineage.generate_variants(
-            parent_asset_id="asset_1",
-            count=1,
-            contentforge_preset="caption_safe_v2",
-            contentforge_base_url="http://contentforge.local",
-            contentforge_timeout_seconds=1,
-        )
-
-        assert result["status"] == "blocked"
-        assert result["blockingReason"] == "contentforge_variant_pack_cli_error"
-        assert result["retryOrResumeSafe"] is True
-        assert result["partialCommitPrevented"] is True
+        with pytest.raises(ValueError, match="variant_profile_required"):
+            cf.domains.variant_lineage.generate_variants(
+                parent_asset_id="asset_1",
+                count=1,
+                contentforge_preset="caption_safe_v2",
+                contentforge_base_url="http://contentforge.local",
+                contentforge_timeout_seconds=1,
+            )
         assert (
             cf.conn.execute(
                 "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'"

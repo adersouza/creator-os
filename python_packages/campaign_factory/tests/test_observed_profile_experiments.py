@@ -12,11 +12,13 @@ from campaign_factory.content_director_operations import design_experiment
 from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.observed_experiment_reporting import (
     OBSERVED_MEASUREMENT_PLAN,
+    OBSERVED_PROFILE_SEQUENCE,
     _bootstrap_interval,
     _interpretation,
     _snapshot_exclusion_reasons,
     observed_experiment_report,
     record_observed_experiment_decision,
+    select_observed_profile,
 )
 from campaign_test_support import make_factory
 from reel_factory.observed_profiles import (
@@ -1006,12 +1008,14 @@ def test_observed_profiles_require_sequential_operator_decisions(
             cf.conn,
             plan_id="observed_plan",
             changed_variable="observed_profile",
-            variants=("control", "tilt_crop_dark@1"),
+            variants=("control", "auto"),
             hypothesis="profile changes normalized reach",
             apply=True,
             assignment_method="cross_account_blocked_rotation.v1",
         )
         assert next_experiment["status"] == "PROPOSED"
+        assert next_experiment["variants"] == ["control", "tilt_crop_dark@1"]
+        assert next_experiment["profileDecision"]["mode"] == "next_unmeasured"
     finally:
         cf.close()
 
@@ -1270,9 +1274,25 @@ def test_end_to_end_pair_metrics_report_is_deterministic_and_operator_only(
         assert first["pairs"][0]["secondaryLifts"]["completionRate"] == 0.2
         assert first["interpretation"]["status"] == "insufficient"
         assert first["automaticProductionExpansion"] is False
+        active = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            purpose="experiment",
+        )
+        assert active["selectedProfile"] == TEST_PROFILE
+        assert active["mode"] == "continue_active"
         observed_experiment_report(
             cf.conn, experiment_id=experiment_id, record_interpretation=True
         )
+        with pytest.raises(ValueError, match="operator-review-eligible"):
+            record_observed_experiment_decision(
+                cf.conn,
+                experiment_id=experiment_id,
+                operator="operator",
+                decision="adopt",
+                reason="not enough evidence",
+            )
         decision = record_observed_experiment_decision(
             cf.conn,
             experiment_id=experiment_id,
@@ -1281,6 +1301,105 @@ def test_end_to_end_pair_metrics_report_is_deterministic_and_operator_only(
             reason="collect the next profile only",
         )
         assert decision["productionUsageChanged"] is False
+        next_profile = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            purpose="experiment",
+        )
+        assert next_profile["selectedProfile"] == "tilt_crop_dark@1"
+        assert next_profile["normalControlRequired"] is True
+        production = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            purpose="production",
+        )
+        assert production["selectedProfile"] is None
+        assert production["mode"] == "normal_control"
+    finally:
+        cf.close()
+
+
+def test_operator_adopted_profile_changes_auto_production_choice(
+    tmp_path: Path, monkeypatch
+):
+    cf, experiment_id, items, accounts, slots = _fixture(tmp_path, monkeypatch)
+    try:
+        pair = cf.domains.inventory_reservations.reserve_experiment_pair(
+            experiment_id=experiment_id,
+            parent_family_id="control_asset",
+            pair_index=0,
+            control_asset_id="control_asset",
+            treatment_asset_id="treatment_asset",
+            account_ids=accounts,
+            eligible_slots=slots,
+            plan_item_ids=items,
+            treatment_profile=TEST_PROFILE,
+        )
+        _insert_metrics(cf, assignments=pair["assignments"], items=items)
+        observed_experiment_report(
+            cf.conn, experiment_id=experiment_id, record_interpretation=True
+        )
+        stored = json.loads(
+            cf.conn.execute(
+                "SELECT interpretation_json FROM creative_plan_experiments WHERE id = ?",
+                (experiment_id,),
+            ).fetchone()[0]
+        )
+        stored["interpretation"]["status"] = "operator_review_eligible"
+        cf.conn.execute(
+            "UPDATE creative_plan_experiments SET interpretation_json = ? WHERE id = ?",
+            (json.dumps(stored, sort_keys=True), experiment_id),
+        )
+        cf.conn.commit()
+
+        decision = record_observed_experiment_decision(
+            cf.conn,
+            experiment_id=experiment_id,
+            operator="operator",
+            decision="adopt",
+            reason="measured winner",
+        )
+        selected = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            purpose="production",
+        )
+        assert decision["productionUsageChanged"] is True
+        assert selected["selectedProfile"] == TEST_PROFILE
+        assert selected["mode"] == "operator_adopted"
+    finally:
+        cf.close()
+
+
+def test_profile_sequence_is_shared_and_opening_trim_requires_passive_video(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        assert OBSERVED_PROFILE_SEQUENCE == (
+            "mirror_crop_tone@1",
+            "tilt_crop_dark@1",
+            "light_editorial@1",
+            "opening_trim@1",
+        )
+        image = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            media_metadata={"mediaType": "image"},
+        )
+        assert image["eligibleProfiles"] == list(OBSERVED_PROFILE_SEQUENCE[:3])
+        assert image["blockedProfiles"]["opening_trim@1"] == ["passive_video_required"]
+        video = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            media_metadata={"mediaType": "video"},
+        )
+        assert video["eligibleProfiles"] == list(OBSERVED_PROFILE_SEQUENCE)
     finally:
         cf.close()
 

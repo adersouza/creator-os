@@ -199,3 +199,88 @@ def test_unapproved_historical_timed_item_falls_back_to_static(
         )
     finally:
         cf.close()
+
+
+def test_daily_hook_uses_source_scene_fit_before_static_fallback(
+    tmp_path: Path, monkeypatch
+):
+    cf = make_factory(tmp_path)
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "gym_selfie.mp4").write_bytes(b"fixture-video")
+    cf.domains.asset_import.import_folder(
+        source_dir,
+        campaign_slug="may",
+        model_slug="stacey",
+        storage_mode="reference",
+    )
+    source = cf.domains.asset_import.assets_for_campaign(
+        cf.domains.campaign_by_slug("may")["id"]
+    )[0]
+
+    class Store:
+        def resolve_mix(self, *_args, **_kwargs):
+            return [
+                {
+                    "caption_hash": "timed_text",
+                    "static_text_hash": "timed_text",
+                    "caption_payload_hash": "timed_payload",
+                    "variant_type": "timed",
+                    "text": "come to my bedroom\nor stay lonely",
+                    "segments": [
+                        {"text": "come to my bedroom"},
+                        {"text": "or stay lonely"},
+                    ],
+                    "approval_id": "approval-1",
+                    "approval_file_sha": "a" * 64,
+                    "approval_reviewer": "operator",
+                    "approval_decided_at": "2026-07-31T12:00:00Z",
+                    "banks": ["bedroom_mirror"],
+                    "selected_banks": ["bedroom_mirror"],
+                },
+                {
+                    "caption_hash": "static_text",
+                    "static_text_hash": "static_text",
+                    "caption_payload_hash": "static_payload",
+                    "variant_type": "static",
+                    "text": "gym or dinner?",
+                    "line_count": 1,
+                    "word_count": 3,
+                    "char_count": 14,
+                    "banks": ["gym_body"],
+                    "selected_banks": ["gym_body"],
+                },
+            ]
+
+        def lineage_for(self, item, **_kwargs):
+            return {
+                "captionHash": item["caption_hash"],
+                "captionPayloadHash": item["caption_payload_hash"],
+                "selectedBanks": item["selected_banks"],
+                "approvalId": item.get("approval_id"),
+                "approvalFileSha": item.get("approval_file_sha"),
+            }
+
+    import reel_factory.worker_api as worker_api
+
+    monkeypatch.setattr(
+        worker_api, "load_or_build_caption_bank_store", lambda _root: Store()
+    )
+    monkeypatch.setattr(
+        cf.domains.reference, "reference_hook_is_schedule_safe", lambda _text: True
+    )
+    monkeypatch.setattr(daily_library, "_recent_used_caption_keys", lambda _conn: set())
+    try:
+        selected = daily_library._daily_hooks(
+            cf,
+            count=1,
+            seed_key="gym-context",
+            selections=[{"sourceAssetId": source["id"]}],
+        )[0]
+        lineage = selected["captionLineage"]
+        assert selected["text"] == "gym or dinner?"
+        assert lineage["fallbackReason"] == "no_source_compatible_approved_timed_hook"
+        assert lineage["captionSelectionContext"]["frameType"] == "gym_body"
+        assert lineage["sceneCompatibilityDecision"] == "allowed"
+    finally:
+        cf.close()

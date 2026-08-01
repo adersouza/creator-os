@@ -137,18 +137,28 @@ class ReelExecutionRepository:
             reused_existing = []
             next_num = self.next_reel_clip_number(raw_dir)
             for source_index, source in enumerate(sources):
+                source_hooks = self.rotate_hooks_for_source(hooks, source_index)
                 existing = self.conn.execute(
                     """SELECT * FROM render_jobs WHERE source_asset_id = ?
                     ORDER BY created_at DESC LIMIT 1""",
                     (source["id"],),
                 ).fetchone()
-                if existing and not force_new:
+                existing_hooks = (
+                    json_load(existing["hooks_json"], []) if existing else []
+                )
+                if (
+                    existing
+                    and not force_new
+                    and existing_hooks == source_hooks
+                    and json_load(existing["recipes_json"], []) == (recipes or [])
+                    and (existing["caption_color"] or "auto")
+                    == (caption_color or "auto")
+                ):
                     reused_existing.append(dict(existing))
                     continue
                 clip_stem = f"clip_{next_num:03d}"
                 next_num += 1
                 src_path = Path(source["stored_path"])
-                source_hooks = self.rotate_hooks_for_source(hooks, source_index)
                 generation_gate = self._discoverability_generation_gate(
                     {"hook": source_hooks}
                 )

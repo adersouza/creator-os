@@ -1183,6 +1183,8 @@ def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch)
         assert report["verdictCodes"] == {"pdq": "pdq_pass"}
         assert report["readinessSummary"]["uploadReady"] is True
         assert report["filesAnalyzed"] == 1
+        approved_dir = cf.settings.campaigns_dir / "model" / "may" / "04_approved"
+        assert not approved_dir.exists() or not any(approved_dir.iterdir())
         row = cf.conn.execute(
             "SELECT * FROM audit_reports WHERE rendered_asset_id = 'asset_1'"
         ).fetchone()

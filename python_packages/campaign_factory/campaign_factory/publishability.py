@@ -115,7 +115,7 @@ class PublishabilityRepository(
 
     def latest_audit_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
             (rendered_asset_id,),
         ).fetchone()
         return self._audit_report_payload(dict(row)) if row else None

@@ -208,6 +208,15 @@ def test_reddit_handoff_rejects_changed_approval_bound_field(tmp_path: Path) -> 
         build_reddit_manual_handoff(factory, campaign_slug="reddit-pilot", spec=spec)
 
 
+def test_reddit_handoff_rejects_claimed_media_type_mismatch(tmp_path: Path) -> None:
+    factory = _factory(tmp_path)
+    spec = _spec()
+    spec["mediaType"] = "gif"
+
+    with pytest.raises(ValueError, match="media_type_asset_mismatch"):
+        build_reddit_handoff_review(factory, campaign_slug="reddit-pilot", spec=spec)
+
+
 def test_reddit_reuse_exception_binds_transformed_media_identity(
     tmp_path: Path,
 ) -> None:

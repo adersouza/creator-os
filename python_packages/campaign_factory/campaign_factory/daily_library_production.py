@@ -108,6 +108,7 @@ def run_daily_library_production(
         factory,
         count=len(source_ids),
         seed_key=f"{cohort_id}:{day_index}",
+        selections=selections,
     )
     prepared = factory.domains.reel_execution.prepare_reel_inputs(
         campaign_slug=campaign_slug,
@@ -483,7 +484,11 @@ def _identity_reference_fingerprint(factory: CampaignFactory) -> str:
 
 
 def _daily_hooks(
-    factory: CampaignFactory, *, count: int, seed_key: str
+    factory: CampaignFactory,
+    *,
+    count: int,
+    seed_key: str,
+    selections: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     from reel_factory.worker_api import (
         caption_hook_payload,
@@ -535,34 +540,63 @@ def _daily_hooks(
             str(item.get("caption_payload_hash") or ""),
         }.intersection(used_keys)
     ]
-    safe = [*timed, *static]
-    selected: list[dict[str, Any]] = []
+    if selections is not None and len(selections) != count:
+        raise ValueError("caption source selections must match requested hook count")
+    contexts = [
+        _caption_source_context(factory.conn, selection)
+        for selection in (selections or [{} for _ in range(count)])
+    ]
+    selected: list[
+        tuple[dict[str, Any], dict[str, Any], dict[str, Any], str | None]
+    ] = []
     selected_keys: set[str] = set()
-    for item in safe:
-        keys = {
-            str(item.get("static_text_hash") or ""),
-            str(item.get("caption_payload_hash") or ""),
-        }
-        if selected_keys.intersection(keys):
+    for index, context in enumerate(contexts):
+        available_timed = _unused_caption_items(timed, selected_keys)
+        available_static = _unused_caption_items(static, selected_keys)
+        item, fitted_lineage = _fit_daily_caption(
+            store=store,
+            items=available_timed,
+            context=context,
+            seed=seed
+            ^ int(
+                hashlib.sha256(f"{seed_key}:{index}:timed".encode()).hexdigest()[:16],
+                16,
+            ),
+        )
+        fallback_reason: str | None = None
+        if item is None:
+            fallback_reason = (
+                "no_source_compatible_approved_timed_hook"
+                if available_timed
+                else "no_remaining_eligible_approved_timed_hook"
+            )
+            item, fitted_lineage = _fit_daily_caption(
+                store=store,
+                items=available_static,
+                context=context,
+                seed=seed
+                ^ int(
+                    hashlib.sha256(f"{seed_key}:{index}:static".encode()).hexdigest()[
+                        :16
+                    ],
+                    16,
+                ),
+            )
+        if item is None:
             continue
-        selected.append(item)
+        keys = _caption_item_keys(item)
         selected_keys.update(keys)
-        if len(selected) == count:
-            break
+        selected.append((item, fitted_lineage, context, fallback_reason))
     if len(selected) < count:
         raise RuntimeError(
             "Stacey caption bank has only "
-            f"{len(selected)} unused schedule-safe timed/static hooks; need {count}"
+            f"{len(selected)} unused source-compatible timed/static hooks; need {count}"
         )
     hooks = []
-    for item in selected:
+    for item, fitted_lineage, context, fallback_reason in selected:
         selected_banks = list(item.get("selected_banks") or [])
         render_hook = caption_hook_payload(item)
-        lineage = store.lineage_for(
-            item,
-            selected_mix="Stacey",
-            selected_banks=selected_banks,
-        )
+        lineage = dict(fitted_lineage)
         lineage.update(
             {
                 "timedPreferred": True,
@@ -574,12 +608,18 @@ def _daily_hooks(
                     else "static_fallback"
                 ),
                 "fallbackReason": (
-                    None
-                    if item.get("variant_type") == "timed"
-                    else "no_remaining_eligible_approved_timed_hook"
+                    None if item.get("variant_type") == "timed" else fallback_reason
                 ),
                 "recentReuseDecision": "clear",
                 "recentReuseWindowDays": 14,
+                "captionSelectionContext": {
+                    "sourceAssetId": context["sourceAssetId"],
+                    "contextFingerprint": context["contextFingerprint"],
+                    "frameType": context["frameType"],
+                    "reelSceneTags": context["reelSceneTags"],
+                    "captionTopic": context["captionTopic"],
+                    "selectionMode": "existing_scene_and_topic_fit",
+                },
             }
         )
         hooks.append(
@@ -598,6 +638,139 @@ def _daily_hooks(
             }
         )
     return hooks
+
+
+def _caption_item_keys(item: dict[str, Any]) -> set[str]:
+    return {
+        value
+        for value in (
+            str(item.get("static_text_hash") or ""),
+            str(item.get("caption_payload_hash") or ""),
+        )
+        if value
+    }
+
+
+def _unused_caption_items(
+    items: list[dict[str, Any]], selected_keys: set[str]
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if not _caption_item_keys(item).intersection(selected_keys)
+    ]
+
+
+def _caption_source_context(
+    conn: sqlite3.Connection, selection: dict[str, Any]
+) -> dict[str, Any]:
+    source_asset_id = str(selection.get("sourceAssetId") or "") or None
+    row = (
+        conn.execute(
+            "SELECT filename, stored_path, source_prompt, notes FROM source_assets WHERE id = ?",
+            (source_asset_id,),
+        ).fetchone()
+        if source_asset_id
+        else None
+    )
+    filename = str((row and row["filename"]) or selection.get("sourcePath") or "")
+    prompt_text = " ".join(
+        value
+        for value in (
+            str((row and row["source_prompt"]) or "").strip(),
+            str((row and row["notes"]) or "").strip(),
+        )
+        if value
+    )
+    searchable = f"{Path(filename).stem} {prompt_text}".lower()
+    if any(token in searchable for token in ("gym", "workout", "fitness")):
+        frame_type = "gym_body"
+    elif any(token in searchable for token in ("mirror", "full body", "fullbody")):
+        frame_type = "mirror_fullbody"
+    elif any(token in searchable for token in ("closeup", "close-up", "selfie")):
+        frame_type = "closeup"
+    else:
+        frame_type = "unknown"
+    context_payload = {
+        "sourceAssetId": source_asset_id,
+        "frameType": frame_type,
+        "videoStem": Path(filename).stem,
+        "promptText": prompt_text,
+    }
+    return {
+        **context_payload,
+        "contextFingerprint": hashlib.sha256(
+            json.dumps(context_payload, sort_keys=True).encode()
+        ).hexdigest(),
+    }
+
+
+def _fit_daily_caption(
+    *,
+    store: Any,
+    items: list[dict[str, Any]],
+    context: dict[str, Any],
+    seed: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    from reel_factory.worker_api import (
+        CaptionSet,
+        apply_caption_fit_to_caption_set,
+        caption_hook_payload,
+        classify_reel_scene_tags,
+        infer_caption_topic_for_reel,
+    )
+
+    if not items:
+        return None, {}
+    hooks = [caption_hook_payload(item) for item in items]
+    lineage = {
+        index: store.lineage_for(
+            item,
+            selected_mix="Stacey",
+            selected_banks=list(item.get("selected_banks") or []),
+        )
+        for index, item in enumerate(items)
+    }
+    reel_scene_tags = classify_reel_scene_tags(
+        frame_type=context["frameType"],
+        video_stem=context["videoStem"],
+        prompt_text=context["promptText"],
+    )
+    caption_topic = infer_caption_topic_for_reel(
+        frame_type=context["frameType"],
+        video_stem=context["videoStem"],
+        prompt_text=context["promptText"],
+    )
+    context["reelSceneTags"] = reel_scene_tags
+    context["captionTopic"] = caption_topic
+    fitted, _diagnostics = apply_caption_fit_to_caption_set(
+        CaptionSet(hooks=hooks, hook_lineage=lineage),
+        frame_type=context["frameType"],
+        reel_scene_tags=reel_scene_tags,
+        caption_topic=caption_topic,
+        max_hooks=1,
+        seed=seed,
+        fit_mode="auto",
+        scene_fit_mode="auto",
+    )
+    if not fitted.hooks:
+        return None, {}
+    fitted_hook = fitted.hooks[0]
+    fitted_lineage = dict(fitted.hook_lineage.get(0) or {})
+    payload_hash = str(fitted_lineage.get("captionPayloadHash") or "")
+    item = next(
+        (
+            candidate
+            for candidate in items
+            if (
+                payload_hash
+                and str(candidate.get("caption_payload_hash") or "") == payload_hash
+            )
+            or caption_hook_payload(candidate) == fitted_hook
+        ),
+        None,
+    )
+    return item, fitted_lineage
 
 
 def _recent_used_caption_keys(
