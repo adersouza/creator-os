@@ -63,10 +63,6 @@ def isolate_runtime_state_paths(
         "REEL_FACTORY_RENDER_QUEUE_DB",
         str(state / "reel_factory/render_queue.sqlite"),
     )
-    monkeypatch.setenv(
-        "CAMPAIGN_FACTORY_CREATIVE_APPROVALS",
-        str(state / "campaign_factory/creative_approvals"),
-    )
 
 
 @pytest.fixture(autouse=True)

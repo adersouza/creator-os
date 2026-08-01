@@ -26,19 +26,14 @@ from .audio_policy import (
 )
 from .audio_radar import (
     AudioCache,
-    AudioLocator,
     AudioMatchContext,
     NeedsEmbeddedAudioError,
-    PlatformSoundId,
     TrendCandidate,
     apply_controlled_exploration,
     bind_embedding_receipt,
     fulfill_embedded_trending,
     normalize_candidates,
     rank_candidates,
-)
-from .production_audio_library import (
-    active_audio_library_candidates as _active_audio_library_candidates,
 )
 from .production_audio_library import (
     apply_audio_usage_policy as _apply_audio_usage_policy,
@@ -48,6 +43,9 @@ from .production_audio_library import (
 )
 from .production_audio_library import (
     audio_fit_tags as _audio_fit_tags,
+)
+from .production_audio_library import (
+    production_audio_candidates as _production_audio_candidates,
 )
 from .production_batch_identity import deterministic_seed as _deterministic_seed
 from .production_batch_results import _motion_stage_result, run_production_hard_qc
@@ -138,47 +136,7 @@ def discover_production_audio_candidates(
     connection: Any | None = None,
 ) -> list[TrendCandidate]:
     """Load only the canonical active cache for production fulfillment."""
-
-    fixture = _approved_audio_fixture_candidate()
-    if fixture is not None:
-        return normalize_candidates([fixture])
-    return _active_audio_library_candidates(connection)
-
-
-def _approved_audio_fixture_candidate() -> TrendCandidate | None:
-    raw = os.environ.get("CREATOR_OS_EMBEDDED_AUDIO_FIXTURE", "").strip()
-    if not raw:
-        return None
-    expanded = Path(raw).expanduser()
-    if expanded.is_symlink():
-        raise ValueError("approved embedded-audio fixture must not be a symlink")
-    path = expanded.resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"approved embedded-audio fixture is missing: {path}")
-    digest = _sha256_file(path)
-    observed_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
-    return TrendCandidate(
-        candidate_id=f"approved-local-fixture:{digest}",
-        provider="operator_approved_fixture",
-        title=os.environ.get("CREATOR_OS_EMBEDDED_AUDIO_FIXTURE_TITLE", path.stem),
-        artist="approved local fixture",
-        platform_sound_ids=(
-            PlatformSoundId(platform="local_fixture", sound_id=digest[:24]),
-        ),
-        observed_at=observed_at,
-        current_rank=1,
-        usage_velocity=1_000_000,
-        trend_score=1.0,
-        canonical_track_id=f"local_fixture:{digest}",
-        locator=AudioLocator(
-            provider="operator_approved_fixture",
-            platform="local_fixture",
-            track_id=digest,
-            kind="local_file",
-            value=str(path),
-        ),
-        advisory_labels={"operatorApprovedFixture": True},
-    )
+    return _production_audio_candidates(connection)
 
 
 def fulfill_production_audio(
