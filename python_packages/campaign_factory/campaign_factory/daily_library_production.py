@@ -228,9 +228,7 @@ def run_daily_library_production(
             )
         except Exception as exc:
             report["status"] = "finalization_failed"
-            report["blockingReasons"] = [
-                f"{asset['id']}:finalization_failed:{exc}"
-            ]
+            report["blockingReasons"] = [f"{asset['id']}:finalization_failed:{exc}"]
             return report
         report["audio"].append(
             {
