@@ -61,13 +61,19 @@ def _stub_final_artifact_integrity(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("upload_ready", "expected_state"),
-    [(True, "review_ready"), (False, "draft")],
+    ("upload_ready", "cover_candidates", "expected_ready", "expected_state"),
+    [
+        (True, [{"timeSec": 0.5, "score": 95, "warnings": []}], True, "review_ready"),
+        (True, [], False, "draft"),
+        (False, [{"timeSec": 0.5, "score": 95, "warnings": []}], False, "draft"),
+    ],
 )
 def test_final_asset_audit_sets_exact_review_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     upload_ready: bool,
+    cover_candidates: list[dict[str, object]],
+    expected_ready: bool,
     expected_state: str,
 ) -> None:
     cf = make_factory(tmp_path)
@@ -87,6 +93,7 @@ def test_final_asset_audit_sets_exact_review_state(
             "overallVerdict": "pass" if upload_ready else "fail",
             "failedChecks": [] if upload_ready else ["visual_qc"],
             "warnings": [],
+            "coverCandidates": cover_candidates,
             "readinessSummary": {
                 "uploadReady": upload_ready,
                 "blockingReasons": [] if upload_ready else ["visual_qc"],
@@ -108,7 +115,7 @@ def test_final_asset_audit_sets_exact_review_state(
         state = cf.conn.execute(
             "SELECT review_state FROM rendered_assets WHERE id = ?", (asset["id"],)
         ).fetchone()[0]
-        assert result["reviewReady"] is upload_ready
+        assert result["reviewReady"] is expected_ready
         assert state == expected_state
     finally:
         cf.close()

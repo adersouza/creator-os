@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 CAPTION_PLACEMENT_QC_WARNING_CODES = {
     "caption_too_close_to_edge",
     "caption_overlaps_ui_safe_zone",
@@ -64,3 +67,29 @@ CONTEXTUAL_INSTAGRAM_POST_CAPTIONS = (
         ("late night thoughts", "staying in", "one more selfie"),
     ),
 )
+
+
+def contextual_instagram_post_caption_pool(
+    context: dict[str, Any] | None,
+) -> tuple[str, ...]:
+    context_text = json.dumps(context or {}, ensure_ascii=False, sort_keys=True).lower()
+    return next(
+        (
+            candidates
+            for tokens, candidates in CONTEXTUAL_INSTAGRAM_POST_CAPTIONS
+            if any(token in context_text for token in tokens)
+        ),
+        SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
+    )
+
+
+def caption_quality_recovery_class(quality_reasons: list[str]) -> str:
+    reasons = set(quality_reasons)
+    if reasons and reasons <= {
+        "instagram_post_caption_too_many_hashtags",
+        "instagram_post_caption_too_many_lines",
+    }:
+        return "recoverableByHashtagTrim"
+    if "instagram_post_caption_platform_risk" in reasons:
+        return "recoverableByCTARemoval"
+    return "recoverableByCaptionRewrite"

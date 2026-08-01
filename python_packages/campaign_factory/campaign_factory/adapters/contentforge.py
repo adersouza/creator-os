@@ -219,7 +219,17 @@ def audit_final_asset(
     ):
         raise RuntimeError("final_contentforge_audit_subject_mismatch")
     report = reports[0]
-    review_ready = audit_report_is_review_ready(report)
+    cover_candidates = [
+        candidate
+        for candidate in report.get("coverCandidates") or []
+        if isinstance(candidate, dict)
+        and isinstance(candidate.get("timeSec"), (int, float))
+        and not candidate.get("warnings")
+    ]
+    failed_checks = list(report.get("failedChecks") or [])
+    if not cover_candidates:
+        failed_checks.append("final_cover_candidate_missing")
+    review_ready = audit_report_is_review_ready(report) and bool(cover_candidates)
     factory.conn.execute(
         "UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?",
         ("review_ready" if review_ready else "draft", utc_now(), rendered_asset_id),
@@ -232,11 +242,11 @@ def audit_final_asset(
         "subjectSha256": report.get("subjectSha256"),
         "status": report.get("status"),
         "overallVerdict": report.get("overallVerdict"),
-        "failedChecks": report.get("failedChecks") or [],
+        "failedChecks": failed_checks,
         "warnings": report.get("warnings") or [],
         "error": report.get("error"),
         "readinessSummary": report.get("readinessSummary") or {},
-        "coverCandidates": report.get("coverCandidates") or [],
+        "coverCandidates": cover_candidates,
         "reviewReady": review_ready,
     }
 

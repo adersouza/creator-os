@@ -1960,7 +1960,7 @@ def test_register_surface_asset_story_image_and_video_keep_story_mapping(
 
         assert image_result["contentSurface"] == "story"
         assert image_result["igMediaType"] == "STORIES"
-        assert image_result["publishability"] == "passed"
+        assert image_result["publishability"] == "blocked"
         assert video_result["contentSurface"] == "story"
         assert video_result["mediaType"] == "video"
         assert video_result["igMediaType"] == "STORIES"
@@ -1968,11 +1968,10 @@ def test_register_surface_asset_story_image_and_video_keep_story_mapping(
         proof = cf.domains.surface_handoff.surface_draft_proof(
             creator="Stacey", campaign="stacey_surface_nonreel_20260606"
         )
-        drafts_by_asset = {draft["assetId"]: draft for draft in proof["drafts"]}
         blocked_by_asset = {item["assetId"]: item for item in proof["blockedAssets"]}
         assert (
-            drafts_by_asset[image_result["renderedAssetId"]]["instagramPostCaption"]
-            == ""
+            "story_quality_measurements_missing"
+            in blocked_by_asset[image_result["renderedAssetId"]]["blockingReasons"]
         )
         assert (
             "story_quality_gate_failed"

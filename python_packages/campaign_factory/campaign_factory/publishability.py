@@ -12,10 +12,10 @@ from .ai_disclosure import AI_DISCLOSURE_BLOCKER, AiDisclosurePublishabilityMixi
 from .asset_evidence import final_artifact_integrity_for_publishability
 from .caption_outcome import clean_without_overlay_fallback, load_context_json
 from .caption_policy import (
-    CONTEXTUAL_INSTAGRAM_POST_CAPTIONS,
-    SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
     WARNING_CLASS_HARD_BLOCKER,
     WARNING_CLASS_OPERATOR_OVERRIDABLE,
+    caption_quality_recovery_class,
+    contextual_instagram_post_caption_pool,
     warning_class,
 )
 from .creative_approval import (
@@ -818,7 +818,7 @@ class PublishabilityRepository(
                 and discoverability_contract.get("discoverabilitySafe")
                 and not non_caption_blockers
             )
-            recovery_class = self.caption_quality_recovery_class(quality_reasons)
+            recovery_class = caption_quality_recovery_class(quality_reasons)
             if non_caption_blockers:
                 unrecoverable += 1
             elif recovery_class == "recoverableByHashtagTrim":
@@ -873,17 +873,6 @@ class PublishabilityRepository(
             "wouldWrite": False,
         }
 
-    def caption_quality_recovery_class(self, quality_reasons: list[str]) -> str:
-        reason_set = set(quality_reasons)
-        if reason_set and reason_set <= {
-            "instagram_post_caption_too_many_hashtags",
-            "instagram_post_caption_too_many_lines",
-        }:
-            return "recoverableByHashtagTrim"
-        if "instagram_post_caption_platform_risk" in reason_set:
-            return "recoverableByCTARemoval"
-        return "recoverableByCaptionRewrite"
-
     def suggest_simple_instagram_post_caption(
         self,
         *,
@@ -892,14 +881,7 @@ class PublishabilityRepository(
         burned_caption: str,
         context: dict[str, Any] | None = None,
     ) -> str:
-        context_text = json.dumps(
-            context or {}, ensure_ascii=False, sort_keys=True
-        ).lower()
-        pool: tuple[str, ...] = SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
-        for tokens, candidates in CONTEXTUAL_INSTAGRAM_POST_CAPTIONS:
-            if any(token in context_text for token in tokens):
-                pool = candidates
-                break
+        pool = contextual_instagram_post_caption_pool(context)
         start = int(hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:8], 16) % len(
             pool
         )
