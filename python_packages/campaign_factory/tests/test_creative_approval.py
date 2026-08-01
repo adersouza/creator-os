@@ -51,7 +51,7 @@ from test_motion_generation_stage import (
     make_factory,
 )
 
-from pipeline_contracts import SCHEMA_NAMES
+from pipeline_contracts import SCHEMA_NAMES, load_example
 
 EVIDENCE_SECRET = "creator-os-test-evidence-secret-32-bytes-long"
 SPEND_SECRET = "creator-os-test-spend-secret-32-bytes-long"
@@ -763,6 +763,41 @@ def test_supported_builder_uses_real_campaign_review_export_without_provider_cal
         assert approval["exportProjection"] == creative_export_projection(
             dry_run_export["payload"]["drafts"][0], campaign_slug="may"
         )
+
+        row = dict(
+            cf.conn.execute(
+                "SELECT content_hash, metadata_json FROM rendered_assets WHERE id = ?",
+                (asset["id"],),
+            ).fetchone()
+        )
+        preparation_receipt = load_example("visual_derivative_receipt")
+        preparation_receipt["profile"].update(
+            {"id": "tilt_crop_dark", "observedSource": "spoofzy"}
+        )
+        preparation_receipt["accepted"][0]["output"]["sha256"] = row["content_hash"]
+        preparation_path = tmp_path / "creative-approval.visual-derivative.json"
+        preparation_path.write_text(json.dumps(preparation_receipt), encoding="utf-8")
+        metadata = json.loads(row["metadata_json"] or "{}")
+        metadata.update(
+            {
+                "observedProfile": "tilt_crop_dark@1",
+                "visualDerivativeReceipt": {
+                    "path": str(preparation_path),
+                    "sha256": _sha(preparation_path),
+                    "toolchainFingerprint": preparation_receipt["toolchain"][
+                        "fingerprint"
+                    ],
+                    "sourceSha256": preparation_receipt["source"]["sha256"],
+                    "outputSha256": row["content_hash"],
+                    "acceptedIndex": 1,
+                },
+            }
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata, sort_keys=True), asset["id"]),
+        )
+        cf.conn.commit()
 
         external_calls = {"negotiate": 0, "upload": 0, "ingest": 0}
         monkeypatch.setattr(

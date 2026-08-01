@@ -5,11 +5,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pipeline_contracts import schema_path
+from pipeline_contracts import schema_path, validate_visual_derivative_receipt
 
 from ..persistence import utc_now
 
 _SHA256 = set("0123456789abcdef")
+_ALLOWED_OBSERVED_PROFILES = {
+    "mirror_crop_tone": "ofm",
+    "opening_trim": "ofm",
+    "tilt_crop_dark": "spoofzy",
+}
 
 
 def canonical_fingerprint(value: Any) -> str:
@@ -85,6 +90,125 @@ def creative_approval_evidence(approval: Any) -> dict[str, Any] | None:
     return evidence
 
 
+def media_preparation_evidence(
+    asset: dict[str, Any], *, final_sha256: str
+) -> dict[str, Any]:
+    """Return path-free OFM/Spoofzy observed-profile proof for exact final bytes."""
+    metadata = asset.get("_metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("media preparation evidence is missing")
+    reference = metadata.get("visualDerivativeReceipt")
+    if not isinstance(reference, dict):
+        raise ValueError("media preparation receipt is missing")
+    receipt_path = Path(str(reference.get("path") or "")).expanduser().resolve()
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        raise ValueError("media preparation receipt file is unavailable")
+    receipt_bytes = receipt_path.read_bytes()
+    receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
+    if receipt_sha256 != str(reference.get("sha256") or "").lower():
+        raise ValueError("media preparation receipt SHA-256 mismatch")
+    receipt = json.loads(receipt_bytes)
+    validate_visual_derivative_receipt(receipt)
+    profile = receipt["profile"]
+    profile_id = str(profile["id"])
+    observed_source = str(profile["observedSource"])
+    if _ALLOWED_OBSERVED_PROFILES.get(profile_id) != observed_source:
+        raise ValueError("media preparation profile is not OFM/Spoofzy observed")
+    if metadata.get("observedProfile") != f"{profile_id}@{profile['version']}":
+        raise ValueError("media preparation profile binding mismatch")
+    normalized_final_sha = str(final_sha256 or "").lower()
+    profile_output_sha = str(reference.get("outputSha256") or "").lower()
+    accepted = next(
+        (
+            item
+            for item in receipt["accepted"]
+            if str(item["output"]["sha256"]).lower() == profile_output_sha
+            and item["qc"].get("status") == "passed"
+            and not item["qc"].get("blockingCodes")
+        ),
+        None,
+    )
+    if accepted is None:
+        raise ValueError("profile output is not accepted by the preparation receipt")
+    if (
+        int(reference.get("acceptedIndex") or 0) != accepted["acceptedIndex"]
+        or str(reference.get("sourceSha256") or "").lower()
+        != str(receipt["source"]["sha256"]).lower()
+        or str(reference.get("toolchainFingerprint") or "").lower()
+        != str(receipt["toolchain"]["fingerprint"]).lower()
+    ):
+        raise ValueError("media preparation receipt metadata is inconsistent")
+    post_process_chain: list[dict[str, Any]] = []
+    current_sha = profile_output_sha
+    caption_receipt = metadata.get("captionRenderReceipt")
+    if isinstance(caption_receipt, dict):
+        caption_input = str(caption_receipt.get("replacesSha256") or "").lower()
+        caption_output = str(caption_receipt.get("outputSha256") or "").lower()
+        if caption_input != current_sha or not _is_sha256(caption_output):
+            raise ValueError("caption render is not bound to the prepared media")
+        post_process_chain.append(
+            {
+                "type": "caption_render",
+                "inputSha256": caption_input,
+                "outputSha256": caption_output,
+                "receiptSha256": canonical_fingerprint(caption_receipt),
+            }
+        )
+        current_sha = caption_output
+    audio_receipt = metadata.get("audioEmbeddingReceipt")
+    if isinstance(audio_receipt, dict):
+        original = audio_receipt.get("originalVideo")
+        final = audio_receipt.get("finalVideo")
+        audio_input = (
+            str(original.get("sha256") or "").lower()
+            if isinstance(original, dict)
+            else ""
+        )
+        audio_output = (
+            str(final.get("sha256") or "").lower() if isinstance(final, dict) else ""
+        )
+        verification = audio_receipt.get("verification")
+        if (
+            audio_receipt.get("schema") != "creator_os.audio_embedding_receipt.v1"
+            or audio_input != current_sha
+            or not _is_sha256(audio_output)
+            or not isinstance(verification, dict)
+            or verification.get("status") != "verified"
+        ):
+            raise ValueError("audio embedding is not bound to the prepared media")
+        post_process_chain.append(
+            {
+                "type": "audio_embedding",
+                "inputSha256": audio_input,
+                "outputSha256": audio_output,
+                "receiptSha256": canonical_fingerprint(audio_receipt),
+            }
+        )
+        current_sha = audio_output
+    if current_sha != normalized_final_sha:
+        raise ValueError("final media bytes are not bound to the preparation lineage")
+    return {
+        "schema": "creator_os.media_preparation_evidence.v1",
+        "method": "observed_profile",
+        "observedSource": observed_source,
+        "profileId": profile_id,
+        "profileVersion": profile["version"],
+        "definitionSha256": str(profile["definitionSha256"]).lower(),
+        "receiptSha256": receipt_sha256,
+        "sourceSha256": str(receipt["source"]["sha256"]).lower(),
+        "profileOutputSha256": profile_output_sha,
+        "outputSha256": normalized_final_sha,
+        "toolchainFingerprint": str(receipt["toolchain"]["fingerprint"]).lower(),
+        "acceptedIndex": accepted["acceptedIndex"],
+        "qcStatus": "passed",
+        "postProcessChain": post_process_chain,
+    }
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and set(value) <= _SHA256
+
+
 def attach_handoff_evidence(
     draft: dict[str, Any],
     *,
@@ -111,6 +235,7 @@ def attach_handoff_evidence(
         "renderedAssetId": rendered_asset_id,
         "sourceAssetId": source_asset_id,
         "finalContentSha256": final_sha256,
+        "mediaPreparation": draft.get("mediaPreparation"),
         "creativeApproval": approval,
         "destinationAccountId": draft.get("accountId"),
         "destinationInstagramAccountId": draft.get("instagramAccountId"),
