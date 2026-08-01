@@ -118,10 +118,21 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 select_observed_profile_for_asset,
             )
 
-            profile_decision = select_observed_profile_for_asset(
+            experiment_decision = select_observed_profile_for_asset(
                 cf.conn,
                 rendered_asset_id=args.parent_asset_id,
                 purpose="experiment",
+            )
+            production_decision = select_observed_profile_for_asset(
+                cf.conn,
+                rendered_asset_id=args.parent_asset_id,
+                purpose="production",
+            )
+            profile_decision = (
+                experiment_decision
+                if experiment_decision["mode"] == "continue_active"
+                or production_decision["selectedProfile"] is None
+                else production_decision
             )
             profile = profile_decision["selectedProfile"]
             if profile is None:
