@@ -25,6 +25,7 @@ from .content_director import (
 from .learning_governance import register_experiment_design
 from .observed_experiment_reporting import (
     OBSERVED_MEASUREMENT_PLAN,
+    OBSERVED_PROFILE_SEQUENCE,
     select_observed_profile,
 )
 from .production_lane import plan_production_batch, run_production_batch
@@ -55,14 +56,6 @@ EXPERIMENT_VARIABLES = frozenset(
         "observed_profile",
     }
 )
-OBSERVED_PROFILE_SEQUENCE = (
-    "mirror_crop_tone@1",
-    "tilt_crop_dark@1",
-    "light_editorial@1",
-    "opening_trim@1",
-)
-
-
 def _fingerprint(value: object) -> str:
     return hashlib.sha256(_json(value).encode()).hexdigest()
 

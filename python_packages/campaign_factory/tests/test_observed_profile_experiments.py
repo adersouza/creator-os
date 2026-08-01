@@ -12,6 +12,7 @@ from campaign_factory.content_director_operations import design_experiment
 from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.observed_experiment_reporting import (
     OBSERVED_MEASUREMENT_PLAN,
+    OBSERVED_PROFILE_SEQUENCE,
     _bootstrap_interval,
     _interpretation,
     _snapshot_exclusion_reasons,
@@ -1369,6 +1370,38 @@ def test_operator_adopted_profile_changes_auto_production_choice(
         assert decision["productionUsageChanged"] is True
         assert selected["selectedProfile"] == TEST_PROFILE
         assert selected["mode"] == "operator_adopted"
+    finally:
+        cf.close()
+
+
+def test_profile_sequence_is_shared_and_opening_trim_requires_passive_video(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        assert OBSERVED_PROFILE_SEQUENCE == (
+            "mirror_crop_tone@1",
+            "tilt_crop_dark@1",
+            "light_editorial@1",
+            "opening_trim@1",
+        )
+        image = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            media_metadata={"mediaType": "image"},
+        )
+        assert image["eligibleProfiles"] == list(OBSERVED_PROFILE_SEQUENCE[:3])
+        assert image["blockedProfiles"]["opening_trim@1"] == [
+            "passive_video_required"
+        ]
+        video = select_observed_profile(
+            cf.conn,
+            creator="stacey",
+            content_intent="passive_selfie",
+            media_metadata={"mediaType": "video"},
+        )
+        assert video["eligibleProfiles"] == list(OBSERVED_PROFILE_SEQUENCE)
     finally:
         cf.close()
 

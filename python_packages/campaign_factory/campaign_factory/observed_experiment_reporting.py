@@ -46,10 +46,13 @@ OBSERVED_MEASUREMENT_PLAN = {
     ],
 }
 
-OBSERVED_SPLIT_PROFILES = (
+OBSERVED_PROFILE_SEQUENCE = (
     "mirror_crop_tone@1",
     "tilt_crop_dark@1",
+    "light_editorial@1",
+    "opening_trim@1",
 )
+OBSERVED_SPLIT_PROFILES = OBSERVED_PROFILE_SEQUENCE
 
 
 def select_observed_profile(
@@ -67,10 +70,12 @@ def select_observed_profile(
     notes: dict[str, Any] = {}
     if source_asset_id:
         source = conn.execute(
-            "SELECT notes FROM source_assets WHERE id = ?", (source_asset_id,)
+            "SELECT notes, media_type FROM source_assets WHERE id = ?",
+            (source_asset_id,),
         ).fetchone()
         if source:
             notes = _json_object(source["notes"])
+            notes.setdefault("mediaType", source["media_type"])
     traits = {**notes, **(media_metadata or {})}
     synchronized = content_intent.lower() in {
         "talking",
@@ -81,25 +86,34 @@ def select_observed_profile(
         bool(traits.get(key))
         for key in ("synchronizedContent", "referenceTalking", "lipSync")
     )
-    visible_text = any(
-        bool(traits.get(key))
-        for key in (
-            "burnedCaption",
-            "captionBurned",
-            "visibleText",
-            "ocrTextPresent",
-        )
+    burned_caption = any(
+        bool(traits.get(key)) for key in ("burnedCaption", "captionBurned")
     )
-    eligible = [] if synchronized else list(OBSERVED_SPLIT_PROFILES)
+    visible_text = burned_caption or any(
+        bool(traits.get(key))
+        for key in ("visibleText", "ocrTextPresent")
+    )
+    media_type = str(traits.get("mediaType") or traits.get("media_type") or "").lower()
+    eligible = (
+        [] if synchronized or burned_caption else list(OBSERVED_PROFILE_SEQUENCE)
+    )
     blockers: dict[str, list[str]] = {}
-    if visible_text and "mirror_crop_tone@1" in eligible:
-        eligible.remove("mirror_crop_tone@1")
-        blockers["mirror_crop_tone@1"] = ["source_visible_text_blocks_mirror"]
     if synchronized:
         blockers = {
             profile: ["synchronized_content_ineligible"]
-            for profile in OBSERVED_SPLIT_PROFILES
+            for profile in OBSERVED_PROFILE_SEQUENCE
         }
+    elif burned_caption:
+        blockers = {
+            profile: ["source_burned_caption_ineligible"]
+            for profile in OBSERVED_PROFILE_SEQUENCE
+        }
+    if visible_text and "mirror_crop_tone@1" in eligible:
+        eligible.remove("mirror_crop_tone@1")
+        blockers["mirror_crop_tone@1"] = ["source_visible_text_blocks_mirror"]
+    if media_type != "video" and "opening_trim@1" in eligible:
+        eligible.remove("opening_trim@1")
+        blockers["opening_trim@1"] = ["passive_video_required"]
 
     history = conn.execute(
         """
@@ -115,7 +129,7 @@ def select_observed_profile(
     for row in history:
         variants = json.loads(row["variants_json"] or "[]")
         profile = variants[1] if len(variants) == 2 else None
-        if profile not in OBSERVED_SPLIT_PROFILES:
+        if profile not in OBSERVED_PROFILE_SEQUENCE:
             continue
         interpretation = _json_object(row["interpretation_json"])
         decision = interpretation.get("operatorDecision")
@@ -190,7 +204,7 @@ def select_observed_profile_for_asset(
 ) -> dict[str, Any]:
     row = conn.execute(
         """
-        SELECT r.source_asset_id, r.metadata_json, m.slug AS creator
+        SELECT r.source_asset_id, r.metadata_json, r.media_type, m.slug AS creator
         FROM rendered_assets r
         JOIN source_assets s ON s.id = r.source_asset_id
         JOIN models m ON m.id = s.model_id
@@ -201,6 +215,7 @@ def select_observed_profile_for_asset(
     if not row:
         raise ValueError(f"rendered asset not found: {rendered_asset_id}")
     metadata = _json_object(row["metadata_json"])
+    metadata.setdefault("mediaType", row["media_type"])
     content_intent = str(
         metadata.get("contentIntent")
         or metadata.get("motionIntent")
