@@ -58,7 +58,7 @@ def test_release_classes_and_gates_are_inferred_from_changed_paths() -> None:
     classes = module.infer_release_classes(
         [
             ".github/workflows/monorepo-ci.yml",
-            "python_packages/campaign_factory/campaign_factory/campaign_schema_v7.py",
+            "python_packages/campaign_factory/campaign_factory/campaign_schema_v8.py",
         ],
         matrix,
     )

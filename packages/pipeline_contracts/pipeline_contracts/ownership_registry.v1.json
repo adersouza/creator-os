@@ -165,6 +165,7 @@
       "canonicalStore": "persistent_json_artifacts",
       "canonicalTables": [
         "campaign_handoff_manifests_and_receipts",
+        "campaign_approval_and_quarantine_evidence",
         "reel_manifest_and_artifact_metadata",
         "reel_analysis_and_provider_receipts",
         "reel_caption_banks_and_review_sidecars",
@@ -344,9 +345,9 @@
     "schema": "creator_os.persistence_ownership_registry.v1",
     "inventoryCommand": "uv run python scripts/inventory-persistence.py",
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
-    "directSqlWriterInventorySha256": "763ad567c7b97f7bb22920a6dfc6c146e712dd0eb01d4f924a5c5680c982656e",
+    "directSqlWriterInventorySha256": "9dc9a43dbf0c7646940157d778ac19555c6acab90ee0a2d04c484f923f7ef448",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
-    "persistentJsonWriterInventorySha256": "f6b6ece2e3f256158d7c9edbfe6aa88803e0afb855581fd72ffba32a7ca4103a",
+    "persistentJsonWriterInventorySha256": "7e5255c965f075aa5e401cd8073671277798fc5426db3d62b36101393ce354fc",
     "policyInheritance": [
       "store policy applies to every discovered record",
       "record policy applies to every discovered field unless a stricter field rule applies",
@@ -432,6 +433,52 @@
         "repairPath": "RenderQueue stale recovery or spend-attempt reconciliation"
       }
     ],
+    "retainedCompatibilityStores": [
+      {
+        "store": "campaign_factory_sqlite",
+        "records": [
+          "higgsfield_spend_reservations",
+          "tribev2_reel_scores"
+        ],
+        "classification": "historical_read_only_compatibility",
+        "legalReaders": [
+          "campaign_factory.learning_cohort",
+          "campaign_factory.weekly_improvement_digest"
+        ],
+        "legalWriters": [],
+        "retention": "retain while historical databases contain rows or a registered reader still consumes the record",
+        "deletionBehavior": "remove only after zero-row proof, reader removal, backup, and an audited migration",
+        "repairPath": "export the historical rows, verify readers, then run an explicit database migration"
+      },
+      {
+        "store": "reel_factory_local_evidence",
+        "records": [
+          "campaign_references",
+          "campaigns",
+          "cost_events",
+          "creators",
+          "experiment_assignments",
+          "experiments",
+          "operator_ratings",
+          "posting_slot_events",
+          "posting_slots",
+          "publish_metrics",
+          "recommendation_decisions",
+          "reel_outcomes",
+          "review_decision_history",
+          "review_decisions",
+          "winner_dna"
+        ],
+        "classification": "historical_read_only_compatibility",
+        "legalReaders": [
+          "reel_factory.legacy_outcome_evidence"
+        ],
+        "legalWriters": [],
+        "retention": "retain as read-only outcome evidence until exported and historical retention expires",
+        "deletionBehavior": "never delete through the active Manifest; export exact rows before audited retirement",
+        "repairPath": "reel-factory legacy-outcome-evidence"
+      }
+    ],
     "recordRules": [
       {
         "records": [
@@ -484,6 +531,30 @@
       }
     ],
     "artifactFamilies": [
+      {
+        "family": "campaign_approval_and_quarantine_evidence",
+        "patterns": [
+          "**/creative_approvals/**/*.json",
+          "**/creative_approval_evidence/**/quarantine_receipt.json"
+        ],
+        "ownerDomain": "campaign_factory",
+        "legalWriters": [
+          "python_packages/campaign_factory/campaign_factory/creative_approval.py",
+          "python_packages/campaign_factory/campaign_factory/approval_evidence_hygiene.py"
+        ],
+        "legalReaders": [
+          "campaign_factory_publishability",
+          "campaign_factory_operator_review"
+        ],
+        "fields": "versioned approval or quarantine evidence with exact receipt and subject hashes",
+        "mutability": "append_only_or_content_addressed",
+        "allowedValues": "creative approval contract or hygiene receipt validator",
+        "stateTransitionOwner": "campaign_factory_creative_approval",
+        "retention": "through linked asset retention; quarantined fixture evidence remains recoverable until audited cleanup",
+        "deletionBehavior": "supersede or quarantine; never overwrite accepted production evidence",
+        "receiptBinding": "approval ID, rendered asset ID, exact final SHA, or quarantine inventory fingerprint",
+        "repairPath": "creative-approval-evidence-hygiene followed by exact-byte reapproval"
+      },
       {
         "family": "campaign_handoff_manifests_and_receipts",
         "patterns": [

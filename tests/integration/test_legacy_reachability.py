@@ -73,6 +73,7 @@ def test_import_call_and_entrypoint_reachability_is_reported_read_only(
     rows = {row["module"]: row for row in report["modules"]}
     assert rows["demo.cli"]["entrypoints"] == ["__main__", "project-script:demo"]
     assert rows["demo.worker"]["reachability"] == "reachable_from_entrypoint"
+    assert rows["demo.worker"]["classification"] == "active_reachable"
     assert rows["demo.compat"]["reachability"] == "reachable_from_entrypoint"
     assert rows["demo.unused"]["reachability"] == "statically_unreferenced"
     assert rows["demo.unused"]["classification"] == "unknown"
@@ -88,7 +89,7 @@ def test_evidence_backed_classifications_never_infer_safe_removal() -> None:
     assert module._classification("reel_factory.legacy_outcome_evidence")[0] == (
         "historical_read_only_compatibility"
     )
-    assert module._classification("repurposer.pipeline")[0] == "unknown"
+    assert module._classification("repurposer.pipeline")[0] == ("experimental_research")
     assert module._classification("unmapped.module")[0] == "unknown"
     assert not any(
         surface["classification"] == "safe_to_remove"
@@ -108,3 +109,38 @@ def test_current_repository_report_preserves_known_legacy_surfaces() -> None:
     )
     assert report["summary"]["classificationCounts"]["safe_to_remove"] == 0
     assert report["safeToRemove"] == []
+    assert report["summary"]["classificationCounts"]["unknown"] == 0
+    assert report["summary"]["referencedButNotFromKnownEntrypointCount"] == sum(
+        row["reachability"] == "referenced_but_not_from_known_entrypoint"
+        for row in report["modules"]
+    )
+    rows = {row["module"]: row for row in report["modules"]}
+    assert rows["campaign_factory.app"]["reachability"] == ("reachable_from_entrypoint")
+    assert rows["campaign_factory.app"]["entrypoints"] == [
+        "uvicorn-string:campaign-factory serve"
+    ]
+    assert rows["campaign_factory.adapters.threadsdash"]["classification"] == (
+        "compatibility_surface"
+    )
+    assert rows["reel_factory.local_wan"]["classification"] == ("compatibility_surface")
+
+
+def test_current_docs_do_not_advertise_removed_root_cli_surfaces() -> None:
+    forbidden = (
+        "scripts/creator-os advanced arena",
+        "scripts/creator-os advanced router",
+        "scripts/creator-os advanced models",
+        "scripts/creator-os advanced prompt-expander",
+        "scripts/creator-os local-models",
+        "scripts/creator-os local-queue",
+        "scripts/creator-os local-benchmarks",
+        "scripts/creator-os generate",
+    )
+    paths = (
+        ROOT / "docs/architecture/local_model_arena_router.md",
+        ROOT / "docs/providers/wan_wavespeed.md",
+        ROOT / "docs/runbooks/local_motion_supervised_rollout.md",
+    )
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert not any(command in text for command in forbidden), path

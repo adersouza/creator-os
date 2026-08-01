@@ -38,7 +38,8 @@ def test_mass_production_readiness_report_flags_blockers(tmp_path: Path):
         assert (
             report["schema"] == "campaign_factory.mass_production_readiness_report.v1"
         )
-        assert report["counts"]["approvedAssets"] == 1
+        assert report["counts"]["approvedAssets"] == 0
+        assert report["counts"]["missingCurrentExactByteApproval"] == 1
         assert report["counts"]["missingCanonicalIds"] == 1
         assert report["counts"]["missingLineage"] == 1
         assert report["counts"]["missingAccountAssignment"] == 1
@@ -70,6 +71,21 @@ def test_mass_production_readiness_report_can_mark_pilot_ready(tmp_path: Path):
         )
         cf.conn.execute(
             "UPDATE rendered_assets SET review_state = 'approved', audit_status = 'approved_candidate' WHERE id = 'asset_1'"
+        )
+        asset = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        add_audit_report(cf, rendered_asset_id="asset_1")
+        cf.conn.execute(
+            """
+            INSERT INTO approval_decisions
+            (id, campaign_id, rendered_asset_id, subject_sha256, decision, notes, created_at)
+            VALUES ('approval-current-asset-1', ?, 'asset_1', ?, 'approved',
+                    'exact-byte test approval', '2026-07-30T12:01:00+00:00')
+            """,
+            (asset["campaign_id"], asset["content_hash"]),
         )
         cf.conn.execute(
             "UPDATE source_assets SET source_prompt = ? WHERE id = ?",

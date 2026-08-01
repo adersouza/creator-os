@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last reconciled:** 2026-07-31
+**Last reconciled:** 2026-08-01
 **Durable architecture:** [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md)
 
 This is the concise handoff document for a new ChatGPT or Codex session. Share
@@ -21,6 +21,25 @@ operation.
 | Machine runtime | query `scripts/creator-os status --json` and the latest authenticated promotion receipt |
 | Source/runtime alignment | compare the reported runtime SHA with `origin/main`; never infer alignment from dates or branch names |
 | Cleanup state | no disposable Creator OS topic worktrees or branches remained; the developer checkout and protected runtime were retained |
+
+At the 2026-08-01 audit boundary, `origin/main` and the protected runtime were
+both at `662855b2573f4b868d1a086edf715e153d268859`. The audit-fix source changes
+described below are not runtime-active until their exact merged SHA is promoted.
+
+Operational evidence hygiene was applied independently of code promotion:
+
+- 105 fixture, test, or orphan creative-approval artifacts were moved—not
+  deleted—to the content-addressed quarantine batch
+  `8a143feffcda1c17a1906aa6`;
+- the canonical creative-approval root now contains zero JSON artifacts and the
+  quarantine receipt records every source path, destination path, SHA, and
+  reason;
+- a 297-item timed-overlay review board exists under
+  `~/.creator-os/artifacts/reviews/timed-overlays`; its 17 legacy timed entries
+  remain unapproved and production-ineligible;
+- the exact `10-creators-10k-assets` capacity tier passed all 12 mandatory lanes
+  and is retained at
+  `~/.creator-os/artifacts/reports/capacity-10-creators-10k-assets-20260801.json`.
 
 Run this before relying on the snapshot:
 

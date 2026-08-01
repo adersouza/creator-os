@@ -594,6 +594,21 @@ def swipe_review(
         if str(row.get("caption_hash") or "") not in quarantined
         and _caption_key(str(row.get("text") or "")) not in quarantined
     ]
+    legacy_timed_count = 0
+    if mode == "timed":
+        legacy_timed = _unapproved_timed_bank_candidates(reel_root)
+        legacy_timed_count = len(legacy_timed)
+        seen_payloads = {
+            str(row.get("caption_payload_hash") or row.get("caption_hash") or "")
+            for row in rows
+        }
+        for row in legacy_timed:
+            identity = str(
+                row.get("caption_payload_hash") or row.get("caption_hash") or ""
+            )
+            if identity and identity not in seen_payloads:
+                rows.append(row)
+                seen_payloads.add(identity)
     if not include_generated_seed:
         rows = [
             row
@@ -653,6 +668,8 @@ def swipe_review(
                 or _hook_variants(str(row.get("text") or "")),
                 "contentMatch": _content_match_for_review(row),
                 "qualityFlags": _quality_flags_for_review(row),
+                "queueReason": row.get("queueReason"),
+                "existingVariantType": row.get("existingVariantType"),
                 "status": "pending",
                 "approvedUse": [],
                 "notes": "",
@@ -674,7 +691,57 @@ def swipe_review(
         "count": len(rows),
         "boardPath": str(html_path),
         "decisionJsonPath": str(json_path),
+        "legacyTimedAwaitingStructuredReview": legacy_timed_count,
+        "structuredApprovalRequired": mode == "timed",
     }
+
+
+def _unapproved_timed_bank_candidates(reel_root: Path) -> list[dict[str, Any]]:
+    bank_path = reel_root / "caption_banks" / "banks.json"
+    if not bank_path.exists():
+        return []
+    store = CaptionBankStore.from_root(reel_root)
+    rows: list[dict[str, Any]] = []
+    for item in store.all_items():
+        if str(item.get("variant_type") or "static") != "timed":
+            continue
+        if all(
+            str(item.get(field) or "").strip()
+            for field in (
+                "approval_id",
+                "approval_file_sha",
+                "approval_reviewer",
+                "approval_decided_at",
+            )
+        ):
+            continue
+        segments = [
+            dict(segment)
+            for segment in (item.get("segments") or [])
+            if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+        ]
+        if not (2 <= len(segments) <= 4):
+            continue
+        text = str(item.get("text") or "").strip()
+        rows.append(
+            {
+                "caption_hash": item.get("caption_hash") or caption_hash(text),
+                "caption_payload_hash": item.get("caption_payload_hash"),
+                "text": text,
+                "banks": list(item.get("banks") or []),
+                "source": "legacy_unapproved_timed_bank",
+                "status": "candidate",
+                "placementIntent": item.get("placement_intent")
+                or _placement_intent(text),
+                "hookVariants": {"timed": {"segments": segments}},
+                "contentMatch": item.get("content_match")
+                or _content_match_for_review(item),
+                "qualityFlags": _quality_flags_for_review(item),
+                "queueReason": "timed_variant_missing_structured_approval",
+                "existingVariantType": "timed",
+            }
+        )
+    return rows
 
 
 def _reel_root(root: Path) -> Path:

@@ -29,83 +29,17 @@ METRIC_WINDOWS = {
 
 
 def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS learning_cohorts (
-          id TEXT PRIMARY KEY,
-          campaign_slug TEXT NOT NULL,
-          creator TEXT NOT NULL,
-          soul_id TEXT NOT NULL,
-          account_handle TEXT NOT NULL,
-          timezone TEXT NOT NULL,
-          start_date TEXT NOT NULL,
-          seed TEXT NOT NULL,
-          status TEXT NOT NULL,
-          autoposter_enabled INTEGER NOT NULL DEFAULT 0,
-          automatic_trial_graduation INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS learning_cohort_assignments (
-          id TEXT PRIMARY KEY,
-          cohort_id TEXT NOT NULL,
-          day_index INTEGER NOT NULL,
-          arm TEXT NOT NULL CHECK (arm IN ('ranked', 'control')),
-          surface TEXT NOT NULL CHECK (surface IN ('regular_reel', 'trial_reel')),
-          scheduled_for TEXT NOT NULL,
-          assignment_seed TEXT NOT NULL,
-          reference_id TEXT,
-          candidate_rank INTEGER,
-          source_family TEXT,
-          perceptual_cluster TEXT,
-          content_fingerprint TEXT,
-          source_asset_id TEXT,
-          provider_reservation_id TEXT,
-          draft_id TEXT,
-          post_id TEXT,
-          generation_state TEXT NOT NULL DEFAULT 'planned',
-          approval_state TEXT NOT NULL DEFAULT 'pending',
-          schedule_state TEXT NOT NULL DEFAULT 'blocked_pending_approval',
-          publish_state TEXT NOT NULL DEFAULT 'not_published',
-          metric_1h_state TEXT NOT NULL DEFAULT 'pending',
-          metric_24h_state TEXT NOT NULL DEFAULT 'pending',
-          metric_72h_state TEXT NOT NULL DEFAULT 'not_required',
-          reward_24h REAL,
-          retry_count INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          UNIQUE(cohort_id, day_index, surface),
-          UNIQUE(cohort_id, content_fingerprint),
-          FOREIGN KEY(cohort_id) REFERENCES learning_cohorts(id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_learning_cohort_assignment_state
-          ON learning_cohort_assignments(cohort_id, day_index, generation_state);
-        """
-    )
-    columns = {
-        str(row[1])
-        for row in conn.execute("PRAGMA table_info(learning_cohort_assignments)")
+    required = {"learning_cohorts", "learning_cohort_assignments"}
+    available = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
     }
-    added_column = False
-    for name, definition in {
-        "source_asset_id": "TEXT",
-        "rendered_asset_id": "TEXT",
-        "artifact_path": "TEXT",
-        "lineage_path": "TEXT",
-        "published_at": "TEXT",
-    }.items():
-        if name not in columns:
-            conn.execute(
-                f"ALTER TABLE learning_cohort_assignments ADD COLUMN {name} {definition}"
-            )
-            added_column = True
-    if added_column:
-        conn.commit()
-    conn.execute(
-        """CREATE INDEX IF NOT EXISTS idx_learning_cohort_assignment_source
-        ON learning_cohort_assignments(cohort_id, source_asset_id)"""
-    )
-    conn.commit()
+    if missing := required - available:
+        raise RuntimeError(
+            "learning_cohort_schema_not_initialized:" + ",".join(sorted(missing))
+        )
 
 
 def _ensure_learning_cohort_governance(conn: sqlite3.Connection, *, now: str) -> str:

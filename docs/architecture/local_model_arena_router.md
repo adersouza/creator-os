@@ -6,6 +6,9 @@
 > historical evidence and advanced experiments; do not use it as the current
 > product map.
 
+Arena and Router are not exposed by the public CLI. The examples below invoke
+their Python modules directly and are research tools only.
+
 ## Purpose
 
 The Arena answers a narrow question: which installed local model configuration
@@ -62,11 +65,11 @@ without a media fingerprint may identify a creator model but cannot authorize
 local image bytes. Historical v1-v3 reference sets remain readable and are
 promotion-ineligible; no provenance is inferred for them.
 
-Operators build these records from reviewed facts and exact media, not invented
-fingerprints:
+The historical operator flow built these records from reviewed facts and exact
+media, not invented fingerprints:
 
 ```bash
-scripts/creator-os advanced arena --root "$ARENA_ROOT" build-records \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root "$ARENA_ROOT" build-records \
   --reviewed-identity-facts "$REVIEWED_FACTS_JSON" \
   --source "$EXACT_SOURCE_IMAGE" \
   --goal "subtle natural portrait motion" \
@@ -226,8 +229,8 @@ leakage fail closed.
 Overrides may choose only an otherwise valid candidate. The decision records
 the operator and reason and excludes that choice from benchmark learning.
 
-The advanced/manual `creator-os generate --mode local_wan` path is a Router
-consumer, not a separate model selector. Normal intent-first `creator-os create`
+The direct `reel_factory.motion_generate` research path is a Router consumer,
+not a separate model selector. Normal intent-first `creator-os create`
 never enters this path. Advanced local execution must load the frozen Arena plan
 referenced by the summary, bind the exact task-specific media inputs—or the
 zero-media T2V prompt artifact—to the content intent and recipe, and carry the
@@ -249,28 +252,29 @@ uv run --isolated --locked --all-packages --extra identity \
   python -c "import cv2, insightface, onnxruntime"
 ```
 
-The launcher itself is offline and cannot fetch dependencies or model weights;
-promotion-eligible commands must go through `scripts/creator-os`.
+The retained launcher is offline and cannot fetch dependencies or model
+weights. The command examples below describe the historical surface and are not
+current promotion-eligible public commands.
 
 ```bash
 scripts/creator-os advanced analyzers
 scripts/creator-os advanced identity identity-health \
   --creator <creator> --root <identity-root>
-scripts/creator-os advanced arena --root <evidence-root> plan \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <evidence-root> plan \
   --identity-root <identity-root> ...
-scripts/creator-os advanced arena --root <evidence-root> generate \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <evidence-root> generate \
   --plan-id <id> --sample-id <id> --mode local_wan \
   --identity-root <identity-root> --dry-run
-scripts/creator-os advanced arena --root <evidence-root> author-review \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <evidence-root> author-review \
   --plan-id <id> --sample-id <id> \
   --form <downloaded-human-review-form.json> \
   --analysis <trusted-media-analysis.json> \
   --operator-identity <exact-reviewer> --issued-at <exact-reviewed-at> \
   --output <signed-human-review.json>
-scripts/creator-os advanced arena --root <evidence-root> finalize \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <evidence-root> finalize \
   --review <signed-human-review.json> --identity-root <identity-root> ...
-scripts/creator-os advanced arena --root <evidence-root> summary --plan-id <id>
-scripts/creator-os advanced router --request <json> --arena-summary <json>
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <evidence-root> summary --plan-id <id>
+uv run --package reel-factory python -m reel_factory.local_model_router --request <json> --arena-summary <json>
 ```
 
 The downloaded `creator_os.human_review_form.v1` is operator input, not trusted

@@ -21,6 +21,10 @@ from pipeline_contracts import (
     validate_creative_approval_v2 as validate_v2_contract,
 )
 
+from .approval_evidence_hygiene import (
+    assert_production_evidence,
+    production_evidence_guard_enabled,
+)
 from .creative_approval_execution import (
     _binding,
     _validate_execution_evidence,
@@ -1071,6 +1075,12 @@ def build_and_record_creative_approval_v2(
         "subjectSha256"
     ) != asset.get("content_hash"):
         raise CreativeApprovalError("creative_approval_final_artifact_audit_invalid")
+    if production_evidence_guard_enabled(root):
+        _assert_production_evidence_or_error(
+            final_audit_receipt,
+            label="creative_approval_final_artifact_audit",
+            path=report_path,
+        )
     final_audit_binding = _write_content_addressed_json(
         root,
         label="registered_final_artifact_audit",
@@ -1101,6 +1111,11 @@ def build_and_record_creative_approval_v2(
             raise CreativeApprovalError("creative_approval_motion_qc_invalid") from exc
         if not isinstance(receipt, dict):
             raise CreativeApprovalError("creative_approval_motion_qc_invalid")
+        if production_evidence_guard_enabled(root):
+            _assert_production_evidence_or_error(
+                receipt,
+                label="creative_approval_motion_qc",
+            )
         motion_qc_binding = _write_content_addressed_json(
             root, label="registered_motion_qc", payload=receipt
         )
@@ -1158,6 +1173,11 @@ def build_and_record_creative_approval_v2(
         **manifest_core,
         "manifestFingerprint": _fingerprint(manifest_core),
     }
+    if production_evidence_guard_enabled(root):
+        _assert_production_evidence_or_error(
+            manifest,
+            label="creative_approval_review_manifest",
+        )
     manifest_binding = _write_content_addressed_json(
         root, label="review_manifests", payload=manifest
     )
@@ -1169,6 +1189,11 @@ def build_and_record_creative_approval_v2(
         reviewed_by=operator,
         reviewed_at=approved_at,
     )
+    if production_evidence_guard_enabled(root):
+        _assert_production_evidence_or_error(
+            review_receipt,
+            label="creative_approval_operator_review",
+        )
     review_binding = _write_content_addressed_json(
         root, label="operator_media_reviews", payload=review_receipt
     )
@@ -1266,6 +1291,8 @@ class CreativeApprovalStore:
         if self.root.exists() and self.root.is_symlink():
             raise CreativeApprovalError("creative_approval_directory_unsafe")
         approval = validate_creative_approval_v2(payload)
+        if production_evidence_guard_enabled(self.root):
+            _validate_no_fixture_approval_evidence(approval)
         path = self.root / f"{approval['approvalId']}.json"
         with file_lock(self._lock):
             if path.exists():
@@ -1397,6 +1424,12 @@ class CreativeApprovalStore:
             except CreativeApprovalError:
                 invalid = True
                 continue
+            if production_evidence_guard_enabled(self.root):
+                try:
+                    _validate_no_fixture_approval_evidence(approval)
+                except CreativeApprovalError:
+                    invalid = True
+                    continue
             if approval["campaign"]["id"] != (
                 asset.get("campaign_id") or asset.get("campaignId")
             ):
@@ -1455,6 +1488,48 @@ def load_creative_approval(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise CreativeApprovalError("creative_approval_invalid_json")
     return validate_creative_approval(payload)
+
+
+def _validate_no_fixture_approval_evidence(approval: dict[str, Any]) -> None:
+    bindings = list(approval.get("qcEvidence") or [])
+    bindings.extend(
+        value
+        for value in (approval.get("operatorReview"), approval.get("reviewManifest"))
+        if isinstance(value, dict)
+    )
+    for index, binding in enumerate(bindings):
+        if not isinstance(binding, dict):
+            continue
+        path = Path(str(binding.get("receiptPath") or binding.get("path") or ""))
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CreativeApprovalError(
+                "creative_approval_production_evidence_invalid"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise CreativeApprovalError("creative_approval_production_evidence_invalid")
+        _assert_production_evidence_or_error(
+            payload,
+            label=f"creative_approval_evidence_{index}",
+            path=path,
+        )
+
+
+def _assert_production_evidence_or_error(
+    payload: dict[str, Any],
+    *,
+    label: str,
+    path: Path | None = None,
+) -> None:
+    try:
+        assert_production_evidence(payload, label=label, path=path)
+    except ValueError as exc:
+        raise CreativeApprovalError(
+            "creative_approval_test_or_fixture_evidence"
+        ) from exc
 
 
 def main(argv: list[str] | None = None) -> int:

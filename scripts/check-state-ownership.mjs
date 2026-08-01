@@ -260,6 +260,49 @@ const registeredRecordNames = new Set(
     Object.keys(records || {}),
   ),
 );
+const compatibilityKeys = new Set();
+for (const [index, store] of (
+  persistence?.retainedCompatibilityStores || []
+).entries()) {
+  for (const field of [
+    "store",
+    "records",
+    "classification",
+    "legalReaders",
+    "legalWriters",
+    "retention",
+    "deletionBehavior",
+    "repairPath",
+  ]) {
+    if (
+      !(field in store) ||
+      store[field] === null ||
+      store[field] === "" ||
+      (Array.isArray(store[field]) && field !== "legalWriters" && !store[field].length)
+    ) {
+      errors.push(
+        `persistenceOwnership.retainedCompatibilityStores[${index}] is missing ${field}`,
+      );
+    }
+  }
+  if (!inventoryRecordsByStore.has(store.store)) {
+    errors.push(
+      `retained compatibility store is unknown: ${store.store}`,
+    );
+  }
+  for (const record of store.records || []) {
+    const key = `${store.store}:${record}`;
+    if (compatibilityKeys.has(key)) {
+      errors.push(`duplicate retained compatibility record: ${key}`);
+    }
+    compatibilityKeys.add(key);
+    if (inventoryRecordsByStore.get(store.store)?.[record]) {
+      errors.push(
+        `retained compatibility record is part of the active schema: ${key}`,
+      );
+    }
+  }
+}
 for (const [index, rule] of (persistence?.recordRules || []).entries()) {
   if (!rule.records?.length) {
     errors.push(`persistenceOwnership.recordRules[${index}] has no records`);

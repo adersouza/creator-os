@@ -60,26 +60,49 @@ CLASSIFICATION_RULES: Final = (
         "read-only export of retired Reel outcome tables",
     ),
     (
+        "campaign_factory.adapters.threadsdash",
+        "compatibility_surface",
+        "supported external boundary facade; repository callers use the owning adapters directly",
+    ),
+    (
+        "campaign_factory.audio_radar.__main__",
+        "compatibility_surface",
+        "python -m compatibility entrypoint for the active Audio Radar CLI",
+    ),
+    (
         "repurposer",
-        "unknown",
+        "experimental_research",
         "packaged and tested experimental subsystem isolated from production orchestration",
     ),
     (
         "reel_factory.local_model_",
-        "unknown",
+        "experimental_research",
         "experimental operator tooling outside the three public creation modes",
     ),
     (
         "reel_factory.local_video",
-        "unknown",
+        "experimental_research",
         "experimental local-video tooling with internal plan references",
     ),
     (
         "reel_factory.local_wan",
-        "unknown",
+        "experimental_research",
         "experimental local-Wan compatibility and worker tooling",
     ),
+    (
+        "reel_factory.media_features",
+        "experimental_research",
+        "advanced outcome-feature utility with tests but no active production caller",
+    ),
+    (
+        "reel_factory.prompt_guidance",
+        "experimental_research",
+        "advanced prompt helper with tests but no active production caller",
+    ),
 )
+DYNAMIC_ENTRYPOINTS: Final = {
+    "campaign_factory.app": ("uvicorn-string:campaign-factory serve",),
+}
 LEGACY_SURFACES: Final = (
     {
         "id": "creative_approval_v1",
@@ -155,13 +178,13 @@ LEGACY_SURFACES: Final = (
     },
     {
         "id": "reference_sample_frames_videos_alias",
-        "classification": "unknown",
+        "classification": "compatibility_surface",
         "evidence": ["reference_factory.cli:sample-frames --videos"],
         "removalBlockedBy": ["external operator command and script inventory"],
     },
     {
         "id": "repurposer",
-        "classification": "unknown",
+        "classification": "experimental_research",
         "evidence": ["repurposer package", "campaign_factory AGENTS isolation rule"],
         "removalBlockedBy": [
             "external import inventory",
@@ -170,7 +193,7 @@ LEGACY_SURFACES: Final = (
     },
     {
         "id": "local_model_and_wan_tools",
-        "classification": "unknown",
+        "classification": "experimental_research",
         "evidence": [
             "reel_factory.local_model_manager",
             "reel_factory.local_model_arena",
@@ -365,7 +388,27 @@ def _internal_target(name: str, known: set[str]) -> str | None:
     return None
 
 
-def _classification(module: str) -> tuple[str, str]:
+def _internal_targets(name: str, modules: dict[str, dict[str, Any]]) -> set[str]:
+    """Return the imported module plus package initializers Python loads implicitly."""
+
+    target = _internal_target(name, set(modules))
+    if target is None:
+        return set()
+    targets = {target}
+    parts = target.split(".")
+    for size in range(1, len(parts)):
+        parent = ".".join(parts[:size])
+        if modules.get(parent, {}).get("isPackage"):
+            targets.add(parent)
+    return targets
+
+
+def _classification(module: str, *, reachability: str | None = None) -> tuple[str, str]:
+    if module == "reel_factory.local_wan":
+        return (
+            "compatibility_surface",
+            "compatibility adapter preserving the original local-Wan worker API",
+        )
     for prefix, classification, evidence in CLASSIFICATION_RULES:
         if (
             module == prefix
@@ -373,6 +416,11 @@ def _classification(module: str) -> tuple[str, str]:
             or (prefix.endswith("_") and module.startswith(prefix))
         ):
             return classification, evidence
+    if reachability == "reachable_from_entrypoint":
+        return (
+            "active_reachable",
+            "statically reachable from a known operator, package-script, or module entrypoint",
+        )
     return (
         "unknown",
         "static reachability alone cannot establish production role or deletion safety",
@@ -382,7 +430,6 @@ def _classification(module: str) -> tuple[str, str]:
 def build_report(root: Path) -> dict[str, Any]:
     resolved = root.expanduser().resolve()
     modules = source_modules(resolved)
-    known = set(modules)
     declared_entrypoints = _entrypoints_from_pyproject(resolved)
     edges: dict[str, set[str]] = defaultdict(set)
     imported_by: dict[str, set[str]] = defaultdict(set)
@@ -393,19 +440,24 @@ def build_report(root: Path) -> dict[str, Any]:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=record["path"])
         visitor = ReachabilityVisitor(module, is_package=record["isPackage"])
         visitor.visit(tree)
-        internal_imports = {
-            target
-            for value in (*visitor.imports, *visitor.dynamic_imports)
-            if (target := _internal_target(value, known))
-        }
+        internal_imports = set().union(
+            *(
+                _internal_targets(value, modules)
+                for value in (*visitor.imports, *visitor.dynamic_imports)
+            )
+        )
         edges[module].update(internal_imports)
         for target in internal_imports:
             imported_by[target].add(module)
         if visitor.has_main_guard:
             entrypoints[module].add("__main__")
+        if module.endswith(".__main__"):
+            entrypoints[module].add("python-module")
         if module.startswith("scripts."):
             entrypoints[module].add("operator-script")
         if declared := declared_entrypoints.get(module):
+            entrypoints[module].update(declared)
+        if declared := DYNAMIC_ENTRYPOINTS.get(module):
             entrypoints[module].update(declared)
         record.update(
             {
@@ -429,13 +481,13 @@ def build_report(root: Path) -> dict[str, Any]:
     module_rows: list[dict[str, Any]] = []
     for module in sorted(modules):
         record = modules[module]
-        classification, evidence = _classification(module)
         if module in reachable:
             reachability = "reachable_from_entrypoint"
         elif imported_by[module]:
             reachability = "referenced_but_not_from_known_entrypoint"
         else:
             reachability = "statically_unreferenced"
+        classification, evidence = _classification(module, reachability=reachability)
         module_rows.append(
             {
                 **record,
@@ -464,12 +516,19 @@ def build_report(root: Path) -> dict[str, Any]:
             "staticallyUnreferencedModuleCount": sum(
                 row["reachability"] == "statically_unreferenced" for row in module_rows
             ),
+            "referencedButNotFromKnownEntrypointCount": sum(
+                row["reachability"] == "referenced_but_not_from_known_entrypoint"
+                for row in module_rows
+            ),
             "classificationCounts": {
                 classification: sum(
                     row["classification"] == classification for row in module_rows
                 )
                 for classification in (
                     "active_required",
+                    "active_reachable",
+                    "compatibility_surface",
+                    "experimental_research",
                     "historical_read_only_compatibility",
                     "migration_only",
                     "safe_to_migrate",

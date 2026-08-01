@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import ast
+import re
+from pathlib import Path
+
 import pytest
 from creator_os_core.configuration_registry import (
     CONFIG_REGISTRY,
+    PROCESS_ENVIRONMENT_VARIABLES,
     ConfigurationValidationError,
     configuration_manifest,
     redact_mapping,
@@ -118,3 +123,45 @@ def test_manifest_and_nested_redaction_never_expose_secret_values() -> None:
         "OPENAI_API_KEY": "[REDACTED]",
         "nested": {"unregistered_password": "[REDACTED]", "safe": "ok"},
     }
+
+
+def test_active_python_and_contentforge_environment_reads_are_owned() -> None:
+    root = Path(__file__).resolve().parents[3]
+    observed: set[str] = set()
+    for base in ("python_packages", "packages/creator_os_core", "scripts"):
+        for path in (root / base).rglob("*.py"):
+            if "tests" in path.parts or path.name.startswith("test_"):
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                    direct_getenv = (
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "os"
+                        and node.func.attr == "getenv"
+                    )
+                    environ_get = (
+                        isinstance(node.func.value, ast.Attribute)
+                        and isinstance(node.func.value.value, ast.Name)
+                        and node.func.value.value.id == "os"
+                        and node.func.value.attr == "environ"
+                        and node.func.attr == "get"
+                    )
+                    if (
+                        (direct_getenv or environ_get)
+                        and node.args
+                        and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)
+                    ):
+                        observed.add(node.args[0].value)
+    for base in ("packages/contentforge/lib", "packages/contentforge/scripts"):
+        for path in (root / base).rglob("*"):
+            if path.suffix not in {".js", ".mjs", ".cjs"}:
+                continue
+            observed.update(
+                re.findall(
+                    r"process\.env\.([A-Z][A-Z0-9_]*)",
+                    path.read_text(encoding="utf-8"),
+                )
+            )
+    assert observed <= CONFIG_REGISTRY.keys() | PROCESS_ENVIRONMENT_VARIABLES

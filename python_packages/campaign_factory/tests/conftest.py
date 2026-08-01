@@ -47,8 +47,9 @@ def allow_insecure_local_tests(monkeypatch: pytest.MonkeyPatch) -> None:
 def isolate_runtime_state_paths(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Prevent tests using default Settings from creating operator state."""
+    """Prevent tests using default Settings from creating operator state/evidence."""
     state = tmp_path / "creator-os-state"
+    artifacts = tmp_path / "creator-os-artifacts"
     monkeypatch.setenv(
         "CAMPAIGN_FACTORY_DB", str(state / "campaign_factory/campaign_factory.sqlite")
     )
@@ -62,6 +63,14 @@ def isolate_runtime_state_paths(
     monkeypatch.setenv(
         "REEL_FACTORY_RENDER_QUEUE_DB",
         str(state / "reel_factory/render_queue.sqlite"),
+    )
+    monkeypatch.setenv(
+        "CAMPAIGN_FACTORY_CREATIVE_APPROVALS",
+        str(artifacts / "campaign_factory/creative_approvals"),
+    )
+    monkeypatch.setenv(
+        "CAMPAIGN_FACTORY_CAMPAIGNS",
+        str(artifacts / "campaign_factory/campaigns"),
     )
 
 

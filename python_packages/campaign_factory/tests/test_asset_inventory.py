@@ -102,7 +102,9 @@ def test_asset_explain_and_inventory_reservation_lifecycle(tmp_path: Path) -> No
         )
         _commit_payload_inventory_reservations(cf, payload)
 
-        assert explanation["lineageStatus"] == "verified"
+        assert explanation["lineageStatus"] == "incomplete"
+        assert "current_sha_audit_missing" in explanation["blockers"]
+        assert "current_sha_approval_missing" in explanation["blockers"]
         assert explanation["source"]["id"] == source_id
         assert explanation["final"]["bytesStatus"] == "verified"
         assert explanation["overlay"]["captionPlacementDecision"]["status"] == "passed"
@@ -112,12 +114,24 @@ def test_asset_explain_and_inventory_reservation_lifecycle(tmp_path: Path) -> No
             "schema": "campaign_factory.inventory_report.v1",
             "campaign": "asset_lineage",
             "contentSurface": "reel",
-            "grossInventory": 1,
-            "reservedInventory": 1,
+            "grossInventory": 0,
+            "reservedInventory": 0,
             "assignedInventory": 0,
             "usedInventory": 0,
             "cooldownBlockedInventory": 0,
             "netInventory": 0,
+            "approvedRowsExamined": 1,
+            "excludedForCurrentEvidence": 1,
+            "evidenceExclusions": [
+                {
+                    "assetId": "asset-final",
+                    "blockers": [
+                        "current_sha_audit_missing",
+                        "current_sha_approval_missing",
+                        "creative_approval_canonical_asset_invalid",
+                    ],
+                }
+            ],
         }
         committed = cf.conn.execute(
             "SELECT status FROM asset_inventory_reservations WHERE reservation_id = ?",

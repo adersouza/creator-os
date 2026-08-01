@@ -3,20 +3,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from reel_factory.legacy_outcome_evidence import export_legacy_outcome_evidence
+from reel_factory.legacy_outcome_evidence import (
+    LEGACY_TABLES,
+    export_legacy_outcome_evidence,
+)
 from reel_factory.manifest import Manifest
 
-RETIRED_TABLES = {
-    "reel_outcomes",
-    "publish_metrics",
-    "winner_dna",
-    "review_decisions",
-    "review_decision_history",
-    "operator_ratings",
-    "experiments",
-    "experiment_assignments",
-    "cost_events",
-}
+RETIRED_TABLES = set(LEGACY_TABLES)
 
 
 def test_fresh_reel_manifest_owns_only_worker_state(tmp_path: Path) -> None:
