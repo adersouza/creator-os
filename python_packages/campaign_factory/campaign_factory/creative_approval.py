@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -23,7 +21,9 @@ from pipeline_contracts import (
 
 from .approval_evidence_hygiene import (
     assert_production_evidence,
+    legacy_approval_inventory,
     production_evidence_guard_enabled,
+    validate_bound_approval_evidence,
 )
 from .creative_approval_execution import (
     _binding,
@@ -1317,59 +1317,22 @@ class CreativeApprovalStore:
         and require a new v2 approval for the current exact asset.
         """
 
-        if self.root.exists() and self.root.is_symlink():
-            raise CreativeApprovalError("creative_approval_directory_unsafe")
-        records: list[dict[str, Any]] = []
-        unsafe_paths: list[str] = []
-        if self.root.exists():
-            for path in sorted(self.root.glob("*.json")):
-                if path.is_symlink() or not path.is_file():
-                    unsafe_paths.append(str(path.absolute()))
-                    continue
-                try:
-                    raw = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if not isinstance(raw, dict) or raw.get("schema") != SCHEMA:
-                    continue
-                try:
-                    validate_creative_approval(raw)
-                    validity = "valid_historical_v1"
-                except CreativeApprovalError:
-                    validity = "invalid_historical_v1"
-                records.append(
-                    {
-                        "approvalId": str(raw.get("approvalId") or ""),
-                        "path": str(path.resolve()),
-                        "fileSha256": _sha256_file(path),
-                        "classification": validity,
-                        "operationallyEligible": False,
-                        "automaticallyMigratable": False,
-                        "blockingReason": "creative_approval_v1_not_operational",
-                        "missingV2Bindings": [
-                            "campaign",
-                            "renderedAsset",
-                            "generationRecipe",
-                            "routerDecision",
-                            "executionEvidence",
-                            "reviewManifest",
-                            "exportProjection",
-                            "operatorAttestation",
-                        ],
-                    }
-                )
-        core = {
-            "schema": LEGACY_INVENTORY_SCHEMA,
-            "records": records,
-            "summary": {
-                "historicalV1Records": len(records),
-                "operationallyEligible": 0,
-                "automaticallyMigratable": 0,
-                "unsafeJsonPaths": len(unsafe_paths),
-            },
-            "unsafePaths": unsafe_paths,
-        }
-        return {**core, "inventoryFingerprint": _fingerprint(core)}
+        def valid_historical(payload: dict[str, Any]) -> bool:
+            try:
+                validate_creative_approval(payload)
+            except CreativeApprovalError:
+                return False
+            return True
+
+        try:
+            return legacy_approval_inventory(
+                self.root,
+                historical_schema=SCHEMA,
+                inventory_schema=LEGACY_INVENTORY_SCHEMA,
+                validate_historical=valid_historical,
+            )
+        except ValueError as exc:
+            raise CreativeApprovalError(str(exc)) from exc
 
     def status_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         rendered_asset_id = str(asset.get("id") or asset.get("renderedAssetId") or "")
@@ -1491,31 +1454,15 @@ def load_creative_approval(path: Path) -> dict[str, Any]:
 
 
 def _validate_no_fixture_approval_evidence(approval: dict[str, Any]) -> None:
-    bindings = list(approval.get("qcEvidence") or [])
-    bindings.extend(
-        value
-        for value in (approval.get("operatorReview"), approval.get("reviewManifest"))
-        if isinstance(value, dict)
-    )
-    for index, binding in enumerate(bindings):
-        if not isinstance(binding, dict):
-            continue
-        path = Path(str(binding.get("receiptPath") or binding.get("path") or ""))
-        if not path.is_file() or path.is_symlink():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise CreativeApprovalError(
-                "creative_approval_production_evidence_invalid"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise CreativeApprovalError("creative_approval_production_evidence_invalid")
-        _assert_production_evidence_or_error(
-            payload,
-            label=f"creative_approval_evidence_{index}",
-            path=path,
+    try:
+        validate_bound_approval_evidence(approval)
+    except ValueError as exc:
+        code = (
+            "creative_approval_production_evidence_invalid"
+            if str(exc) == "production_evidence_invalid"
+            else "creative_approval_test_or_fixture_evidence"
         )
+        raise CreativeApprovalError(code) from exc
 
 
 def _assert_production_evidence_or_error(
@@ -1533,37 +1480,9 @@ def _assert_production_evidence_or_error(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--approval", type=Path, required=True)
-    parser.add_argument("--root", type=Path)
-    args = parser.parse_args(argv)
-    try:
-        approval = load_creative_approval(args.approval)
-        if args.root is None:
-            from .config import get_settings
+    from .creative_approval_cli import main as cli_main
 
-            root = get_settings().creative_approvals_dir
-        else:
-            root = args.root
-        path = CreativeApprovalStore(root).record(approval)
-    except (CreativeApprovalError, OSError, json.JSONDecodeError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    print(
-        json.dumps(
-            {
-                "schema": "campaign_factory.creative_approval_recorded.v1",
-                "approvalId": approval["approvalId"],
-                "approvalFingerprint": approval["approvalFingerprint"],
-                "path": str(path),
-                "productionWrites": 0,
-                "providerCalls": 0,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
-    return 0
+    return cli_main(argv)
 
 
 if __name__ == "__main__":

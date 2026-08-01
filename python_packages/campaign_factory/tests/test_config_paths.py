@@ -15,9 +15,18 @@ PYTHONPATH = os.pathsep.join(
         str(MONOREPO_ROOT / "packages" / "pipeline_contracts"),
     ]
 )
+_PATH_ENV_KEYS = {
+    "CAMPAIGN_FACTORY_CAMPAIGNS",
+    "CAMPAIGN_FACTORY_ROOT",
+    "CREATOR_OS_ARTIFACT_ROOT",
+    "CREATOR_OS_ROOT",
+}
 
 
 def _settings_paths(env: dict[str, str]) -> dict[str, str]:
+    subprocess_env = {
+        key: value for key, value in os.environ.items() if key not in _PATH_ENV_KEYS
+    }
     result = subprocess.run(
         [
             sys.executable,
@@ -31,7 +40,7 @@ def _settings_paths(env: dict[str, str]) -> dict[str, str]:
             ),
         ],
         cwd=PACKAGE_ROOT,
-        env={**os.environ, "PYTHONPATH": PYTHONPATH, **env},
+        env={**subprocess_env, "PYTHONPATH": PYTHONPATH, **env},
         text=True,
         capture_output=True,
         check=True,

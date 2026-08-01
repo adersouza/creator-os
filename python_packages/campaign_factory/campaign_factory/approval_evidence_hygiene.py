@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,95 @@ def production_evidence_guard_enabled(root: Path) -> bool:
     """Only isolated temporary test roots may contain fixture authority."""
 
     return not _looks_like_test_path(str(root.expanduser().resolve()).lower())
+
+
+def validate_bound_approval_evidence(approval: dict[str, Any]) -> None:
+    bindings = list(approval.get("qcEvidence") or [])
+    bindings.extend(
+        value
+        for value in (approval.get("operatorReview"), approval.get("reviewManifest"))
+        if isinstance(value, dict)
+    )
+    for index, binding in enumerate(bindings):
+        if not isinstance(binding, dict):
+            continue
+        path = Path(str(binding.get("receiptPath") or binding.get("path") or ""))
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("production_evidence_invalid") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("production_evidence_invalid")
+        assert_production_evidence(
+            payload,
+            label=f"creative_approval_evidence_{index}",
+            path=path,
+        )
+
+
+def legacy_approval_inventory(
+    root: Path,
+    *,
+    historical_schema: str,
+    inventory_schema: str,
+    validate_historical: Callable[[dict[str, Any]], bool],
+) -> dict[str, Any]:
+    """Preserve v1 records as non-operational historical evidence."""
+
+    if root.exists() and root.is_symlink():
+        raise ValueError("creative_approval_directory_unsafe")
+    records: list[dict[str, Any]] = []
+    unsafe_paths: list[str] = []
+    if root.exists():
+        for path in sorted(root.glob("*.json")):
+            if path.is_symlink() or not path.is_file():
+                unsafe_paths.append(str(path.absolute()))
+                continue
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict) or raw.get("schema") != historical_schema:
+                continue
+            records.append(
+                {
+                    "approvalId": str(raw.get("approvalId") or ""),
+                    "path": str(path.resolve()),
+                    "fileSha256": _sha256_file(path),
+                    "classification": (
+                        "valid_historical_v1"
+                        if validate_historical(raw)
+                        else "invalid_historical_v1"
+                    ),
+                    "operationallyEligible": False,
+                    "automaticallyMigratable": False,
+                    "blockingReason": "creative_approval_v1_not_operational",
+                    "missingV2Bindings": [
+                        "campaign",
+                        "renderedAsset",
+                        "generationRecipe",
+                        "routerDecision",
+                        "executionEvidence",
+                        "reviewManifest",
+                        "exportProjection",
+                        "operatorAttestation",
+                    ],
+                }
+            )
+    core = {
+        "schema": inventory_schema,
+        "records": records,
+        "summary": {
+            "historicalV1Records": len(records),
+            "operationallyEligible": 0,
+            "automaticallyMigratable": 0,
+            "unsafeJsonPaths": len(unsafe_paths),
+        },
+        "unsafePaths": unsafe_paths,
+    }
+    return {**core, "inventoryFingerprint": _fingerprint(core)}
 
 
 def approval_evidence_hygiene(
