@@ -185,6 +185,61 @@ def audit_campaign(
         raise
 
 
+def audit_report_is_review_ready(report: dict[str, Any]) -> bool:
+    readiness = report.get("readinessSummary") or {}
+    return bool(
+        report
+        and report.get("error") is None
+        and report.get("status") in {"approved_candidate", "needs_review"}
+        and report.get("overallVerdict") in {"pass", "warn"}
+        and not (report.get("failedChecks") or [])
+        and readiness.get("uploadReady") is True
+        and not (readiness.get("blockingReasons") or [])
+        and not (readiness.get("blockingCodes") or [])
+    )
+
+
+def audit_final_asset(
+    factory: CampaignFactory,
+    *,
+    campaign_slug: str,
+    rendered_asset_id: str,
+    contentforge_base_url: str | None = None,
+) -> dict[str, Any]:
+    """Audit the exact final bytes and leave the asset in the matching review state."""
+    audited = audit_campaign(
+        factory,
+        campaign_slug=campaign_slug,
+        contentforge_base_url=contentforge_base_url,
+        rendered_asset_ids=[rendered_asset_id],
+    )
+    reports = audited.get("reports") or []
+    if len(reports) != 1 or str(reports[0].get("renderedAssetId")) != str(
+        rendered_asset_id
+    ):
+        raise RuntimeError("final_contentforge_audit_subject_mismatch")
+    report = reports[0]
+    review_ready = audit_report_is_review_ready(report)
+    factory.conn.execute(
+        "UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?",
+        ("review_ready" if review_ready else "draft", utc_now(), rendered_asset_id),
+    )
+    factory.conn.commit()
+    return {
+        "renderedAssetId": rendered_asset_id,
+        "auditReportId": report.get("auditReportId"),
+        "reportPath": report.get("reportPath"),
+        "subjectSha256": report.get("subjectSha256"),
+        "status": report.get("status"),
+        "overallVerdict": report.get("overallVerdict"),
+        "failedChecks": report.get("failedChecks") or [],
+        "warnings": report.get("warnings") or [],
+        "error": report.get("error"),
+        "readinessSummary": report.get("readinessSummary") or {},
+        "reviewReady": review_ready,
+    }
+
+
 def audit_variation_batch(
     *,
     contentforge_root: Path,
@@ -524,6 +579,28 @@ def _audit_asset(
                 factory.settings.contentforge_root, **post_kwargs
             )
         failed, warnings = _extract_checks(response)
+        if (
+            response.get("targetFile") not in {None, staged_name}
+            or int(response.get("filesAnalyzed") or 0) != 1
+        ):
+            failed.append("contentforge_subject_scope_mismatch")
+            response["overallVerdict"] = "fail"
+            readiness = response.get("readinessSummary")
+            readiness = dict(readiness) if isinstance(readiness, dict) else {}
+            readiness["uploadReady"] = False
+            readiness["blockingCodes"] = sorted(
+                {
+                    *(readiness.get("blockingCodes") or []),
+                    "contentforge_subject_scope_mismatch",
+                }
+            )
+            readiness["blockingReasons"] = sorted(
+                {
+                    *(readiness.get("blockingReasons") or []),
+                    "ContentForge did not analyze exactly the staged subject file",
+                }
+            )
+            response["readinessSummary"] = readiness
         overall = response.get("overallVerdict")
         if overall not in {"pass", "warn", "fail"}:
             failed.append("contentforge_malformed_response")

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import evaluate_overlay_semantic_completeness
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .state_paths import manifest_db_path
@@ -61,6 +62,21 @@ def caption_payload_hash(
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
+
+
+def quarantined_caption_hashes(root: Path) -> set[str]:
+    path = Path(root).resolve() / "caption_banks" / "bad_caption_quarantine.json"
+    if not path.exists():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return set()
+    return {
+        str(row.get("caption_hash") or row.get("captionHash") or "")
+        for row in payload.get("captions") or []
+        if isinstance(row, dict) and (row.get("caption_hash") or row.get("captionHash"))
+    }
 
 
 def caption_hook_payload(item: dict[str, Any]) -> str | dict[str, Any]:
@@ -430,10 +446,13 @@ class CaptionBankStore:
                     key=ACTIVE_BANKS.index,
                 )
 
+        quarantined = quarantined_caption_hashes(root)
         banks = {bank: [] for bank in ACTIVE_BANKS}
         for item in sorted(
             by_hash.values(), key=lambda row: (row["source_type"], row["text"])
         ):
+            if item["static_text_hash"] in quarantined:
+                continue
             for bank in item["banks"]:
                 banks.setdefault(bank, []).append(item)
 
@@ -451,8 +470,16 @@ class CaptionBankStore:
         base = root / "caption_banks"
         banks_payload = json.loads((base / "banks.json").read_text(encoding="utf-8"))
         mixes_payload = json.loads((base / "mixes.json").read_text(encoding="utf-8"))
+        quarantined = quarantined_caption_hashes(root)
+        banks = _hydrate_bank_metadata(banks_payload.get("banks") or {})
+        banks = {
+            bank: [
+                item for item in items if item["static_text_hash"] not in quarantined
+            ]
+            for bank, items in banks.items()
+        }
         return cls(
-            banks=_hydrate_bank_metadata(banks_payload.get("banks") or {}),
+            banks=banks,
             mixes=mixes_payload.get("mixes") or default_mixes(),
             version=banks_payload.get("version", "caption_banks_v1"),
             source_hash=banks_payload.get("source_hash")
@@ -562,6 +589,7 @@ class CaptionBankStore:
             "rawCaptionText": item["text"],
             "segments": item.get("segments") or [],
             "placementIntent": item.get("placement_intent"),
+            "contentMatch": item.get("content_match"),
             "sourceCandidateId": item.get("source_candidate_id"),
             "sourceCandidatePayloadHash": item.get("source_candidate_payload_hash"),
             "approvalId": item.get("approval_id"),
@@ -602,6 +630,10 @@ class CaptionBankStore:
                 item
                 for item in self.banks.get(bank, [])
                 if str(item.get("variant_type") or "static") in variant_types
+                and evaluate_overlay_semantic_completeness(
+                    caption_hook_payload(item),
+                    human_semantic_approval=bool(item.get("approval_id")),
+                ).get("passed")
             ]
             for bank in weights
         }
@@ -713,6 +745,8 @@ def _caption_item(
         item["segments"] = canonical["segments"]
     if isinstance(placement_intent, dict):
         item["placement_intent"] = placement_intent
+    if isinstance(hook, dict) and isinstance(hook.get("content_match"), dict):
+        item["content_match"] = dict(hook["content_match"])
     if isinstance(hook, dict):
         for key in (
             "source_candidate_id",

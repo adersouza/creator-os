@@ -133,6 +133,35 @@ class CaptionBankTests(unittest.TestCase):
         self.assertEqual(first.source_hash, second.source_hash)
         self.assertEqual(first.banks, second.banks)
 
+    def test_quarantined_text_is_removed_from_build_and_loaded_bank(self):
+        root = self._root_with_sources()
+        rejected = "dark goth girl karma is real"
+        store = CaptionBankStore.build(root)
+        store.write(root)
+        (root / "caption_banks" / "bad_caption_quarantine.json").write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.bad_caption_quarantine.v1",
+                    "captions": [
+                        {
+                            "caption_hash": caption_hash(rejected),
+                            "normalizedCaption": rejected,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertNotIn(
+            rejected,
+            {item["text"] for item in CaptionBankStore.build(root).all_items()},
+        )
+        self.assertNotIn(
+            rejected,
+            {item["text"] for item in CaptionBankStore.from_root(root).all_items()},
+        )
+
     def test_v1_static_bank_hydrates_without_regeneration(self):
         root = self._root_with_sources()
         base = root / "caption_banks"
@@ -171,6 +200,20 @@ class CaptionBankTests(unittest.TestCase):
 
         self.assertTrue(selected)
         self.assertTrue(all(item["variant_type"] == "static" for item in selected))
+
+    def test_selection_excludes_semantically_incomplete_static_overlays(self):
+        root = self._root_with_sources()
+        (root / "01_captions" / "clip_004.json").write_text(
+            json.dumps({"hooks": ["We are just friends", "like this if its big..."]}),
+            encoding="utf-8",
+        )
+        store = CaptionBankStore.build(root)
+
+        selected = store.resolve_mix("Stacey", limit=None, seed=7)
+        texts = {item["text"] for item in selected}
+
+        self.assertNotIn("We are just friends", texts)
+        self.assertNotIn("like this if its big...", texts)
 
     def test_rebuild_preserves_existing_winner_bank(self):
         root = self._root_with_sources()

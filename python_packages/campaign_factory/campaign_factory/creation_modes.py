@@ -16,7 +16,7 @@ from .production_lane import (
     _SUPPORTED_PASSIVE_INTENTS,
     _audio_policy,
     _sha256_file,
-    fulfill_production_audio,
+    finalize_production_media,
     plan_production_batch,
     run_production_batch,
 )
@@ -738,10 +738,12 @@ def _run_static_reel_batch(
                 dry_run=False,
                 apply=True,
             )
-            stage["audioFulfillment"] = fulfill_production_audio(
-                factory,
-                job=job,
-                generation_result=stage,
+            stage.update(
+                finalize_production_media(
+                    factory,
+                    job=job,
+                    generation_result=stage,
+                )
             )
             results.append(
                 {

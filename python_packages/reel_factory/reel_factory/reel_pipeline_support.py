@@ -217,6 +217,7 @@ class CaptionSet:
     notes: str = ""
     hook_lineage: dict[int, dict] = field(default_factory=dict)
     band: str | None = None  # operator band request; honored only if face-clear
+    source_context: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_path(cls, path: Path) -> CaptionSet:
@@ -276,6 +277,16 @@ class CaptionSet:
                 raise ValueError(
                     f"band must be one of {sorted(CAPTION_BAND_OVERRIDES)} in {path}"
                 )
+            raw_source_context = data.get("sourceContext") or {}
+            source_context = (
+                {
+                    str(key): str(value)
+                    for key, value in raw_source_context.items()
+                    if value is not None
+                }
+                if isinstance(raw_source_context, dict)
+                else {}
+            )
             return cls(
                 hooks=hooks,
                 recipe_names=data.get("recipes"),
@@ -283,6 +294,7 @@ class CaptionSet:
                 notes=data.get("notes", ""),
                 hook_lineage=lineage,
                 band=band,
+                source_context=source_context,
             )
         raise ValueError(f"unknown caption format: {path}")
 

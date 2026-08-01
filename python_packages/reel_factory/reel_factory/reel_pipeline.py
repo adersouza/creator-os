@@ -77,6 +77,7 @@ from .reel_pipeline_support import (
     centered_static_caption_band,
     compute_job_key,
     effective_placement_mode_for_caption,
+    find_caption_for,
     log,
     phone_creation_time,
     reexec_with_homebrew_gi_env_if_needed,
@@ -169,6 +170,29 @@ def write_generated_asset_lineage_sidecar(
         _pipeline_support.enrich_lineage_identity = original
 
 
+def _raise_if_render_failed(
+    *,
+    pair_count: int,
+    task_count: int,
+    results: list[dict | BaseException],
+    enqueue_only: bool,
+) -> dict[str, int]:
+    counts = {"ok": 0, "skipped": 0, "failed": 0, "dry": 0, "exception": 0}
+    for result in results:
+        if isinstance(result, BaseException):
+            counts["exception"] += 1
+        else:
+            counts[result.get("status", "exception")] += 1
+    if pair_count and not task_count and not enqueue_only:
+        raise RuntimeError("render input produced no runnable tasks")
+    if counts["failed"] or counts["exception"]:
+        raise RuntimeError(
+            "render tasks failed: "
+            f"failed={counts['failed']} exceptions={counts['exception']}"
+        )
+    return counts
+
+
 async def amain(args):
     root = Path(args.root).resolve()
     raw_dir = root / "00_source_videos"
@@ -243,7 +267,22 @@ async def amain(args):
             )
         except ValueError as e:
             raise SystemExit(str(e)) from e
-        pairs = [(video, bank_caption_set) for video in sorted(raw_dir.glob("*.mp4"))]
+        pairs = []
+        for video in sorted(raw_dir.glob("*.mp4")):
+            source_caption_set = find_caption_for(video, cap_dir)
+            pairs.append(
+                (
+                    video,
+                    replace(
+                        bank_caption_set,
+                        source_context=(
+                            source_caption_set.source_context
+                            if source_caption_set is not None
+                            else {}
+                        ),
+                    ),
+                )
+            )
         log.info(
             f"caption bank mode: {bank_caption_set.notes}; "
             f"{len(bank_caption_set.hooks)} candidate hook(s)"
@@ -349,23 +388,26 @@ async def amain(args):
         bank_caption_mode = bool(args.caption_mix or args.caption_banks)
         if bank_caption_mode:
             _, _, _, placement_summary = auto_band_cache[src_hash]
+            source_context = video_cap_set.source_context
+            semantic_video_stem = source_context.get("sourceVideoStem") or video.stem
+            source_prompt_text = source_context.get("promptText") or ""
             frame_type = classify_frame_type_for_caption_fit(
                 placement_summary,
                 src_dims=src_dims_cache.get(src_hash, (1080, 1920)),
-                video_stem=video.stem,
+                video_stem=semantic_video_stem,
             )
             reel_scene_tags = classify_reel_scene_tags(
                 frame_type=frame_type,
-                video_stem=video.stem,
-                prompt_text="",
+                video_stem=semantic_video_stem,
+                prompt_text=source_prompt_text,
             )
             if args.caption_topic == "off":
                 caption_topic = None
             elif args.caption_topic == "auto":
                 caption_topic = infer_caption_topic_for_reel(
                     frame_type=frame_type,
-                    video_stem=video.stem,
-                    prompt_text="",
+                    video_stem=semantic_video_stem,
+                    prompt_text=source_prompt_text,
                 )
             else:
                 caption_topic = args.caption_topic
@@ -572,6 +614,17 @@ async def amain(args):
     log.info(f"queued {len(tasks)} render tasks")
     results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
 
+    for result in results:
+        if isinstance(result, BaseException):
+            log.error(f"task exception: {result}")
+    counts = _raise_if_render_failed(
+        pair_count=len(pairs),
+        task_count=len(tasks),
+        results=results,
+        enqueue_only=args.enqueue_only,
+    )
+    log.info(f"summary: {json.dumps(counts)}")
+
     if not args.dry_run and not args.preview:
         for video_id, key in duplicate_aliases:
             if manifest.materialize_cached_job(video_id, key):
@@ -654,16 +707,6 @@ async def amain(args):
                         )
             except Exception as e:
                 log.warning(f"readiness check failed: {e}")
-
-    # summary
-    counts = {"ok": 0, "skipped": 0, "failed": 0, "dry": 0, "exception": 0}
-    for r in results:
-        if isinstance(r, Exception):
-            counts["exception"] += 1
-            log.error(f"task exception: {r}")
-        else:
-            counts[r.get("status", "exception")] += 1
-    log.info(f"summary: {json.dumps(counts)}")
 
     # ── Optional QC pass on outputs ─────────────────────────────────────
     if getattr(args, "qc", False) and not args.dry_run:

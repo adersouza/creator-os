@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, replace
 
 from .models import TrendCandidate
+
+CONTROLLED_EXPLORATION_RATE = 0.15
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,60 @@ def rank_candidates(
         replace(value, final_rank=index)
         for index, value in enumerate(eligible[: max(1, limit)], start=1)
     ]
+
+
+def apply_controlled_exploration(
+    ranked: list[RankedCandidate],
+    *,
+    decision_key: str,
+    rate: float = CONTROLLED_EXPLORATION_RATE,
+    max_rank: int = 3,
+    max_score_gap: float = 15.0,
+) -> tuple[list[RankedCandidate], dict[str, object]]:
+    """Deterministically explore a close top-three candidate at a bounded rate."""
+
+    if not 0 <= rate <= 1:
+        raise ValueError("exploration rate must be between 0 and 1")
+    digest = hashlib.sha256(decision_key.encode("utf-8")).digest()
+    key_sha = digest.hex()
+    receipt: dict[str, object] = {
+        "schema": "campaign_factory.audio_exploration_decision.v1",
+        "policyVersion": "deterministic_close_top3_v1",
+        "rate": rate,
+        "decisionKeySha256": key_sha,
+        "mode": "exploit",
+        "eligiblePoolCount": 0,
+    }
+    if not ranked:
+        return ranked, receipt
+    top = ranked[0]
+    receipt.update(
+        {
+            "baseTopCanonicalTrackId": top.candidate.canonical_track_id,
+            "selectedCanonicalTrackId": top.candidate.canonical_track_id,
+            "selectedBaseRank": top.final_rank,
+            "scoreGap": 0.0,
+        }
+    )
+    pool = [
+        value
+        for value in ranked[1:max_rank]
+        if top.score - value.score <= max_score_gap
+    ]
+    receipt["eligiblePoolCount"] = len(pool)
+    sample = int.from_bytes(digest[:8], "big") / 2**64
+    if not pool or sample >= rate:
+        return ranked, receipt
+    selected = pool[int.from_bytes(digest[8:16], "big") % len(pool)]
+    receipt.update(
+        {
+            "mode": "explore",
+            "selectedCanonicalTrackId": selected.candidate.canonical_track_id,
+            "selectedBaseRank": selected.final_rank,
+            "scoreGap": round(top.score - selected.score, 6),
+        }
+    )
+    return [selected, *[value for value in ranked if value is not selected]], receipt
 
 
 def _candidate_score(

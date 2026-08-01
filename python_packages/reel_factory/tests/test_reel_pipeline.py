@@ -34,6 +34,7 @@ from reel_factory.reel_pipeline import (
     Manifest,
     Recipe,
     _audio_selection_local_path,
+    _raise_if_render_failed,
     _selected_audio_for_mux,
     _write_mux_audio_intents,
     apply_caption_fit_to_caption_set,
@@ -760,6 +761,56 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertEqual(cap_set.hooks[0], "plain hook")
             self.assertEqual(cap_set.hooks[1]["segments"][0]["text"], "first")
 
+    def test_caption_set_preserves_source_context_for_scene_matching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clip_001.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "hooks": ["pov: when he says he likes girls who swim"],
+                        "sourceContext": {
+                            "sourceVideoStem": "pool_jump",
+                            "promptText": "she jumps into the water",
+                            "contextFingerprint": "abc123",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            cap_set = CaptionSet.from_path(path)
+            tags = classify_reel_scene_tags(
+                frame_type="unknown",
+                video_stem=cap_set.source_context["sourceVideoStem"],
+                prompt_text=cap_set.source_context["promptText"],
+            )
+            fitted, _ = apply_caption_fit_to_caption_set(
+                cap_set,
+                frame_type="unknown",
+                reel_scene_tags=tags,
+                max_hooks=1,
+                seed=1,
+                fit_mode="auto",
+            )
+
+        self.assertIn("swim_action", tags)
+        self.assertEqual(cap_set.source_context["contextFingerprint"], "abc123")
+        self.assertEqual(
+            fitted.hook_lineage[0]["captionSelectionContext"][
+                "sourceContextFingerprint"
+            ],
+            "abc123",
+        )
+
+    def test_render_task_failures_are_process_failures(self):
+        with self.assertRaisesRegex(RuntimeError, "failed=1 exceptions=1"):
+            _raise_if_render_failed(
+                pair_count=1,
+                task_count=2,
+                results=[{"status": "failed"}, RuntimeError("ffmpeg failed")],
+                enqueue_only=False,
+            )
+
     def test_caption_set_blocks_clipped_prefix_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "clip_001.json"
@@ -1083,6 +1134,87 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(fitted.hooks, ["beach day, pick me up?"])
         self.assertEqual(diagnostics[0]["sceneCompatibilityDecision"], "allowed")
         self.assertEqual(diagnostics[1]["sceneCompatibilityDecision"], "blocked")
+
+    def test_action_overlay_requires_matching_visual_action(self):
+        cap_set = CaptionSet(
+            hooks=[
+                {
+                    "segments": [
+                        {"text": "pov: when he says"},
+                        {"text": "he likes girls who swim"},
+                    ]
+                }
+            ],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "contentMatch": {
+                        "delivery": "event_synced",
+                        "timing_anchor": "water_entry",
+                    },
+                }
+            },
+        )
+
+        blocked, blocked_diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="unknown",
+            reel_scene_tags=["beach_pool"],
+            max_hooks=1,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+        car_blocked, _ = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="unknown",
+            reel_scene_tags=["car", "action_motion"],
+            max_hooks=1,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+        allowed, allowed_diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="unknown",
+            reel_scene_tags=[
+                "beach_pool",
+                "swim_action",
+                "action_motion",
+                "event_timing_resolved",
+            ],
+            max_hooks=1,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(blocked.hooks, [])
+        self.assertEqual(car_blocked.hooks, [])
+        self.assertEqual(
+            blocked_diagnostics[0]["sceneCompatibilityDecision"], "blocked"
+        )
+        self.assertEqual(len(allowed.hooks), 1)
+        self.assertGreater(allowed_diagnostics[0]["sceneMatchScore"], 0)
+
+    def test_body_forward_overlay_requires_body_forward_visual(self):
+        cap_set = CaptionSet(
+            hooks=["can you handle a girl like me?"],
+            hook_lineage={0: {"selectedBanks": ["body_attention"]}},
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            max_hooks=1,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, [])
+        self.assertIn("body_forward", diagnostics[0]["sceneCompatibilityReason"])
 
     def test_caption_scene_fit_allows_bedroom_caption_for_unknown_reel(self):
         # unknown reel scene = undetected, NOT incompatible: bedroom/coded winners

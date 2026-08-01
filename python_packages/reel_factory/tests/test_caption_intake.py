@@ -546,6 +546,34 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertFalse(any("band" in segment for segment in segments))
         self.assertTrue(Path(report["reviewFile"]).exists())
 
+    def test_plan_placement_does_not_invent_timing_for_single_line_text(self):
+        root = self._root()
+        candidate_path = root / "caption_banks" / "candidate_intake.json"
+        candidate_path.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_candidate_intake.v1",
+                    "candidates": [
+                        {
+                            "caption_hash": caption_hash("Pretty to be this dangerous"),
+                            "text": "Pretty to be this dangerous",
+                            "banks": ["shared_girl_next_door"],
+                            "status": "candidate",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = plan_placement(root)
+        row = json.loads(candidate_path.read_text(encoding="utf-8"))["candidates"][0]
+
+        self.assertEqual(report["timedEligible"], 0)
+        self.assertIsNone(row["hookVariants"]["timed"])
+        self.assertIn("contentMatch", row)
+        self.assertIn("qualityFlags", row)
+
     def test_swipe_review_writes_caption_board_without_promoting(self):
         root = self._root()
         candidate_path = root / "caption_banks" / "candidate_intake.json"
@@ -582,6 +610,8 @@ class CaptionIntakeTests(unittest.TestCase):
             Path(report["boardPath"]).name, "caption_static_swipe_review.html"
         )
         self.assertIn("wife material", html)
+        self.assertIn("Overlay Text Review", html)
+        self.assertIn("contentMatch", decisions["items"][0])
         self.assertIn("Approve static", html)
         self.assertNotIn("Timed beats", html)
         self.assertIn("Download approved JSON", html)
@@ -589,6 +619,43 @@ class CaptionIntakeTests(unittest.TestCase):
             "wife material\nor heartbreak material?",
             {item["text"] for item in store.all_items()},
         )
+
+    def test_swipe_review_excludes_quarantined_overlay_text(self):
+        root = self._root()
+        rejected = "like this if its big..."
+        (root / "caption_banks" / "bad_caption_quarantine.json").write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.bad_caption_quarantine.v1",
+                    "captions": [
+                        {
+                            "caption_hash": caption_hash(rejected),
+                            "normalizedCaption": rejected,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / "caption_banks" / "candidate_intake.json").write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_candidate_intake.v1",
+                    "candidates": [
+                        {
+                            "caption_hash": caption_hash(rejected),
+                            "text": rejected,
+                            "banks": ["comment_bait"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = swipe_review(root)
+
+        self.assertEqual(report["count"], 0)
 
     def test_timed_swipe_review_only_includes_timed_candidates(self):
         root = self._root()

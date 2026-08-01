@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 from creator_os_core.fileops import atomic_write_text
 
-from .adapters.contentforge import audit_campaign
+from .adapters.contentforge import audit_report_is_review_ready
 from .learning_cohort import COHORT_ID, ensure_learning_cohort_tables
 from .persistence import json_load
+from .production_lane import finalize_production_media
 
 if TYPE_CHECKING:
     from .core import CampaignFactory
@@ -76,6 +77,7 @@ def run_daily_library_production(
         "prepare": None,
         "render": None,
         "sync": None,
+        "audio": [],
         "audit": None,
         "reviewReady": [],
         "needsReview": [],
@@ -191,14 +193,57 @@ def run_daily_library_production(
         ]
         return report
 
-    audited = audit_campaign(
-        factory,
-        campaign_slug=campaign_slug,
-        min_score=85,
-        contentforge_base_url=contentforge_base_url,
-        rendered_asset_ids=rendered_ids,
+    cohort = factory.conn.execute(
+        "SELECT creator, soul_id, account_handle FROM learning_cohorts WHERE id = ?",
+        (cohort_id,),
+    ).fetchone()
+    if cohort is None:
+        raise RuntimeError(f"learning cohort missing: {cohort_id}")
+    selections_by_source = {
+        str(selection["sourceAssetId"]): selection for selection in selections
+    }
+    audit_reports: list[dict[str, Any]] = []
+    for asset in rendered:
+        selection = selections_by_source[str(asset["source_asset_id"])]
+        try:
+            finalized = finalize_production_media(
+                factory,
+                job={
+                    "jobId": selection["assignmentId"],
+                    "campaign": campaign_slug,
+                    "creator": cohort["creator"],
+                    "creatorIdentityProfile": cohort["soul_id"],
+                    "accountGroup": cohort["account_handle"],
+                    "sourceAssetId": asset["source_asset_id"],
+                    "sourceSha256": selection["contentHash"],
+                    "intent": "passive_selfie",
+                    "audioPolicy": "embedded_trending_required",
+                    "creativeContext": {
+                        "mode": "daily_library",
+                        "surface": selection["surface"],
+                    },
+                },
+                generation_result={"registeredAsset": asset},
+                contentforge_base_url=contentforge_base_url,
+            )
+        except Exception as exc:
+            report["status"] = "finalization_failed"
+            report["blockingReasons"] = [
+                f"{asset['id']}:finalization_failed:{exc}"
+            ]
+            return report
+        report["audio"].append(
+            {
+                "renderedAssetId": asset["id"],
+                **finalized["audioFulfillment"],
+            }
+        )
+        audit_reports.append(finalized["finalContentForgeAudit"])
+    rendered = _rendered_assets_for_jobs(
+        factory.conn,
+        campaign_id=campaign["id"],
+        render_job_ids=target_job_ids,
     )
-    audit_reports = audited.get("reports") or []
     report["audit"] = {
         "reportCount": len(audit_reports),
         "reports": [
@@ -533,9 +578,7 @@ def _daily_hooks(
         and factory.domains.reference.reference_hook_is_schedule_safe(
             str(item.get("text") or "")
         )
-        and int(item.get("line_count") or 1) <= 2
-        and int(item.get("word_count") or 0) <= 5
-        and int(item.get("char_count") or len(str(item.get("text") or ""))) <= 24
+        and int(item.get("line_count") or 1) <= 4
         and not {
             str(item.get("static_text_hash") or ""),
             str(item.get("caption_payload_hash") or ""),
@@ -783,7 +826,10 @@ def _recent_used_caption_keys(
             """
             SELECT DISTINCT r.caption_hash, r.caption_generation_json, r.metadata_json
             FROM rendered_assets r
-            WHERE r.id IN (
+            WHERE (
+              r.created_at >= ?
+              AND COALESCE(r.review_state, 'draft') NOT IN ('rejected', 'operator_removed')
+            ) OR r.id IN (
               SELECT rendered_asset_id FROM asset_account_assignments
               WHERE created_at >= ?
               UNION
@@ -794,7 +840,7 @@ def _recent_used_caption_keys(
               WHERE status IN ('pending', 'committed') AND reserved_at >= ?
             )
             """,
-            (cutoff, cutoff, cutoff),
+            (cutoff, cutoff, cutoff, cutoff),
         ).fetchall()
     except sqlite3.Error:
         return set()
@@ -910,17 +956,7 @@ def _rendered_assets_for_jobs(
 
 
 def _audit_is_review_ready(report: dict[str, Any]) -> bool:
-    readiness = report.get("readinessSummary") or {}
-    return bool(
-        report
-        and report.get("error") is None
-        and report.get("status") in {"approved_candidate", "needs_review"}
-        and report.get("overallVerdict") in {"pass", "warn"}
-        and not (report.get("failedChecks") or [])
-        and readiness.get("uploadReady") is True
-        and not (readiness.get("blockingReasons") or [])
-        and not (readiness.get("blockingCodes") or [])
-    )
+    return audit_report_is_review_ready(report)
 
 
 def _contentforge_visual_qc_evidence(report: dict[str, Any]) -> dict[str, Any]:

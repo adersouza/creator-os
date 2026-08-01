@@ -60,6 +60,60 @@ def _stub_final_artifact_integrity(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("upload_ready", "expected_state"),
+    [(True, "review_ready"), (False, "draft")],
+)
+def test_final_asset_audit_sets_exact_review_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    upload_ready: bool,
+    expected_state: str,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        _source, _path = add_rendered_asset(cf, tmp_path)
+        asset = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        report = {
+            "renderedAssetId": asset["id"],
+            "auditReportId": "audit-final",
+            "reportPath": str(tmp_path / "audit.json"),
+            "subjectSha256": asset["content_hash"],
+            "status": "approved_candidate" if upload_ready else "needs_review",
+            "overallVerdict": "pass" if upload_ready else "fail",
+            "failedChecks": [] if upload_ready else ["visual_qc"],
+            "warnings": [],
+            "readinessSummary": {
+                "uploadReady": upload_ready,
+                "blockingReasons": [] if upload_ready else ["visual_qc"],
+                "blockingCodes": [] if upload_ready else ["visual_qc"],
+            },
+        }
+        monkeypatch.setattr(
+            contentforge_adapter,
+            "audit_campaign",
+            lambda *_args, **_kwargs: {"reports": [report]},
+        )
+
+        result = contentforge_adapter.audit_final_asset(
+            cf,
+            campaign_slug="may",
+            rendered_asset_id=asset["id"],
+        )
+
+        state = cf.conn.execute(
+            "SELECT review_state FROM rendered_assets WHERE id = ?", (asset["id"],)
+        ).fetchone()[0]
+        assert result["reviewReady"] is upload_ready
+        assert state == expected_state
+    finally:
+        cf.close()
+
+
 def test_contentforge_staging_is_run_isolated_and_preserves_shared_final(
     tmp_path: Path,
 ) -> None:
@@ -1497,6 +1551,40 @@ def test_contentforge_cli_audit_handles_malformed_response(tmp_path: Path, monke
         assert report["status"] == "needs_review"
         assert "contentforge_malformed_response" in report["failedChecks"]
         assert report["overallVerdict"] == "fail"
+    finally:
+        cf.close()
+
+
+def test_contentforge_audit_rejects_response_for_a_different_subject(
+    tmp_path: Path, monkeypatch
+):
+    _stub_final_artifact_integrity(monkeypatch)
+    cf = make_factory(tmp_path)
+
+    def fake_similarity(*_args, **_kwargs):
+        return {
+            "targetFile": "different_subject.mp4",
+            "layers": {},
+            "verdicts": {},
+            "overallVerdict": "pass",
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingCodes": [],
+                "blockingReasons": [],
+                "warningCodes": [],
+            },
+            "filesAnalyzed": 1,
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        report = audit_campaign(cf, campaign_slug="may")["reports"][0]
+
+        assert report["status"] == "needs_review"
+        assert report["overallVerdict"] == "fail"
+        assert "contentforge_subject_scope_mismatch" in report["failedChecks"]
+        assert report["readinessSummary"]["uploadReady"] is False
     finally:
         cf.close()
 
