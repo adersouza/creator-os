@@ -1660,7 +1660,7 @@ def test_generate_variants_accepts_contentforge_v2_pack(
             lambda *_args, **_kwargs: report,
         )
 
-        result = cf.domains.variant_lineage.generate_variants(
+        result = cf.domains.variant_lineage._generate_legacy_contentforge_variants(
             parent_asset_id="asset_1",
             count=2,
             contentforge_preset="caption_safe_v2",
@@ -1703,7 +1703,7 @@ def test_generate_variants_timeout_is_retry_safe_and_commits_no_variants(
             variant_lineage_module, "run_contentforge", fake_contentforge
         )
 
-        result = cf.domains.variant_lineage.generate_variants(
+        result = cf.domains.variant_lineage._generate_legacy_contentforge_variants(
             parent_asset_id="asset_1",
             count=2,
             contentforge_preset="caption_safe_v2",
@@ -1766,7 +1766,7 @@ def test_generate_variants_polls_job_and_registers_terminal_report(
             lambda *_args, **_kwargs: report,
         )
 
-        result = cf.domains.variant_lineage.generate_variants(
+        result = cf.domains.variant_lineage._generate_legacy_contentforge_variants(
             parent_asset_id="asset_1",
             count=1,
             contentforge_preset="caption_safe_v2",
@@ -1837,7 +1837,7 @@ def test_generate_variants_rolls_back_partial_registration_on_error(
         )
 
         with pytest.raises(RuntimeError, match="simulated registration failure"):
-            cf.domains.variant_lineage.generate_variants(
+            cf.domains.variant_lineage._generate_legacy_contentforge_variants(
                 parent_asset_id="asset_1",
                 count=1,
                 contentforge_preset="caption_safe_v2",
@@ -1907,7 +1907,7 @@ def test_generate_variants_registers_caption_version_lineage(
             lambda *_args, **_kwargs: report,
         )
 
-        result = cf.domains.variant_lineage.generate_variants(
+        result = cf.domains.variant_lineage._generate_legacy_contentforge_variants(
             parent_asset_id="asset_caption_parent",
             caption_version_id=caption_version["captionVersionId"],
             count=1,
