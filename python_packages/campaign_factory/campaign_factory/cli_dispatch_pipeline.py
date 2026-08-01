@@ -15,6 +15,7 @@ from .adapters.threadsdash_draft_readiness import (
 )
 from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
 from .adapters.threadsdash_owner_api import fetch_reddit_library_snapshot
+from .approval_evidence_hygiene import approval_evidence_hygiene
 from .asset_inventory import explain_asset, inventory_report
 from .cli_support import (
     decision_ledger_kwargs,
@@ -423,6 +424,17 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 root=args.root or settings.creative_approvals_dir,
                 surface=args.surface,
                 publish_mode=args.publish_mode,
+            )
+        )
+        return 0
+    if args.cmd == "creative-approval-evidence-hygiene":
+        print_json(
+            approval_evidence_hygiene(
+                cf.conn,
+                root=args.root or settings.creative_approvals_dir,
+                quarantine_root=args.quarantine_root,
+                apply=args.apply,
+                limit=args.limit,
             )
         )
         return 0

@@ -167,6 +167,10 @@ alternate orchestrators.
 
 ## Repository Layout
 
+The exhaustive functional hierarchy, persistent-state tree, installed
+entrypoints, and open audit-evidence register live in
+[`docs/architecture/creator_os_component_tree.md`](docs/architecture/creator_os_component_tree.md).
+
 ```text
 scripts/creator-os
   canonical operator command
@@ -1158,7 +1162,7 @@ remains unresolved.
 | `creator-os audio refresh` | bounded private discovery/cache refresh; no Reel or publishing |
 | `creator-os audio explain --final-sha <sha256>` | read-only track, segment, cooldown, rights, approval, and publication lineage for one final MP4 |
 | `creator-os create` | three-mode production dry-run/apply; no export/schedule/publish |
-| `creator-os video-bakeoff` | inspect retained provider bakeoff evidence only |
+| direct Reel Factory bakeoff modules | retained provider-bakeoff evidence only; no public `creator-os video-bakeoff` command exists |
 | `creator-os quality-benchmark` | validate the fixed exact-source creative benchmark without generation |
 | `creator-os review` | read-only creative/QC review |
 | `creator-os approve` | immutable exact-SHA creative approval |

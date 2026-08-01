@@ -78,6 +78,9 @@ The allowed classifications are:
 
 ```text
 active_required
+active_reachable
+compatibility_surface
+experimental_research
 historical_read_only_compatibility
 migration_only
 safe_to_migrate
@@ -109,9 +112,9 @@ Current classifications include:
 | provider-spend authorization v1 | active required | current Higgsfield execution authorization |
 | retired Reel outcome tables | historical read-only compatibility | read-only migration/audit exporter |
 | Reference paid-command shims | historical read-only compatibility | fail closed toward the governed root command |
-| `sample-frames --videos` | unknown | no repository caller, but external operator usage is unmeasured |
-| `repurposer` | unknown | isolated and experimental, but packaged and tested |
-| local-model/Wan tooling | unknown | outside public modes, but direct CLI and internal references remain |
+| `sample-frames --videos` | compatibility surface | retained alias; external operator usage is unmeasured |
+| `repurposer` | experimental research | isolated from production, but packaged and tested |
+| local-model/Wan tooling | experimental research | outside public modes, but direct module tools and internal references remain |
 
 No legacy code is deleted by this phase. Runtime databases, artifact roots,
 external operator scripts, and ThreadsDashboard historical consumers must be

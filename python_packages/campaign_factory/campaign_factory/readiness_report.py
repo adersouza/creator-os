@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from .asset_inventory import current_handoff_evidence
 from .assignment_eligibility import asset_identity
 from .caption_outcome import context_has_signal, load_context_json
 from .persistence import json_load, utc_now
@@ -449,9 +450,15 @@ def build_mass_production_readiness_report(
                 }
             )
 
-        is_approved = asset.get("review_state") == "approved"
+        exact_evidence = current_handoff_evidence(factory, asset)
+        is_approved = (
+            asset.get("review_state") == "approved"
+            and exact_evidence["canHandoff"] is True
+        )
         if is_approved:
             approved_assets.append(asset)
+        elif asset.get("review_state") == "approved":
+            missing["currentExactByteApproval"] += 1
         if not graph_ids.get(asset["id"]):
             missing["canonicalIds"] += 1
         if not lineage:
@@ -476,6 +483,7 @@ def build_mass_production_readiness_report(
                 "renderedAssetId": asset["id"],
                 "filename": asset["filename"],
                 "reviewState": asset["review_state"],
+                "currentExactByteEvidence": exact_evidence,
                 "canonicalGraphId": graph_ids.get(asset["id"]),
                 "hasCanonicalId": bool(graph_ids.get(asset["id"])),
                 "hasLineage": bool(lineage),
@@ -582,6 +590,7 @@ def build_mass_production_readiness_report(
             "sourceAssets": len(source_rows),
             "renderedAssets": len(assets),
             "approvedAssets": len(approved_assets),
+            "missingCurrentExactByteApproval": missing["currentExactByteApproval"],
             "missingCanonicalIds": missing["canonicalIds"],
             "missingLineage": missing["lineage"],
             "missingRenderedOutputPath": missing["renderedOutputPath"],

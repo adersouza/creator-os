@@ -712,6 +712,50 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertIn("Timed beats", html)
         self.assertNotIn("short hook", html)
 
+    def test_timed_review_queue_includes_unapproved_legacy_bank_variants(self):
+        root = self._root()
+        candidate_path = root / "caption_banks" / "candidate_intake.json"
+        candidate_path.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_candidate_intake.v1",
+                    "candidates": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        banks_path = root / "caption_banks" / "banks.json"
+        banks = json.loads(banks_path.read_text(encoding="utf-8"))
+        banks["banks"]["boyfriend_bait"].append(
+            {
+                "variant_type": "timed",
+                "text": '"we are just friends"\nthen why are you looking at me like that?',
+                "segments": [
+                    {"text": '"we are just friends"'},
+                    {"text": "then why are you looking at me like that?"},
+                ],
+                "banks": ["boyfriend_bait"],
+            }
+        )
+        banks_path.write_text(json.dumps(banks), encoding="utf-8")
+
+        report = swipe_review(root, mode="timed", reviewer="operator-1")
+        decisions = json.loads(
+            Path(report["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
+
+        assert report["legacyTimedAwaitingStructuredReview"] == 1
+        assert report["structuredApprovalRequired"] is True
+        assert decisions["count"] == 1
+        assert decisions["items"][0]["queueReason"] == (
+            "timed_variant_missing_structured_approval"
+        )
+        assert decisions["items"][0]["status"] == "pending"
+        assert decisions["items"][0]["hookVariants"]["timed"]["segments"] == [
+            {"text": '"we are just friends"'},
+            {"text": "then why are you looking at me like that?"},
+        ]
+
     def test_swipe_review_excludes_generated_seed_by_default(self):
         root = self._root()
         candidate_path = root / "caption_banks" / "candidate_intake.json"

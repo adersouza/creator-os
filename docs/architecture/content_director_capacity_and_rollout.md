@@ -18,7 +18,7 @@ The defined exact tiers are:
 | Tier | Creators | Assets and asset files | Claim status |
 |---|---:|---:|---|
 | `smoke` | 2 | 128 | never claim-eligible; correctness testing only |
-| `10-creators-10k-assets` | 10 | 10,000 | unmeasured |
+| `10-creators-10k-assets` | 10 | 10,000 | supported by the 2026-08-01 exact-tier local receipt |
 | `100-creators-100k-assets` | 100 | 100,000 | unmeasured |
 | `1000-creators-1m-assets` | 1,000 | 1,000,000 | unmeasured |
 
@@ -52,6 +52,12 @@ Until exact-tier receipts are produced and reviewed, the existing
 ten-creator/one-hundred-account operating ceiling remains unchanged. The
 projection-only doctor fixture is not measurement evidence and all of its
 `measured_inputs` values remain false.
+
+The retained local receipt at
+`~/.creator-os/artifacts/reports/capacity-10-creators-10k-assets-20260801.json`
+passed all twelve mandatory lanes and supports exactly the
+`10-creators-10k-assets` tier. It does not imply support for the 100k or 1m
+tiers.
 
 ## Real-production rollout
 

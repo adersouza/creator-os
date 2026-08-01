@@ -817,6 +817,47 @@ def test_supported_builder_uses_exact_generated_review_manifest_and_registered_q
     )
 
 
+def test_production_builder_rejects_fixture_evidence_before_writing_sidecars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _payload, asset, draft = _v2_fixture(tmp_path)
+    receipt = json.loads((tmp_path / "motion-qc-v2.json").read_text())
+    factory = _BuilderFactory(
+        asset,
+        receipt,
+        audit_path=tmp_path / "final-artifact-audit.json",
+    )
+    monkeypatch.setattr(
+        "campaign_factory.adapters.threadsdash_draft_delivery.export_threadsdash",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "schema": "campaign_factory.threadsdash_drafts.v3",
+                "drafts": [draft],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "campaign_factory.creative_approval.production_evidence_guard_enabled",
+        lambda _root: True,
+    )
+    root = tmp_path / "guarded-production-root"
+
+    with pytest.raises(
+        CreativeApprovalError, match="creative_approval_test_or_fixture_evidence"
+    ):
+        build_and_record_creative_approval_v2(
+            factory,
+            campaign_slug="may",
+            rendered_asset_id=asset["id"],
+            user_id="operator-user",
+            approved_by="operator",
+            review_decision=_review_decision(),
+            root=root,
+        )
+
+    assert not root.exists()
+
+
 def test_text_approval_binds_prompt_provenance_without_fake_media(
     tmp_path: Path,
 ) -> None:

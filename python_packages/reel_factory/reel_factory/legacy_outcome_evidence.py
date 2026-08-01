@@ -18,6 +18,9 @@ from creator_os_core.fileops import atomic_write_text
 from reel_factory.sqlite_utils import connect_sqlite
 
 LEGACY_TABLES = (
+    "campaign_references",
+    "campaigns",
+    "creators",
     "reel_outcomes",
     "publish_metrics",
     "winner_dna",
@@ -27,6 +30,9 @@ LEGACY_TABLES = (
     "experiments",
     "experiment_assignments",
     "cost_events",
+    "posting_slot_events",
+    "posting_slots",
+    "recommendation_decisions",
 )
 
 

@@ -40,8 +40,9 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_settings_root_override_isolates_creative_approval_receipts(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("CAMPAIGN_FACTORY_CREATIVE_APPROVALS", raising=False)
     settings = Settings(root=tmp_path)
 
     assert (

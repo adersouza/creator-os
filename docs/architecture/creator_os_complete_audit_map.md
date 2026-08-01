@@ -16,15 +16,15 @@ Status language is strict:
 
 | # | Area | Canonical owner and evidence | Current state |
 |---:|---|---|---|
-| 1 | Repository census and execution topology | `CREATOR_OS_SYSTEM_MAP.md`, package CLIs, architecture checks | source-complete |
+| 1 | Repository census and execution topology | `CREATOR_OS_SYSTEM_MAP.md`, [`creator_os_component_tree.md`](creator_os_component_tree.md), package CLIs, Graphify, architecture checks | functional topology and static module classifications mapped; external/dynamic callers remain bounded rather than exhaustive |
 | 2 | Runtime, promotion, and rollback | `scripts/creator-os promote`, authenticated promotion and rollback receipts | operational; every new merge still needs exact-SHA promotion |
-| 3 | Databases and migrations | domain repositories, schema versions, migration ledgers, `scripts/reel_database_readiness.py` | source-complete; migrate canonical Reel DBs only from a verified backup |
-| 4 | Configuration, environment, and secrets | runtime-path resolver, fail-closed env loaders, secret scan | source-complete |
+| 3 | Databases and migrations | domain repositories, schema versions, migration ledgers, `scripts/reel_database_readiness.py` | source-complete; active learning-cohort records are migration-owned and retained live-only records are explicitly read-only |
+| 4 | Configuration, environment, and secrets | typed registry, active-read regression inventory, fail-closed env loaders, secret scan | source-complete; active Python and ContentForge environment reads are registered or explicitly process-owned |
 | 5 | Creator identity lifecycle | creator governance, Soul/reference approvals, suspension and retention state | source-complete |
 | 6 | Campaign lifecycle | campaign governance and legal transition services | source-complete |
 | 7 | Daily production orchestration | Campaign Factory `orchestrate-daily`, `scripts/run_daily_orchestrator.sh` | source-complete; recurring plan mode requires one supervised runtime plan |
 | 8 | Source-asset intake and catalog | source registry, exact SHA, media probe, creator/campaign attribution | source-complete |
-| 9 | Filesystem and artifact storage | canonical runtime roots, atomic file operations, backup and reconciliation receipts | source-complete |
+| 9 | Filesystem and artifact storage | canonical runtime roots, atomic file operations, backup and reconciliation receipts | seven policy families plus an exact writer-set fingerprint; dynamic content-addressed filenames inherit family policy |
 | 10 | Prompt and model governance | prompt registry, low-effort creative context, exact provider/model/request fingerprint | source-complete |
 | 11 | Reference Factory lifecycle | authorized intake, signed rights lifecycle, patterns, invalidation, promotion | source-complete |
 | 12 | Reel Factory local rendering | deterministic static render, caption placement, audio binding, atomic finalization | source-complete |
@@ -32,8 +32,8 @@ Status language is strict:
 | 14 | Provider cost and budgets | quote, authorization, attempt, reconciliation, unified ledger | source-complete |
 | 15 | Operator CLI and authority | dry-run/apply separation, signed approvals, audited destructive actions | source-complete |
 | 16 | Observability, reconciliation, and incidents | pipeline jobs, activity events, bounded reconciliation summaries and guarded repairs | source-complete |
-| 17 | Scale and capacity | capacity runbooks, SQLite/index checks, provider and batch caps | source-complete; million-asset production load remains unclaimed |
-| 18 | Learning and experiments | immutable observations, equal-age cohorts, supervised recommendations | operational and collecting real outcomes |
+| 17 | Scale and capacity | exact-tier capacity receipts, SQLite/index checks, provider and batch caps | 10 creators/10k assets passed all 12 lanes; 100k and million-asset tiers remain unclaimed |
+| 18 | Learning and experiments | immutable observations, equal-age cohorts, supervised recommendations | source-connected but operationally data-starved; no recommendation or changed later choice is proven |
 | 19 | Multi-creator isolation | creator-bound sources, prompts, accounts, inventory, approvals, and learning scope | source-complete |
 | 20 | Security and local trust boundaries | safe paths/subprocess arguments, schema validation, redaction, secret scanning | source-complete |
 | 21 | Privacy, likeness rights, and retention | creator consent/governance plus signed reference-provider rights evidence | source-complete |
@@ -41,7 +41,7 @@ Status language is strict:
 | 23 | Test architecture and release gates | focused suites, contracts, architecture checks, `make verify`, runtime health | source-complete |
 | 24 | Dependencies and supply chain | lockfiles, pinned native tools/models, Trivy, CodeQL, secret scan | source-complete |
 | 25 | Operator reports and dashboard truth | Creator OS receipts plus ThreadsDashboard scheduling/publication truth | source-complete; publication remains external |
-| 26 | Deprecation and legacy removal | runtime reachability classification and read-only historical compatibility | source-complete; removal stays evidence-driven |
+| 26 | Deprecation and legacy removal | runtime reachability classification and read-only historical compatibility | classified without unknowns; none is proven safe to remove because retained/external evidence remains |
 
 ## Execution topology
 
@@ -62,7 +62,12 @@ owner → data read → data written → external effect
 → receipt → downstream consumer → failure/recovery owner
 ```
 
-## Remaining proof, not missing architecture
+## Remaining source classification and proof
+
+- The functional/domain component tree and static Python disposition are
+  complete. Static reachability is not deletion authority: external callers,
+  retained evidence, and rollback requirements remain bounded in
+  [`creator_os_component_tree.md`](creator_os_component_tree.md).
 
 - Paid provider generations require fresh spend authority and operator review.
 - Instagram, Reddit, and Story publication require their platform-specific
@@ -70,5 +75,7 @@ owner → data read → data written → external effect
 - Learning strength requires real equal-age 24-hour and 72-hour outcomes.
 - Large-scale and different-Mac restore claims require those environments.
 
-These are evidence windows or external effects. They must not be reported as
-source gaps, silently simulated, or marked complete from fixtures.
+The live-table, configuration, and artifact-file findings are source-governance
+gaps. The remaining paid, publication, learning, scale, and restore items are
+evidence windows or external effects. Neither class may be silently simulated
+or marked complete from fixtures.

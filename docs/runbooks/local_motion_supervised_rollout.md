@@ -31,10 +31,12 @@ sample partition reference and gate approval, must match the current local
 machine before execution, and must match every recorded queue execution.
 
 Before freezing or running a gate, execute
-`scripts/creator-os advanced models status --deep`. Cache-only Hugging Face
+`uv run --package reel-factory python -m reel_factory.local_model_manager status --deep`.
+Cache-only Hugging Face
 dependencies are ready only when the pinned snapshot hashes and the exact
 runtime reference both verify. A missing canonical reference may be repaired
-with `advanced models install --apply` only when the install plan reports
+with the direct `reel_factory.local_model_manager install --apply` research
+command only when the install plan reports
 `repairRequired=true`, `estimatedDownloadBytes=0`, and
 `requiredFreeBytes=0`. A conflicting, unsafe, substituted, or unverifiable
 reference is a hold; never enable an online or provider fallback to make the
@@ -161,7 +163,7 @@ uv run --isolated --locked --all-packages --extra identity \
 # The operator launcher selects an isolated, locked, offline identity
 # environment for every identity/Arena command after bootstrap.
 
-scripts/creator-os advanced models status --deep
+uv run --package reel-factory python -m reel_factory.local_model_manager status --deep
 scripts/creator-os advanced identity identity-health \
   --creator <creator> --root <identity-root>
 # If health reports a missing reference set, build it only from the exact
@@ -170,7 +172,7 @@ scripts/creator-os advanced identity identity-reference-build \
   --creator <creator> --input-dir <reviewed-reference-directory> \
   --root <identity-root> --identity-profile <identity-profile.json> \
   --identity-profile-fingerprint <sha256>
-scripts/creator-os advanced arena --root <arena-root> plan \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> plan \
   --request <gate-request.json> \
   --contentforge-registry <analyzer-registry.json> \
   --repository-root <exact-clean-source-root>
@@ -187,7 +189,7 @@ Read the returned immutable plan before approving it. Repeat
 `--router-evidence` for every bundle and use the exact mode sentence:
 
 ```bash
-scripts/creator-os advanced arena --root <arena-root> rollout-approve \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> rollout-approve \
   --plan-id <plan-id> --rollout-id <rollout-id> \
   --operator-identity <operator> --decided-at <utc-timestamp> \
   --reason <reviewed-reason> \
@@ -211,16 +213,16 @@ underneath the run. `generate` revalidates the approval, Router snapshots, and
 active promotion immediately before entering the local generation path:
 
 ```bash
-scripts/creator-os advanced arena --root <arena-root> generate \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> generate \
   --plan-id <plan-id> --sample-id <sample-id> --mode local_wan \
   --apply
-scripts/creator-os advanced arena --root <arena-root> author-review \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> author-review \
   --plan-id <plan-id> --sample-id <sample-id> \
   --form <downloaded-human-review-form.json> \
   --analysis <trusted-media-analysis.json> \
   --operator-identity <exact-reviewer> --issued-at <exact-reviewed-at> \
   --output <signed-human-review.json>
-scripts/creator-os advanced arena --root <arena-root> finalize \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> finalize \
   --plan-id <plan-id> --sample-id <sample-id> --review <signed-review.json> \
   --repository-root <exact-clean-source-root> --identity-root <identity-root> \
   --produced-at <utc-timestamp>
@@ -249,7 +251,7 @@ a never-run job cannot be called failed, and a submitted job cannot be called
 missing:
 
 ```bash
-scripts/creator-os advanced arena --root <arena-root> rollout-sample-terminal \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> rollout-sample-terminal \
   --plan-id <plan-id> --sample-id <sample-id> \
   --status <failed|interrupted|resource_blocked|unsupported|cancelled|missing> \
   --reason <exact-classification-reason>
@@ -259,7 +261,7 @@ After every planned sample has one explicit terminal event, record the
 evidence-derived reconciliation:
 
 ```bash
-scripts/creator-os advanced arena --root <arena-root> rollout-reconcile \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> rollout-reconcile \
   --plan-id <plan-id> --decision <terminal|held> \
   --operator-identity <operator> --decided-at <utc-timestamp> \
   --reason <reviewed-reason> \
@@ -277,14 +279,14 @@ escalate. For a terminal gate, re-read the saved summary and have the operator
 authenticate the separate escalation:
 
 ```bash
-scripts/creator-os advanced arena --root <arena-root> rollout-escalate \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> rollout-escalate \
   --plan-id <plan-id> --operator-identity <operator> \
   --decided-at <utc-timestamp> --reason <reviewed-reason> \
   --external-activity-observation provider_cost=<provider-cost-observation.json> \
   --external-activity-observation schedule=<schedule-observation.json> \
   --external-activity-observation publish=<publish-observation.json> \
   --external-activity-observation qstash=<qstash-observation.json>
-scripts/creator-os advanced arena --root <arena-root> rollout-status \
+uv run --package reel-factory python -m reel_factory.local_model_arena --root <arena-root> rollout-status \
   --plan-id <plan-id>
 ```
 

@@ -356,6 +356,14 @@ def register_core_commands(sub) -> None:
     creative_approval.add_argument(
         "--publish-mode", choices=["auto", "notify"], default=None
     )
+    approval_hygiene = sub.add_parser(
+        "creative-approval-evidence-hygiene",
+        help="inventory or quarantine test/fixture approval evidence without deletion",
+    )
+    approval_hygiene.add_argument("--root", type=Path)
+    approval_hygiene.add_argument("--quarantine-root", type=Path)
+    approval_hygiene.add_argument("--limit", type=int, default=500)
+    approval_hygiene.add_argument("--apply", action="store_true")
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
     audit.add_argument("--min-score", type=int, default=85)

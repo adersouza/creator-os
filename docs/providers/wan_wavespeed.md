@@ -9,6 +9,10 @@ Local models and WaveSpeed code remain available only where advanced tools,
 historical receipts, migrations, or immutable lineage require them. Historical
 provider rows, media, hashes, and receipts must not be deleted or rewritten.
 
+Local model management, queue, and benchmark commands are not exposed by the
+public CLI. The examples below invoke their Python modules directly as research
+or compatibility tools.
+
 WaveSpeed Kling O3, Vidu Q3, Kling Motion Control, and InfiniteTalk are rejected
 recipes from the completed operator bakeoff. LongCat and Sync Lipsync 2/3 were
 not selected. None is an active fallback or runtime credential requirement.
@@ -63,8 +67,9 @@ Mac mode would be misleading.
 
 ## Pinned Local Installation
 
-`scripts/creator-os local-models` is the only supported networked installation
-surface. Generation itself sets `HF_HUB_OFFLINE=1` and
+The research installer is available only through
+`python -m reel_factory.local_model_manager`; it is not exposed by the public
+CLI. The retained generation implementation sets `HF_HUB_OFFLINE=1` and
 `TRANSFORMERS_OFFLINE=1`, verifies exact model receipts, and refuses to download
 or repair anything.
 
@@ -93,14 +98,14 @@ variant is the supported Mac prompt-expansion model.
 Inspect the catalog and disk plan before accepting licenses or downloading:
 
 ```bash
-scripts/creator-os local-models catalog
-scripts/creator-os local-models plan
+uv run --package reel-factory python -m reel_factory.local_model_manager catalog
+uv run --package reel-factory python -m reel_factory.local_model_manager plan
 ```
 
 Install all five tiers:
 
 ```bash
-scripts/creator-os local-models install --apply \
+uv run --package reel-factory python -m reel_factory.local_model_manager install --apply \
   --accept-license ltx-2-community-license-agreement \
   --accept-license gemma
 ```
@@ -120,12 +125,12 @@ Verify the runtime and receipts after installation. `--deep` recomputes all
 recorded SHA-256 hashes and can take several minutes:
 
 ```bash
-scripts/creator-os local-models status
-scripts/creator-os local-models status --deep
+uv run --package reel-factory python -m reel_factory.local_model_manager status
+uv run --package reel-factory python -m reel_factory.local_model_manager status --deep
 
-scripts/creator-os advanced prompt-expander install --dry-run
-scripts/creator-os advanced prompt-expander install --apply
-scripts/creator-os advanced prompt-expander status --deep
+uv run --package reel-factory python -m reel_factory.local_wan_prompt_expansion install --dry-run
+uv run --package reel-factory python -m reel_factory.local_wan_prompt_expansion install --apply
+uv run --package reel-factory python -m reel_factory.local_wan_prompt_expansion status --deep
 ```
 
 The default locations are:
@@ -145,7 +150,7 @@ live outside Git. Wan and LTX intentionally use separate pinned Python runtimes.
 Inspect legacy BF16 storage without deleting it:
 
 ```bash
-scripts/creator-os local-models storage-report
+uv run --package reel-factory python -m reel_factory.local_model_manager storage-report
 ```
 
 The command has no deletion mode. Removal remains blocked until the quantized
@@ -165,13 +170,13 @@ published as Stacey, Larissa, Lola, or another creator identity.
 Wan volume dry-run:
 
 ```bash
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model local_wan22_ti2v_5b_mlx \
-  --motion-task image_to_video \
-  --motion-prompt "She shifts her posture, turns toward the camera, and adjusts her hair" \
+uv run --package reel-factory python -m reel_factory.motion_generate --dry-run \
+  --campaign CAMPAIGN --image /absolute/still.jpg \
+  --model local_wan22_ti2v_5b_mlx \
+  --task image_to_video \
+  --prompt "She shifts her posture, turns toward the camera, and adjusts her hair" \
   --enable-prompt-expansion \
-  --duration 6 --seed 42 --steps 40
+  --duration 6 --seed 42 --steps 40 --out /absolute/review.mp4
 ```
 
 `--enable-prompt-expansion` invokes the pinned local Qwen-VL preprocessor before
@@ -201,11 +206,11 @@ prompt expansion remain readable and keep their original fingerprints.
 Wan A14B quality dry-run:
 
 ```bash
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model local_wan22_i2v_a14b_q4_mlx \
-  --motion-prompt "Natural posture shift, realistic hair motion, locked identity" \
-  --duration 6 --seed 42 --steps 40
+uv run --package reel-factory python -m reel_factory.motion_generate --dry-run \
+  --campaign CAMPAIGN --image /absolute/still.jpg \
+  --model local_wan22_i2v_a14b_q4_mlx \
+  --prompt "Natural posture shift, realistic hair motion, locked identity" \
+  --duration 6 --seed 42 --steps 40 --out /absolute/review.mp4
 ```
 
 The A14B quality tier uses the official and installed 40-step recipe with
@@ -219,12 +224,12 @@ runtime recipe.
 LTX synchronized generated-audio dry-run:
 
 ```bash
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model local_ltx23_distilled_mlx \
-  --motion-task image_to_video --generate-audio \
-  --motion-prompt "She slowly blinks once and makes a slight natural head tilt while keeping her relaxed expression unchanged. Her hands remain still and away from her face while her hair moves subtly with her breathing. The camera remains completely locked as quiet room tone and faint fabric movement continue." \
-  --duration 6 --seed 42 --steps 8
+uv run --package reel-factory python -m reel_factory.motion_generate --dry-run \
+  --campaign CAMPAIGN --image /absolute/still.jpg \
+  --model local_ltx23_distilled_mlx \
+  --task image_to_video --generate-audio \
+  --prompt "She slowly blinks once and makes a slight natural head tilt while keeping her relaxed expression unchanged. Her hands remain still and away from her face while her hair moves subtly with her breathing. The camera remains completely locked as quiet room tone and faint fabric movement continue." \
+  --duration 6 --seed 42 --steps 8 --out /absolute/review.mp4
 ```
 
 Both LTX tiers render ordinary Reels at exact 9:16 (`576x1024`), 24 fps, with
@@ -292,12 +297,12 @@ uv run --package reel-factory python -m reel_factory.motion_generate \
 LongCat talking-avatar dry-run:
 
 ```bash
-scripts/creator-os generate --mode local_wan --dry-run \
-  --campaign CAMPAIGN --accepted-still /absolute/portrait.jpg \
-  --motion-model local_longcat_avatar15_q4_mlx \
-  --motion-task audio_image_to_video --audio /absolute/dialogue.wav \
-  --motion-prompt "A young woman with long dark hair is speaking naturally to the camera, smiling gently in a softly lit bedroom while the portrait framing remains steady" \
-  --duration 4 --seed 42 --steps 8
+uv run --package reel-factory python -m reel_factory.motion_generate --dry-run \
+  --campaign CAMPAIGN --image /absolute/portrait.jpg \
+  --model local_longcat_avatar15_q4_mlx \
+  --task audio_image_to_video --audio /absolute/dialogue.wav \
+  --prompt "A young woman with long dark hair is speaking naturally to the camera, smiling gently in a softly lit bedroom while the portrait framing remains steady" \
+  --duration 4 --seed 42 --steps 8 --out /absolute/review.mp4
 ```
 
 The adapter accepts the exact portrait, source audio, and prompt; computes the
@@ -354,19 +359,19 @@ recovery folder, records their hashes, and only then returns the same request to
 unowned backlog request, or silently retries a model failure.
 
 ```bash
-scripts/creator-os local-queue status
-scripts/creator-os local-queue cancel-queued \
+uv run --package reel-factory python -m reel_factory.local_generation_queue status
+uv run --package reel-factory python -m reel_factory.local_generation_queue cancel-queued \
   --job-id LOCAL_JOB_ID \
   --reason "operator retired the resource-blocked request"
-scripts/creator-os local-queue recover-interrupted \
+uv run --package reel-factory python -m reel_factory.local_generation_queue recover-interrupted \
   --job-id local_video_0123456789abcdef01234567 \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --reason "operator verified exact source and request"
-scripts/creator-os local-queue recover-empty-interruption \
+uv run --package reel-factory python -m reel_factory.local_generation_queue recover-empty-interruption \
   --job-id local_video_0123456789abcdef01234567 \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --reason "operator verified crash occurred before any artifact write"
-scripts/creator-os local-queue recover-completed-interruption \
+uv run --package reel-factory python -m reel_factory.local_generation_queue recover-completed-interruption \
   --job-id local_video_0123456789abcdef01234567 \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --reason "operator verified completed output and lineage after power loss"
@@ -394,18 +399,18 @@ compares recorded matched evidence. `approve` reloads the persisted eligible
 evaluation and re-verifies its QC evidence; it performs no inference.
 
 ```bash
-scripts/creator-os local-benchmarks record \
+uv run --package reel-factory python -m reel_factory.local_model_benchmark record \
   --job-id local_video_0123456789abcdef01234567 \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --qc contentforge.motion_specific_qc=/absolute/path/motion-qc.json
 
-scripts/creator-os local-benchmarks evaluate \
+uv run --package reel-factory python -m reel_factory.local_model_benchmark evaluate \
   --candidate-benchmark-id CANDIDATE_A \
   --candidate-benchmark-id CANDIDATE_B \
   --baseline-benchmark-id BASELINE_A \
   --baseline-benchmark-id BASELINE_B
 
-scripts/creator-os local-benchmarks approve \
+uv run --package reel-factory python -m reel_factory.local_model_benchmark approve \
   --evaluation-id EVALUATION_ID \
   --approved-by operator@example.com \
   --reason "reviewed matched output-bound QC and measured resource evidence"
@@ -482,36 +487,26 @@ enforces the operator's explicit credit cap before its single create call.
 ```bash
 scripts/creator-os create \
   --creator stacey \
-  --intent passive_selfie \
+  --mode calm_animation \
+  --style passive_selfie \
   --count 3 \
   --execution cloud \
   --audio embedded_trending \
-  --max-usd 1.68 \
+  --max-credits 70 \
   --apply
 ```
 
 Talking and motion-copy inputs are explicit and are hashed before authorization:
 
-```bash
-scripts/creator-os create --creator stacey --intent talking_selfie \
-  --count 1 --execution cloud --audio creator_voice \
-  --speech-audio /absolute/creator-speech.wav --max-usd 1.00 --apply
-
-scripts/creator-os create --creator stacey --intent motion_copy \
-  --count 1 --execution cloud --audio embedded_trending \
-  --motion-reference /absolute/driving-video.mp4 --max-usd 2.00 --apply
-```
+There is no supported public command for talking-selfie or motion-copy
+generation. Those intents remain unresolved and require a future authenticated
+contract plus operator-approved bakeoff before re-entering the product CLI.
 
 The advanced explicit-model surface still requires `--confirm-paid`, an
 existing `--workspace`, and a finite `--max-usd` for that exact request.
 
-```bash
-scripts/creator-os generate --mode best_motion --dry-run \
-  --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model wavespeed_kling_o3_pro_i2v \
-  --motion-prompt "Subtle natural breathing and a gentle camera push" \
-  --resolution provider_default --duration 5 --seed 42
-```
+The retired WaveSpeed request shape is retained in historical receipts only.
+No current public or direct research command submits that rejected model.
 
 Campaign Factory prices and reserves one exact WaveSpeed request, checks the
 live model catalog and account balance, and signs a short-lived authorization.
@@ -538,7 +533,7 @@ have produced a complete passing receipt, generated motion remains blocked.
 Register a finished receipt through the supported local boundary:
 
 ```bash
-scripts/creator-os motion-qc-register \
+scripts/creator-os advanced motion-qc-register \
   --rendered-asset-id ASSET_ID \
   --receipt /absolute/path/to/motion-qc.json \
   --operator OPERATOR_ID
