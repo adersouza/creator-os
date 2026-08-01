@@ -599,7 +599,7 @@ class VariantLineageRepository(ObservedVariantLineageMixin):
                 "contentforgeReport": report,
                 "registeredVariants": [],
             }
-        registered = []
+        registered: list[dict[str, Any]] = []
         output_dir = Path(str(report.get("outputDir") or ""))
         campaign_row = self.conn.execute(
             "SELECT * FROM campaigns WHERE id = ?", (parent["campaign_id"],)

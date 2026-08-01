@@ -1347,7 +1347,7 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         return 0
     if args.cmd == "creator-identity-enroll":
         profile_path = Path(args.profile_json).expanduser().resolve()
-        profile = load_json_object(str(profile_path))
+        identity_profile = load_json_object(str(profile_path))
         profile_sha = hashlib.sha256(profile_path.read_bytes()).hexdigest()
         if not args.apply:
             print_json(
@@ -1355,7 +1355,7 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                     args.creator,
                     provider=args.provider,
                     provider_identity_id=args.provider_identity_id,
-                    profile=profile or {},
+                    profile=identity_profile or {},
                     canonical_source_asset_id=args.canonical_source_asset_id,
                     identity_manifest_path=profile_path,
                     identity_manifest_sha256=profile_sha,
@@ -1369,7 +1369,7 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                     args.creator,
                     provider=args.provider,
                     provider_identity_id=args.provider_identity_id,
-                    profile=profile or {},
+                    profile=identity_profile or {},
                     canonical_source_asset_id=args.canonical_source_asset_id,
                     identity_manifest_path=profile_path,
                     identity_manifest_sha256=profile_sha,

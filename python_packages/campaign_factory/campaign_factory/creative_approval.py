@@ -525,6 +525,13 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
     metadata = _asset_metadata(asset)
     model_id = _required_text(metadata.get("modelId"), "asset_model_id")
     paid = metadata.get("paidGeneration") is True
+    paid_evidence: dict[str, Any] | None = None
+    higgsfield_evidence = False
+    identity: dict[str, Any]
+    intent: dict[str, Any]
+    recipe: dict[str, Any]
+    execution_evidence: dict[str, Any]
+    selected_model_fingerprint: str
     if paid:
         paid_evidence = metadata.get("paidGenerationEvidence")
         if not isinstance(paid_evidence, dict):
@@ -598,22 +605,24 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         else:
-            identity = paid_evidence.get("creatorIdentityProfile")
-            intent = paid_evidence.get("contentIntent")
-            recipe = paid_evidence.get("generationRecipe")
-            execution_evidence = paid_evidence.get("executionEvidence")
+            identity_value = paid_evidence.get("creatorIdentityProfile")
+            intent_value = paid_evidence.get("contentIntent")
+            recipe_value = paid_evidence.get("generationRecipe")
+            execution_value = paid_evidence.get("executionEvidence")
+            if (
+                not isinstance(identity_value, dict)
+                or not isinstance(intent_value, dict)
+                or not isinstance(recipe_value, dict)
+                or not isinstance(execution_value, dict)
+            ):
+                raise CreativeApprovalError("creative_approval_paid_evidence_invalid")
+            identity = identity_value
+            intent = intent_value
+            recipe = recipe_value
+            execution_evidence = execution_value
             selected_model_fingerprint = _sha(
                 paid_evidence.get("modelFingerprint"), "asset_model_fingerprint"
             )
-        if not all(
-            isinstance(value, dict)
-            for value in (identity, intent, recipe, execution_evidence)
-        ):
-            raise CreativeApprovalError("creative_approval_paid_evidence_invalid")
-        assert isinstance(identity, dict)
-        assert isinstance(intent, dict)
-        assert isinstance(recipe, dict)
-        assert isinstance(execution_evidence, dict)
     else:
         admission = metadata.get("localMotionAdmission")
         if not isinstance(admission, dict):
@@ -633,14 +642,18 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
         decision = admission.get("routerDecision")
         if not isinstance(records, dict) or not isinstance(decision, dict):
             raise CreativeApprovalError("creative_approval_generation_evidence_missing")
-        identity = records.get("creatorIdentityProfile")
-        intent = records.get("contentIntent")
-        recipe = records.get("benchmarkRecipe")
-        if not all(isinstance(value, dict) for value in (identity, intent, recipe)):
+        identity_value = records.get("creatorIdentityProfile")
+        intent_value = records.get("contentIntent")
+        recipe_value = records.get("benchmarkRecipe")
+        if (
+            not isinstance(identity_value, dict)
+            or not isinstance(intent_value, dict)
+            or not isinstance(recipe_value, dict)
+        ):
             raise CreativeApprovalError("creative_approval_generation_evidence_invalid")
-        assert isinstance(identity, dict)
-        assert isinstance(intent, dict)
-        assert isinstance(recipe, dict)
+        identity = identity_value
+        intent = intent_value
+        recipe = recipe_value
         if decision.get("selectedModelId") != model_id:
             raise CreativeApprovalError("creative_approval_asset_model_mismatch")
         selected_model_fingerprint = _sha(
