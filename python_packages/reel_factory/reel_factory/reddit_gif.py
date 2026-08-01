@@ -49,10 +49,14 @@ def render_reddit_gif(
                 detail = completed.stderr or completed.stdout or "ffmpeg failed"
                 raise RuntimeError(detail[-2000:])
             with Image.open(partial) as image:
-                if image.format != "GIF" or not image.is_animated or image.n_frames < 2:
+                frame_count = int(getattr(image, "n_frames", 1))
+                if (
+                    image.format != "GIF"
+                    or not bool(getattr(image, "is_animated", False))
+                    or frame_count < 2
+                ):
                     raise RuntimeError("reddit GIF render is not animated")
                 output_size = list(image.size)
-                frame_count = image.n_frames
             os.replace(partial, output)
         finally:
             partial.unlink(missing_ok=True)

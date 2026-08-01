@@ -202,7 +202,7 @@ class ReelExecutionRepository:
                 reel_video = raw_dir / f"{clip_stem}.mp4"
                 shutil.copy2(src_path, reel_video)
                 render_hooks, hook_metadata = self.reel_sidecar_hooks(source_hooks)
-                sidecar = {
+                sidecar: dict[str, Any] = {
                     "hooks": render_hooks,
                     "recipes": recipes or None,
                     "caption_color": caption_color or "auto",
@@ -855,10 +855,9 @@ class ReelExecutionRepository:
             return {}
         if not isinstance(payload, dict):
             return {}
-        hook_metadata = (
-            payload.get("hook_metadata")
-            if isinstance(payload.get("hook_metadata"), list)
-            else []
+        raw_hook_metadata = payload.get("hook_metadata")
+        hook_metadata: list[Any] = (
+            list(raw_hook_metadata) if isinstance(raw_hook_metadata, list) else []
         )
         generation = payload.get("generation")
         if not isinstance(generation, dict):
@@ -1150,11 +1149,11 @@ class ReelExecutionRepository:
             )
             if audio_intent:
                 caption_generation["audioIntent"] = audio_intent
-        caption_fallback = caption_context.get("captionFallback")
-        clean_fallback = (
-            isinstance(caption_fallback, dict)
-            and caption_fallback.get("renderPolicy") == "clean_without_overlay"
+        raw_caption_fallback = caption_context.get("captionFallback")
+        caption_fallback: dict[str, Any] = (
+            raw_caption_fallback if isinstance(raw_caption_fallback, dict) else {}
         )
+        clean_fallback = caption_fallback.get("renderPolicy") == "clean_without_overlay"
         burned_caption = (
             ""
             if clean_fallback

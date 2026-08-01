@@ -418,10 +418,15 @@ def plan_execution(
         float(json.loads(item["estimated_cost_json"]).get("credits") or 0)
         for item in eligible
     )
-    if apply and (signed_spend_credits is None or signed_spend_credits <= 0):
-        raise PermissionError("signed spend authorization is required")
-    if apply and estimated > float(signed_spend_credits):
-        raise PermissionError("eligible estimated spend exceeds signed authorization")
+    spend_limit = 0.0
+    if apply:
+        if signed_spend_credits is None or signed_spend_credits <= 0:
+            raise PermissionError("signed spend authorization is required")
+        spend_limit = signed_spend_credits
+        if estimated > spend_limit:
+            raise PermissionError(
+                "eligible estimated spend exceeds signed authorization"
+            )
 
     jobs: list[dict[str, Any]] = []
     actual = 0.0
@@ -440,7 +445,7 @@ def plan_execution(
             runner(
                 **kwargs,
                 apply=True,
-                max_total_credits=float(signed_spend_credits) - actual,
+                max_total_credits=spend_limit - actual,
             )
             if apply
             else plan_production_batch(**kwargs)
@@ -568,7 +573,7 @@ def create_metric_cohorts(
     now = _now()
     cohorts: list[dict[str, Any]] = []
     for bucket, offset in OBSERVATION_BUCKETS.items():
-        cohort = {
+        cohort: dict[str, Any] = {
             "id": f"pmc_{_fingerprint([plan_item_id, bucket])[:16]}",
             "planItemId": plan_item_id,
             "observationBucket": bucket,

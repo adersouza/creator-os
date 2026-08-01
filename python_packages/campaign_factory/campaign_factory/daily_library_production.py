@@ -104,7 +104,7 @@ def run_daily_library_production(
     factory.conn.commit()
 
     source_ids = [selection["sourceAssetId"] for selection in selections]
-    hooks = _daily_hooks(
+    hooks: list[str | dict[str, Any]] = _daily_hooks(
         factory,
         count=len(source_ids),
         seed_key=f"{cohort_id}:{day_index}",
@@ -352,6 +352,7 @@ def _select_sources(
     selections = []
     selected_source_ids: set[str] = set()
     for assignment in assignments:
+        source: dict[str, Any] | None
         assigned_id = str(assignment.get("source_asset_id") or "")
         if assigned_id:
             if assigned_id not in candidate_by_id:
@@ -489,7 +490,7 @@ def _daily_hooks(
     count: int,
     seed_key: str,
     selections: list[dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[str | dict[str, Any]]:
     from reel_factory.worker_api import (
         caption_hook_payload,
         load_or_build_caption_bank_store,
@@ -592,7 +593,7 @@ def _daily_hooks(
             "Stacey caption bank has only "
             f"{len(selected)} unused source-compatible timed/static hooks; need {count}"
         )
-    hooks = []
+    hooks: list[str | dict[str, Any]] = []
     for item, fitted_lineage, context, fallback_reason in selected:
         selected_banks = list(item.get("selected_banks") or [])
         render_hook = caption_hook_payload(item)
