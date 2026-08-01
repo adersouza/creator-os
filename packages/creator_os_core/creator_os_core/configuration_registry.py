@@ -395,9 +395,21 @@ for name, owner, purpose in (
     )
 
 for name, owner, purpose in (
-    ("CREATOR_OS_AUDIO_REFRESH_MAX_NEW", "audio_radar", "Bound new audio candidates per refresh."),
-    ("CREATOR_OS_DAILY_ORCHESTRATOR_PROVIDER_CAP", "campaign_factory", "Bound paid provider jobs per daily run."),
-    ("CREATOR_OS_LOCAL_GENERATION_MEMORY_RESERVE_BYTES", "reel_factory", "Reserve host memory from local generation admission."),
+    (
+        "CREATOR_OS_AUDIO_REFRESH_MAX_NEW",
+        "audio_radar",
+        "Bound new audio candidates per refresh.",
+    ),
+    (
+        "CREATOR_OS_DAILY_ORCHESTRATOR_PROVIDER_CAP",
+        "campaign_factory",
+        "Bound paid provider jobs per daily run.",
+    ),
+    (
+        "CREATOR_OS_LOCAL_GENERATION_MEMORY_RESERVE_BYTES",
+        "reel_factory",
+        "Reserve host memory from local generation admission.",
+    ),
 ):
     _SPECS.append(
         _spec(
@@ -411,13 +423,37 @@ for name, owner, purpose in (
     )
 
 for name, owner, purpose in (
-    ("CREATOR_OS_AUDIO_REFRESH_MAX_ACTIVE", "audio_radar", "Bound active audio inventory retained after refresh."),
-    ("CREATOR_OS_DAILY_ORCHESTRATOR_MAX_ITEMS", "campaign_factory", "Bound items in one daily orchestration run."),
-    ("CREATOR_OS_DAILY_ORCHESTRATOR_PER_CAMPAIGN", "campaign_factory", "Bound daily items per campaign."),
-    ("CREATOR_OS_DAILY_ORCHESTRATOR_PER_CREATOR", "campaign_factory", "Bound daily items per creator."),
+    (
+        "CREATOR_OS_AUDIO_REFRESH_MAX_ACTIVE",
+        "audio_radar",
+        "Bound active audio inventory retained after refresh.",
+    ),
+    (
+        "CREATOR_OS_DAILY_ORCHESTRATOR_MAX_ITEMS",
+        "campaign_factory",
+        "Bound items in one daily orchestration run.",
+    ),
+    (
+        "CREATOR_OS_DAILY_ORCHESTRATOR_PER_CAMPAIGN",
+        "campaign_factory",
+        "Bound daily items per campaign.",
+    ),
+    (
+        "CREATOR_OS_DAILY_ORCHESTRATOR_PER_CREATOR",
+        "campaign_factory",
+        "Bound daily items per creator.",
+    ),
     ("GITLEAKS_TIMEOUT_SECONDS", "tooling", "Bound local gitleaks execution time."),
-    ("HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS", "campaign_factory", "Bound daily Kling generations."),
-    ("HIGGSFIELD_RUN_MAX_ASSETS", "campaign_factory", "Bound generated assets per provider run."),
+    (
+        "HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS",
+        "campaign_factory",
+        "Bound daily Kling generations.",
+    ),
+    (
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "campaign_factory",
+        "Bound generated assets per provider run.",
+    ),
 ):
     _SPECS.append(
         _spec(
@@ -431,11 +467,31 @@ for name, owner, purpose in (
     )
 
 for name, owner, purpose in (
-    ("CREATOR_OS_GEMINI_ANALYSIS_QUOTE_USD", "campaign_factory", "Authorize the configured upper-bound quote for reference analysis."),
-    ("HIGGSFIELD_COHORT_MAX_CREDITS", "campaign_factory", "Bound total credits for a generation cohort."),
-    ("HIGGSFIELD_DAILY_BUDGET_CREDITS", "campaign_factory", "Bound daily Higgsfield credits."),
-    ("HIGGSFIELD_MONTHLY_BUDGET_CREDITS", "campaign_factory", "Bound monthly Higgsfield credits."),
-    ("HIGGSFIELD_RUN_MAX_CREDITS", "campaign_factory", "Bound credits per Higgsfield run."),
+    (
+        "CREATOR_OS_GEMINI_ANALYSIS_QUOTE_USD",
+        "campaign_factory",
+        "Authorize the configured upper-bound quote for reference analysis.",
+    ),
+    (
+        "HIGGSFIELD_COHORT_MAX_CREDITS",
+        "campaign_factory",
+        "Bound total credits for a generation cohort.",
+    ),
+    (
+        "HIGGSFIELD_DAILY_BUDGET_CREDITS",
+        "campaign_factory",
+        "Bound daily Higgsfield credits.",
+    ),
+    (
+        "HIGGSFIELD_MONTHLY_BUDGET_CREDITS",
+        "campaign_factory",
+        "Bound monthly Higgsfield credits.",
+    ),
+    (
+        "HIGGSFIELD_RUN_MAX_CREDITS",
+        "campaign_factory",
+        "Bound credits per Higgsfield run.",
+    ),
 ):
     _SPECS.append(
         _spec(
@@ -450,20 +506,52 @@ for name, owner, purpose in (
     )
 
 for name, owner, purpose in (
-    ("CONTENTFORGE_AUDIT_HISTORY_DIR", "contentforge", "Retained ContentForge audit-history root."),
+    (
+        "CONTENTFORGE_AUDIT_HISTORY_DIR",
+        "contentforge",
+        "Retained ContentForge audit-history root.",
+    ),
     ("CONTENTFORGE_OUTPUT_DIR", "contentforge", "Run-scoped ContentForge output root."),
-    ("CONTENTFORGE_REAL_SAMPLE_MANIFEST", "contentforge", "Explicit real-media audit manifest."),
+    (
+        "CONTENTFORGE_REAL_SAMPLE_MANIFEST",
+        "contentforge",
+        "Explicit real-media audit manifest.",
+    ),
     ("CONTENTFORGE_SSCD_MODEL_PATH", "contentforge", "ContentForge SSCD model path."),
     ("SSCD_MODEL_PATH", "reel_factory", "Reel Factory SSCD model path alias."),
     ("CREATOR_OS_AUDIO_CACHE", "audio_radar", "Downloaded audio-byte cache root."),
     ("CREATOR_OS_AUDIO_RECEIPTS", "audio_radar", "Audio refresh receipt root."),
-    ("CREATOR_OS_AUDIO_REFRESH_ENV", "audio_radar", "Private Audio Radar refresh environment file."),
-    ("CREATOR_OS_AUDIO_REFRESH_LOCK", "audio_radar", "Audio refresh mutual-exclusion lock path."),
-    ("CREATOR_OS_AUDIO_REFRESH_REPORT_DIR", "audio_radar", "Audio refresh report root."),
-    ("CREATOR_OS_GENERATION_ENV", "campaign_factory", "Private generation policy environment file."),
+    (
+        "CREATOR_OS_AUDIO_REFRESH_ENV",
+        "audio_radar",
+        "Private Audio Radar refresh environment file.",
+    ),
+    (
+        "CREATOR_OS_AUDIO_REFRESH_LOCK",
+        "audio_radar",
+        "Audio refresh mutual-exclusion lock path.",
+    ),
+    (
+        "CREATOR_OS_AUDIO_REFRESH_REPORT_DIR",
+        "audio_radar",
+        "Audio refresh report root.",
+    ),
+    (
+        "CREATOR_OS_GENERATION_ENV",
+        "campaign_factory",
+        "Private generation policy environment file.",
+    ),
     ("CREATOR_OS_LEARNING_STATE", "campaign_factory", "Learning refresh state path."),
-    ("CREATOR_OS_PERFORMANCE_SYNC_ENV", "campaign_factory", "Private performance-sync environment file."),
-    ("PROMPT_REGRESSION_PYTHON", "tooling", "Python executable used for prompt-regression checks."),
+    (
+        "CREATOR_OS_PERFORMANCE_SYNC_ENV",
+        "campaign_factory",
+        "Private performance-sync environment file.",
+    ),
+    (
+        "PROMPT_REGRESSION_PYTHON",
+        "tooling",
+        "Python executable used for prompt-regression checks.",
+    ),
 ):
     _SPECS.append(
         _spec(
@@ -478,14 +566,46 @@ for name, owner, purpose in (
 
 for name, owner, purpose in (
     ("CONTENTFORGE_OCR_ENGINE", "contentforge", "Select the configured OCR engine."),
-    ("CONTENTFORGE_PYTHON", "contentforge", "Python command used by ContentForge helpers."),
-    ("CREATOR_OS_AUDIO_REFRESH_REGION", "audio_radar", "Region used for audio discovery."),
-    ("CREATOR_OS_DAILY_ORCHESTRATOR_MODE", "campaign_factory", "Select preview, plan, or execute orchestration behavior."),
-    ("CREATOR_OS_DAILY_ORCHESTRATOR_RUN_KEY", "campaign_factory", "Idempotency key for a daily orchestration run."),
-    ("CREATOR_OS_GEMINI_ANALYSIS_MODEL", "campaign_factory", "Pinned Gemini reference-analysis model."),
-    ("CREATOR_OS_GEMINI_ANALYSIS_PRICING_VERSION", "campaign_factory", "Pricing evidence version for Gemini analysis."),
-    ("CREATOR_OS_IDEMPOTENCY_KEY", "campaign_factory", "Operator mutation idempotency key."),
-    ("CREATOR_OS_RUNTIME_SHA", "creator_os_core", "Exact runtime Git commit recorded in operational evidence."),
+    (
+        "CONTENTFORGE_PYTHON",
+        "contentforge",
+        "Python command used by ContentForge helpers.",
+    ),
+    (
+        "CREATOR_OS_AUDIO_REFRESH_REGION",
+        "audio_radar",
+        "Region used for audio discovery.",
+    ),
+    (
+        "CREATOR_OS_DAILY_ORCHESTRATOR_MODE",
+        "campaign_factory",
+        "Select preview, plan, or execute orchestration behavior.",
+    ),
+    (
+        "CREATOR_OS_DAILY_ORCHESTRATOR_RUN_KEY",
+        "campaign_factory",
+        "Idempotency key for a daily orchestration run.",
+    ),
+    (
+        "CREATOR_OS_GEMINI_ANALYSIS_MODEL",
+        "campaign_factory",
+        "Pinned Gemini reference-analysis model.",
+    ),
+    (
+        "CREATOR_OS_GEMINI_ANALYSIS_PRICING_VERSION",
+        "campaign_factory",
+        "Pricing evidence version for Gemini analysis.",
+    ),
+    (
+        "CREATOR_OS_IDEMPOTENCY_KEY",
+        "campaign_factory",
+        "Operator mutation idempotency key.",
+    ),
+    (
+        "CREATOR_OS_RUNTIME_SHA",
+        "creator_os_core",
+        "Exact runtime Git commit recorded in operational evidence.",
+    ),
     ("REDDIT_USER_AGENT", "campaign_factory", "Reddit research client user agent."),
 ):
     _SPECS.append(
@@ -500,7 +620,11 @@ for name, owner, purpose in (
 
 for name, owner, purpose in (
     ("REDDIT_CLIENT_ID", "campaign_factory", "Authorize Reddit research API access."),
-    ("REDDIT_CLIENT_SECRET", "campaign_factory", "Authorize Reddit research API access."),
+    (
+        "REDDIT_CLIENT_SECRET",
+        "campaign_factory",
+        "Authorize Reddit research API access.",
+    ),
     ("SOCIALCRAWL_API_KEY", "audio_radar", "Authorize SocialCrawl audio discovery."),
     ("TIKLIVE_API_KEY", "audio_radar", "Authorize TikLive audio discovery."),
 ):
