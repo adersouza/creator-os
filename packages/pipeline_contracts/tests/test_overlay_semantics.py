@@ -161,6 +161,29 @@ def test_enumerated_promise_without_payoffs_is_blocked() -> None:
     assert result["payoff_segment_count"] == 0
 
 
+def test_vague_missing_object_is_blocked() -> None:
+    result = evaluate_overlay_semantic_completeness("like this if its big...")
+
+    assert result["passed"] is False
+    assert result["failure_reasons"] == ["missing_overlay_object"]
+
+
+def test_known_timed_setup_requires_a_real_payoff() -> None:
+    blocked = evaluate_overlay_semantic_completeness("We are just friends")
+    timed = evaluate_overlay_semantic_completeness(
+        {
+            "segments": [
+                {"text": "We are just friends"},
+                {"text": "until he gets jealous"},
+            ]
+        }
+    )
+
+    assert blocked["passed"] is False
+    assert blocked["failure_reasons"] == ["missing_overlay_payoff_after_setup"]
+    assert timed["passed"] is True
+
+
 @pytest.mark.parametrize("count", [1, 10, 12, 100])
 def test_numbered_promise_detection_is_not_limited_to_two_through_nine(
     count: int,

@@ -808,6 +808,14 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
             {**job, "quotedProviderCredits": 8} for job in jobs
         ],
     )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane.audit_final_asset",
+        lambda *_args, **kwargs: {
+            "renderedAssetId": kwargs["rendered_asset_id"],
+            "auditReportId": "audit-final",
+            "reviewReady": True,
+        },
+    )
 
     batch = run_production_batch(
         factory,
@@ -824,6 +832,11 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     assert batch["summary"]["completed"] == 1, json.dumps(batch, default=str)
     assert batch["results"][0]["hardQc"]["status"] == "passed"
     completed = batch["results"][0]["result"]["audioFulfillment"]
+    assert batch["results"][0]["result"]["finalContentForgeAudit"] == {
+        "renderedAssetId": "generated-asset",
+        "auditReportId": "audit-final",
+        "reviewReady": True,
+    }
     receipt = completed["receipt"]
     intent = receipt["audioIntent"]
     row = factory.conn.execute(
@@ -837,6 +850,9 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     assert receipt["selectedSegment"]["duration_seconds"] == pytest.approx(2, abs=0.12)
     assert receipt["verification"]["audioCodec"] == "aac"
     assert receipt["verification"]["audioPresent"] is True
+    assert receipt["learning"]["policyVersion"] == "exact_outcome_context_v1"
+    assert receipt["learning"]["measuredEvidence"] == []
+    assert receipt["learning"]["exploration"]["mode"] == "exploit"
     assert intent["policy"] == "embedded_trending_required"
     assert intent["fulfillment"]["output_sha256"] == row[0]
     assert completed["finalVideoSha256"] == row[0]

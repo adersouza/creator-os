@@ -220,7 +220,11 @@ def _weighted_sample_caption_rows(
     pool = list(rows)
     selected: list[tuple[int, str | dict, dict]] = []
     while pool and len(selected) < limit:
-        weights = [max(1, int(row[2].get("selectedBankWeight") or 1)) for row in pool]
+        weights = [
+            max(1, int(row[2].get("selectedBankWeight") or 1))
+            * (1 + 3 * int(row[2].get("sceneMatchScore") or 0))
+            for row in pool
+        ]
         pick = rng.choices(range(len(pool)), weights=weights, k=1)[0]
         selected.append(pool.pop(pick))
     return sorted(selected, key=lambda row: row[0])
@@ -277,6 +281,7 @@ def apply_caption_fit_to_caption_set(
                     "sceneCompatibilityDecision": scene.decision,
                     "sceneCompatibilityReason": scene.reason,
                     "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+                    "sceneMatchScore": scene.match_score,
                 }
             )
         return cap_set, diagnostics
@@ -357,6 +362,7 @@ def apply_caption_fit_to_caption_set(
             "sceneCompatibilityDecision": scene.decision,
             "sceneCompatibilityReason": scene.reason,
             "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+            "sceneMatchScore": scene.match_score,
             "captionTopic": caption_topic,
             "captionTopicBanks": topic_banks,
             "captionTopicDecision": topic_decision,
@@ -364,6 +370,23 @@ def apply_caption_fit_to_caption_set(
             "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
         }
         diagnostics.append(row)
+        existing_selection_context = lineage.get("captionSelectionContext")
+        selection_context = {
+            **(
+                existing_selection_context
+                if isinstance(existing_selection_context, dict)
+                else {}
+            ),
+            "frameType": frame_type,
+            "reelSceneTags": scene.reel_scene_tags,
+            "captionTopic": caption_topic,
+            "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+            "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
+        }
+        if cap_set.source_context.get("contextFingerprint"):
+            selection_context["sourceContextFingerprint"] = cap_set.source_context[
+                "contextFingerprint"
+            ]
         enriched_lineage = {
             **lineage,
             "lengthClass": length_class,
@@ -382,11 +405,13 @@ def apply_caption_fit_to_caption_set(
             "sceneCompatibilityDecision": scene.decision,
             "sceneCompatibilityReason": scene.reason,
             "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+            "sceneMatchScore": scene.match_score,
             "captionTopic": caption_topic,
             "captionTopicBanks": topic_banks,
             "captionTopicDecision": topic_decision,
             "captionTopicReason": topic_reason,
             "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
+            "captionSelectionContext": selection_context,
         }
         scene_allowed = scene.decision in {"allowed", "unknown_allowed", "fit_disabled"}
         if topic_allowed and readable and scene_allowed:
@@ -446,6 +471,7 @@ def apply_caption_fit_to_caption_set(
         + (f"; caption_topic={caption_topic}" if caption_topic else ""),
         hook_lineage=lineage,
         band=cap_set.band,
+        source_context=cap_set.source_context,
     ), diagnostics
 
 

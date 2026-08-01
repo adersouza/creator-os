@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 SCHEMA = "pipeline.overlay_semantic_qc.v1"
-POLICY_VERSION = "overlay_payoff_v4"
+POLICY_VERSION = "overlay_payoff_v5"
 TIMING_SCHEMA = "pipeline.overlay_timing_qc.v1"
 RENDER_PLAN_SCHEMA = "pipeline.overlay_render_plan.v1"
 
@@ -44,6 +44,14 @@ _BEFORE_AFTER_SETUP = re.compile(
 _ENUMERATED_PROMISE = re.compile(
     r"^(?P<count>[1-9]\d*)\s+"
     r"(?:reasons?|ways?|things?|signs?|mistakes?|rules?|tips?)\b",
+    re.IGNORECASE,
+)
+_VAGUE_MISSING_OBJECT = re.compile(
+    r"^like this if (?:it['’]?s|its) big(?:…|\.\.\.)?$", re.IGNORECASE
+)
+_KNOWN_TIMED_SETUP = re.compile(
+    r"^(?:we are just friends|ur very handsome btw|"
+    r"['\"]?i don['’]?t like geek girls['\"]?\s+okay\??)$",
     re.IGNORECASE,
 )
 
@@ -293,6 +301,10 @@ def evaluate_overlay_timing(
 
 
 def _incomplete_reason(text: str) -> str | None:
+    if _VAGUE_MISSING_OBJECT.fullmatch(text):
+        return "missing_overlay_object"
+    if _KNOWN_TIMED_SETUP.fullmatch(text):
+        return "missing_overlay_payoff_after_setup"
     if _GENERIC_STOP_SETUP.fullmatch(text):
         return "missing_overlay_payoff_after_setup"
     if _UNRESOLVED_LABEL_SETUP.fullmatch(text):

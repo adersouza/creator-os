@@ -1,8 +1,8 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v2",
-  "source_hash": "8cdbbd9f79e54e81edc47d8f7bc9d26b59732af5b1b0e1e911132789fba94b8e",
-  "updated_at": 1785355688,
+  "source_hash": "57b268bfc794181dba63c71ffcbfd619ac898eb7e428102c9f34ae2d3c760ffe",
+  "updated_at": 1785575476,
   "banks": {
     "shared_girl_next_door": [
       {
@@ -377,35 +377,6 @@
             "source_file": "01_captions/clip_007.json",
             "source_clip": "clip_007",
             "source_index": 19
-          }
-        ]
-      },
-      {
-        "caption_hash": "7f839a30111afe3cb465f4cb2dcbc87d9b1db31e7a8a3c5e23cb5294c983fd5f",
-        "static_text_hash": "7f839a30111afe3cb465f4cb2dcbc87d9b1db31e7a8a3c5e23cb5294c983fd5f",
-        "caption_payload_hash": "eb685632dbba486fda08ec5f3703e07f7e6c9c6277619607cb7920aa5a7e4ff9",
-        "variant_type": "static",
-        "text": "3 reasons why\nyou should date me",
-        "banks": [
-          "shared_girl_next_door",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 32,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 11,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_006.json",
-            "source_clip": "clip_006",
-            "source_index": 1
           }
         ]
       },
@@ -1120,33 +1091,6 @@
         "source_index": 48
       },
       {
-        "caption_hash": "25bc5066366cdbf6feea0fa203cf4f86c99cc72d08853154452068f72ae7c2f6",
-        "static_text_hash": "25bc5066366cdbf6feea0fa203cf4f86c99cc72d08853154452068f72ae7c2f6",
-        "caption_payload_hash": "2da22ad750a3a29e9c15fe1cfa7ad6f14da0b7520822874a917e3799bb5294f1",
-        "variant_type": "static",
-        "text": "I hate old men but you calling me\ngood girl while gripping my hair\nmight change my mind.",
-        "banks": [
-          "shared_girl_next_door"
-        ],
-        "word_count": 18,
-        "char_count": 88,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 22,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_003.json",
-            "source_clip": "clip_003",
-            "source_index": 3
-          }
-        ]
-      },
-      {
         "caption_hash": "3f042b151dbf583162ba9d703fdfaaf23b6d022b4bd3b40233862ccf9a901413",
         "static_text_hash": "3f042b151dbf583162ba9d703fdfaaf23b6d022b4bd3b40233862ccf9a901413",
         "caption_payload_hash": "bc5ad77b11cf93e4702448b3e7617b9195f89ce75c037b78720a455ebd0b22a9",
@@ -1609,34 +1553,6 @@
             "source_file": "01_captions/clip_008.json",
             "source_clip": "clip_008",
             "source_index": 2
-          }
-        ]
-      },
-      {
-        "caption_hash": "16049769481b7ea183a1c365cabbf4fabbe3693bb4b0810e4d31016dee51da22",
-        "static_text_hash": "16049769481b7ea183a1c365cabbf4fabbe3693bb4b0810e4d31016dee51da22",
-        "caption_payload_hash": "75e1db9ce90ffa602ddc256d5316da54103f6b3923fd5da9dc7c728cb41351e3",
-        "variant_type": "static",
-        "text": "Imagine I invite you to my room\nwhile everyone's distracted\nat Christmas dinner...\nwhat do you do?",
-        "banks": [
-          "shared_girl_next_door",
-          "bedroom_mirror"
-        ],
-        "word_count": 17,
-        "char_count": 98,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 78,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_005.json",
-            "source_clip": "clip_005",
-            "source_index": 11
           }
         ]
       },
@@ -2782,25 +2698,6 @@
         ]
       },
       {
-        "caption_hash": "0bdc7f4b10671a8a3ef8fd2093519ea5bd126232621d7334b14c54dd80767f30",
-        "static_text_hash": "0bdc7f4b10671a8a3ef8fd2093519ea5bd126232621d7334b14c54dd80767f30",
-        "caption_payload_hash": "f173531d00e3a12b8b2e5852b7ff9dca01c40175547b040d6e446bd0157b9053",
-        "variant_type": "static",
-        "text": "i hate old men but u calling me good girl while gripping my hair mught chage my mind",
-        "banks": [
-          "shared_girl_next_door"
-        ],
-        "word_count": 18,
-        "char_count": 84,
-        "line_count": 1,
-        "length_class": "long",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 147
-      },
-      {
         "caption_hash": "d42bc3b92e3019b04a8afc532fe91d9c7e767791097926d1ec543014ea2b3ad0",
         "static_text_hash": "d42bc3b92e3019b04a8afc532fe91d9c7e767791097926d1ec543014ea2b3ad0",
         "caption_payload_hash": "140f0a173e09776b3fdce2bb21dc96f022a456ab0693f1b84f66023a44c0edf4",
@@ -3019,35 +2916,6 @@
         ]
       },
       {
-        "caption_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
-        "static_text_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
-        "caption_payload_hash": "754690808b9bf8cbc2b056bcf3fd30d37631c9bcf4bc45a86b887ba830da1cfd",
-        "variant_type": "static",
-        "text": "if you have a crush on me,\npls go for it,\nyou literally have no competition at all",
-        "banks": [
-          "shared_girl_next_door",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 18,
-        "char_count": 82,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 20
-          }
-        ]
-      },
-      {
         "caption_hash": "8225141718d804bf30aa143d633bda93ff83fffc09944c48ff9e8ebb050e2927",
         "static_text_hash": "8225141718d804bf30aa143d633bda93ff83fffc09944c48ff9e8ebb050e2927",
         "caption_payload_hash": "df7f5e45b75d61800aeb501fb8936c5e6d9296eef92ee5afb598093f61b1edbb",
@@ -3177,34 +3045,6 @@
         ]
       },
       {
-        "caption_hash": "53f3561bc9e8118bca9dea78fb4c7eaecf187306ea8146f2f0c5ab38605bcef8",
-        "static_text_hash": "53f3561bc9e8118bca9dea78fb4c7eaecf187306ea8146f2f0c5ab38605bcef8",
-        "caption_payload_hash": "08f75780a2b48bec745733c1414eeeb0f97666728c671ad4e7495dc0ced20dfa",
-        "variant_type": "static",
-        "text": "like this if its big...",
-        "banks": [
-          "shared_girl_next_door",
-          "comment_bait"
-        ],
-        "word_count": 5,
-        "char_count": 23,
-        "line_count": 1,
-        "length_class": "short",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 30,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_005.json",
-            "source_clip": "clip_005",
-            "source_index": 4
-          }
-        ]
-      },
-      {
         "caption_hash": "f099025f54f655de1c8939684f03141b3968e7372eb201f8b9cdd2ee174e03e5",
         "static_text_hash": "f099025f54f655de1c8939684f03141b3968e7372eb201f8b9cdd2ee174e03e5",
         "caption_payload_hash": "89cc57219609cde4f1ed0e11a992fb3384a560c7032dc58883dff080d6a112b9",
@@ -3228,35 +3068,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 92
-          }
-        ]
-      },
-      {
-        "caption_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
-        "static_text_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
-        "caption_payload_hash": "87c8e1435b0da8ad55d19c5b0298e06871f6db534918dabe05e7a10fe60177e9",
-        "variant_type": "static",
-        "text": "men choose any three:\n\n1. pretty\n2. rich\n3. loyal\n4. family oriented\n5. no male friends",
-        "banks": [
-          "shared_girl_next_door",
-          "choice_poll",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 87,
-        "line_count": 6,
-        "length_class": "long",
-        "format_class": "numbered_list",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 10,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 15
           }
         ]
       },
@@ -3731,36 +3542,6 @@
         ]
       },
       {
-        "caption_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "static_text_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "caption_payload_hash": "aa01dd1dee4481b1b8df7bc0abd723f4b9c01dd4f28b7b5a0ec12e467d53123c",
-        "variant_type": "static",
-        "text": "take a hint\n\nI like you\nnerd",
-        "banks": [
-          "shared_girl_next_door",
-          "comment_bait",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 28,
-        "line_count": 3,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
-          }
-        ]
-      },
-      {
         "caption_hash": "d27454947b17f75c9499dd786b1d0abbbd05a32cdf5000dc22b7a4bc5c3fd0b4",
         "static_text_hash": "d27454947b17f75c9499dd786b1d0abbbd05a32cdf5000dc22b7a4bc5c3fd0b4",
         "caption_payload_hash": "eabb4c49a6ed70ad5c098367886773a291dcd4c2a75cf8366d3b7e08ae4f3a7d",
@@ -3997,36 +3778,6 @@
             "source_file": "01_captions/clip_008.json",
             "source_clip": "clip_008",
             "source_index": 6
-          }
-        ]
-      },
-      {
-        "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "static_text_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "caption_payload_hash": "be962d86054db2b50bdf65b6b452a7cdc4b709ffbeb2fb013cd874e2346cc9ea",
-        "variant_type": "static",
-        "text": "would you like to\nwake up next to me?\n\n(if yes follow & send this reel to me)",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "bedroom_mirror"
-        ],
-        "word_count": 17,
-        "char_count": 77,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 126,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 127
           }
         ]
       },
@@ -4667,58 +4418,9 @@
             "source_index": 19
           }
         ]
-      },
-      {
-        "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "static_text_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "caption_payload_hash": "be962d86054db2b50bdf65b6b452a7cdc4b709ffbeb2fb013cd874e2346cc9ea",
-        "variant_type": "static",
-        "text": "would you like to\nwake up next to me?\n\n(if yes follow & send this reel to me)",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "bedroom_mirror"
-        ],
-        "word_count": 17,
-        "char_count": 77,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 126,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 127
-          }
-        ]
       }
     ],
     "comment_bait": [
-      {
-        "caption_hash": "a66441d078dcca6c47071ccb94f65151c4beadba505d7e9e05a8622e36f509dc",
-        "text": "\"you're so pretty\"\ni know, now what",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 35,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "generated_variation",
-        "source_file": "authored_2026-07-01",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "a66441d078dcca6c47071ccb94f65151c4beadba505d7e9e05a8622e36f509dc",
-        "caption_payload_hash": "f36d3c61f54ab7cae01c88c3ebb3d2243a5a486c913441e4b4c3116fe90d38a7"
-      },
       {
         "caption_hash": "a1a8a09d3eaa65ec09294b35ab22ea5be2ff1ef1a286bba521c0ad5d52377894",
         "text": "be honest in the comments:\nwould you survive a week with me",
@@ -4851,25 +4553,6 @@
         "variant_type": "static",
         "static_text_hash": "0fe71e58890dc94826d3e52e3517cf62e46dd7f22d3f5cc5685c0a6a788e7434",
         "caption_payload_hash": "2c72c3ff99dc8eecb8fc80add720cb9682c67f7c9f901cf72476c639c3045277"
-      },
-      {
-        "caption_hash": "331669b72ffbeb9d15299bb16fe80a4b5a542cd0f1f6c57de1d7ed5df34d84cc",
-        "text": "\"I don't like geek girls\"\nokay?",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 6,
-        "char_count": 31,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "ig_reel_sweep",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "331669b72ffbeb9d15299bb16fe80a4b5a542cd0f1f6c57de1d7ed5df34d84cc",
-        "caption_payload_hash": "bc271d6881cc6043e69fb6ee2ed15cb3a8e406a910dddb4b04975032433e8f25"
       },
       {
         "caption_hash": "4d91d36802f645095f833f9f481f31cd78280384bea9826d78fcb8cab3dcb822",
@@ -5081,25 +4764,6 @@
         "caption_payload_hash": "a32c43a044e9f2bb51265e00cf2bb76187172e44be33773693d1c7cde5f135aa"
       },
       {
-        "caption_hash": "94b8a59e7b301691f9c0d513187ad314ebf1bb075cc06df5f2acd1f6023cc378",
-        "text": "We are just friends",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 4,
-        "char_count": 19,
-        "line_count": 1,
-        "length_class": "very_short",
-        "format_class": "single_line",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "laylaxxwalker+screenshots",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "94b8a59e7b301691f9c0d513187ad314ebf1bb075cc06df5f2acd1f6023cc378",
-        "caption_payload_hash": "3082d4edbc19b8e34d074a4868cad772510ff80bfcba99b1020f824259834d80"
-      },
-      {
         "caption_hash": "1621f5dd3b5dfdf6b8ea8b6c9e64949503ebed24420582090dcd01bad051c29e",
         "text": "Your face would look even\nbetter between my legs",
         "banks": [
@@ -5136,25 +4800,6 @@
         "variant_type": "static",
         "static_text_hash": "77de881ffd2941da72d772cc8df0fb7f8efb1eb4b4e0fade66f9f22246cc3f6a",
         "caption_payload_hash": "6425c58dc24ecba379974aec14adeef6c3b2756e39341f152971c764633671ec"
-      },
-      {
-        "caption_hash": "b97d8c977bd639c7e04722193612def7d68d76dfb254761f42ae04050b3dffbc",
-        "text": "men, stop doing this:",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 4,
-        "char_count": 21,
-        "line_count": 1,
-        "length_class": "very_short",
-        "format_class": "single_line",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "ig_reel_sweep_2",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "b97d8c977bd639c7e04722193612def7d68d76dfb254761f42ae04050b3dffbc",
-        "caption_payload_hash": "c1e99c208c6384d77b8735cb7c32c83faca31d7d04a7acb071b22ea7ce1cbc2f"
       },
       {
         "caption_hash": "08d3e4da2b9371cd27f3b4b72caccb8db6502d2c03a59647c3f30c763fc210d6",
@@ -5288,25 +4933,6 @@
         "variant_type": "static",
         "static_text_hash": "f45034ca8f000f680cc85019d13405cc3946eb6575ebaa37799a85d8c6a46d56",
         "caption_payload_hash": "2d159fec37bc33076bca8b96e2283dbc6f17531b063da54fa2cf82b8211d99aa"
-      },
-      {
-        "caption_hash": "89a5fca68ce5868ab48c1ad91b651163e8606f5dfcb660a75c55191fec10c18e",
-        "text": "ur VERY handsome btw",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 4,
-        "char_count": 20,
-        "line_count": 1,
-        "length_class": "very_short",
-        "format_class": "single_line",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "ig_reel_sweep",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "89a5fca68ce5868ab48c1ad91b651163e8606f5dfcb660a75c55191fec10c18e",
-        "caption_payload_hash": "eee2a7c566268176faa88780eac7dd110754fa9f68f9652c3338964507a7951c"
       },
       {
         "caption_hash": "be6b5d259d63e385d3dc7fe116983749e1df53440741035f6bf13ce77741bb78",
@@ -6548,34 +6174,6 @@
         ]
       },
       {
-        "caption_hash": "53f3561bc9e8118bca9dea78fb4c7eaecf187306ea8146f2f0c5ab38605bcef8",
-        "static_text_hash": "53f3561bc9e8118bca9dea78fb4c7eaecf187306ea8146f2f0c5ab38605bcef8",
-        "caption_payload_hash": "08f75780a2b48bec745733c1414eeeb0f97666728c671ad4e7495dc0ced20dfa",
-        "variant_type": "static",
-        "text": "like this if its big...",
-        "banks": [
-          "shared_girl_next_door",
-          "comment_bait"
-        ],
-        "word_count": 5,
-        "char_count": 23,
-        "line_count": 1,
-        "length_class": "short",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 30,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_005.json",
-            "source_clip": "clip_005",
-            "source_index": 4
-          }
-        ]
-      },
-      {
         "caption_hash": "beedb2dbf983f0afa8c0aa125cc20f317678bf25f7638aaed67f10e82641dd45",
         "static_text_hash": "beedb2dbf983f0afa8c0aa125cc20f317678bf25f7638aaed67f10e82641dd45",
         "caption_payload_hash": "608366489149321acc77a79905d261eb090e8570f3271438b226d0920ec74441",
@@ -6741,36 +6339,6 @@
         "source_index": 13
       },
       {
-        "caption_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "static_text_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "caption_payload_hash": "aa01dd1dee4481b1b8df7bc0abd723f4b9c01dd4f28b7b5a0ec12e467d53123c",
-        "variant_type": "static",
-        "text": "take a hint\n\nI like you\nnerd",
-        "banks": [
-          "shared_girl_next_door",
-          "comment_bait",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 28,
-        "line_count": 3,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
-          }
-        ]
-      },
-      {
         "caption_hash": "e7476095379f0948f60942eaeeba8728e280c11e5b066403c40900cc1689dc96",
         "static_text_hash": "e7476095379f0948f60942eaeeba8728e280c11e5b066403c40900cc1689dc96",
         "caption_payload_hash": "13335a1a5157f31137336dfe2bb34045ae91519c47d6d4c735fa4b44fc8a4fc1",
@@ -6821,36 +6389,6 @@
         "source_file": "01_captions/approved_intake_20260625.json",
         "source_clip": "approved_intake_20260625",
         "source_index": 2
-      },
-      {
-        "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "static_text_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "caption_payload_hash": "be962d86054db2b50bdf65b6b452a7cdc4b709ffbeb2fb013cd874e2346cc9ea",
-        "variant_type": "static",
-        "text": "would you like to\nwake up next to me?\n\n(if yes follow & send this reel to me)",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "bedroom_mirror"
-        ],
-        "word_count": 17,
-        "char_count": 77,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 126,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 127
-          }
-        ]
       },
       {
         "caption_hash": "979a991a1884cb2a5f0c69f4db2d12d00bdd9a9d765492fa820bdd64a3f6fe3b",
@@ -7301,35 +6839,6 @@
         "source_index": 101
       },
       {
-        "caption_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
-        "static_text_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
-        "caption_payload_hash": "088c59a799f6343dc49da441e2088862bf17fdce1d957f2f721965436ff6e5ea",
-        "variant_type": "static",
-        "text": "a man can have money,\nconfidence and options,\nbut one dark-haired woman\ncan still humble him",
-        "banks": [
-          "choice_poll",
-          "goth_dark_alt",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 92,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 87,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 89
-          }
-        ]
-      },
-      {
         "caption_hash": "4054b6bc8f1966480f3c0b119b70b31eb2da06f228dbac935fa1a0d9c2313787",
         "static_text_hash": "4054b6bc8f1966480f3c0b119b70b31eb2da06f228dbac935fa1a0d9c2313787",
         "caption_payload_hash": "7a5c23be8d8023b1a24f6e4e47c2155ea8fc492e4d3a9f1ce881de37125f6c56",
@@ -7383,35 +6892,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 130
-          }
-        ]
-      },
-      {
-        "caption_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
-        "static_text_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
-        "caption_payload_hash": "87c8e1435b0da8ad55d19c5b0298e06871f6db534918dabe05e7a10fe60177e9",
-        "variant_type": "static",
-        "text": "men choose any three:\n\n1. pretty\n2. rich\n3. loyal\n4. family oriented\n5. no male friends",
-        "banks": [
-          "shared_girl_next_door",
-          "choice_poll",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 87,
-        "line_count": 6,
-        "length_class": "long",
-        "format_class": "numbered_list",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 10,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 15
           }
         ]
       },
@@ -8717,34 +8197,6 @@
         ]
       },
       {
-        "caption_hash": "67dad581a74ef008689b0c0fa09ad21024670e9a32a56af6d604f8d3d7cfed88",
-        "static_text_hash": "67dad581a74ef008689b0c0fa09ad21024670e9a32a56af6d604f8d3d7cfed88",
-        "caption_payload_hash": "92867b04118d419c83ebeb97fe276ecae529c12d3629231f8ffad72d98ce9e30",
-        "variant_type": "static",
-        "text": "my actual wishlist:\n\nDress without Dre\nInk without In\nApple without pple\n\nnow say it in reverse",
-        "banks": [
-          "coded_fill_ins",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 95,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "coded",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 133,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 134
-          }
-        ]
-      },
-      {
         "caption_hash": "60ef0d5be9516336e2e608e21714dc9d30b214e31f69752ca1d1f4f82685bc79",
         "static_text_hash": "60ef0d5be9516336e2e608e21714dc9d30b214e31f69752ca1d1f4f82685bc79",
         "caption_payload_hash": "399efe22666ca6bf656fc85a8370f95888d88b46644d1232f3b3ae06cb7d736a",
@@ -8856,35 +8308,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 132
-          }
-        ]
-      },
-      {
-        "caption_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
-        "static_text_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
-        "caption_payload_hash": "3b7c6c45381bd7cda30178d35bde3f09a7b74286ba00e5145f4eb924f569b54a",
-        "variant_type": "static",
-        "text": "what I really want:\n\nDress (without dre)\nInk (without n)\nApple (without pple)\n\nnow read it backwards",
-        "banks": [
-          "coded_fill_ins",
-          "read_backwards_puzzle",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 100,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "coded",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 54,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 55
           }
         ]
       },
@@ -9509,26 +8932,6 @@
         ]
       },
       {
-        "caption_hash": "74aef5ff7c796231c8f9a10e1ac131a59e603bce967261e76781a9909727d939",
-        "static_text_hash": "74aef5ff7c796231c8f9a10e1ac131a59e603bce967261e76781a9909727d939",
-        "caption_payload_hash": "664fd9974c721241eec8ef76e231161862efdca0c942ec1a6edc12076afa26a9",
-        "variant_type": "static",
-        "text": "if you manage to read this\nsentence backwards it means that:\n\nI have to come to your place",
-        "banks": [
-          "read_backwards_puzzle",
-          "winner_bank"
-        ],
-        "word_count": 18,
-        "char_count": 90,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "puzzle",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_010.json",
-        "source_clip": "clip_010",
-        "source_index": 116
-      },
-      {
         "caption_hash": "358ac5a55a3854569ff4c42f43307dbac523de109ff8c35f85d5821a8bb4cf9e",
         "static_text_hash": "358ac5a55a3854569ff4c42f43307dbac523de109ff8c35f85d5821a8bb4cf9e",
         "caption_payload_hash": "886e69a59243559281386890bb213965b7380e4cc388c8c262ab033daed39565",
@@ -9804,35 +9207,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 132
-          }
-        ]
-      },
-      {
-        "caption_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
-        "static_text_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
-        "caption_payload_hash": "3b7c6c45381bd7cda30178d35bde3f09a7b74286ba00e5145f4eb924f569b54a",
-        "variant_type": "static",
-        "text": "what I really want:\n\nDress (without dre)\nInk (without n)\nApple (without pple)\n\nnow read it backwards",
-        "banks": [
-          "coded_fill_ins",
-          "read_backwards_puzzle",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 100,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "coded",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 54,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 55
           }
         ]
       },
@@ -10441,35 +9815,6 @@
         "variant_type": "static",
         "static_text_hash": "2a112c99f78b1839f75f2a6fb03d6fe0ee23c27ed0a343df282b70b7749b7d3d",
         "caption_payload_hash": "db4a8731ff50ad4d495aea8f9776da249046fc3c07035bdef7602e768e1ea0ca"
-      },
-      {
-        "caption_hash": "7f839a30111afe3cb465f4cb2dcbc87d9b1db31e7a8a3c5e23cb5294c983fd5f",
-        "static_text_hash": "7f839a30111afe3cb465f4cb2dcbc87d9b1db31e7a8a3c5e23cb5294c983fd5f",
-        "caption_payload_hash": "eb685632dbba486fda08ec5f3703e07f7e6c9c6277619607cb7920aa5a7e4ff9",
-        "variant_type": "static",
-        "text": "3 reasons why\nyou should date me",
-        "banks": [
-          "shared_girl_next_door",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 32,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 11,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_006.json",
-            "source_clip": "clip_006",
-            "source_index": 1
-          }
-        ]
       },
       {
         "caption_hash": "64a1dcecb72bb2eacf3f99e25df925dc748f4741ca4f76621f093f1314ce8550",
@@ -11594,35 +10939,6 @@
         ]
       },
       {
-        "caption_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
-        "static_text_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
-        "caption_payload_hash": "754690808b9bf8cbc2b056bcf3fd30d37631c9bcf4bc45a86b887ba830da1cfd",
-        "variant_type": "static",
-        "text": "if you have a crush on me,\npls go for it,\nyou literally have no competition at all",
-        "banks": [
-          "shared_girl_next_door",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 18,
-        "char_count": 82,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 20
-          }
-        ]
-      },
-      {
         "caption_hash": "a97cc6723d4cd1a5c74b1507778fdc7515e255eb56e43fc80c1dc44f101b6619",
         "static_text_hash": "a97cc6723d4cd1a5c74b1507778fdc7515e255eb56e43fc80c1dc44f101b6619",
         "caption_payload_hash": "0f34857f9019862c075f660778297d22a4d395ca8f84bc121b4e1cce992a9a39",
@@ -11820,36 +11136,6 @@
         "source_file": "01_captions/clip_009.json",
         "source_clip": "clip_009",
         "source_index": 13
-      },
-      {
-        "caption_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "static_text_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "caption_payload_hash": "aa01dd1dee4481b1b8df7bc0abd723f4b9c01dd4f28b7b5a0ec12e467d53123c",
-        "variant_type": "static",
-        "text": "take a hint\n\nI like you\nnerd",
-        "banks": [
-          "shared_girl_next_door",
-          "comment_bait",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 28,
-        "line_count": 3,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
-          }
-        ]
       },
       {
         "caption_hash": "4bcbf4a9a7d8893c47e447e78257874adfc414c7a25b183f0a95e768c6d3f036",
@@ -12817,33 +12103,6 @@
         ]
       },
       {
-        "caption_hash": "dd6a5fb6cf328707440c4485f10ad58022f317cee46ef945d9602d78308ef6b4",
-        "static_text_hash": "dd6a5fb6cf328707440c4485f10ad58022f317cee46ef945d9602d78308ef6b4",
-        "caption_payload_hash": "0c6c6a3ae213011e92616341fe28254b14519ea7fd0034c6bdffd8c3568a89c9",
-        "variant_type": "static",
-        "text": "if we're kissing and you kiss my neck,\nI am no longer responsible for my actions",
-        "banks": [
-          "body_attention"
-        ],
-        "word_count": 16,
-        "char_count": 80,
-        "line_count": 2,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 44,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 49
-          }
-        ]
-      },
-      {
         "caption_hash": "358ac5a55a3854569ff4c42f43307dbac523de109ff8c35f85d5821a8bb4cf9e",
         "static_text_hash": "358ac5a55a3854569ff4c42f43307dbac523de109ff8c35f85d5821a8bb4cf9e",
         "caption_payload_hash": "886e69a59243559281386890bb213965b7380e4cc388c8c262ab033daed39565",
@@ -13252,34 +12511,6 @@
         ]
       },
       {
-        "caption_hash": "16049769481b7ea183a1c365cabbf4fabbe3693bb4b0810e4d31016dee51da22",
-        "static_text_hash": "16049769481b7ea183a1c365cabbf4fabbe3693bb4b0810e4d31016dee51da22",
-        "caption_payload_hash": "75e1db9ce90ffa602ddc256d5316da54103f6b3923fd5da9dc7c728cb41351e3",
-        "variant_type": "static",
-        "text": "Imagine I invite you to my room\nwhile everyone's distracted\nat Christmas dinner...\nwhat do you do?",
-        "banks": [
-          "shared_girl_next_door",
-          "bedroom_mirror"
-        ],
-        "word_count": 17,
-        "char_count": 98,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 78,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_005.json",
-            "source_clip": "clip_005",
-            "source_index": 11
-          }
-        ]
-      },
-      {
         "caption_hash": "f5c333eb0662f41d2a1d39305f51c70ce7aee9ceb14ab5b84294ac536d44689e",
         "static_text_hash": "f5c333eb0662f41d2a1d39305f51c70ce7aee9ceb14ab5b84294ac536d44689e",
         "caption_payload_hash": "96e7819aeac879934c886c1010814c58413740bba53941f5db1c619137fba5f5",
@@ -13571,36 +12802,6 @@
         "source_index": 1
       },
       {
-        "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "static_text_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
-        "caption_payload_hash": "be962d86054db2b50bdf65b6b452a7cdc4b709ffbeb2fb013cd874e2346cc9ea",
-        "variant_type": "static",
-        "text": "would you like to\nwake up next to me?\n\n(if yes follow & send this reel to me)",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "bedroom_mirror"
-        ],
-        "word_count": 17,
-        "char_count": 77,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 126,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 127
-          }
-        ]
-      },
-      {
         "caption_hash": "0a1871f85f8e31df3ce9bbd02a9361e968aa7bba774bd8962025f81e46b12345",
         "static_text_hash": "0a1871f85f8e31df3ce9bbd02a9361e968aa7bba774bd8962025f81e46b12345",
         "caption_payload_hash": "767b2ddc26e0ba0cb5f4271e7b22a192bb0f6c767cf592cebe4c8b6b7d5ed961",
@@ -13846,33 +13047,6 @@
             "source_index": 80
           }
         ]
-      },
-      {
-        "caption_hash": "ed42d431c619b54a44c1d2ddf00cbd5e0c9dbcea74b2c0690c1a1fbb9f089674",
-        "static_text_hash": "ed42d431c619b54a44c1d2ddf00cbd5e0c9dbcea74b2c0690c1a1fbb9f089674",
-        "caption_payload_hash": "22b34d92ae1e5607b8868d8e22ab0c8d08fd99622c8a4447830888f859cd764a",
-        "variant_type": "static",
-        "text": "the coach said that's the first exercise for today...\nstill wondering which muscle\nis this exercise for...",
-        "banks": [
-          "gym_body"
-        ],
-        "word_count": 17,
-        "char_count": 106,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 96,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 98
-          }
-        ]
       }
     ],
     "goth_dark_alt": [
@@ -13970,35 +13144,6 @@
             "source_file": "01_captions/clip_004.json",
             "source_clip": "clip_004",
             "source_index": 10
-          }
-        ]
-      },
-      {
-        "caption_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
-        "static_text_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
-        "caption_payload_hash": "088c59a799f6343dc49da441e2088862bf17fdce1d957f2f721965436ff6e5ea",
-        "variant_type": "static",
-        "text": "a man can have money,\nconfidence and options,\nbut one dark-haired woman\ncan still humble him",
-        "banks": [
-          "choice_poll",
-          "goth_dark_alt",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 92,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 87,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 89
           }
         ]
       },
@@ -15326,33 +14471,6 @@
         ]
       },
       {
-        "caption_hash": "013102df277151d22d926a9c53421c0f41e7f6adea1f1e061e869a49fb6daf5b",
-        "static_text_hash": "013102df277151d22d926a9c53421c0f41e7f6adea1f1e061e869a49fb6daf5b",
-        "caption_payload_hash": "751e4b42e5054b334a6f1e3727d9b30eb9ff92b41afdb9b84772e2de6ee095cc",
-        "variant_type": "static",
-        "text": "If I can still walk we're not done yet,\ngo take a water break old man",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 16,
-        "char_count": 69,
-        "line_count": 2,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 16,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_004.json",
-            "source_clip": "clip_004",
-            "source_index": 2
-          }
-        ]
-      },
-      {
         "caption_hash": "13bc84bbdea6e12b57f57f9c8b1224c0897cdea4b999ded453785fbe5f7285cb",
         "static_text_hash": "13bc84bbdea6e12b57f57f9c8b1224c0897cdea4b999ded453785fbe5f7285cb",
         "caption_payload_hash": "1bfcf3072eed8f744144b199af7fc413b2e4a92e104629b86fd1cc8f7165d5ae",
@@ -15673,53 +14791,6 @@
         ]
       },
       {
-        "caption_hash": "0e4e393d705c288a096afc1fb48b01d30ebc57ec6454bc6d16d3a4d0924acd74",
-        "static_text_hash": "0e4e393d705c288a096afc1fb48b01d30ebc57ec6454bc6d16d3a4d0924acd74",
-        "caption_payload_hash": "f9d6b13117424ed41430772205eada8cc58aa105371b5d3e2b4911abab196d4d",
-        "variant_type": "timed",
-        "text": "Lets address the rumours\nArthur TV is actually my twin\ni am actually 5ft4\nI'm not AI",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 17,
-        "char_count": 84,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 139,
-        "segments": [
-          {
-            "text": "Lets address the rumours",
-            "end": 2.5
-          },
-          {
-            "text": "Arthur TV is actually my twin",
-            "start": 2.5,
-            "end": 5.0
-          },
-          {
-            "text": "i am actually 5ft4",
-            "start": 5.0,
-            "end": 7.5
-          },
-          {
-            "text": "I'm not AI",
-            "start": 7.5
-          }
-        ],
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_005.json",
-            "source_clip": "clip_005",
-            "source_index": 20
-          }
-        ]
-      },
-      {
         "caption_hash": "9b4f291e4a9db2875d2ee33f3b475f0c01249db52086543f1322cf64d48e9f7a",
         "static_text_hash": "9b4f291e4a9db2875d2ee33f3b475f0c01249db52086543f1322cf64d48e9f7a",
         "caption_payload_hash": "44ca4bf60950737120aa8b5db5d3060c52014da7838ebadef0699a46e0e5ee92",
@@ -15737,33 +14808,6 @@
         "source_file": "01_captions/approved_intake_20260729.json",
         "source_clip": "approved_intake_20260729",
         "source_index": 31
-      },
-      {
-        "caption_hash": "a76a1c65c7697ad8b8b58554c49c9cbefde0e9907edc64671a811db13af3556b",
-        "static_text_hash": "a76a1c65c7697ad8b8b58554c49c9cbefde0e9907edc64671a811db13af3556b",
-        "caption_payload_hash": "ee652d021b4b6ed4606f3845a2303f5fff3af8d03691d805a2172c97502f472b",
-        "variant_type": "static",
-        "text": "Most guys talk big until it gets real.\nthink you'd actually be able to handle me?",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 16,
-        "char_count": 81,
-        "line_count": 2,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 7,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 1
-          }
-        ]
       },
       {
         "caption_hash": "4f37ce148375e4386e4a368cbfd23d1a3432b29c5b9d1b19fb5f06f09f6f557b",
@@ -15938,33 +14982,6 @@
             "source_file": "01_captions/clip_003.json",
             "source_clip": "clip_003",
             "source_index": 0
-          }
-        ]
-      },
-      {
-        "caption_hash": "0436d3cc9fe55af639f13ae29d0a14d9d754bd072e7ad58651f5ea2da5aca19e",
-        "static_text_hash": "0436d3cc9fe55af639f13ae29d0a14d9d754bd072e7ad58651f5ea2da5aca19e",
-        "caption_payload_hash": "6d5e9a41c36038ab4a99479ba94108f78f1b961e721843236a939c58103806c0",
-        "variant_type": "static",
-        "text": "Resisting the random urge\nonce a month to download hinge\nand set the age range from 29-37",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 18,
-        "char_count": 89,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 80,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_007.json",
-            "source_clip": "clip_007",
-            "source_index": 11
           }
         ]
       },
@@ -16391,25 +15408,6 @@
         "source_index": 43
       },
       {
-        "caption_hash": "04c77876922802b1cb7d4f6c5f91b9bf43821232be7e1885939c064b69ed6d59",
-        "static_text_hash": "04c77876922802b1cb7d4f6c5f91b9bf43821232be7e1885939c064b69ed6d59",
-        "caption_payload_hash": "01e3604886c02718466868362d46c708a603be9824a20136e36722ea42dde651",
-        "variant_type": "static",
-        "text": "cute idea: we take a nap together\nand the first person awake\nhas to wake the other up",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 18,
-        "char_count": 85,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 49
-      },
-      {
         "caption_hash": "87f2b0b42ca2a7708fdd382e3a3d939d977fc40948190de08daf1769aecdedee",
         "static_text_hash": "87f2b0b42ca2a7708fdd382e3a3d939d977fc40948190de08daf1769aecdedee",
         "caption_payload_hash": "cc4248db48811ddafeee79ccf582d6e48046d6d7b71dcb0dc29894cb5f98888f",
@@ -16572,33 +15570,6 @@
         ]
       },
       {
-        "caption_hash": "58ccaedd5c6705b80ef2698a31340eb8de8835f95eacd3231a300629731a3686",
-        "static_text_hash": "58ccaedd5c6705b80ef2698a31340eb8de8835f95eacd3231a300629731a3686",
-        "caption_payload_hash": "5957ec333078bfdc2c5e9a54bbc3cb026c692da2b06d69c842ac1dcf6d302492",
-        "variant_type": "static",
-        "text": "don't talk to strangers online\n\nwell I did and it was\nthe best decision of my life",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 17,
-        "char_count": 82,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 146,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 147
-          }
-        ]
-      },
-      {
         "caption_hash": "909968e71fa64af68ef405d6b1b59337c908e2119227c326d0af4dd2bc6261fc",
         "static_text_hash": "909968e71fa64af68ef405d6b1b59337c908e2119227c326d0af4dd2bc6261fc",
         "caption_payload_hash": "b1901e032722c1cd16831aa87701b14b953a305ab2e0d46c70822cba618584f2",
@@ -16703,48 +15674,6 @@
             "source_file": "01_captions/clip_002.json",
             "source_clip": "clip_002",
             "source_index": 4
-          }
-        ]
-      },
-      {
-        "caption_hash": "61caeb3a7144db9e9c7032a9934515869b2223677d2695ea6c98af37ad3d230e",
-        "static_text_hash": "61caeb3a7144db9e9c7032a9934515869b2223677d2695ea6c98af37ad3d230e",
-        "caption_payload_hash": "5da30743d4d5930754d5a7b71b77a52e4ab69d6ea5efd7ff91bf0c6c1ab7d75c",
-        "variant_type": "timed",
-        "text": "here's a list of the top 5\nworst guy names 🤮...\nno 1...\njk im not that shallow",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 17,
-        "char_count": 78,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 132,
-        "segments": [
-          {
-            "text": "here's a list of the top 5\nworst guy names 🤮...",
-            "end": 3.0
-          },
-          {
-            "text": "no 1...",
-            "start": 3.0,
-            "end": 5.5
-          },
-          {
-            "text": "jk im not that shallow",
-            "start": 5.5
-          }
-        ],
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_005.json",
-            "source_clip": "clip_005",
-            "source_index": 19
           }
         ]
       },
@@ -16975,52 +15904,6 @@
         ]
       },
       {
-        "caption_hash": "255458f9fbc0ad7de179bc8a0d0ea0fafbf41c099476f648a16f883c1dfb5be4",
-        "static_text_hash": "255458f9fbc0ad7de179bc8a0d0ea0fafbf41c099476f648a16f883c1dfb5be4",
-        "caption_payload_hash": "81cfa7342eba2c14b47f96318a20b596421c1ce371def181f7f024f4fc8215be",
-        "variant_type": "static",
-        "text": "idc if I'm shaking and tearssss\nalready falling down my face\nmake me shut up and keep going",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 18,
-        "char_count": 91,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 116,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 117
-          }
-        ]
-      },
-      {
-        "caption_hash": "0abc7c546280ff21e4df9d29582b2e8b980cfe83019fb005b0ca45d417fef6d8",
-        "static_text_hash": "0abc7c546280ff21e4df9d29582b2e8b980cfe83019fb005b0ca45d417fef6d8",
-        "caption_payload_hash": "49ea085f99bc53800aa58518fdc4a16e4368c8489be2f0260065b97ad2508719",
-        "variant_type": "static",
-        "text": "if he asks for a lot of pics\nhe's gonna save them later\n\nI hope so",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 16,
-        "char_count": 66,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 39
-      },
-      {
         "caption_hash": "702540efa6754174ad58f17df18e53d60290fc1f42705bf6fb2d5b3718325632",
         "static_text_hash": "702540efa6754174ad58f17df18e53d60290fc1f42705bf6fb2d5b3718325632",
         "caption_payload_hash": "6eac6ab140412d9137a3e057c3f9ffc9c2e325d73a52c9f55e70ede14203e733",
@@ -17038,25 +15921,6 @@
         "source_file": "01_captions/clip_010.json",
         "source_clip": "clip_010",
         "source_index": 44
-      },
-      {
-        "caption_hash": "9cf77603e0d75c188f623fd1ae1e36fb07dd5184311e8dd3119cf8c1d6c49744",
-        "static_text_hash": "9cf77603e0d75c188f623fd1ae1e36fb07dd5184311e8dd3119cf8c1d6c49744",
-        "caption_payload_hash": "c1c0ef10473db2ed2cfe21434095ce1d5791c10b79144d6518103e28602f34e9",
-        "variant_type": "static",
-        "text": "if i can still walk, we're not done yet, go tak a water break old man",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 16,
-        "char_count": 69,
-        "line_count": 1,
-        "length_class": "long",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 141
       },
       {
         "caption_hash": "24e97a371408d1177cb062b99313cd975e4119b294623f64a222800b7496a63e",
@@ -17899,60 +16763,6 @@
         ]
       },
       {
-        "caption_hash": "8c096971971f39894fc95fd4732656d91b24bed6a4f926496c8235447d2a9739",
-        "static_text_hash": "8c096971971f39894fc95fd4732656d91b24bed6a4f926496c8235447d2a9739",
-        "caption_payload_hash": "590517743f6ea03de86b7c93f11bb783a9124dc5042ee6abf5aaab904657b040",
-        "variant_type": "static",
-        "text": "question for the men: is it really true\nthat some bend one way\nand some bend the other?",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 18,
-        "char_count": 87,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 89,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 12
-          }
-        ]
-      },
-      {
-        "caption_hash": "d1def4c917f962bb4ebb08cc2e2481cf2a42efee93111994e31510d51d594406",
-        "static_text_hash": "d1def4c917f962bb4ebb08cc2e2481cf2a42efee93111994e31510d51d594406",
-        "caption_payload_hash": "c9f3818218b417469460f814a74db45f11faad555d0dc5e3f25104e5fb9a966c",
-        "variant_type": "static",
-        "text": "rate\nme\nhonestly\nbut\ndon't\nfall\nin\nlove\nNow read: 4,5,6,7,8,1,2,3",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 18,
-        "char_count": 65,
-        "line_count": 9,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 73,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_007.json",
-            "source_clip": "clip_007",
-            "source_index": 10
-          }
-        ]
-      },
-      {
         "caption_hash": "6426c2ab728c31d5909d25ee79f19ad1f9efe5ba92cf9c216e05979419b47c4a",
         "static_text_hash": "6426c2ab728c31d5909d25ee79f19ad1f9efe5ba92cf9c216e05979419b47c4a",
         "caption_payload_hash": "b028171bf226ba48887dbbef57934f8461563c7ff2314f8654014c8d97408100",
@@ -18423,33 +17233,6 @@
         ]
       },
       {
-        "caption_hash": "67053d231d1966034ef4fcc8955f34f283a47f0faf28663434297b672f892c88",
-        "static_text_hash": "67053d231d1966034ef4fcc8955f34f283a47f0faf28663434297b672f892c88",
-        "caption_payload_hash": "c34e7997f4643a89553d9520fd202019f2784007da65c718d618532eb4a2ea64",
-        "variant_type": "static",
-        "text": "what's one spicy thing\nyou would do\nif you knew no one would judge you?\n\nbe honest!",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 17,
-        "char_count": 83,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 77,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 79
-          }
-        ]
-      },
-      {
         "caption_hash": "e414b6841e3e3a89d32ed285396e6b1ad3cfc43e40615c9ed730bcda72bd9974",
         "static_text_hash": "e414b6841e3e3a89d32ed285396e6b1ad3cfc43e40615c9ed730bcda72bd9974",
         "caption_payload_hash": "684731633b394e58adfd21a1ef53b1e9a9dd8cfcbeceb78599e367799d3b5a18",
@@ -18467,33 +17250,6 @@
         "source_file": "01_captions/clip_001.json",
         "source_clip": "clip_001",
         "source_index": 146
-      },
-      {
-        "caption_hash": "9bfc42e9cae28d07c66831d069c2ab49f9aaa0165c4c85d23754b81a6539304a",
-        "static_text_hash": "9bfc42e9cae28d07c66831d069c2ab49f9aaa0165c4c85d23754b81a6539304a",
-        "caption_payload_hash": "095cfa8a6eec0e67ff31e7c74c04d403236b7707ef5bee0c5bc22d82859e4a4e",
-        "variant_type": "static",
-        "text": "when you're trying to focus\nbut the fake scenarios in your head\nstart getting a little too good",
-        "banks": [
-          "experimental_edge"
-        ],
-        "word_count": 18,
-        "char_count": 95,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 73,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 75
-          }
-        ]
       },
       {
         "caption_hash": "eac6e3425ef90e68cb4b6348a1f9ccb90f229fff381745708703bb2e0627c447",
@@ -18768,25 +17524,6 @@
     ],
     "weird_generated_history": [],
     "winner_bank": [
-      {
-        "caption_hash": "a66441d078dcca6c47071ccb94f65151c4beadba505d7e9e05a8622e36f509dc",
-        "text": "\"you're so pretty\"\ni know, now what",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 35,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "generated_variation",
-        "source_file": "authored_2026-07-01",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "a66441d078dcca6c47071ccb94f65151c4beadba505d7e9e05a8622e36f509dc",
-        "caption_payload_hash": "f36d3c61f54ab7cae01c88c3ebb3d2243a5a486c913441e4b4c3116fe90d38a7"
-      },
       {
         "caption_hash": "75c7309865502916f6ae921b7ee5d57b95afb07f71b180e6ff45b3823f389d32",
         "text": "2 truths 1 lie:\ni'm 5'4\ni can't cook\ni'm thinking about you rn",
@@ -19529,25 +18266,6 @@
         "caption_payload_hash": "4630e7ff68cd7995216f59eb4867e4dcbe1a1051b13bc632fc5d816aaa3d9fa5"
       },
       {
-        "caption_hash": "331669b72ffbeb9d15299bb16fe80a4b5a542cd0f1f6c57de1d7ed5df34d84cc",
-        "text": "\"I don't like geek girls\"\nokay?",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 6,
-        "char_count": 31,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "ig_reel_sweep",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "331669b72ffbeb9d15299bb16fe80a4b5a542cd0f1f6c57de1d7ed5df34d84cc",
-        "caption_payload_hash": "bc271d6881cc6043e69fb6ee2ed15cb3a8e406a910dddb4b04975032433e8f25"
-      },
-      {
         "caption_hash": "4d91d36802f645095f833f9f481f31cd78280384bea9826d78fcb8cab3dcb822",
         "text": "\"get something your size!\" 😏",
         "banks": [
@@ -19852,25 +18570,6 @@
         "caption_payload_hash": "a32c43a044e9f2bb51265e00cf2bb76187172e44be33773693d1c7cde5f135aa"
       },
       {
-        "caption_hash": "94b8a59e7b301691f9c0d513187ad314ebf1bb075cc06df5f2acd1f6023cc378",
-        "text": "We are just friends",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 4,
-        "char_count": 19,
-        "line_count": 1,
-        "length_class": "very_short",
-        "format_class": "single_line",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "laylaxxwalker+screenshots",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "94b8a59e7b301691f9c0d513187ad314ebf1bb075cc06df5f2acd1f6023cc378",
-        "caption_payload_hash": "3082d4edbc19b8e34d074a4868cad772510ff80bfcba99b1020f824259834d80"
-      },
-      {
         "caption_hash": "1621f5dd3b5dfdf6b8ea8b6c9e64949503ebed24420582090dcd01bad051c29e",
         "text": "Your face would look even\nbetter between my legs",
         "banks": [
@@ -20061,25 +18760,6 @@
         "caption_payload_hash": "ed06fd82ade983f3ca08d0bbf0e30576b4d4f1c06253d220551e908c06bbf2eb"
       },
       {
-        "caption_hash": "b97d8c977bd639c7e04722193612def7d68d76dfb254761f42ae04050b3dffbc",
-        "text": "men, stop doing this:",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 4,
-        "char_count": 21,
-        "line_count": 1,
-        "length_class": "very_short",
-        "format_class": "single_line",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "ig_reel_sweep_2",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "b97d8c977bd639c7e04722193612def7d68d76dfb254761f42ae04050b3dffbc",
-        "caption_payload_hash": "c1e99c208c6384d77b8735cb7c32c83faca31d7d04a7acb071b22ea7ce1cbc2f"
-      },
-      {
         "caption_hash": "08d3e4da2b9371cd27f3b4b72caccb8db6502d2c03a59647c3f30c763fc210d6",
         "text": "my ex said I'm not attractive\n...I'll let you be the judge 😔",
         "banks": [
@@ -20230,25 +18910,6 @@
         "variant_type": "static",
         "static_text_hash": "f45034ca8f000f680cc85019d13405cc3946eb6575ebaa37799a85d8c6a46d56",
         "caption_payload_hash": "2d159fec37bc33076bca8b96e2283dbc6f17531b063da54fa2cf82b8211d99aa"
-      },
-      {
-        "caption_hash": "89a5fca68ce5868ab48c1ad91b651163e8606f5dfcb660a75c55191fec10c18e",
-        "text": "ur VERY handsome btw",
-        "banks": [
-          "comment_bait",
-          "winner_bank"
-        ],
-        "word_count": 4,
-        "char_count": 20,
-        "line_count": 1,
-        "length_class": "very_short",
-        "format_class": "single_line",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "ig_reel_sweep",
-        "source_index": 0,
-        "variant_type": "static",
-        "static_text_hash": "89a5fca68ce5868ab48c1ad91b651163e8606f5dfcb660a75c55191fec10c18e",
-        "caption_payload_hash": "eee2a7c566268176faa88780eac7dd110754fa9f68f9652c3338964507a7951c"
       },
       {
         "caption_hash": "64e6f9008708ae200f758b25a4caf6ba80cd4640644dade29a048ed59f951d46",
@@ -20513,35 +19174,6 @@
         "variant_type": "static",
         "static_text_hash": "2a112c99f78b1839f75f2a6fb03d6fe0ee23c27ed0a343df282b70b7749b7d3d",
         "caption_payload_hash": "db4a8731ff50ad4d495aea8f9776da249046fc3c07035bdef7602e768e1ea0ca"
-      },
-      {
-        "caption_hash": "7f839a30111afe3cb465f4cb2dcbc87d9b1db31e7a8a3c5e23cb5294c983fd5f",
-        "static_text_hash": "7f839a30111afe3cb465f4cb2dcbc87d9b1db31e7a8a3c5e23cb5294c983fd5f",
-        "caption_payload_hash": "eb685632dbba486fda08ec5f3703e07f7e6c9c6277619607cb7920aa5a7e4ff9",
-        "variant_type": "static",
-        "text": "3 reasons why\nyou should date me",
-        "banks": [
-          "shared_girl_next_door",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 32,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 11,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_006.json",
-            "source_clip": "clip_006",
-            "source_index": 1
-          }
-        ]
       },
       {
         "caption_hash": "64a1dcecb72bb2eacf3f99e25df925dc748f4741ca4f76621f093f1314ce8550",
@@ -20900,35 +19532,6 @@
             "source_file": "01_captions/clip_002.json",
             "source_clip": "clip_002",
             "source_index": 9
-          }
-        ]
-      },
-      {
-        "caption_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
-        "static_text_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
-        "caption_payload_hash": "088c59a799f6343dc49da441e2088862bf17fdce1d957f2f721965436ff6e5ea",
-        "variant_type": "static",
-        "text": "a man can have money,\nconfidence and options,\nbut one dark-haired woman\ncan still humble him",
-        "banks": [
-          "choice_poll",
-          "goth_dark_alt",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 92,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 87,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 89
           }
         ]
       },
@@ -21650,55 +20253,6 @@
         ]
       },
       {
-        "caption_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
-        "static_text_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
-        "caption_payload_hash": "754690808b9bf8cbc2b056bcf3fd30d37631c9bcf4bc45a86b887ba830da1cfd",
-        "variant_type": "static",
-        "text": "if you have a crush on me,\npls go for it,\nyou literally have no competition at all",
-        "banks": [
-          "shared_girl_next_door",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 18,
-        "char_count": 82,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 20
-          }
-        ]
-      },
-      {
-        "caption_hash": "74aef5ff7c796231c8f9a10e1ac131a59e603bce967261e76781a9909727d939",
-        "static_text_hash": "74aef5ff7c796231c8f9a10e1ac131a59e603bce967261e76781a9909727d939",
-        "caption_payload_hash": "664fd9974c721241eec8ef76e231161862efdca0c942ec1a6edc12076afa26a9",
-        "variant_type": "static",
-        "text": "if you manage to read this\nsentence backwards it means that:\n\nI have to come to your place",
-        "banks": [
-          "read_backwards_puzzle",
-          "winner_bank"
-        ],
-        "word_count": 18,
-        "char_count": 90,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "puzzle",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_010.json",
-        "source_clip": "clip_010",
-        "source_index": 116
-      },
-      {
         "caption_hash": "358ac5a55a3854569ff4c42f43307dbac523de109ff8c35f85d5821a8bb4cf9e",
         "static_text_hash": "358ac5a55a3854569ff4c42f43307dbac523de109ff8c35f85d5821a8bb4cf9e",
         "caption_payload_hash": "886e69a59243559281386890bb213965b7380e4cc388c8c262ab033daed39565",
@@ -21836,35 +20390,6 @@
         ]
       },
       {
-        "caption_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
-        "static_text_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
-        "caption_payload_hash": "87c8e1435b0da8ad55d19c5b0298e06871f6db534918dabe05e7a10fe60177e9",
-        "variant_type": "static",
-        "text": "men choose any three:\n\n1. pretty\n2. rich\n3. loyal\n4. family oriented\n5. no male friends",
-        "banks": [
-          "shared_girl_next_door",
-          "choice_poll",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 87,
-        "line_count": 6,
-        "length_class": "long",
-        "format_class": "numbered_list",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 10,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 15
-          }
-        ]
-      },
-      {
         "caption_hash": "beedb2dbf983f0afa8c0aa125cc20f317678bf25f7638aaed67f10e82641dd45",
         "static_text_hash": "beedb2dbf983f0afa8c0aa125cc20f317678bf25f7638aaed67f10e82641dd45",
         "caption_payload_hash": "608366489149321acc77a79905d261eb090e8570f3271438b226d0920ec74441",
@@ -21920,34 +20445,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 135
-          }
-        ]
-      },
-      {
-        "caption_hash": "67dad581a74ef008689b0c0fa09ad21024670e9a32a56af6d604f8d3d7cfed88",
-        "static_text_hash": "67dad581a74ef008689b0c0fa09ad21024670e9a32a56af6d604f8d3d7cfed88",
-        "caption_payload_hash": "92867b04118d419c83ebeb97fe276ecae529c12d3629231f8ffad72d98ce9e30",
-        "variant_type": "static",
-        "text": "my actual wishlist:\n\nDress without Dre\nInk without In\nApple without pple\n\nnow say it in reverse",
-        "banks": [
-          "coded_fill_ins",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 95,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "coded",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 133,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 134
           }
         ]
       },
@@ -22288,36 +20785,6 @@
         "source_index": 13
       },
       {
-        "caption_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "static_text_hash": "c6d663320cd44a2bcabb86cab392ab0379d768e084d2ab7b8c2effc2290758ab",
-        "caption_payload_hash": "aa01dd1dee4481b1b8df7bc0abd723f4b9c01dd4f28b7b5a0ec12e467d53123c",
-        "variant_type": "static",
-        "text": "take a hint\n\nI like you\nnerd",
-        "banks": [
-          "shared_girl_next_door",
-          "comment_bait",
-          "boyfriend_bait",
-          "winner_bank"
-        ],
-        "word_count": 7,
-        "char_count": 28,
-        "line_count": 3,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
-          }
-        ]
-      },
-      {
         "caption_hash": "4bcbf4a9a7d8893c47e447e78257874adfc414c7a25b183f0a95e768c6d3f036",
         "static_text_hash": "4bcbf4a9a7d8893c47e447e78257874adfc414c7a25b183f0a95e768c6d3f036",
         "caption_payload_hash": "84597ace45f66fa6b34641cfb0ed92bde360e8b183204999864c326a21cecc79",
@@ -22509,35 +20976,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 132
-          }
-        ]
-      },
-      {
-        "caption_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
-        "static_text_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
-        "caption_payload_hash": "3b7c6c45381bd7cda30178d35bde3f09a7b74286ba00e5145f4eb924f569b54a",
-        "variant_type": "static",
-        "text": "what I really want:\n\nDress (without dre)\nInk (without n)\nApple (without pple)\n\nnow read it backwards",
-        "banks": [
-          "coded_fill_ins",
-          "read_backwards_puzzle",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 100,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "coded",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 54,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 55
           }
         ]
       },

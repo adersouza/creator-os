@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from .audio_learning_policy import measured_audio_performance
 from .learning_governance import (
     register_recommendation,
     resolve_active_learning_policy,
@@ -23,6 +24,8 @@ LEARNING_RECOMMENDATION_VERSION = "learning_consumption.v2"
 MINIMUM_PRODUCTION_EXAMPLES = 3
 PRODUCTION_BUCKETS = ("approximately_72h", "approximately_24h")
 RECOMMENDATION_MAX_AGE_DAYS = 42
+AUDIO_LEARNING_OBJECTIVE = "content_testing"
+AUDIO_LEARNING_POLICY_VERSION = "exact_outcome_context_v1"
 
 RECOMMENDATION_STATES = {
     "INELIGIBLE",
@@ -844,6 +847,73 @@ def approved_audio_performance(
     return scores, recommendation_ids
 
 
+def _ranking_adjustment(score: float) -> float:
+    return round(max(-8.0, min(10.0, (float(score) - 50.0) * 0.2)), 4)
+
+
+def audio_policy_for_candidates(
+    conn: Any,
+    *,
+    candidates: Sequence[Any],
+    creator: str,
+    creator_identity_profile: str,
+    account: str | None,
+    intent: str,
+    now: datetime,
+) -> dict[str, Any]:
+    approved_scores, recommendation_ids = approved_audio_performance(
+        conn,
+        creator=creator,
+        creator_identity_profile=creator_identity_profile,
+        account=account,
+        intent=intent,
+        now=now,
+    )
+    catalog_to_track = {
+        str(candidate.advisory_labels.get("audioCatalogId")): str(
+            candidate.canonical_track_id or candidate.candidate_id
+        )
+        for candidate in candidates
+        if candidate.advisory_labels.get("audioCatalogId")
+    }
+    measured_scores, measured_evidence = measured_audio_performance(
+        conn,
+        catalog_ids=set(catalog_to_track),
+        creator=creator,
+        creator_identity_profile=creator_identity_profile,
+        account=account,
+        intent=intent,
+        now=now,
+        observation_bucket=observation_bucket,
+        production_buckets=PRODUCTION_BUCKETS,
+        minimum_examples=MINIMUM_PRODUCTION_EXAMPLES,
+        objective=AUDIO_LEARNING_OBJECTIVE,
+        policy_version=AUDIO_LEARNING_POLICY_VERSION,
+    )
+    combined = {
+        catalog_id: _ranking_adjustment(score)
+        for catalog_id, score in approved_scores.items()
+        if catalog_id in catalog_to_track
+    }
+    combined.update(measured_scores)
+    return {
+        "policyVersion": AUDIO_LEARNING_POLICY_VERSION,
+        "scoreAdjustments": {
+            catalog_to_track[catalog_id]: adjustment
+            for catalog_id, adjustment in combined.items()
+        },
+        "recommendationIds": recommendation_ids,
+        "measuredEvidence": measured_evidence,
+        "preferredSegmentOffsets": {
+            catalog_to_track[str(item["audioCatalogId"])]: [
+                float(item["bestSegmentOffsetSeconds"])
+            ]
+            for item in measured_evidence
+            if item.get("bestSegmentOffsetSeconds") is not None
+        },
+    }
+
+
 def audio_performance_for_candidates(
     conn: Any,
     *,
@@ -854,24 +924,16 @@ def audio_performance_for_candidates(
     intent: str,
     now: datetime,
 ) -> tuple[dict[str, float], list[str]]:
-    scores, recommendation_ids = approved_audio_performance(
+    policy = audio_policy_for_candidates(
         conn,
+        candidates=candidates,
         creator=creator,
         creator_identity_profile=creator_identity_profile,
         account=account,
         intent=intent,
         now=now,
     )
-    return (
-        {
-            str(candidate.canonical_track_id or candidate.candidate_id): scores[
-                str(candidate.advisory_labels.get("audioCatalogId"))
-            ]
-            for candidate in candidates
-            if str(candidate.advisory_labels.get("audioCatalogId")) in scores
-        },
-        recommendation_ids,
-    )
+    return policy["scoreAdjustments"], policy["recommendationIds"]
 
 
 def persist_learning_decision_receipt(

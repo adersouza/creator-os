@@ -6,10 +6,12 @@ import sqlite3
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from campaign_factory.audio_radar.models import PlatformSoundId, TrendCandidate
 from campaign_factory.db import init_db
 from campaign_factory.learning_consumption import (
     apply_learning_to_production_plan,
     approved_audio_performance,
+    audio_policy_for_candidates,
     build_audio_recommendations,
     build_measured_recommendations,
     evidence_tier,
@@ -598,6 +600,129 @@ def test_audio_learning_rejects_incomplete_exact_linkage() -> None:
         )
         == []
     )
+
+
+def test_audio_policy_reads_exact_equal_age_outcomes(monkeypatch) -> None:
+    monkeypatch.setenv("LEARNING_LOOP_CUTOVER", "2026-01-01T00:00:00Z")
+    conn = _conn()
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    now = "2026-07-10T12:00:00Z"
+    conn.executemany(
+        """
+        INSERT INTO audio_catalog (
+          id, title, platform, active, lifecycle_state, imported_at, updated_at
+        ) VALUES (?, ?, 'instagram', 1, 'HOT', ?, ?)
+        """,
+        (("aud_good", "Good", now, now), ("aud_cold", "Cold", now, now)),
+    )
+    for index in range(3):
+        post_id = f"post_audio_{index}"
+        selection_id = f"selection_{index}"
+        published_at = f"2026-07-0{index + 1}T12:00:00Z"
+        snapshot_at = f"2026-07-0{index + 2}T12:00:00Z"
+        linkage = {
+            "creator": "stacey",
+            "creatorIdentityProfile": "soul_stacey",
+            "account": "stacey-main",
+            "intent": "passive_selfie",
+        }
+        conn.execute(
+            """
+            INSERT INTO audio_selections (
+              id, campaign_id, rendered_asset_id, audio_catalog_id, status,
+              payload_json, created_at, updated_at
+            ) VALUES (?, 'campaign_1', 'asset_fixture', 'aud_good', 'verified',
+                      '{}', ?, ?)
+            """,
+            (selection_id, now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO audio_publication_history (
+              id, audio_selection_id, campaign_id, rendered_asset_id, post_id,
+              instagram_media_id, account_id, published_at, final_media_sha256,
+              track_sha256, processed_segment_sha256, segment_start_seconds,
+              segment_end_seconds, linkage_json, linkage_sha256, created_at
+            ) VALUES (?, ?, 'campaign_1', 'asset_fixture', ?, ?, 'stacey-main', ?,
+                      ?, ?, ?, 0, 5, ?, ?, ?)
+            """,
+            (
+                f"history_{index}",
+                selection_id,
+                post_id,
+                f"media_{index}",
+                published_at,
+                f"{index + 1}" * 64,
+                "a" * 64,
+                "b" * 64,
+                json.dumps(linkage),
+                f"{index + 4}" * 64,
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO performance_snapshots (
+              id, campaign_id, post_id, instagram_account_id, published_at,
+              snapshot_at, views, likes, comments, shares, saves, reach,
+              metrics_eligible, history_source, lineage_v2_valid, raw_json,
+              created_at
+            ) VALUES (?, 'campaign_1', ?, 'stacey-main', ?, ?, 10000, 800, 40,
+                      150, 200, 9000, 1, 'metric_history', 1, '{}', ?)
+            """,
+            (f"snapshot_audio_{index}", post_id, published_at, snapshot_at, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO performance_snapshots (
+              id, campaign_id, post_id, instagram_account_id, published_at,
+              snapshot_at, views, likes, comments, shares, saves, reach,
+              metrics_eligible, history_source, lineage_v2_valid, raw_json,
+              created_at
+            ) VALUES (?, 'campaign_1', ?, 'stacey-main', ?, ?, 1000, 10, 1,
+                      1, 1, 900, 1, 'metric_history', 1, '{}', ?)
+            """,
+            (
+                f"snapshot_baseline_{index}",
+                f"post_baseline_{index}",
+                published_at,
+                snapshot_at,
+                now,
+            ),
+        )
+    candidates = [
+        TrendCandidate(
+            candidate_id=f"candidate_{catalog_id}",
+            provider="fixture",
+            title=catalog_id,
+            artist="Artist",
+            platform_sound_ids=(PlatformSoundId("instagram", catalog_id),),
+            observed_at=now,
+            canonical_track_id=track_id,
+            advisory_labels={"audioCatalogId": catalog_id},
+        )
+        for catalog_id, track_id in (
+            ("aud_good", "track_good"),
+            ("aud_cold", "track_cold"),
+        )
+    ]
+
+    policy = audio_policy_for_candidates(
+        conn,
+        candidates=candidates,
+        creator="stacey",
+        creator_identity_profile="soul_stacey",
+        account="stacey-main",
+        intent="passive_selfie",
+        now=datetime(2026, 7, 10, 12, tzinfo=UTC),
+    )
+
+    assert policy["scoreAdjustments"]["track_good"] > 0
+    assert "track_cold" not in policy["scoreAdjustments"]
+    assert policy["measuredEvidence"][0]["sampleCount"] == 3
+    assert policy["measuredEvidence"][0]["observationBucket"] == "approximately_24h"
+    assert policy["preferredSegmentOffsets"] == {"track_good": [0.0]}
 
 
 def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) -> None:

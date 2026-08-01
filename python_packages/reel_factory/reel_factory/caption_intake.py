@@ -16,6 +16,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import evaluate_overlay_semantic_completeness
+
 from .caption_bank import (
     DEFAULT_EXCLUDED_BANKS,
     CaptionBankStore,
@@ -23,6 +25,7 @@ from .caption_bank import (
     caption_payload_hash,
     classify_caption,
 )
+from .caption_scene_fit import classify_caption_scene_tags
 from .discoverability_safety import discoverability_safe_content_contract
 
 try:
@@ -165,6 +168,8 @@ def import_external(root: Path, source_path: Path) -> dict[str, Any]:
             }
             if item.get("archetype"):
                 metadata["archetype"] = item["archetype"]
+            if isinstance(item.get("content_match"), dict):
+                metadata["contentMatch"] = item["content_match"]
         else:
             rejected += 1
             continue
@@ -532,10 +537,20 @@ def plan_placement(root: Path) -> dict[str, Any]:
     path = reel_root / "caption_banks" / "candidate_intake.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows = payload.get("candidates") or []
+    quarantined = _quarantined_caption_keys(reel_root)
+    rows = [
+        row
+        for row in rows
+        if str(row.get("caption_hash") or "") not in quarantined
+        and _caption_key(str(row.get("text") or "")) not in quarantined
+    ]
+    payload["candidates"] = rows
     for row in rows:
         text = str(row.get("text") or "")
         row["placementIntent"] = _placement_intent(text)
         row["hookVariants"] = _hook_variants(text)
+        row["contentMatch"] = _content_match_for_review(row)
+        row["qualityFlags"] = _quality_flags_for_review(row)
     payload["placementPlannedAt"] = int(time.time())
     payload["placementNotes"] = (
         "Stacey/Larissa overlay text uses stacey_static_center. Static hooks use lower_center. "
@@ -564,6 +579,7 @@ def swipe_review(
     mode: str = "static",
     include_generated_seed: bool = False,
     reviewer: str | None = None,
+    source_prefix: str | None = None,
 ) -> dict[str, Any]:
     reel_root = _reel_root(root)
     candidate_path = reel_root / "caption_banks" / "candidate_intake.json"
@@ -571,11 +587,24 @@ def swipe_review(
     rows = (
         payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
     )
+    quarantined = _quarantined_caption_keys(reel_root)
+    rows = [
+        row
+        for row in rows
+        if str(row.get("caption_hash") or "") not in quarantined
+        and _caption_key(str(row.get("text") or "")) not in quarantined
+    ]
     if not include_generated_seed:
         rows = [
             row
             for row in rows
             if not str(row.get("source") or "").startswith("generated_seed:")
+        ]
+    if source_prefix:
+        rows = [
+            row
+            for row in rows
+            if str(row.get("source") or "").startswith(source_prefix)
         ]
     if mode not in {"static", "timed"}:
         raise ValueError("mode must be static or timed")
@@ -592,6 +621,17 @@ def swipe_review(
         ]
     out_dir = Path(out_dir).resolve() if out_dir else reel_root / "caption_banks"
     out_dir.mkdir(parents=True, exist_ok=True)
+    rows = [
+        row
+        for _index, row in sorted(
+            enumerate(rows),
+            key=lambda pair: (
+                not str(pair[1].get("source") or "").startswith("operator:"),
+                not bool(_quality_flags_for_review(pair[1])),
+                pair[0],
+            ),
+        )
+    ]
 
     decisions = {
         "schema": "reel_factory.caption_swipe_decisions.v1",
@@ -611,6 +651,8 @@ def swipe_review(
                 or _placement_intent(str(row.get("text") or "")),
                 "hookVariants": row.get("hookVariants")
                 or _hook_variants(str(row.get("text") or "")),
+                "contentMatch": _content_match_for_review(row),
+                "qualityFlags": _quality_flags_for_review(row),
                 "status": "pending",
                 "approvedUse": [],
                 "notes": "",
@@ -638,7 +680,7 @@ def swipe_review(
 def _reel_root(root: Path) -> Path:
     root = Path(root).resolve()
     nested = root / "python_packages" / "reel_factory"
-    if (nested / "caption_bank.py").exists():
+    if (nested / "reel_factory" / "caption_bank.py").exists():
         return nested
     return root
 
@@ -1348,6 +1390,8 @@ def _approved_items(
             "text": text,
             "hookVariants": item.get("hookVariants"),
             "placementIntent": item.get("placementIntent"),
+            "contentMatch": item.get("contentMatch"),
+            "qualityFlags": item.get("qualityFlags"),
         }
         candidate_payload_hash = hashlib.sha256(
             json.dumps(candidate_payload, sort_keys=True, ensure_ascii=False).encode(
@@ -1401,6 +1445,9 @@ def _approved_items(
             placement_intent = item.get("placementIntent")
             if isinstance(placement_intent, dict):
                 hook["placement_intent"] = placement_intent
+            content_match = item.get("contentMatch")
+            if isinstance(content_match, dict):
+                hook["content_match"] = content_match
             payload_hash = caption_payload_hash(
                 hook,
                 placement_intent=placement_intent
@@ -1466,26 +1513,94 @@ def _hook_variants(text: str) -> dict[str, Any]:
 
 def _segments_for(text: str) -> list[str]:
     lines = [line.strip() for line in _clean_caption(text).splitlines() if line.strip()]
-    if len(lines) > 1:
-        return lines[:4]
-    value = lines[0] if lines else ""
-    match = re.match(r"^(.*?)\s*\((.*?)\)\s*$", value)
-    if match and match.group(1).strip() and match.group(2).strip():
-        return [match.group(1).strip(), match.group(2).strip()]
-    if " or " in value.lower():
-        parts = re.split(r"\s+or\s+", value, maxsplit=1, flags=re.IGNORECASE)
-        if len(parts) == 2 and all(part.strip() for part in parts):
-            return [parts[0].strip(), f"or {parts[1].strip()}"]
-    words = value.split()
-    if len(words) >= 5:
-        mid = (len(words) + 1) // 2
-        return [" ".join(words[:mid]), " ".join(words[mid:])]
-    return [value] if value else []
+    return lines[:4]
+
+
+def _content_match_for_review(row: dict[str, Any]) -> dict[str, Any]:
+    explicit = row.get("contentMatch") or row.get("content_match")
+    if isinstance(explicit, dict) and str(row.get("source") or "").startswith(
+        "operator:"
+    ):
+        return dict(explicit)
+    text = str(row.get("text") or "")
+    lineage = {"sourceBanks": row.get("banks") or []}
+    tags = classify_caption_scene_tags(text, lineage)
+    action_tags: list[str] = []
+    if "swim_action" in tags:
+        action_tags = ["swim", "water_entry"]
+    timed = (row.get("hookVariants") or _hook_variants(text)).get("timed")
+    return {
+        "family": str(
+            row.get("archetype") or _overlay_family(text, row.get("banks") or [])
+        ),
+        "scene_tags": [
+            tag
+            for tag in tags
+            if tag
+            in {
+                "pool",
+                "beach",
+                "gym",
+                "bedroom",
+                "bathroom",
+                "car",
+                "mirror_selfie",
+                "outdoor",
+            }
+        ],
+        "action_tags": action_tags,
+        "visual_intensity": "spicy" if "body_forward" in tags else "cute",
+        "delivery": (
+            "event_synced"
+            if "swim_action" in tags
+            else "timed_setup_payoff"
+            if timed
+            else "static_complete"
+        ),
+        "timing_anchor": "water_entry" if "swim_action" in tags else None,
+        "required_context_tags": [
+            tag
+            for tag in tags
+            if tag in {"swim_action", "calm_motion", "action_motion", "body_forward"}
+        ],
+    }
+
+
+def _overlay_family(text: str, banks: list[str]) -> str:
+    value = text.lower()
+    if re.search(r"\b(pool|swim|jump|dive|splash|workout|gym|drive|cook)\b", value):
+        return "action_pov"
+    if any(bank in {"body_attention", "bedroom_mirror"} for bank in banks):
+        return "body_flirt"
+    if any(bank in {"choice_poll", "comment_bait"} for bank in banks):
+        return "choice_poll"
+    if any(bank in {"coded_fill_ins", "read_backwards_puzzle"} for bank in banks):
+        return "puzzle"
+    if any(bank in {"boyfriend_bait", "dm_follow_bait"} for bank in banks):
+        return "relationship"
+    return "self_validation"
+
+
+def _quality_flags_for_review(row: dict[str, Any]) -> list[str]:
+    text = str(row.get("text") or "")
+    source = str(row.get("source") or "").lower()
+    hook = (row.get("hookVariants") or _hook_variants(text)).get("timed") or text
+    result = evaluate_overlay_semantic_completeness(hook)
+    flags = list(result.get("failure_reasons") or [])
+    if "ocr" in source or (row.get("sourceInventory") or {}).get("rawCaption"):
+        flags.append("ocr_review_required")
+    if re.search(r"\b(?:i['’]?m|im)\s+(?:1[89]|2[0-9])\b", text, re.IGNORECASE):
+        flags.append("stale_age_claim")
+    if classify_caption_scene_tags(text, {"sourceBanks": row.get("banks") or []}) != [
+        "general"
+    ]:
+        flags.append("visual_context_required")
+    return list(dict.fromkeys(flags))
 
 
 def _write_placement_review(path: Path, rows: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# Candidate Caption Placement Review\n\n")
+        handle.write("# Candidate Overlay Text Placement Review\n\n")
         handle.write("- Static: lower_center through `stacey_static_center`.\n")
         handle.write(
             "- Timed: segment mode, no explicit segment bands; `placement.py` chooses safe lower-center movement.\n"
@@ -1513,7 +1628,7 @@ def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Caption Swipe Review</title>
+  <title>Overlay Text Review</title>
   <style>
     :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     body {{ margin: 0; min-height: 100vh; background: #07070a; color: #f4f4f5; display: grid; grid-template-rows: auto 1fr; }}
@@ -1541,7 +1656,7 @@ def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
 </head>
 <body>
   <header>
-    <h1>Caption Swipe Review · {html.escape(mode.title())}</h1>
+    <h1>Overlay Text Review · {html.escape(mode.title())}</h1>
     <div class="meta">Swipe or use keys: left = reject, right = approve {html.escape(mode)}. Download approved JSON and pass it to <code>caption_intake.py promote --approved</code>.</div>
     <div class="meta" id="progress"></div>
   </header>
@@ -1602,6 +1717,8 @@ def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
         source: item.source,
         placementIntent: item.placementIntent,
         hookVariants: item.hookVariants,
+        contentMatch: item.contentMatch,
+        qualityFlags: item.qualityFlags,
         reviewer: item.reviewer || data.reviewer,
         decidedAt: item.decidedAt
       }}))
@@ -1634,6 +1751,18 @@ def _render_swipe_card(item: dict[str, Any], index: int, *, mode: str) -> str:
         f'<span class="chip">{html.escape(str(bank))}</span>'
         for bank in item.get("banks") or []
     )
+    content_match = item.get("contentMatch") or {}
+    classifications = [
+        str(content_match.get("family") or "unclassified"),
+        str(content_match.get("delivery") or "static_complete"),
+        str(content_match.get("visual_intensity") or "cute"),
+        *(str(tag) for tag in content_match.get("scene_tags") or []),
+        *(str(tag) for tag in content_match.get("action_tags") or []),
+        *(f"flag:{flag}" for flag in item.get("qualityFlags") or []),
+    ]
+    classification_chips = " ".join(
+        f'<span class="chip">{html.escape(value)}</span>' for value in classifications
+    )
     timed = ((item.get("hookVariants") or {}).get("timed") or {}).get("segments") or []
     timed_lines = [
         str(segment.get("text") or "") for segment in timed if isinstance(segment, dict)
@@ -1650,6 +1779,7 @@ def _render_swipe_card(item: dict[str, Any], index: int, *, mode: str) -> str:
       <div class="label">Caption</div>
       <div class="caption">{html.escape(text)}</div>
       <div class="chips">{banks}</div>
+      <div class="chips">{classification_chips}</div>
       {detail}
       <div class="source">{html.escape(str(item.get("source") or ""))}</div>
     </article>"""
@@ -1734,6 +1864,7 @@ def main() -> int:
     swipe.add_argument("--mode", choices=["static", "timed"], default="static")
     swipe.add_argument("--include-generated-seed", action="store_true")
     swipe.add_argument("--reviewer")
+    swipe.add_argument("--source-prefix")
 
     args = parser.parse_args()
     if args.command == "scan-local":
@@ -1753,6 +1884,7 @@ def main() -> int:
             mode=args.mode,
             include_generated_seed=args.include_generated_seed,
             reviewer=args.reviewer,
+            source_prefix=args.source_prefix,
         )
     else:
         report = promote(Path(args.root), Path(args.approved))

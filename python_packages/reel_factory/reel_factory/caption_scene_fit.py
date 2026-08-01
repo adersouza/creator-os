@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-CAPTION_SCENE_FIT_VERSION = "v1"
+CAPTION_SCENE_FIT_VERSION = "v2"
 CAPTION_TOPIC_FIT_VERSION = "v1"
 
 
@@ -23,6 +23,11 @@ CAPTION_SCENE_TAGS = {
     "car",
     "outdoor",
     "travel",
+    "swim_action",
+    "calm_motion",
+    "action_motion",
+    "body_forward",
+    "event_timing_resolved",
     "general",
 }
 
@@ -30,9 +35,17 @@ REEL_SCENE_TAGS = {
     "indoor_selfie",
     "bedroom_mirror",
     "bathroom_mirror",
+    "mirror_selfie",
+    "kitchen",
+    "car",
     "gym_body",
     "beach_pool",
     "outdoor_lifestyle",
+    "swim_action",
+    "calm_motion",
+    "action_motion",
+    "body_forward",
+    "event_timing_resolved",
     "unknown",
 }
 
@@ -59,6 +72,7 @@ class SceneCompatibility:
     reel_scene_tags: list[str]
     decision: str
     reason: str
+    match_score: int = 0
 
 
 def topic_caption_banks(topic: str | None) -> list[str]:
@@ -121,22 +135,27 @@ def classify_caption_scene_tags(
 ) -> list[str]:
     lineage = lineage if isinstance(lineage, dict) else {}
     value = f" {str(text or '').lower()} "
-    banks = {
-        str(bank)
-        for bank in (lineage.get("selectedBanks") or lineage.get("sourceBanks") or [])
-    }
     tags: set[str] = set()
+    content_match = lineage.get("contentMatch") or lineage.get("content_match") or {}
+    if isinstance(content_match, dict):
+        tags.update(
+            str(tag)
+            for key in ("scene_tags", "required_context_tags")
+            for tag in (content_match.get(key) or [])
+        )
+        if content_match.get("delivery") == "event_synced" and content_match.get(
+            "timing_anchor"
+        ):
+            tags.add("event_timing_resolved")
 
     def has(pattern: str) -> bool:
         return bool(re.search(pattern, value))
 
-    if "bedroom_mirror" in banks or has(
-        r"\b(bedroom|bed|room|sleep|wake up|my room|in my bed)\b"
+    if has(
+        r"\b(bedroom|bed|room|sleeping|sleepy|sleep in|sleepover|wake up|my room|in my bed)\b"
     ):
         tags.update({"indoor_room", "bedroom"})
-    if "gym_body" in banks or has(
-        r"\b(gym|workout|fitness|squat|leggings|leg press|protein|coach)\b"
-    ):
+    if has(r"\b(gym|workout|fitness|squat|leggings|leg press|protein|coach)\b"):
         tags.add("gym")
     if has(r"\b(mirror|selfie)\b"):
         tags.add("mirror_selfie")
@@ -148,12 +167,21 @@ def classify_caption_scene_tags(
         tags.update({"beach", "outdoor"})
     if has(r"\b(pool|swim|hot tub)\b"):
         tags.update({"pool", "outdoor"})
+    if has(r"\b(swim|swimming|jump(?:s|ing)? into (?:the )?water|dive|splash)\b"):
+        tags.update({"swim_action", "action_motion"})
     if has(r"\b(car|drive|driving|passenger seat|backseat|road trip)\b"):
         tags.update({"car", "travel"})
     if has(r"\b(outside|outdoor|park|street|city|cliff|trail|hike|walking)\b"):
         tags.add("outdoor")
     if has(r"\b(travel|vacation|trip|hotel|airport|flight)\b"):
         tags.add("travel")
+    if has(
+        r"\b(sleeper build|handle (?:a )?girl like me|favorite distraction|"
+        r"curves?|body|figure|cleavage|bikini|lingerie|sexy|spicy)\b"
+    ):
+        tags.add("body_forward")
+    if has(r"\bsleeper build\b"):
+        tags.add("calm_motion")
 
     if not tags:
         tags.add("general")
@@ -182,8 +210,29 @@ def classify_reel_scene_tags(
         for token in ("beach", "pool", "ocean", "sea", "shore", "bikini", "swim")
     ):
         tags.add("beach_pool")
+    if any(
+        token in value
+        for token in (
+            "jump into water",
+            "jump into the water",
+            "jumps into water",
+            "jumps into the water",
+            "jumping into the water",
+            "water entry",
+            "dive",
+            "splash",
+            "swimming",
+        )
+    ):
+        tags.update({"swim_action", "action_motion"})
     if any(token in value for token in ("bathroom", "shower")):
         tags.add("bathroom_mirror")
+    if "mirror" in value:
+        tags.add("mirror_selfie")
+    if any(token in value for token in ("kitchen", "cook", "cooking")):
+        tags.add("kitchen")
+    if any(token in value for token in (" car ", "driver", "driving", "passenger")):
+        tags.add("car")
     if (
         any(
             token in value
@@ -216,6 +265,40 @@ def classify_reel_scene_tags(
         )
     ):
         tags.add("outdoor_lifestyle")
+    if any(
+        token in value
+        for token in (
+            "body forward",
+            "body-forward",
+            "cleavage",
+            "curves",
+            "lingerie",
+            "sexy",
+            "spicy",
+            "revealing",
+            "swimsuit",
+            "bikini",
+        )
+    ):
+        tags.add("body_forward")
+    if any(
+        token in value
+        for token in (
+            "calm",
+            "subtle motion",
+            "gentle motion",
+            "slow motion",
+            "near static",
+            "near-static",
+            "locked still",
+        )
+    ):
+        tags.add("calm_motion")
+    if any(
+        token in value
+        for token in ("jump", "dive", "splash", "running", "dancing", "workout motion")
+    ):
+        tags.add("action_motion")
 
     if not tags:
         tags.add("unknown")
@@ -236,7 +319,25 @@ def evaluate_scene_compatibility(
     reel_tags = _ordered_tags(set(reel_scene_tags or ["unknown"]), REEL_SCENE_TAGS)
     if scene_fit_mode == "off":
         return SceneCompatibility(
-            caption_tags, reel_tags, "fit_disabled", "caption scene fit disabled"
+            caption_tags, reel_tags, "fit_disabled", "caption scene fit disabled", 0
+        )
+
+    required_context = {
+        "swim_action",
+        "calm_motion",
+        "action_motion",
+        "body_forward",
+        "event_timing_resolved",
+    }
+    caption_requirements = set(caption_tags) & required_context
+    missing_requirements = sorted(caption_requirements - set(reel_tags))
+    if missing_requirements:
+        return SceneCompatibility(
+            caption_tags,
+            reel_tags,
+            "blocked",
+            f"caption requires {','.join(missing_requirements)} visual context",
+            0,
         )
 
     blocked_tags = _blocked_caption_tags_for_reel(reel_tags)
@@ -248,6 +349,7 @@ def evaluate_scene_compatibility(
             reel_tags,
             "blocked",
             f"{','.join(blocked_overlap)} caption blocked for {','.join(reel_tags)} reel",
+            0,
         )
 
     if "unknown" in reel_tags and explicit_caption_tags:
@@ -256,14 +358,41 @@ def evaluate_scene_compatibility(
             reel_tags,
             "unknown_allowed",
             "unknown reel scene; no obvious scene mismatch",
+            0,
         )
 
+    scene_overlap = set(caption_tags) & _caption_tags_for_reel(reel_tags)
     return SceneCompatibility(
         caption_tags,
         reel_tags,
         "allowed",
         f"caption scene compatible with {','.join(reel_tags)} reel",
+        len(scene_overlap) + (2 * len(caption_requirements)),
     )
+
+
+def _caption_tags_for_reel(reel_tags: list[str]) -> set[str]:
+    tags = set(reel_tags)
+    mapped = set(tags)
+    if "beach_pool" in tags:
+        mapped.update({"beach", "pool", "outdoor"})
+    if "gym_body" in tags:
+        mapped.add("gym")
+    if "outdoor_lifestyle" in tags:
+        mapped.add("outdoor")
+    if "bedroom_mirror" in tags:
+        mapped.update({"bedroom", "mirror_selfie", "indoor_room"})
+    if "bathroom_mirror" in tags:
+        mapped.update({"bathroom", "mirror_selfie", "indoor_room"})
+    if "mirror_selfie" in tags:
+        mapped.add("mirror_selfie")
+    if "kitchen" in tags:
+        mapped.update({"kitchen", "indoor_room"})
+    if "car" in tags:
+        mapped.update({"car", "travel"})
+    if "indoor_selfie" in tags:
+        mapped.add("indoor_room")
+    return mapped
 
 
 def _blocked_caption_tags_for_reel(reel_tags: list[str]) -> set[str]:
@@ -274,6 +403,10 @@ def _blocked_caption_tags_for_reel(reel_tags: list[str]) -> set[str]:
         return {"bedroom", "beach", "pool", "car", "travel"}
     if "outdoor_lifestyle" in tags:
         return {"bedroom", "gym"}
+    if "car" in tags:
+        return {"bedroom", "bathroom", "kitchen", "gym", "beach", "pool"}
+    if "kitchen" in tags:
+        return {"bedroom", "bathroom", "gym", "beach", "pool", "car"}
     if tags & {"indoor_selfie", "bedroom_mirror", "bathroom_mirror"}:
         return {"beach", "pool", "gym", "car", "outdoor", "travel"}
     # unknown reel scene = undetected, NOT incompatible. Blocking on uncertainty

@@ -35,7 +35,11 @@ from campaign_factory.audio_radar.providers import (
     TikLiveAudioResolver,
     TokchartTrendProvider,
 )
-from campaign_factory.audio_radar.ranking import AudioMatchContext, rank_candidates
+from campaign_factory.audio_radar.ranking import (
+    AudioMatchContext,
+    apply_controlled_exploration,
+    rank_candidates,
+)
 from campaign_factory.audio_radar.segment import SegmentSelection, select_segment
 
 from pipeline_contracts import validate_audio_intent
@@ -134,6 +138,45 @@ def test_ranking_blocks_recent_and_scheduled_track_reuse() -> None:
     }
     assert ranked[0].components["finalScore"] == ranked[0].score
     assert ranked[0].as_dict()["reasons"] == list(ranked[0].reasons)
+
+
+def test_controlled_exploration_is_bounded_and_deterministic() -> None:
+    candidates = normalize_candidates(
+        [
+            TrendCandidate(
+                candidate_id=f"candidate_{index}",
+                provider="fixture",
+                title=f"Track {index}",
+                artist="Artist",
+                platform_sound_ids=(PlatformSoundId("instagram", str(index)),),
+                observed_at="2026-07-24T12:00:00Z",
+                current_rank=index,
+                usage_velocity=5_000 - index,
+            )
+            for index in range(1, 5)
+        ]
+    )
+    ranked = rank_candidates(
+        candidates, AudioMatchContext(creator="stacey", account="stacey")
+    )
+
+    explored, receipt = apply_controlled_exploration(
+        ranked, decision_key="stable-job", rate=1.0
+    )
+    repeated, repeated_receipt = apply_controlled_exploration(
+        ranked, decision_key="stable-job", rate=1.0
+    )
+
+    assert explored == repeated
+    assert receipt == repeated_receipt
+    assert receipt["mode"] == "explore"
+    assert explored[0].final_rank in {2, 3}
+    assert ranked[3] is not explored[0]
+    exploited, exploit_receipt = apply_controlled_exploration(
+        ranked, decision_key="stable-job", rate=0.0
+    )
+    assert exploited == ranked
+    assert exploit_receipt["mode"] == "exploit"
 
 
 def test_mainstream_platform_discovery_and_rights_labels_do_not_gate_candidates(

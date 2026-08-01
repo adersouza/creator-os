@@ -227,24 +227,28 @@ def test_daily_library_apply_stops_at_review_ready(
         cf.conn.commit()
         return {"synced": synced}
 
-    def fake_audit(_factory, **kwargs):
+    def fake_finalize(_factory, *, generation_result, **_kwargs):
+        asset_id = generation_result["registeredAsset"]["id"]
         return {
-            "reports": [
-                {
-                    "renderedAssetId": asset_id,
-                    "status": "approved_candidate",
-                    "overallVerdict": "pass",
-                    "failedChecks": [],
-                    "warnings": [],
-                    "error": None,
-                    "readinessSummary": {
-                        "uploadReady": True,
-                        "blockingReasons": [],
-                        "blockingCodes": [],
-                    },
-                }
-                for asset_id in kwargs["rendered_asset_ids"]
-            ]
+            "audioFulfillment": {
+                "policy": "embedded_trending_required",
+                "status": "verified",
+                "finalVideoSha256": f"final_{asset_id}",
+            },
+            "finalContentForgeAudit": {
+                "renderedAssetId": asset_id,
+                "status": "approved_candidate",
+                "overallVerdict": "pass",
+                "failedChecks": [],
+                "warnings": [],
+                "error": None,
+                "readinessSummary": {
+                    "uploadReady": True,
+                    "blockingReasons": [],
+                    "blockingCodes": [],
+                },
+                "reviewReady": True,
+            },
         }
 
     monkeypatch.setattr(
@@ -258,7 +262,9 @@ def test_daily_library_apply_stops_at_review_ready(
     monkeypatch.setattr(
         cf.domains.reel_execution, "sync_reel_outputs", fake_sync_reel_outputs
     )
-    monkeypatch.setattr(daily_library_module, "audit_campaign", fake_audit)
+    monkeypatch.setattr(
+        daily_library_module, "finalize_production_media", fake_finalize
+    )
     try:
         authorize_campaign_governance(
             cf,
@@ -280,6 +286,8 @@ def test_daily_library_apply_stops_at_review_ready(
         )
         assert result["status"] == "review_ready"
         assert len(result["reviewReady"]) == 2
+        assert len(result["audio"]) == 2
+        assert {item["status"] for item in result["audio"]} == {"verified"}
         assert result["controls"]["approvalActionsTaken"] == 0
         assert result["controls"]["draftActionsTaken"] == 0
         states = cf.conn.execute(
@@ -598,6 +606,45 @@ def test_run_reel_factory_targets_only_campaign_clips(tmp_path: Path, monkeypatc
         assert all("--phone-finalize" in call for call in calls)
         assert calls[0][calls[0].index("--only-clip") + 1] == "clip_001"
         assert calls[1][calls[1].index("--only-clip") + 1] == "clip_002"
+    finally:
+        cf.close()
+
+
+def test_prepare_reel_inputs_carries_source_scene_context(tmp_path: Path):
+    folder = tmp_path / "inputs"
+    folder.mkdir()
+    (folder / "pool_jump.mp4").write_bytes(b"video")
+    cf = make_factory(tmp_path)
+    try:
+        source = cf.domains.asset_import.import_folder(
+            folder, campaign_slug="may", model_slug="model"
+        )["imported"][0]
+        cf.conn.execute(
+            "UPDATE source_assets SET source_prompt = ?, notes = ? WHERE id = ?",
+            (
+                json.dumps({"scene": "pool", "action": "jumps into the water"}),
+                "calm pool entrance",
+                source["id"],
+            ),
+        )
+        cf.conn.commit()
+
+        prepared = cf.domains.reel_execution.prepare_reel_inputs(
+            campaign_slug="may", hooks=["pool hook"]
+        )["prepared"][0]
+        sidecar = json.loads(
+            (
+                cf.settings.reel_factory_root
+                / "01_captions"
+                / f"{prepared['reel_clip_stem']}.json"
+            ).read_text(encoding="utf-8")
+        )
+
+        context = sidecar["sourceContext"]
+        assert context["sourceAssetId"] == source["id"]
+        assert context["sourceVideoStem"] == "pool_jump"
+        assert "jumps into the water" in context["promptText"]
+        assert len(context["contextFingerprint"]) == 64
     finally:
         cf.close()
 

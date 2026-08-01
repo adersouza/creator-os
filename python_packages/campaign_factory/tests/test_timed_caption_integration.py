@@ -1,18 +1,41 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import campaign_factory.daily_library_production as daily_library
 from campaign_test_support import make_factory
 from reel_factory.caption_bank import CaptionBankStore
 from reel_factory.caption_intake import promote
-from reel_factory.reel_pipeline_support import timed_caption_band
+from reel_factory.reel_pipeline_support import CaptionSet, timed_caption_band
 
 from pipeline_contracts import (
     evaluate_overlay_semantic_completeness,
     evaluate_overlay_timing,
 )
+
+
+def test_recent_unassigned_review_inventory_blocks_overlay_reuse() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE rendered_assets (
+          id TEXT, caption_hash TEXT, caption_generation_json TEXT,
+          metadata_json TEXT, review_state TEXT, created_at TEXT
+        );
+        CREATE TABLE asset_account_assignments (rendered_asset_id TEXT, created_at TEXT);
+        CREATE TABLE distribution_plans (rendered_asset_id TEXT, planned_window_start TEXT, created_at TEXT);
+        CREATE TABLE asset_inventory_reservations (asset_id TEXT, status TEXT, reserved_at TEXT);
+        INSERT INTO rendered_assets VALUES (
+          'asset-1', 'caption-hash', '{}', '{}', 'draft',
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        );
+        """
+    )
+
+    assert "caption-hash" in daily_library._recent_used_caption_keys(conn)
 
 
 def test_approved_timed_payload_survives_bank_selection_sidecar_and_render_plan(
@@ -118,6 +141,14 @@ def test_approved_timed_payload_survives_bank_selection_sidecar_and_render_plan(
             sidecar["hook_metadata"][0]["captionLineage"]["captionPayloadHash"]
             == payload_hash
         )
+        loaded = CaptionSet.from_path(
+            cf.settings.reel_factory_root
+            / "01_captions"
+            / f"{job['reel_clip_stem']}.json"
+        )
+        assert loaded.hooks[0]["segments"] == segments
+        assert loaded.hook_lineage[0]["captionPayloadHash"] == payload_hash
+        assert loaded.hook_lineage[0]["approvalReviewer"] == "operator-1"
 
         timing = evaluate_overlay_timing(segments, duration_seconds=4.0)
         render_plan = timing["resolved_render_plan"]

@@ -303,7 +303,7 @@ def run_canary(
             model_manifest_sha256=hashlib.sha256(label.encode()).hexdigest(),
             task_kind=str(recipe["taskKind"]),
             input_sha256=input_fingerprint,
-            requested_memory_bytes=64 * 1024**2,
+            requested_memory_bytes=192 * 1024**2,
             params=params,
             cohort={"recipeFingerprint": fingerprint(recipe)},
             owned_artifact_paths=(output, partial),
@@ -322,7 +322,9 @@ def run_canary(
             measurement, completed = _run_measured_copy(
                 source=source,
                 destination=partial,
-                minimum_allocation_bytes=32 * 1024**2,
+                # Keep the provider-free canary above the process-startup noise floor;
+                # the production 1.25 regression ceiling remains unchanged.
+                minimum_allocation_bytes=128 * 1024**2,
             )
             if completed.returncode != 0 or not partial.is_file():
                 raise RuntimeError("canary_measured_copy_failed")

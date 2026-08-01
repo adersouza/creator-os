@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -138,6 +139,7 @@ class ReelExecutionRepository:
             next_num = self.next_reel_clip_number(raw_dir)
             for source_index, source in enumerate(sources):
                 source_hooks = self.rotate_hooks_for_source(hooks, source_index)
+                source_context = self.reel_source_context(source)
                 existing = self.conn.execute(
                     """SELECT * FROM render_jobs WHERE source_asset_id = ?
                     ORDER BY created_at DESC LIMIT 1""",
@@ -146,14 +148,29 @@ class ReelExecutionRepository:
                 existing_hooks = (
                     json_load(existing["hooks_json"], []) if existing else []
                 )
+                existing_sidecar = (
+                    cap_dir / f"{existing['reel_clip_stem']}.json" if existing else None
+                )
                 if (
                     existing
+                    and existing_sidecar is not None
+                    and existing_sidecar.exists()
                     and not force_new
                     and existing_hooks == source_hooks
                     and json_load(existing["recipes_json"], []) == (recipes or [])
                     and (existing["caption_color"] or "auto")
                     == (caption_color or "auto")
                 ):
+                    existing_payload = json_load(
+                        existing_sidecar.read_text(encoding="utf-8"), {}
+                    )
+                    if isinstance(existing_payload, dict):
+                        existing_payload["sourceContext"] = source_context
+                        atomic_write_text(
+                            existing_sidecar,
+                            json.dumps(existing_payload, indent=2, ensure_ascii=False),
+                            encoding="utf-8",
+                        )
                     reused_existing.append(dict(existing))
                     continue
                 clip_stem = f"clip_{next_num:03d}"
@@ -207,9 +224,14 @@ class ReelExecutionRepository:
                     "recipes": recipes or None,
                     "caption_color": caption_color or "auto",
                     "notes": notes or f"campaign_factory source {source['id']}",
+                    "sourceContext": source_context,
                 }
                 if hook_metadata:
                     sidecar["hook_metadata"] = hook_metadata
+                    sidecar["hookLineage"] = {
+                        str(item["hookIndex"]): dict(item.get("captionLineage") or item)
+                        for item in hook_metadata
+                    }
                 atomic_write_text(
                     (cap_dir / f"{clip_stem}.json"),
                     json.dumps(sidecar, indent=2, ensure_ascii=False),
@@ -332,6 +354,32 @@ class ReelExecutionRepository:
             else:
                 render_hooks.append(hook)
         return render_hooks, hook_metadata
+
+    def reel_source_context(self, source: dict[str, Any]) -> dict[str, str]:
+        prompt = json_load(source.get("source_prompt"), {})
+        prompt_text = (
+            json.dumps(prompt, ensure_ascii=False, sort_keys=True)
+            if isinstance(prompt, dict)
+            else str(prompt or "")
+        )
+        original_filename = Path(str(source.get("original_path") or "")).name
+        source_filename = str(source.get("filename") or "")
+        payload = {
+            "sourceAssetId": str(source["id"]),
+            "sourceContentHash": str(source.get("content_hash") or ""),
+            "sourceFilename": source_filename,
+            "sourceOriginalFilename": original_filename,
+            "sourceVideoStem": Path(original_filename or source_filename).stem,
+            "promptText": " ".join(
+                value
+                for value in (prompt_text, str(source.get("notes") or "").strip())
+                if value
+            ),
+        }
+        payload["contextFingerprint"] = hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        return payload
 
     def next_reel_clip_number(self, raw_dir: Path) -> int:
         nums = []

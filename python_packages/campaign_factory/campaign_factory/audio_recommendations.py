@@ -875,41 +875,6 @@ class AudioRecommendationRepository:
             return f"{platform}:{native_id}"
         return f"{platform}:{self._slugify(str(item.get('title') or item.get('audioTitle') or 'unknown'))}:{self._slugify(str(item.get('artistName') or item.get('artist_name') or ''))}"
 
-    def score_audio_catalog_item(
-        self, item: dict[str, Any], tags: set[str], accounts: set[str]
-    ) -> tuple[float, list[str]]:
-        score = 35.0
-        reasons = []
-        trend = self.norm_tag(item.get("trendStatus") or "unknown")
-        if trend in {"rising", "fresh", "trending", "current"}:
-            score += 25
-            reasons.append(f"trend:{trend}")
-        elif trend in {"peaked", "fading", "stale", "expired"}:
-            score -= 20
-            reasons.append(f"trend:{trend}")
-        item_tags = {
-            self.norm_tag(tag)
-            for tag in (item.get("moodTags") or [])
-            + (item.get("bestContentTypes") or [])
-        }
-        overlap = tags & item_tags
-        if overlap:
-            score += 15 * len(overlap)
-            reasons.append(f"tag_match:{'/'.join(sorted(overlap))}")
-        account_overlap = accounts & {
-            self.norm_tag(tag) for tag in item.get("accountFit") or []
-        }
-        if account_overlap:
-            score += 10 * len(account_overlap)
-            reasons.append(f"account_match:{'/'.join(sorted(account_overlap))}")
-        if item.get("nativeAudioId") or item.get("nativeAudioUrl"):
-            score += 8
-            reasons.append("native_locator")
-        if item.get("usageCount"):
-            score += min(12, int(item["usageCount"]) / 10000)
-            reasons.append("usage_signal")
-        return score, reasons
-
     def score_audio_catalog_item_v2(
         self,
         item: dict[str, Any],

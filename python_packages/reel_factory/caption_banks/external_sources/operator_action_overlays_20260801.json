@@ -1,0 +1,110 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "operator:action-matched-overlays:2026-08-01",
+  "captions": [
+    {
+      "text": "pov: when he says\nhe likes girls who swim",
+      "archetype": "action_pov",
+      "content_match": {
+        "family": "action_pov",
+        "scene_tags": ["pool"],
+        "action_tags": ["swim", "water_entry"],
+        "visual_intensity": "flirty",
+        "delivery": "event_synced",
+        "timing_anchor": "water_entry",
+        "required_context_tags": ["swim_action", "action_motion"]
+      }
+    },
+    {
+      "text": "pov: when he says\nhe likes girls who lift",
+      "archetype": "action_pov",
+      "content_match": {
+        "family": "action_pov",
+        "scene_tags": ["gym"],
+        "action_tags": ["workout"],
+        "visual_intensity": "flirty",
+        "delivery": "event_synced",
+        "timing_anchor": "workout_action",
+        "required_context_tags": ["action_motion", "body_forward"]
+      }
+    },
+    {
+      "text": "he said he can cook\nso i'm supervising",
+      "archetype": "action_pov",
+      "content_match": {
+        "family": "action_pov",
+        "scene_tags": ["kitchen"],
+        "action_tags": ["cook"],
+        "visual_intensity": "cute",
+        "delivery": "timed_setup_payoff",
+        "timing_anchor": null,
+        "required_context_tags": []
+      }
+    },
+    {
+      "text": "he said passenger princess\nlike it was a bad thing",
+      "archetype": "action_pov",
+      "content_match": {
+        "family": "lifestyle",
+        "scene_tags": ["car"],
+        "action_tags": ["drive"],
+        "visual_intensity": "cute",
+        "delivery": "timed_setup_payoff",
+        "timing_anchor": null,
+        "required_context_tags": []
+      }
+    },
+    {
+      "text": "he said wear something cute\nso i did",
+      "archetype": "outfit_reveal",
+      "content_match": {
+        "family": "lifestyle",
+        "scene_tags": ["mirror_selfie"],
+        "action_tags": ["outfit_reveal", "pose"],
+        "visual_intensity": "flirty",
+        "delivery": "timed_setup_payoff",
+        "timing_anchor": "outfit_reveal",
+        "required_context_tags": ["body_forward"]
+      }
+    },
+    {
+      "text": "trying to act mysterious\nthen i start smiling",
+      "archetype": "expression_payoff",
+      "content_match": {
+        "family": "self_validation",
+        "scene_tags": ["generic_selfie"],
+        "action_tags": ["expression"],
+        "visual_intensity": "cute",
+        "delivery": "event_synced",
+        "timing_anchor": "smile",
+        "required_context_tags": ["action_motion"]
+      }
+    },
+    {
+      "text": "he said don't look back\nobviously i looked back",
+      "archetype": "pose_payoff",
+      "content_match": {
+        "family": "action_pov",
+        "scene_tags": ["outdoor"],
+        "action_tags": ["pose"],
+        "visual_intensity": "flirty",
+        "delivery": "event_synced",
+        "timing_anchor": "look_back",
+        "required_context_tags": ["action_motion"]
+      }
+    },
+    {
+      "text": "he said beach day\ni heard photoshoot",
+      "archetype": "action_pov",
+      "content_match": {
+        "family": "lifestyle",
+        "scene_tags": ["beach"],
+        "action_tags": ["pose"],
+        "visual_intensity": "flirty",
+        "delivery": "timed_setup_payoff",
+        "timing_anchor": null,
+        "required_context_tags": ["body_forward"]
+      }
+    }
+  ]
+}

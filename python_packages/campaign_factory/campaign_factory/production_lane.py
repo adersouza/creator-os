@@ -18,6 +18,7 @@ from creator_os_core.recreation_anchor_approval import (
 
 from . import learning_consumption
 from . import production_higgsfield_authorization as higgsfield_auth
+from .adapters.contentforge import audit_final_asset
 from .audio_policy import (
     AUDIO_POLICIES,
     build_embedded_trending_audio_intent,
@@ -25,18 +26,14 @@ from .audio_policy import (
 )
 from .audio_radar import (
     AudioCache,
-    AudioLocator,
     AudioMatchContext,
     NeedsEmbeddedAudioError,
-    PlatformSoundId,
     TrendCandidate,
+    apply_controlled_exploration,
     bind_embedding_receipt,
     fulfill_embedded_trending,
     normalize_candidates,
     rank_candidates,
-)
-from .production_audio_library import (
-    active_audio_library_candidates as _active_audio_library_candidates,
 )
 from .production_audio_library import (
     apply_audio_usage_policy as _apply_audio_usage_policy,
@@ -46,6 +43,9 @@ from .production_audio_library import (
 )
 from .production_audio_library import (
     audio_fit_tags as _audio_fit_tags,
+)
+from .production_audio_library import (
+    production_audio_candidates as _production_audio_candidates,
 )
 from .production_batch_identity import deterministic_seed as _deterministic_seed
 from .production_batch_results import _motion_stage_result, run_production_hard_qc
@@ -136,47 +136,7 @@ def discover_production_audio_candidates(
     connection: Any | None = None,
 ) -> list[TrendCandidate]:
     """Load only the canonical active cache for production fulfillment."""
-
-    fixture = _approved_audio_fixture_candidate()
-    if fixture is not None:
-        return normalize_candidates([fixture])
-    return _active_audio_library_candidates(connection)
-
-
-def _approved_audio_fixture_candidate() -> TrendCandidate | None:
-    raw = os.environ.get("CREATOR_OS_EMBEDDED_AUDIO_FIXTURE", "").strip()
-    if not raw:
-        return None
-    expanded = Path(raw).expanduser()
-    if expanded.is_symlink():
-        raise ValueError("approved embedded-audio fixture must not be a symlink")
-    path = expanded.resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"approved embedded-audio fixture is missing: {path}")
-    digest = _sha256_file(path)
-    observed_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
-    return TrendCandidate(
-        candidate_id=f"approved-local-fixture:{digest}",
-        provider="operator_approved_fixture",
-        title=os.environ.get("CREATOR_OS_EMBEDDED_AUDIO_FIXTURE_TITLE", path.stem),
-        artist="approved local fixture",
-        platform_sound_ids=(
-            PlatformSoundId(platform="local_fixture", sound_id=digest[:24]),
-        ),
-        observed_at=observed_at,
-        current_rank=1,
-        usage_velocity=1_000_000,
-        trend_score=1.0,
-        canonical_track_id=f"local_fixture:{digest}",
-        locator=AudioLocator(
-            provider="operator_approved_fixture",
-            platform="local_fixture",
-            track_id=digest,
-            kind="local_file",
-            value=str(path),
-        ),
-        advisory_labels={"operatorApprovedFixture": True},
-    )
+    return _production_audio_candidates(connection)
 
 
 def fulfill_production_audio(
@@ -235,8 +195,7 @@ def fulfill_production_audio(
         now=completed_at,
     )
     creator_slug = str(job.get("creator") or "")
-    audio_learning = learning_consumption.audio_performance_for_candidates
-    previous_performance, audio_recommendation_ids = audio_learning(
+    audio_policy = learning_consumption.audio_policy_for_candidates(
         factory.conn,
         candidates=discovered,
         creator=creator_slug,
@@ -245,17 +204,66 @@ def fulfill_production_audio(
         intent=intent,
         now=datetime.fromisoformat(completed_at.replace("Z", "+00:00")),
     )
+    previous_performance = audio_policy["scoreAdjustments"]
+    audio_recommendation_ids = audio_policy["recommendationIds"]
+    if audio_policy["preferredSegmentOffsets"]:
+        with_learned_segments: list[TrendCandidate] = []
+        for candidate in discovered:
+            canonical_id = str(candidate.canonical_track_id or candidate.candidate_id)
+            learned_offsets = audio_policy["preferredSegmentOffsets"].get(canonical_id)
+            if not learned_offsets:
+                with_learned_segments.append(candidate)
+                continue
+            labels = dict(candidate.advisory_labels)
+            existing_offsets = labels.get("preferred_offsets_seconds")
+            labels["preferred_offsets_seconds"] = list(
+                dict.fromkeys(
+                    [
+                        *learned_offsets,
+                        *(
+                            existing_offsets
+                            if isinstance(existing_offsets, list)
+                            else []
+                        ),
+                    ]
+                )
+            )
+            labels["performanceLearnedSegment"] = True
+            with_learned_segments.append(replace(candidate, advisory_labels=labels))
+        discovered = with_learned_segments
+    creative_context = dict(job.get("creativeContext") or {})
+    visual_tags = tuple(
+        dict.fromkeys(
+            [
+                *_audio_fit_tags(intent),
+                str(creative_context.get("mode") or ""),
+                str(creative_context.get("visualStyleId") or ""),
+            ]
+        )
+    )
     context = AudioMatchContext(
         creator=str(job.get("creator") or ""),
         account=str(job.get("accountGroup") or ""),
-        visual_tags=_audio_fit_tags(intent),
+        visual_tags=tuple(value for value in visual_tags if value),
         motion_tags=(intent,),
         speaking=False,
     )
     base_ranked = rank_candidates(discovered, context)
-    ranked = rank_candidates(
+    learned_ranked = rank_candidates(
         discovered,
         replace(context, previous_performance=previous_performance),
+    )
+    ranked, exploration = apply_controlled_exploration(
+        learned_ranked,
+        decision_key="|".join(
+            (
+                str(job.get("jobId") or job.get("id") or ""),
+                str(job.get("sourceSha256") or job.get("sourceAssetId") or ""),
+                rendered_asset_id,
+                str(job.get("accountGroup") or ""),
+                intent,
+            )
+        ),
     )
     if not ranked:
         raise NeedsEmbeddedAudioError(
@@ -274,7 +282,7 @@ def fulfill_production_audio(
     )
     receipt = fulfilled.embedding_receipt
     receipt["creativeContext"] = {
-        **dict(job.get("creativeContext") or {}),
+        **creative_context,
         "creator": job.get("creator"),
         "creatorIdentityProfile": job.get("creatorIdentityProfile"),
         "account": job.get("accountGroup"),
@@ -285,12 +293,24 @@ def fulfill_production_audio(
         "consulted": True,
         "recommendationIds": audio_recommendation_ids,
         "scoreAdjustments": previous_performance,
+        "policyVersion": audio_policy["policyVersion"],
+        "measuredEvidence": audio_policy["measuredEvidence"],
+        "exploration": exploration,
         "influencedRanking": bool(
             previous_performance
             and base_ranked
-            and ranked
+            and learned_ranked
             and base_ranked[0].candidate.canonical_track_id
-            != ranked[0].candidate.canonical_track_id
+            != learned_ranked[0].candidate.canonical_track_id
+        ),
+        "finalSelectionReason": (
+            "controlled_exploration"
+            if exploration["mode"] == "explore"
+            else (
+                "measured_performance"
+                if audio_policy["measuredEvidence"]
+                else "deterministic_heuristic"
+            )
         ),
     }
     receipt["audioIntent"] = build_embedded_trending_audio_intent(
@@ -325,6 +345,42 @@ def fulfill_production_audio(
         "finalVideoSha256": binding["finalVideoSha256"],
         "outputPath": binding["outputPath"],
     }
+
+
+def finalize_production_media(
+    factory: Any,
+    *,
+    job: Mapping[str, Any],
+    generation_result: dict[str, Any],
+    candidates: list[TrendCandidate] | None = None,
+    selected_at: str | None = None,
+    contentforge_base_url: str | None = None,
+) -> dict[str, Any]:
+    """Fulfill audio, then audit the exact bytes that can reach approval."""
+    audio = fulfill_production_audio(
+        factory,
+        job=job,
+        generation_result=generation_result,
+        candidates=candidates,
+        selected_at=selected_at,
+    )
+    stage = _motion_stage_result(generation_result)
+    registered = stage.get("registeredAsset")
+    rendered_asset_id = (
+        str(registered.get("id") or "") if isinstance(registered, Mapping) else ""
+    )
+    campaign_slug = str(job.get("campaign") or "")
+    if not rendered_asset_id or not campaign_slug:
+        raise RuntimeError("production final audit binding missing")
+    audit = audit_final_asset(
+        factory,
+        campaign_slug=campaign_slug,
+        rendered_asset_id=rendered_asset_id,
+        contentforge_base_url=contentforge_base_url,
+    )
+    if audit["reviewReady"] is not True:
+        raise RuntimeError("final_contentforge_qc_failed")
+    return {"audioFulfillment": audio, "finalContentForgeAudit": audit}
 
 
 def plan_production_batch(
@@ -1072,13 +1128,13 @@ def _run_production_job(
                 "stageResults": [result],
                 "result": result,
             }
-        audio_fulfillment = fulfill_production_audio(
+        final_media = finalize_production_media(
             factory,
             job=job,
             generation_result=result,
             candidates=audio_candidates,
         )
-        result["audioFulfillment"] = audio_fulfillment
+        result.update(final_media)
         return {
             **base,
             "status": "completed",

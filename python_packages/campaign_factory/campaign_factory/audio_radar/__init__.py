@@ -29,6 +29,7 @@ from .pipeline import (
 from .ranking import (
     AudioMatchContext,
     RankedCandidate,
+    apply_controlled_exploration,
     rank_candidates,
 )
 from .segment import (
@@ -53,6 +54,7 @@ __all__ = [
     "SegmentSelection",
     "SegmentSelectionError",
     "TrendCandidate",
+    "apply_controlled_exploration",
     "build_audio_performance_fact",
     "bind_embedding_receipt",
     "embed_selected_audio",
