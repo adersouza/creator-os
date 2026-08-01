@@ -336,6 +336,20 @@ def _asset_path(asset: dict[str, Any]) -> Path:
     return path
 
 
+def _asset_media_type(asset: dict[str, Any], path: Path) -> str:
+    declared = str(asset.get("media_type") or "").strip().lower()
+    if declared:
+        return declared
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp"}:
+        return "image"
+    if suffix == ".gif":
+        return "gif"
+    if suffix in {".mp4", ".mov", ".m4v"}:
+        return "video"
+    raise ValueError("asset_media_type_required")
+
+
 def _approval_binding(
     *,
     user_id: str,
@@ -345,6 +359,7 @@ def _approval_binding(
     title: str,
     first_comment: str | None,
     media_sha256: str,
+    media_type: str,
     rule_snapshot_hash: str,
     nsfw: bool,
     spoiler: bool,
@@ -359,6 +374,7 @@ def _approval_binding(
         "title": title,
         "firstComment": first_comment,
         "mediaSha256": media_sha256,
+        "mediaType": media_type,
         "ruleSnapshotHash": rule_snapshot_hash,
         "nsfw": nsfw,
         "spoiler": spoiler,
@@ -432,6 +448,17 @@ def build_reddit_handoff_review(
         raise ValueError("reddit_account_not_active")
     if not isinstance(rules.get("verificationEvidence"), dict):
         raise ValueError("reddit_verification_evidence_required")
+    media_type = _required_text(spec.get("mediaType"), "media_type").lower()
+    asset_media_type = _asset_media_type(asset, path)
+    if media_type != asset_media_type:
+        raise ValueError("reddit_media_type_asset_mismatch")
+    allowed_media_types = {
+        str(value).strip().lower()
+        for value in snapshot.get("allowedMediaTypes") or []
+        if str(value).strip()
+    }
+    if allowed_media_types and media_type not in allowed_media_types:
+        raise ValueError("reddit_media_type_not_allowed")
 
     account_username = _normalize_account(account.get("username"))
     _enforce_family_account_ownership(
@@ -510,6 +537,7 @@ def build_reddit_handoff_review(
         title=title,
         first_comment=first_comment,
         media_sha256=actual_sha,
+        media_type=media_type,
         rule_snapshot_hash=snapshot_hash,
         nsfw=bool(content.get("nsfw")),
         spoiler=bool(content.get("spoiler")),
@@ -559,7 +587,7 @@ def build_reddit_handoff_review(
         "scheduling": scheduling,
         "trendBrief": spec.get("trendBrief"),
         "mediaUrl": _required_text(spec.get("mediaUrl"), "media_url"),
-        "mediaType": _required_text(spec.get("mediaType"), "media_type"),
+        "mediaType": media_type,
         "sourceCreativeApproval": source_approval,
         "sourceCreativeApprovalId": creative_approval.get("approvalId"),
         "sourceCreativeApprovalFingerprint": source_approval_fingerprint,
@@ -739,6 +767,12 @@ def build_reddit_trend_brief(
         "eligibleCreators": list(spec.get("eligibleCreators") or []),
         "eligibleAccounts": list(spec.get("eligibleAccounts") or []),
         "requiredContentTags": list(spec.get("requiredContentTags") or []),
+        "allowedMediaTypes": list(spec.get("allowedMediaTypes") or ["image"]),
+        "targetMediaType": (
+            spec.get("targetMediaType") if "targetMediaType" in spec else "image"
+        ),
+        "winnerSelectionPolicy": spec.get("winnerSelectionPolicy")
+        or "top_and_hot_high_upvotes.v1",
         "disallowedElements": list(spec.get("disallowedElements") or []),
         "patterns": patterns,
         "titlePattern": spec.get("titlePattern"),

@@ -380,9 +380,9 @@ def _exploration_classes(count: int, objective_policy: dict[str, Any]) -> list[s
     variation = round(count * float(objective_policy["controlledVariation"]))
     if explore + variation > count:
         explore = max(0, count - variation)
-    exploit = count - explore - variation
+    deterministic_default = count - explore - variation
     classes = (
-        ["EXPLOIT"] * exploit
+        ["DETERMINISTIC_DEFAULT"] * deterministic_default
         + ["CONTROLLED_VARIATION"] * variation
         + ["EXPLORE"] * explore
     )
@@ -459,6 +459,12 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             sources=compatible,
             base_prompt=base_prompt,
         )
+        exploration_class = classes[index]
+        if (
+            exploration_class == "DETERMINISTIC_DEFAULT"
+            and learning["finalChoiceChanged"]
+        ):
+            exploration_class = "MEASURED_WINNER"
         source = None
         if learning_sources:
             minimum_usage = min(
@@ -487,7 +493,7 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             source_asset_id=str(source["id"]) if source else None,
             purpose=(
                 "experiment"
-                if classes[index] == "CONTROLLED_VARIATION"
+                if exploration_class == "CONTROLLED_VARIATION"
                 else "production"
             ),
         )
@@ -529,7 +535,7 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
                 "batchTrackUniquenessRequired": True,
                 "batchSegmentUniquenessRequired": True,
             },
-            "explorationClass": classes[index],
+            "explorationClass": exploration_class,
             "observedProfileDecision": observed_profile,
             "priority": count - index,
             "estimatedCost": {
@@ -606,8 +612,13 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             ],
         },
         "resultingAllocation": {
-            value: classes.count(value)
-            for value in ("EXPLOIT", "CONTROLLED_VARIATION", "EXPLORE")
+            value: sum(item["explorationClass"] == value for item in plan_items)
+            for value in (
+                "DETERMINISTIC_DEFAULT",
+                "MEASURED_WINNER",
+                "CONTROLLED_VARIATION",
+                "EXPLORE",
+            )
         },
         "observedProfileAllocation": {
             "normal": sum(

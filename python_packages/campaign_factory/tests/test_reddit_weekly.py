@@ -7,7 +7,9 @@ from pathlib import Path
 from campaign_factory.reddit_weekly import (
     RESEARCH_SCHEMA,
     RedditResearchClient,
+    _concepts,
     _generation_requests,
+    _rank_winners,
     _register_reddit_still,
     build_weekly_briefs,
     run_reddit_generation_request,
@@ -163,6 +165,70 @@ def test_weekly_brief_uses_live_winners_and_detects_unchanged_rules() -> None:
     assert len(briefs[0]["concepts"]) == 3
     assert briefs[0]["referencePostIds"] == ["post-1", "post-2", "post-3"]
     assert briefs[0]["ruleChange"]["reviewRequired"] is False
+
+
+def test_reddit_winners_are_high_upvote_top_and_hot_images() -> None:
+    posts = [
+        {
+            "postId": f"post-{index}",
+            "mediaUrl": f"https://preview.redd.it/post-{index}.jpg",
+            "mediaType": "image",
+            "score": score,
+            "commentCount": index,
+            "listingRanks": {"top_week": index, "hot": index + 1},
+        }
+        for index, score in enumerate(range(1000, 0, -100), start=1)
+    ]
+    posts.append(
+        {
+            "postId": "rising-only",
+            "mediaUrl": "https://preview.redd.it/rising.jpg",
+            "mediaType": "image",
+            "score": 5000,
+            "commentCount": 500,
+            "listingRanks": {"rising": 1},
+        }
+    )
+
+    _rank_winners(posts, listing_limit=25)
+    selected = _concepts(
+        {"subreddit": "r/example", "posts": posts},
+        required_tags=["selfie"],
+        allowed_media_types=["image", "gif"],
+    )
+
+    assert selected[0]["referencePostId"] == "post-1"
+    assert selected[0]["targetMediaType"] == "image"
+    assert all(concept["referencePostId"] != "rising-only" for concept in selected)
+    assert selected[0]["winnerEvidence"]["selectionPolicy"] == (
+        "top_and_hot_high_upvotes.v1"
+    )
+
+
+def test_reddit_gif_is_targeted_only_when_image_is_not_allowed() -> None:
+    post = {
+        "postId": "winner",
+        "mediaUrl": "https://preview.redd.it/winner.jpg",
+        "mediaType": "image",
+        "score": 100,
+        "commentCount": 10,
+        "listingRanks": {"hot": 1},
+    }
+    _rank_winners([post], listing_limit=25)
+
+    image = _concepts(
+        {"subreddit": "r/example", "posts": [post]},
+        required_tags=[],
+        allowed_media_types=["image", "gif"],
+    )
+    gif = _concepts(
+        {"subreddit": "r/example", "posts": [post]},
+        required_tags=[],
+        allowed_media_types=["gif"],
+    )
+
+    assert image[0]["targetMediaType"] == "image"
+    assert gif[0]["targetMediaType"] == "gif"
 
 
 def test_generation_requests_allocate_one_family_to_only_one_account() -> None:

@@ -192,7 +192,8 @@ def test_plan_dry_run_makes_no_writes_and_is_explainable(tmp_path: Path) -> None
     assert len(plan["items"]) == 5
     assert plan["decisionReceipt"]["resultingAllocation"] == {
         "CONTROLLED_VARIATION": 1,
-        "EXPLOIT": 3,
+        "DETERMINISTIC_DEFAULT": 3,
+        "MEASURED_WINNER": 0,
         "EXPLORE": 1,
     }
     assert plan["decisionReceipt"]["observedProfileAllocation"] == {
