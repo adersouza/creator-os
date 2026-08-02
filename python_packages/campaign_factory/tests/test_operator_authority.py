@@ -77,6 +77,13 @@ def test_known_report_commands_are_read_only_without_signing_material(
         assert decision.effect_class == READ
         assert decision.preview is True
 
+    inventory = build_cli_parser().parse_args(
+        ["asset", "inventory", "--campaign", "stacey_learning_cohort_v1"]
+    )
+    decision = authorize_cli_operation(inventory)
+    assert decision.effect_class == READ
+    assert decision.preview is True
+
 
 def test_mutating_command_without_signing_material_fails_closed(
     monkeypatch, tmp_path: Path

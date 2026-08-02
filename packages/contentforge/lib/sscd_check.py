@@ -23,10 +23,37 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
+_LOCAL_MODEL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "models", "sscd_disc_mixup.torchscript.pt"
+)
+_CANONICAL_MODEL_PATH = os.path.join(
+    os.environ.get("CREATOR_OS_MODEL_ROOT", os.path.expanduser("~/.creator-os/models")),
+    "reel_factory",
+    "sscd_disc_mixup.torchscript.pt",
+)
+_SHARED_MODEL_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    "..",
+    "python_packages",
+    "reel_factory",
+    "models",
+    "sscd_disc_mixup.torchscript.pt",
+)
 MODEL_PATH = os.environ.get(
     "CONTENTFORGE_SSCD_MODEL_PATH",
-    os.path.join(
-        os.path.dirname(__file__), "..", "models", "sscd_disc_mixup.torchscript.pt"
+    next(
+        (
+            candidate
+            for candidate in (
+                _CANONICAL_MODEL_PATH,
+                _SHARED_MODEL_PATH,
+                _LOCAL_MODEL_PATH,
+            )
+            if os.path.exists(candidate)
+        ),
+        _CANONICAL_MODEL_PATH,
     ),
 )
 

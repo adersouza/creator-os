@@ -837,7 +837,7 @@ def _tool_version(tool: str) -> str | None:
         return None
     try:
         result = subprocess.run(
-            [executable, "--version"],
+            [executable, "-version" if tool in {"ffmpeg", "ffprobe"} else "--version"],
             check=False,
             capture_output=True,
             text=True,

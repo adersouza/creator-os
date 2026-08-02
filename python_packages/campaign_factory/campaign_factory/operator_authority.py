@@ -64,6 +64,7 @@ _LEGACY_MUTATIONS: Final = {
 }
 _READ_ONLY_COMMANDS: Final = {
     "account-tiers",
+    "asset",
     "campaign-readiness",
     "caption-quality-repair-plan",
     "creative-knowledge-base",
