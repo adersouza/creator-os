@@ -1,7 +1,9 @@
 import { execFile } from "child_process";
 import { existsSync } from "fs";
+import os from "os";
 import path from "path";
 import { getPythonCommand } from "./python-runtime.js";
+import { PROJECT_ROOT } from "./paths.js";
 
 function run(command, args) {
   return new Promise(function (resolve) {
@@ -17,8 +19,24 @@ export async function getLocalDiagnostics() {
   var fpcalc = await run("fpcalc", ["-version"]);
   var pythonCommand = getPythonCommand();
   var python = await run(pythonCommand, ["--version"]);
+  var sharedSscdModelPath = path.resolve(
+    PROJECT_ROOT,
+    "..",
+    "..",
+    "python_packages",
+    "reel_factory",
+    "models",
+    "sscd_disc_mixup.torchscript.pt",
+  );
+  var localSscdModelPath = path.join(PROJECT_ROOT, "models", "sscd_disc_mixup.torchscript.pt");
+  var canonicalSscdModelPath = path.join(
+    process.env.CREATOR_OS_MODEL_ROOT || path.join(os.homedir(), ".creator-os", "models"),
+    "reel_factory",
+    "sscd_disc_mixup.torchscript.pt",
+  );
   var sscdModelPath = process.env.CONTENTFORGE_SSCD_MODEL_PATH ||
-    path.join(process.cwd(), "models", "sscd_disc_mixup.torchscript.pt");
+    [canonicalSscdModelPath, sharedSscdModelPath, localSscdModelPath]
+      .find(existsSync) || canonicalSscdModelPath;
   return {
     ffmpeg: {
       available: !filters.error,

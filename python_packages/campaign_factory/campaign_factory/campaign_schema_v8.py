@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS learning_cohort_assignments (
 );
 CREATE INDEX IF NOT EXISTS idx_learning_cohort_assignment_state
   ON learning_cohort_assignments(cohort_id, day_index, generation_state);
+CREATE INDEX IF NOT EXISTS idx_learning_cohort_assignment_source
+  ON learning_cohort_assignments(cohort_id, source_asset_id);
 """
 
 _ADDITIVE_ASSIGNMENT_COLUMNS: Final = {

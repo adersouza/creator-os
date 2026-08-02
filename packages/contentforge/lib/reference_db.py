@@ -35,9 +35,39 @@ INDEX_DIR = os.path.join(PROJECT_ROOT, "output", "index")
 FAISS_INDEX_PATH = os.path.join(INDEX_DIR, "sscd.faiss")
 METADATA_PATH = os.path.join(INDEX_DIR, "metadata.json")
 PDQ_INDEX_PATH = os.path.join(INDEX_DIR, "pdq_hashes.npy")
+_LOCAL_MODEL_PATH = os.path.join(
+    PROJECT_ROOT, "models", "sscd_disc_mixup.torchscript.pt"
+)
+_CANONICAL_MODEL_PATH = os.path.join(
+    os.environ.get("CREATOR_OS_MODEL_ROOT", os.path.expanduser("~/.creator-os/models")),
+    "reel_factory",
+    "sscd_disc_mixup.torchscript.pt",
+)
+_SHARED_MODEL_PATH = os.path.abspath(
+    os.path.join(
+        PROJECT_ROOT,
+        "..",
+        "..",
+        "python_packages",
+        "reel_factory",
+        "models",
+        "sscd_disc_mixup.torchscript.pt",
+    )
+)
 MODEL_PATH = os.environ.get(
     "CONTENTFORGE_SSCD_MODEL_PATH",
-    os.path.join(PROJECT_ROOT, "models", "sscd_disc_mixup.torchscript.pt"),
+    next(
+        (
+            candidate
+            for candidate in (
+                _CANONICAL_MODEL_PATH,
+                _SHARED_MODEL_PATH,
+                _LOCAL_MODEL_PATH,
+            )
+            if os.path.exists(candidate)
+        ),
+        _CANONICAL_MODEL_PATH,
+    ),
 )
 
 EMBEDDING_DIM = 512

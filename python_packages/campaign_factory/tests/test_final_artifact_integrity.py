@@ -6,7 +6,10 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 from campaign_factory import asset_evidence
-from campaign_factory.adapters.contentforge import _contentforge_analyzer_evidence
+from campaign_factory.adapters.contentforge import (
+    _contentforge_analyzer_evidence,
+    _tool_version,
+)
 
 
 def test_final_artifact_integrity_binds_decode_geometry_caption_and_audio(
@@ -163,3 +166,29 @@ def test_contentforge_analyzer_evidence_fingerprints_implementation(
     assert evidence["analyzerVersion"] == "1.2.3"
     assert len(evidence["implementationFingerprint"]) == 64
     assert evidence["implementationComponents"]["lib/similarity.js"]
+
+
+def test_contentforge_tool_version_uses_ffmpeg_version_flag(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "campaign_factory.adapters.contentforge.shutil.which",
+        lambda tool: f"/bin/{tool}",
+    )
+
+    def run(command: list[str], **_kwargs):
+        calls.append(command)
+        return type(
+            "Result", (), {"returncode": 0, "stdout": "version 1\n", "stderr": ""}
+        )()
+
+    monkeypatch.setattr("campaign_factory.adapters.contentforge.subprocess.run", run)
+
+    assert _tool_version("ffmpeg") == "version 1"
+    assert _tool_version("ffprobe") == "version 1"
+    assert _tool_version("node") == "version 1"
+    assert calls == [
+        ["/bin/ffmpeg", "-version"],
+        ["/bin/ffprobe", "-version"],
+        ["/bin/node", "--version"],
+    ]

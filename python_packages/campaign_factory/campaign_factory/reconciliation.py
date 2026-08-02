@@ -639,6 +639,17 @@ def _check_receipt_paths(
                     {"subjectField": subject_field},
                 )
             path = Path(str(row.get(path_field) or "")).expanduser()
+            if table == "threadsdash_exports" and str(
+                row.get("status") or ""
+            ).lower() in {"dry_run", "failed", "rejected", "superseded"}:
+                _remember_registered_path(
+                    known,
+                    path,
+                    expected_sha="",
+                    subject_type=table,
+                    subject_id=receipt_id,
+                )
+                continue
             if (
                 table == "audit_reports"
                 and root_keyed_path(path, roots) is None
@@ -747,6 +758,18 @@ def _collect_other_database_paths(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
+            deleted_reference_ids = (
+                {
+                    str(row["reference_id"])
+                    for row in external.execute(
+                        "SELECT reference_id FROM reference_lifecycle_state "
+                        "WHERE reference_status = 'deleted'"
+                    ).fetchall()
+                }
+                if database_name == "reference_factory"
+                and "reference_lifecycle_state" in tables
+                else set()
+            )
             for table, id_field, path_field, hash_field in specs:
                 if table not in tables:
                     continue
@@ -762,6 +785,10 @@ def _collect_other_database_paths(
                 selected = f"{id_field}, {path_field}"
                 if hash_field:
                     selected += f", {hash_field}"
+                if table == "frame_samples" and "reference_id" in columns:
+                    selected += ", reference_id"
+                if table == "variations" and "review_state" in columns:
+                    selected += ", review_state"
                 for raw in external.execute(
                     f"SELECT {selected} FROM {table} WHERE {path_field} IS NOT NULL"
                 ):
@@ -770,6 +797,27 @@ def _collect_other_database_paths(
                         continue
                     path = Path(str(row[path_field])).expanduser()
                     expected_sha = str(row.get(hash_field) or "") if hash_field else ""
+                    historical_reference = (
+                        table == "source_files"
+                        and str(row[id_field]) in deleted_reference_ids
+                    ) or (
+                        table == "frame_samples"
+                        and str(row.get("reference_id") or "") in deleted_reference_ids
+                    )
+                    historical_render = table == "render_attempts" or (
+                        table == "variations"
+                        and str(row.get("review_state") or "").lower()
+                        not in {"approved", "reviewed"}
+                    )
+                    if historical_reference or historical_render:
+                        _remember_registered_path(
+                            known,
+                            path,
+                            expected_sha=expected_sha,
+                            subject_type=f"{database_name}.{table}",
+                            subject_id=str(row[id_field]),
+                        )
+                        continue
                     if database_name == "reference_factory" and (
                         table == "public_posts"
                         or (table == "source_files" and not expected_sha)
@@ -907,6 +955,18 @@ def _check_final_evidence(
             or ""
         )
     }
+    approved.update(
+        str(row["rendered_asset_id"])
+        for row in _rows(conn, "existing_media_asset_reviews")
+        if str(row.get("verdict") or "").upper() == "WOULD_POST"
+        and str(row.get("final_sha256") or "")
+        == str(
+            rendered_by_id.get(str(row.get("rendered_asset_id") or ""), {}).get(
+                "content_hash"
+            )
+            or ""
+        )
+    )
     audited = {
         str(row["rendered_asset_id"])
         for row in _rows(conn, "audit_reports")
@@ -918,9 +978,9 @@ def _check_final_evidence(
             or ""
         )
         and str(row.get("status") or "").lower()
-        in {"approved", "approved_candidate", "pass", "passed"}
+        in {"approved", "approved_candidate", "needs_review", "pass", "passed"}
         and str(row.get("overall_verdict") or "").lower()
-        in {"approved", "pass", "passed"}
+        in {"approved", "pass", "passed", "warn"}
         and _has_no_failed_checks(row.get("failed_checks_json"))
     }
     for row in rendered:

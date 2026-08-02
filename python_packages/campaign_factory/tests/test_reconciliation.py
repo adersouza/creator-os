@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from campaign_factory.existing_media import review_existing_asset
 from campaign_factory.reconciliation import (
     reconciliation_report,
     repair_reconciliation_case,
@@ -191,7 +192,7 @@ def test_immutable_audit_path_is_covered_by_exact_managed_copy(tmp_path: Path) -
         cf.close()
 
 
-def test_immutable_render_attempt_keeps_historical_external_path(
+def test_immutable_render_attempt_does_not_require_retained_attempt_bytes(
     tmp_path: Path,
 ) -> None:
     cf = make_factory(tmp_path)
@@ -222,11 +223,74 @@ def test_immutable_render_attempt_keeps_historical_external_path(
 
         external.unlink()
         missing = reconciliation_report(cf.conn, cf.settings)
-        assert any(
+        assert not any(
             item["findingClass"] == "database_row_with_missing_file"
             and item["subjectId"] == "attempt-1"
             for item in missing["findings"]
         )
+    finally:
+        cf.close()
+
+
+def test_deleted_reference_does_not_report_intentionally_removed_bytes(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.settings.reference_factory_db.parent.mkdir(parents=True, exist_ok=True)
+        reference = sqlite3.connect(cf.settings.reference_factory_db)
+        reference.executescript(
+            """
+            CREATE TABLE source_files (
+                reference_id TEXT PRIMARY KEY,
+                path TEXT,
+                content_hash TEXT,
+                intake_receipt_path TEXT
+            );
+            CREATE TABLE reference_lifecycle_state (
+                reference_id TEXT PRIMARY KEY,
+                reference_status TEXT NOT NULL
+            );
+            CREATE TABLE frame_samples (
+                id TEXT PRIMARY KEY,
+                reference_id TEXT NOT NULL,
+                frame_path TEXT NOT NULL
+            );
+            """
+        )
+        missing = tmp_path / "removed-reference.mp4"
+        reference.execute(
+            "INSERT INTO source_files VALUES ('deleted-ref', ?, ?, NULL)",
+            (str(missing), hashlib.sha256(b"removed").hexdigest()),
+        )
+        reference.execute(
+            "INSERT INTO source_files VALUES ('active-ref', ?, ?, NULL)",
+            (str(missing), hashlib.sha256(b"active").hexdigest()),
+        )
+        reference.execute(
+            "INSERT INTO reference_lifecycle_state VALUES ('deleted-ref', 'deleted')"
+        )
+        reference.execute(
+            "INSERT INTO frame_samples VALUES ('deleted-frame', 'deleted-ref', ?)",
+            (str(tmp_path / "removed-frame.jpg"),),
+        )
+        reference.execute(
+            "INSERT INTO frame_samples VALUES ('active-frame', 'active-ref', ?)",
+            (str(tmp_path / "active-frame.jpg"),),
+        )
+        reference.commit()
+        reference.close()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+        missing_ids = {
+            item["subjectId"]
+            for item in report["findings"]
+            if item["findingClass"] == "database_row_with_missing_file"
+        }
+        assert "deleted-ref" not in missing_ids
+        assert "active-ref" in missing_ids
+        assert "deleted-frame" not in missing_ids
+        assert "active-frame" in missing_ids
     finally:
         cf.close()
 
@@ -483,6 +547,106 @@ def test_failed_exact_sha_audit_is_not_final_evidence(tmp_path: Path) -> None:
         assert not any(
             item["findingClass"] == "registered_asset_without_final_evidence"
             and item["subjectId"] == "rendered_failed_audit"
+            for item in reconciliation_report(cf.conn, cf.settings)["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_exact_would_post_review_and_warning_audit_are_final_evidence(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        source_path = tmp_path / "source.mp4"
+        source_path.write_bytes(b"source")
+        source_id = _source(cf, source_path)
+        campaign_id = cf.conn.execute(
+            "SELECT campaign_id FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()[0]
+        output = tmp_path / "approved.mp4"
+        output.write_bytes(b"rendered")
+        digest = hashlib.sha256(output.read_bytes()).hexdigest()
+        now = "2026-07-30T00:00:00+00:00"
+        cf.conn.execute(
+            """
+            INSERT INTO rendered_assets
+            (id, campaign_id, source_asset_id, content_hash, output_path,
+             campaign_path, filename, audit_status, review_state, created_at,
+             updated_at)
+            VALUES ('warned_asset', ?, ?, ?, ?, ?, ?, 'needs_review',
+                    'review_ready', ?, ?)
+            """,
+            (
+                campaign_id,
+                source_id,
+                digest,
+                str(output),
+                str(output),
+                output.name,
+                now,
+                now,
+            ),
+        )
+        cf.conn.commit()
+        review_existing_asset(
+            cf.conn,
+            rendered_asset_id="warned_asset",
+            final_sha256=digest,
+            reviewer="operator",
+            verdict="WOULD_POST",
+            results={},
+            notes=None,
+            apply=True,
+        )
+        report_path = tmp_path / "warned.audit.json"
+        report_path.write_text("{}", encoding="utf-8")
+        cf.conn.execute(
+            """
+            INSERT INTO audit_reports
+            (id, campaign_id, rendered_asset_id, subject_sha256, report_path,
+             score, status, overall_verdict, failed_checks_json, created_at)
+            VALUES ('warned_audit', ?, 'warned_asset', ?, ?, 84,
+                    'needs_review', 'warn', '[]', ?)
+            """,
+            (campaign_id, digest, str(report_path), now),
+        )
+        cf.conn.commit()
+
+        assert not any(
+            item["findingClass"] == "registered_asset_without_final_evidence"
+            and item["subjectId"] == "warned_asset"
+            for item in reconciliation_report(cf.conn, cf.settings)["findings"]
+        )
+    finally:
+        cf.close()
+
+
+def test_terminal_threadsdash_export_does_not_require_ephemeral_manifest(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        source_path = tmp_path / "source.mp4"
+        source_path.write_bytes(b"source")
+        source_id = _source(cf, source_path)
+        campaign_id = cf.conn.execute(
+            "SELECT campaign_id FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()[0]
+        missing = tmp_path / "dry-run-export.json"
+        cf.conn.execute(
+            """
+            INSERT INTO threadsdash_exports
+            (id, campaign_id, manifest_path, user_id, dry_run, status, created_at)
+            VALUES ('dry_export', ?, ?, 'operator', 1, 'dry_run', ?)
+            """,
+            (campaign_id, str(missing), "2026-07-30T00:00:00+00:00"),
+        )
+        cf.conn.commit()
+
+        assert not any(
+            item["findingClass"] == "database_row_with_missing_file"
+            and item["subjectId"] == "dry_export"
             for item in reconciliation_report(cf.conn, cf.settings)["findings"]
         )
     finally:
