@@ -146,7 +146,7 @@ def test_fixture_master_proof_consumes_one_supervised_active_recommendation(
             publishedAt="2026-07-25T00:00:00Z",
             snapshotAt="2026-07-26T00:00:00Z",
         )
-        for index in (1, 2, 3)
+        for index in range(1, 11)
     ]
     pack = _pack(outcomes)
     conn.execute(
@@ -181,6 +181,7 @@ def test_fixture_master_proof_consumes_one_supervised_active_recommendation(
     recommendations = build_measured_recommendations(
         pack, now=datetime(2026, 7, 27, tzinfo=UTC)
     )
+    assert recommendations[0]["sampleCount"] == 10
     assert recommendations[0]["eligibleForOperatorApproval"], recommendations
     persisted = persist_measured_recommendations(conn, recommendations, pack=pack)
     assert persisted["itemsInserted"] == 1, persisted

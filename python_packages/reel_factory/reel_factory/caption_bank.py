@@ -88,6 +88,48 @@ def caption_hook_payload(item: dict[str, Any]) -> str | dict[str, Any]:
     return {"segments": [dict(segment) for segment in segments]}
 
 
+def timed_caption_is_production_eligible(item: dict[str, Any]) -> bool:
+    """Require explicit semantic approval and structured visual matching."""
+    if str(item.get("variant_type") or "static") != "timed":
+        return True
+    required_approval = (
+        "approval_id",
+        "approval_file_sha",
+        "approval_reviewer",
+        "approval_decided_at",
+    )
+    if any(not str(item.get(key) or "").strip() for key in required_approval):
+        return False
+    approval_sha = str(item["approval_file_sha"]).strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", approval_sha):
+        return False
+    content_match = item.get("content_match")
+    if not isinstance(content_match, dict):
+        return False
+    for key in ("family", "visual_intensity", "delivery"):
+        if (
+            not isinstance(content_match.get(key), str)
+            or not content_match[key].strip()
+        ):
+            return False
+    for key in ("scene_tags", "action_tags", "required_context_tags"):
+        tags = content_match.get(key)
+        if not isinstance(tags, list) or any(
+            not isinstance(tag, str) or not tag.strip() for tag in tags
+        ):
+            return False
+    if not content_match["scene_tags"] or not content_match["action_tags"]:
+        return False
+    timing_anchor = content_match.get("timing_anchor")
+    if timing_anchor is not None and (
+        not isinstance(timing_anchor, str) or not timing_anchor.strip()
+    ):
+        return False
+    if content_match["delivery"] == "event_synced" and not timing_anchor:
+        return False
+    return True
+
+
 def _canonical_caption_payload(
     hook: str | dict[str, Any],
     *,
@@ -630,9 +672,14 @@ class CaptionBankStore:
                 item
                 for item in self.banks.get(bank, [])
                 if str(item.get("variant_type") or "static") in variant_types
+                and timed_caption_is_production_eligible(item)
                 and evaluate_overlay_semantic_completeness(
                     caption_hook_payload(item),
-                    human_semantic_approval=bool(item.get("approval_id")),
+                    human_semantic_approval=(
+                        timed_caption_is_production_eligible(item)
+                        if str(item.get("variant_type") or "static") == "timed"
+                        else bool(item.get("approval_id"))
+                    ),
                 ).get("passed")
             ]
             for bank in weights
