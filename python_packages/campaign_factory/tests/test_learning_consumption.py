@@ -6,6 +6,7 @@ import sqlite3
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
 from campaign_factory.audio_radar.models import PlatformSoundId, TrendCandidate
 from campaign_factory.db import init_db
 from campaign_factory.learning_consumption import (
@@ -40,15 +41,15 @@ def _outcome(index: int, *, bucket: str = "approximately_24h", **changes):
         "accountGroupId": "stacey-group",
         "contentIntent": "passive_selfie",
         "publishedAt": "2026-07-01T00:00:00Z",
-        "snapshotAt": (
-            "2026-07-02T00:00:00Z"
-            if bucket == "approximately_24h"
-            else "2026-07-01T01:00:00Z"
-        ),
+        "snapshotAt": {
+            "approximately_1h": "2026-07-01T01:00:00Z",
+            "approximately_24h": "2026-07-02T00:00:00Z",
+            "approximately_72h": "2026-07-04T00:00:00Z",
+        }[bucket],
         "observationBucket": bucket,
         "sourceAssetId": "source_2",
         "sourceSha256": "b" * 64,
-        "finalMediaSha256": f"{index}" * 64,
+        "finalMediaSha256": f"{index:064x}",
         "publicationStatus": "published",
         "historySource": "metric_history",
         "metricsEligible": True,
@@ -130,6 +131,13 @@ def test_equal_age_minimum_and_one_hour_policy() -> None:
     assert one_hour[0]["sampleCount"] == 3
     assert one_hour[0]["eligibleForOperatorApproval"] is False
     assert "one_hour_evidence_is_advisory_only" in one_hour[0]["risks"]
+    three_24h = build_measured_recommendations(
+        _pack([_outcome(index) for index in range(1, 4)]), now=now
+    )
+    assert three_24h[0]["sampleCount"] == 3
+    assert three_24h[0]["evidenceTier"] == "early_advisory"
+    assert three_24h[0]["eligibleForOperatorApproval"] is False
+    assert "insufficient_samples" in three_24h[0]["risks"]
 
 
 def test_evidence_tiers_never_call_three_outcomes_a_winner() -> None:
@@ -156,6 +164,33 @@ def test_evidence_tiers_never_call_three_outcomes_a_winner() -> None:
         for row in recommendation["hierarchicalEvidence"][1:]
     )
     assert "winner" not in json.dumps(recommendation).lower()
+
+
+def test_boolean_only_experiment_claim_is_rejected() -> None:
+    recommendation = build_measured_recommendations(
+        _pack(
+            [
+                _outcome(index, controlledMatchedExperiment=True)
+                for index in range(1, 11)
+            ]
+        ),
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )[0]
+
+    assert recommendation["classification"] == "INELIGIBLE"
+    assert recommendation["eligibleForOperatorApproval"] is False
+    assert "unverified_experiment_evidence" in recommendation["risks"]
+
+
+def test_72h_outcomes_are_confirmatory_not_policy_eligible() -> None:
+    recommendation = build_measured_recommendations(
+        _pack([_outcome(index, bucket="approximately_72h") for index in range(1, 11)]),
+        now=datetime(2026, 7, 5, tzinfo=UTC),
+    )[0]
+
+    assert recommendation["sampleCount"] == 10
+    assert recommendation["eligibleForOperatorApproval"] is False
+    assert "seventy_two_hour_evidence_is_confirmatory_only" in recommendation["risks"]
 
 
 def test_explicit_learning_objective_selects_versioned_v2_score() -> None:
@@ -187,9 +222,9 @@ def test_missing_or_mixed_age_and_fixture_evidence_is_not_promoted() -> None:
     }
 
 
-def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() -> None:
+def test_ten_equal_age_outcomes_require_operator_approval_and_stay_scoped() -> None:
     conn = _conn()
-    pack = _pack([_outcome(1), _outcome(2), _outcome(3)])
+    pack = _pack([_outcome(index) for index in range(1, 11)])
     conn.execute(
         """
         INSERT INTO reference_knowledge_packs
@@ -220,6 +255,7 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
         ),
     )
     recs = build_measured_recommendations(pack, now=datetime(2026, 7, 3, tzinfo=UTC))
+    assert recs[0]["sampleCount"] == 10
     assert recs[0]["eligibleForOperatorApproval"] is True
     persisted = persist_measured_recommendations(conn, recs, pack=pack)
     assert persisted["itemsInserted"] == 1
@@ -324,9 +360,72 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
         assert other_decision["fallbackReason"] == "no_creator_match"
 
 
+def test_three_equal_age_outcomes_cannot_authorize_policy() -> None:
+    conn = _conn()
+    pack = _pack([_outcome(index) for index in range(1, 4)])
+    conn.execute(
+        """
+        INSERT INTO reference_knowledge_packs
+        (id, schema_version, source_fingerprint, generated_at, policy_json,
+         summary_json, payload_json, imported_at, updated_at)
+        VALUES (?, 'reference_factory.knowledge_pack.v1', ?, ?, '{}', '{}', ?, ?, ?)
+        """,
+        (
+            pack["packId"],
+            pack["sourceFingerprint"],
+            pack["generatedAt"],
+            json.dumps(pack),
+            pack["generatedAt"],
+            pack["generatedAt"],
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_patterns
+        (id, cluster_key, label, prompt_template_json, raw_json,
+         imported_at, updated_at)
+        VALUES ('refpat_10012097369458bf', 'pattern_1', 'Pattern', '{}', '{}', ?, ?)
+        """,
+        (pack["generatedAt"], pack["generatedAt"]),
+    )
+    recommendation = build_measured_recommendations(
+        pack, now=datetime(2026, 7, 3, tzinfo=UTC)
+    )[0]
+    assert (
+        recommendation_state(
+            "accepted",
+            recommendation,
+            current_pack_id=pack["packId"],
+            now=datetime(2026, 7, 3, tzinfo=UTC),
+        )
+        == "ADVISORY"
+    )
+    persist_measured_recommendations(conn, [recommendation], pack=pack)
+    conn.execute("UPDATE recommendation_items SET status = 'accepted'")
+    recommendation_id = str(
+        conn.execute("SELECT id FROM recommendation_items").fetchone()["id"]
+    )
+
+    with pytest.raises(ValueError, match="recommendation evidence is not eligible"):
+        authorize_learning_policy(
+            conn,
+            recommendation_item_id=recommendation_id,
+            operator="test_operator",
+            reason="three samples must remain advisory",
+        )
+
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM learning_governance_registry "
+            "WHERE state = 'policy_authorized'"
+        ).fetchone()[0]
+        == 0
+    )
+
+
 def test_wrong_account_intent_and_revocation_prevent_consumption() -> None:
     conn = _conn()
-    pack = _pack([_outcome(1), _outcome(2), _outcome(3)])
+    pack = _pack([_outcome(index) for index in range(1, 11)])
     rec = build_measured_recommendations(pack, now=datetime(2026, 7, 3, tzinfo=UTC))[0]
     # State classification is fail-closed even before persistence.
     assert (
@@ -457,6 +556,37 @@ def test_observation_bucket_never_turns_missing_into_zero() -> None:
         observation_bucket("2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z")
         == "approximately_24h"
     )
+    assert observation_bucket("2026-07-01T00:00:00Z", "2026-07-01T00:44:59Z") is None
+    assert (
+        observation_bucket("2026-07-01T00:00:00Z", "2026-07-01T00:45:00Z")
+        == "approximately_1h"
+    )
+    assert (
+        observation_bucket("2026-07-01T00:00:00Z", "2026-07-04T04:00:00Z")
+        == "approximately_72h"
+    )
+    assert observation_bucket("2026-07-01T00:00:00Z", "2026-07-04T04:00:01Z") is None
+
+
+def test_no_persisted_pack_is_not_reported_as_learning_consulted() -> None:
+    conn = _conn()
+    sources = [{"id": "source_1", "content_hash": "a" * 64, "status": "approved"}]
+
+    selected, prompt, decision = apply_learning_to_production_plan(
+        conn,
+        creator="stacey",
+        creator_identity_profile="soul_stacey",
+        account="stacey-main",
+        intent="passive_selfie",
+        sources=sources,
+        base_prompt="Base prompt.",
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )
+
+    assert selected == sources
+    assert prompt == "Base prompt."
+    assert decision["learningConsulted"] is False
+    assert decision["fallbackReason"] == "no_persisted_pack"
 
 
 def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
@@ -501,10 +631,10 @@ def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
             "account": "stacey-main",
             "intent": "passive_selfie",
             "observationBucket": "approximately_24h",
-            "finalMediaSha256": str(index) * 64,
-            "snapshotAt": f"2026-07-{24 + index:02d}T12:00:00Z",
+            "finalMediaSha256": f"{index:064x}",
+            "snapshotAt": "2026-07-27T12:00:00Z",
         }
-        for index in (1, 2, 3)
+        for index in range(1, 11)
     ]
     conn.execute(
         """
@@ -512,7 +642,7 @@ def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
           id, campaign_id, account_id, audio_catalog_id, audio_key, post_count,
           score, stats_json, updated_at
         ) VALUES ('rollup_1', 'campaign_1', 'stacey-main', 'aud_exact',
-                  'tiktok:music_1', 3, 9.5, ?, ?)
+                  'tiktok:music_1', 10, 9.5, ?, ?)
         """,
         (json.dumps({"exactPublicationLinkages": links}), now),
     )
@@ -520,7 +650,7 @@ def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
         conn, pack=pack, now=datetime(2026, 7, 28, tzinfo=UTC)
     )
     assert len(recs) == 1
-    assert recs[0]["sampleCount"] == 3
+    assert recs[0]["sampleCount"] == 10
     assert recs[0]["eligibleForOperatorApproval"] is True
     persist_measured_recommendations(conn, recs, pack=pack)
     scores, ids = approved_audio_performance(
@@ -616,11 +746,11 @@ def test_audio_policy_reads_exact_equal_age_outcomes(monkeypatch) -> None:
         """,
         (("aud_good", "Good", now, now), ("aud_cold", "Cold", now, now)),
     )
-    for index in range(3):
+    for index in range(10):
         post_id = f"post_audio_{index}"
         selection_id = f"selection_{index}"
-        published_at = f"2026-07-0{index + 1}T12:00:00Z"
-        snapshot_at = f"2026-07-0{index + 2}T12:00:00Z"
+        published_at = "2026-07-01T12:00:00Z"
+        snapshot_at = "2026-07-02T12:00:00Z"
         linkage = {
             "creator": "stacey",
             "creatorIdentityProfile": "soul_stacey",
@@ -720,7 +850,7 @@ def test_audio_policy_reads_exact_equal_age_outcomes(monkeypatch) -> None:
 
     assert policy["scoreAdjustments"]["track_good"] > 0
     assert "track_cold" not in policy["scoreAdjustments"]
-    assert policy["measuredEvidence"][0]["sampleCount"] == 3
+    assert policy["measuredEvidence"][0]["sampleCount"] == 10
     assert policy["measuredEvidence"][0]["observationBucket"] == "approximately_24h"
     assert policy["preferredSegmentOffsets"] == {"track_good": [0.0]}
 
@@ -778,7 +908,7 @@ def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) ->
             preferred_sha = digest
     outcomes = [
         _outcome(index, creatorIdentityProfile=soul_id, sourceSha256=preferred_sha)
-        for index in (1, 2, 3)
+        for index in range(1, 11)
     ]
     pack = _pack(outcomes)
     conn.execute(

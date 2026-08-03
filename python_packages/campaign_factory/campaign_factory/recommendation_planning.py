@@ -338,6 +338,9 @@ class RecommendationPlanningMixin:
                     else "advisory",
                     "performanceScore": self._performance_quality_score(performance),
                     "planningScore": self._performance_planning_score(performance),
+                    "posteriorRanking": (performance.get("learning") or {}).get(
+                        "posteriorRanking"
+                    ),
                     "bandit": (performance.get("learning") or {}).get("bandit"),
                     "performance": performance,
                 }
@@ -400,6 +403,9 @@ class RecommendationPlanningMixin:
                     "sampleSize": int(performance.get("count") or 0),
                     "performanceScore": self._performance_quality_score(performance),
                     "planningScore": self._performance_planning_score(performance),
+                    "posteriorRanking": (performance.get("learning") or {}).get(
+                        "posteriorRanking"
+                    ),
                     "bandit": (performance.get("learning") or {}).get("bandit"),
                     "performance": performance,
                 }
@@ -437,6 +443,7 @@ class RecommendationPlanningMixin:
                     "sampleSize",
                     "performanceScore",
                     "planningScore",
+                    "posteriorRanking",
                     "bandit",
                     "recommendationStatus",
                 )

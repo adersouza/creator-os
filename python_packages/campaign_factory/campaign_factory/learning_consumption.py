@@ -9,6 +9,7 @@ from typing import Any
 
 from .audio_learning_policy import measured_audio_performance
 from .learning_governance import (
+    MINIMUM_POLICY_SAMPLE_COUNT,
     register_recommendation,
     resolve_active_learning_policy,
 )
@@ -21,8 +22,9 @@ from .persistence import json_load
 
 LEARNING_RECOMMENDATION_SCOPE = "learning_consumption"
 LEARNING_RECOMMENDATION_VERSION = "learning_consumption.v2"
-MINIMUM_PRODUCTION_EXAMPLES = 3
-PRODUCTION_BUCKETS = ("approximately_72h", "approximately_24h")
+PRIMARY_POLICY_BUCKET = "approximately_24h"
+CONFIRMATORY_POLICY_BUCKET = "approximately_72h"
+PRODUCTION_BUCKETS = (PRIMARY_POLICY_BUCKET,)
 RECOMMENDATION_MAX_AGE_DAYS = 42
 AUDIO_LEARNING_OBJECTIVE = "content_testing"
 AUDIO_LEARNING_POLICY_VERSION = "exact_outcome_context_v1"
@@ -56,11 +58,11 @@ def observation_bucket(published_at: object, snapshot_at: object) -> str | None:
     if published is None or observed is None or observed < published:
         return None
     hours = (observed - published).total_seconds() / 3600
-    if 0.5 <= hours <= 2:
+    if 0.75 <= hours <= 3:
         return "approximately_1h"
     if 20 <= hours <= 28:
         return "approximately_24h"
-    if 66 <= hours <= 78:
+    if 68 <= hours <= 76:
         return "approximately_72h"
     return None
 
@@ -244,7 +246,7 @@ def build_audio_recommendations(
         }
         sample_count = len(unique)
         eligible = (
-            sample_count >= MINIMUM_PRODUCTION_EXAMPLES and bucket in PRODUCTION_BUCKETS
+            sample_count >= MINIMUM_POLICY_SAMPLE_COUNT and bucket in PRODUCTION_BUCKETS
         )
         latest = max(str(link.get("snapshotAt") or "") for link in unique.values())
         score = max(float(link.get("rollupScore") or 0.0) for link in unique.values())
@@ -325,6 +327,11 @@ def production_outcome_ineligibility_reasons(
         reasons.append("failed_or_unpublished")
     if outcome.get("fixture") is True:
         reasons.append("fixture")
+    # A boolean assertion cannot establish a controlled experiment. The governed
+    # observed-experiment lane validates the immutable design and assignment
+    # receipts separately; generic knowledge-pack outcomes must fail closed.
+    if outcome.get("controlledMatchedExperiment") is True:
+        reasons.append("unverified_experiment_evidence")
     governance = outcome.get("governanceEligibility")
     if isinstance(governance, Mapping):
         if governance.get("eligible") is not True:
@@ -557,7 +564,7 @@ def apply_learning_to_production_plan(
     base_order = [str(source["id"]) for source in base_sources]
     decision = {
         "schema": "campaign_factory.learning_decision_receipt.v1",
-        "learningConsulted": True,
+        "learningConsulted": False,
         "learningEligible": False,
         "learningApplied": False,
         "finalChoiceChanged": False,
@@ -595,6 +602,7 @@ def apply_learning_to_production_plan(
     if row is None:
         decision["fallbackReason"] = "no_persisted_pack"
         return base_sources, base_prompt, decision
+    decision["learningConsulted"] = True
     pack = json_load(row["payload_json"], {})
     try:
         validate_pack_fingerprint(pack)
@@ -770,7 +778,11 @@ def recommendation_state(
         return "EXPIRED"
     if evidence.get("classification") == "INELIGIBLE":
         return "INELIGIBLE"
-    if stored_status == "accepted":
+    if (
+        stored_status == "accepted"
+        and evidence.get("eligibleForOperatorApproval") is True
+        and int(evidence.get("sampleCount") or 0) >= MINIMUM_POLICY_SAMPLE_COUNT
+    ):
         return "SUPERVISED_ACTIVE"
     return "ADVISORY"
 
@@ -886,7 +898,7 @@ def audio_policy_for_candidates(
         now=now,
         observation_bucket=observation_bucket,
         production_buckets=PRODUCTION_BUCKETS,
-        minimum_examples=MINIMUM_PRODUCTION_EXAMPLES,
+        minimum_examples=MINIMUM_POLICY_SAMPLE_COUNT,
         objective=AUDIO_LEARNING_OBJECTIVE,
         policy_version=AUDIO_LEARNING_POLICY_VERSION,
     )
@@ -1070,15 +1082,9 @@ def _pattern_recommendation(
     outcomes = [unique[key] for key in sorted(unique)]
     sample_count = len(outcomes)
     production_eligible = (
-        sample_count >= MINIMUM_PRODUCTION_EXAMPLES and bucket in PRODUCTION_BUCKETS
+        sample_count >= MINIMUM_POLICY_SAMPLE_COUNT and bucket in PRODUCTION_BUCKETS
     )
-    tier = evidence_tier(
-        sample_count,
-        controlled_matched_experiment=all(
-            (item.get("outcome") or {}).get("controlledMatchedExperiment") is True
-            for item in outcomes
-        ),
-    )
+    tier = evidence_tier(sample_count)
     latest_observation = max(
         str((item.get("outcome") or {}).get("snapshotAt") or "") for item in outcomes
     )
@@ -1159,7 +1165,9 @@ def _pattern_recommendation(
     risks = []
     if bucket == "approximately_1h":
         risks.append("one_hour_evidence_is_advisory_only")
-    if sample_count < MINIMUM_PRODUCTION_EXAMPLES:
+    if bucket == CONFIRMATORY_POLICY_BUCKET:
+        risks.append("seventy_two_hour_evidence_is_confirmatory_only")
+    if sample_count < MINIMUM_POLICY_SAMPLE_COUNT:
         risks.append("insufficient_samples")
     return {
         **core,

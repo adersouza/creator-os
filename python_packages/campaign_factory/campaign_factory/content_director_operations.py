@@ -307,7 +307,9 @@ def design_experiment(
         "variants": list(variants),
         "assignmentMethod": assignment_method,
         "deterministicSeed": seed,
-        "requiredObservationCohort": "72h" if observed else "24h",
+        "requiredObservationCohort": (
+            "24h_primary_72h_confirmatory" if observed else "24h"
+        ),
         "minimumSampleWarning": (
             "fewer than three matched pairs are insufficient"
             if observed
