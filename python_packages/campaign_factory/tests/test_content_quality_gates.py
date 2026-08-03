@@ -1398,6 +1398,87 @@ def test_contentforge_audit_can_target_explicit_rendered_assets(
         cf.close()
 
 
+def test_contentforge_family_audit_compares_siblings_and_requires_pdq_sscd_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_final_artifact_integrity(monkeypatch)
+    cf = make_factory(tmp_path)
+    seen: dict[str, Any] = {}
+
+    def fake_similarity(_contentforge_root, **kwargs):
+        seen.update(kwargs)
+        return {
+            "targetFile": kwargs["target_file"],
+            "layers": {"pdq": {}, "sscd": {}},
+            "verdicts": {"pdq": "warn", "sscd": "pass"},
+            "overallVerdict": "warn",
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "blockingCodes": [],
+                "warningCodes": [],
+            },
+            "filesAnalyzed": 1,
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        first = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        sibling_path = tmp_path / "sibling.mp4"
+        sibling_path.write_bytes(b"sibling-rendered")
+        sibling = {
+            **first,
+            "id": "asset_2",
+            "filename": sibling_path.name,
+            "output_path": str(sibling_path),
+            "campaign_path": str(sibling_path),
+            "content_hash": hashlib.sha256(sibling_path.read_bytes()).hexdigest(),
+            "variant_family_id": "vfam_shared",
+        }
+        columns = list(sibling)
+        cf.conn.execute(
+            f"INSERT INTO rendered_assets ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            [sibling[column] for column in columns],
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET variant_family_id = ? WHERE id = ?",
+            ("vfam_shared", "asset_1"),
+        )
+        cf.conn.commit()
+
+        result = audit_campaign(
+            cf,
+            campaign_slug="may",
+            rendered_asset_ids=["asset_1"],
+            layers=["temporal"],
+        )
+
+        report = result["reports"][0]
+        assert seen["layers"] == ["temporal", "pdq", "sscd"]
+        assert len(seen["comparison_files"]) == 1
+        assert report["variantFamilyDistinctness"] == {
+            "variantFamilyId": "vfam_shared",
+            "comparisonCount": 1,
+            "siblings": [
+                {
+                    "renderedAssetId": "asset_2",
+                    "subjectSha256": sibling["content_hash"],
+                }
+            ],
+        }
+        assert report["overallVerdict"] == "fail"
+        assert report["readinessSummary"]["uploadReady"] is False
+        assert "variant_family_pdq_distinctness_not_passed" in report["failedChecks"]
+    finally:
+        cf.close()
+
+
 def test_variation_batch_audit_sends_all_siblings_and_writes_report(
     tmp_path: Path, monkeypatch
 ):
