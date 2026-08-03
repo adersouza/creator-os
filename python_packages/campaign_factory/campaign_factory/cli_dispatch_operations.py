@@ -1091,6 +1091,9 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 review_batch=args.review_batch,
                 caption_placement_policy=args.caption_placement_policy,
                 caption_placement_decision=placement_decision,
+                product_mode=args.product_mode,
+                product_mode_evidence_source=args.product_mode_evidence_source,
+                product_mode_evidence_sha256=args.product_mode_evidence_sha256,
             )
         )
         return 0
