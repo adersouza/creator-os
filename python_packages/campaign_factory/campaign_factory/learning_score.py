@@ -316,8 +316,14 @@ def performance_planning_score(summary: dict[str, Any]) -> int | None:
     learning = (
         summary.get("learning") if isinstance(summary.get("learning"), dict) else {}
     )
-    bandit = learning.get("bandit") if isinstance(learning.get("bandit"), dict) else {}
-    score = bandit.get("planningScore")
+    posterior_ranking = (
+        learning.get("posteriorRanking")
+        if isinstance(learning.get("posteriorRanking"), dict)
+        else learning.get("bandit")
+        if isinstance(learning.get("bandit"), dict)
+        else {}
+    )
+    score = posterior_ranking.get("planningScore")
     if isinstance(score, (int, float)):
         return int(max(0, min(100, round(score))))
     return performance_score(summary)
@@ -408,7 +414,7 @@ def learning_summary(
         (PRIOR_STRENGTH * PRIOR_RELATIVE_REWARD) + (weight_total * weighted_mean)
     ) / (PRIOR_STRENGTH + weight_total)
     score = 50 + ((shrunk - 1.0) * 30)
-    bandit = bandit_summary(
+    posterior_ranking = posterior_ranking_summary(
         beat_weight=beat_weight, miss_weight=miss_weight, effective_trials=weight_total
     )
     return {
@@ -426,11 +432,13 @@ def learning_summary(
         "recencyHalfLifeDays": RECENCY_HALF_LIFE_DAYS,
         "defaultRewardBaseline": DEFAULT_REWARD_BASELINE,
         "baselineSourceCounts": baseline_source_counts,
-        "bandit": bandit,
+        "posteriorRanking": posterior_ranking,
+        # Compatibility only. This is not a randomized bandit selection policy.
+        "bandit": posterior_ranking,
     }
 
 
-def bandit_summary(
+def posterior_ranking_summary(
     *, beat_weight: float, miss_weight: float, effective_trials: float
 ) -> dict[str, Any]:
     alpha = 1.0 + max(0.0, beat_weight)
@@ -439,15 +447,17 @@ def bandit_summary(
     exploration_priority = (
         "explore" if effective_trials < EXPLORATION_MIN_EFFECTIVE_TRIALS else "exploit"
     )
-    # Deterministic Thompson-ready planning score: posterior expectation plus a
-    # bounded cold-start floor. The random sampler can be introduced later
-    # without changing stored arm statistics.
+    # Deterministic posterior planning score: posterior expectation plus a
+    # bounded cold-start floor. No randomized arm selection occurs here.
     exploration_bonus = EXPLORATION_FLOOR * max(
         0.0, 1.0 - min(1.0, effective_trials / EXPLORATION_MIN_EFFECTIVE_TRIALS)
     )
     planning_score = min(1.0, posterior_mean + exploration_bonus) * 100.0
     return {
         "algorithm": "beta_bernoulli_decayed_v1",
+        "method": "deterministic_beta_posterior_ranking_v1",
+        "selectionMode": "deterministic",
+        "randomized": False,
         "rewardEvent": "relative_reward_beats_account_baseline",
         "alpha": round(alpha, 4),
         "beta": round(beta, 4),
@@ -458,6 +468,17 @@ def bandit_summary(
         "explorationPriority": exploration_priority,
         "explorationMinEffectiveTrials": EXPLORATION_MIN_EFFECTIVE_TRIALS,
     }
+
+
+def bandit_summary(
+    *, beat_weight: float, miss_weight: float, effective_trials: float
+) -> dict[str, Any]:
+    """Compatibility alias for callers that have not adopted the truthful label."""
+    return posterior_ranking_summary(
+        beat_weight=beat_weight,
+        miss_weight=miss_weight,
+        effective_trials=effective_trials,
+    )
 
 
 def latest_snapshots_by_post(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:

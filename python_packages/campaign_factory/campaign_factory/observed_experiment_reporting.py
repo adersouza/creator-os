@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from statistics import median
 from typing import Any
 
+from pipeline_contracts import validate_experiment_assignment_receipt
+
 from .learning_governance import (
     canonical_learning_eligibility,
     register_experiment_interpretation,
@@ -19,7 +21,8 @@ from .learning_governance import (
 
 OBSERVED_MEASUREMENT_PLAN = {
     "schema": "creator_os.observed_profile_measurement_plan.v1",
-    "primary": "72h reach; views only when reach is unavailable on both arms",
+    "primary": "24h reach; views only when reach is unavailable on both arms",
+    "confirmatory": "72h reach; views only when reach is unavailable on both arms",
     "secondary": [
         "impressions",
         "averageWatchTime",
@@ -34,7 +37,7 @@ OBSERVED_MEASUREMENT_PLAN = {
         "maximumMedianRegression": 0.10,
         "minimumAvailableMetrics": 1,
     },
-    "normalization": "trailing same-account 72h median",
+    "normalization": "trailing same-account equal-age median",
     "comparison": "normalized treatment/control lift within parent-family pair",
     "exclusions": [
         "publication_ambiguity",
@@ -271,6 +274,24 @@ def observed_experiment_report(
         raise ValueError(
             "experiment is not an observed-profile matched-pair experiment"
         )
+    if experiment["changed_variable"] != "observed_profile":
+        raise ValueError("observed-profile experiment changed variable is invalid")
+    controlled = set(json.loads(experiment["controlled_variables_json"] or "[]"))
+    if controlled != {
+        "creator",
+        "account",
+        "content_intent",
+        "observation_cohort",
+        "publication_window",
+    }:
+        raise ValueError("observed-profile experiment controls are invalid")
+    variants = json.loads(experiment["variants_json"] or "[]")
+    if (
+        len(variants) != 2
+        or variants[0] != "control"
+        or variants[1] not in OBSERVED_PROFILE_SEQUENCE
+    ):
+        raise ValueError("observed-profile experiment variants are invalid")
     predeclared = _json_object(experiment["interpretation_json"]).get("measurementPlan")
     if predeclared != OBSERVED_MEASUREMENT_PLAN:
         raise ValueError("observed-profile measurement plan was not predeclared")
@@ -288,6 +309,9 @@ def observed_experiment_report(
     grouped: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for event in events:
         receipt = json.loads(event["receipt_json"])
+        validate_experiment_assignment_receipt(receipt)
+        if receipt.get("experimentId") != experiment_id:
+            raise ValueError("experiment assignment receipt does not match experiment")
         grouped.setdefault(str(receipt["pairId"]), []).append(
             (str(event["plan_item_id"]), receipt)
         )
@@ -304,10 +328,20 @@ def observed_experiment_report(
             pair_id=pair_id,
             rows=rows,
             experiment_asset_ids=experiment_asset_ids,
+            observation_bucket="24h",
         )
+        confirmatory, confirmatory_reasons = _matched_pair(
+            conn,
+            pair_id=pair_id,
+            rows=rows,
+            experiment_asset_ids=experiment_asset_ids,
+            observation_bucket="72h",
+        )
+        reasons.extend(f"confirmatory_{reason}" for reason in confirmatory_reasons)
         if reasons:
             excluded.append({"pairId": pair_id, "reasons": reasons})
-        elif pair is not None:
+        elif pair is not None and confirmatory is not None:
+            pair["confirmatory72h"] = confirmatory
             included.append(pair)
     lifts = [float(pair["primaryLift"]) for pair in included]
     primary_metrics = sorted({str(pair["primaryMetric"]) for pair in included})
@@ -321,6 +355,21 @@ def observed_experiment_report(
         else None
     )
     guardrails = _guardrail_summary(included)
+    confirmatory_lifts = [
+        float(pair["confirmatory72h"]["primaryLift"]) for pair in included
+    ]
+    confirmatory_median = median(confirmatory_lifts) if confirmatory_lifts else None
+    confirmatory_positive_percentage = (
+        sum(1 for lift in confirmatory_lifts if lift > 0) / len(confirmatory_lifts)
+        if confirmatory_lifts
+        else None
+    )
+    confirmatory_pass = bool(
+        confirmatory_median is not None
+        and confirmatory_median > 0
+        and confirmatory_positive_percentage is not None
+        and confirmatory_positive_percentage >= 0.60
+    )
     accounts = {
         str(arm["accountId"])
         for pair in included
@@ -333,13 +382,15 @@ def observed_experiment_report(
         positive_percentage=positive_percentage,
         interval=interval,
         guardrails_pass=guardrails["pass"],
+        confirmatory_pass=confirmatory_pass,
     )
     report = {
         "schema": "creator_os.observed_profile_experiment_report.v1",
         "experimentId": experiment_id,
-        "profile": json.loads(experiment["variants_json"] or "[]")[1],
+        "profile": variants[1],
         "measurementPlan": OBSERVED_MEASUREMENT_PLAN,
-        "primaryMetricPolicy": "72h_reach_else_views_on_both_arms",
+        "primaryMetricPolicy": "24h_reach_else_views_on_both_arms",
+        "confirmatoryMetricPolicy": "72h_reach_else_views_on_both_arms",
         "includedPairCount": len(included),
         "excludedPairCount": len(excluded),
         "primaryMetricsUsed": primary_metrics,
@@ -351,6 +402,11 @@ def observed_experiment_report(
             else None
         ),
         "guardrails": guardrails,
+        "confirmatory72h": {
+            "medianPairedLift": _round(confirmatory_median),
+            "positivePairPercentage": _round(confirmatory_positive_percentage),
+            "pass": confirmatory_pass,
+        },
         "accountCount": len(accounts),
         "interpretation": interpretation,
         "pairs": included,
@@ -449,6 +505,7 @@ def _matched_pair(
     pair_id: str,
     rows: list[tuple[str, dict[str, Any]]],
     experiment_asset_ids: set[str],
+    observation_bucket: str = "72h",
 ) -> tuple[dict[str, Any] | None, list[str]]:
     if len(rows) != 2:
         return None, ["pair_assignment_incomplete"]
@@ -461,12 +518,12 @@ def _matched_pair(
         cohort = conn.execute(
             """
             SELECT * FROM creative_plan_metric_cohorts
-            WHERE plan_item_id = ? AND observation_bucket = '72h'
+            WHERE plan_item_id = ? AND observation_bucket = ?
             """,
-            (plan_item_id,),
+            (plan_item_id, observation_bucket),
         ).fetchone()
         if not cohort or not cohort["snapshot_id"]:
-            reasons.append(f"{role}_72h_snapshot_missing")
+            reasons.append(f"{role}_{observation_bucket}_snapshot_missing")
             continue
         snapshot = conn.execute(
             "SELECT * FROM performance_snapshots WHERE id = ?",
@@ -476,7 +533,12 @@ def _matched_pair(
             reasons.append(f"{role}_snapshot_missing")
             continue
         snapshot = dict(snapshot)
-        snapshot_reasons = _snapshot_exclusion_reasons(conn, snapshot, receipt)
+        snapshot_reasons = _snapshot_exclusion_reasons(
+            conn,
+            snapshot,
+            receipt,
+            required_observation_bucket=f"approximately_{observation_bucket}",
+        )
         reasons.extend(f"{role}_{reason}" for reason in snapshot_reasons)
         observations[role] = {
             "planItemId": plan_item_id,
@@ -522,6 +584,7 @@ def _matched_pair(
             metric=primary,
             before=str(snapshot["published_at"]),
             excluded_asset_ids=experiment_asset_ids,
+            observation_bucket=observation_bucket,
         )
         if baseline is None:
             reasons.append(f"{role}_account_baseline_missing")
@@ -537,6 +600,7 @@ def _matched_pair(
                     metric=metric,
                     before=str(snapshot["published_at"]),
                     excluded_asset_ids=experiment_asset_ids,
+                    observation_bucket=observation_bucket,
                 )
                 if secondary_value is not None
                 else None
@@ -595,6 +659,7 @@ def _matched_pair(
     return (
         {
             "pairId": pair_id,
+            "observationBucket": observation_bucket,
             "parentFamilyId": rows[0][1]["parentFamilyId"],
             "primaryMetric": primary,
             "primaryLift": _round(primary_lift),
@@ -615,6 +680,7 @@ def _snapshot_exclusion_reasons(
     conn: sqlite3.Connection | dict[str, Any],
     snapshot: dict[str, Any],
     receipt: dict[str, Any] | None = None,
+    required_observation_bucket: str = "approximately_72h",
 ) -> list[str]:
     if receipt is None:
         if not isinstance(conn, dict):
@@ -654,7 +720,7 @@ def _snapshot_exclusion_reasons(
             governance_conn,
             snapshot_row,
             include_base_learning=False,
-            required_observation_bucket="approximately_72h",
+            required_observation_bucket=required_observation_bucket,
         )
         reasons.extend(str(reason) for reason in governance["reasons"])
     return sorted(set(reasons))
@@ -667,8 +733,14 @@ def _account_baseline(
     metric: str,
     before: str,
     excluded_asset_ids: set[str],
+    observation_bucket: str,
 ) -> float | None:
-    rows = _trailing_rows(conn, account_id=account_id, before=before)
+    rows = _trailing_rows(
+        conn,
+        account_id=account_id,
+        before=before,
+        observation_bucket=observation_bucket,
+    )
     values = [
         float(row[metric])
         for row in rows
@@ -686,9 +758,15 @@ def _account_secondary_baseline(
     metric: str,
     before: str,
     excluded_asset_ids: set[str],
+    observation_bucket: str,
 ) -> float | None:
     values: list[float] = []
-    for row in _trailing_rows(conn, account_id=account_id, before=before):
+    for row in _trailing_rows(
+        conn,
+        account_id=account_id,
+        before=before,
+        observation_bucket=observation_bucket,
+    ):
         if row.get("rendered_asset_id") in excluded_asset_ids:
             continue
         value = _secondary_values(row).get(metric)
@@ -725,7 +803,11 @@ def _secondary_values(snapshot: dict[str, Any]) -> dict[str, float | None]:
 
 
 def _trailing_rows(
-    conn: sqlite3.Connection, *, account_id: str, before: str
+    conn: sqlite3.Connection,
+    *,
+    account_id: str,
+    before: str,
+    observation_bucket: str,
 ) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
@@ -747,7 +829,9 @@ def _trailing_rows(
         if not published or not observed:
             continue
         age_hours = (observed - published).total_seconds() / 3600
-        if not 66 <= age_hours <= 78:
+        target_hours = 24 if observation_bucket == "24h" else 72
+        tolerance = 4
+        if not target_hours - tolerance <= age_hours <= target_hours + tolerance:
             continue
         latest.setdefault(str(item["post_id"]), item)
     return list(latest.values())[:30]
@@ -817,6 +901,7 @@ def _interpretation(
     positive_percentage: float | None,
     interval: tuple[float, float] | None,
     guardrails_pass: bool,
+    confirmatory_pass: bool = True,
 ) -> dict[str, Any]:
     status = "inconclusive"
     if pair_count < 3:
@@ -830,6 +915,7 @@ def _interpretation(
         and positive_percentage is not None
         and positive_percentage >= 0.70
         and guardrails_pass
+        and confirmatory_pass
     ):
         status = "preliminary"
     elif (
@@ -842,12 +928,14 @@ def _interpretation(
         and interval is not None
         and interval[0] > 0
         and guardrails_pass
+        and confirmatory_pass
     ):
         status = "operator_review_eligible"
     return {
         "status": status,
         "operatorDecisionRequired": True,
         "productionUsageChanged": False,
+        "confirmatoryPass": confirmatory_pass,
     }
 
 
