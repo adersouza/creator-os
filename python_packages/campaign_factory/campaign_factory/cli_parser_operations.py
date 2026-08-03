@@ -371,6 +371,12 @@ def register_operations_commands(sub) -> None:
     register_finished.add_argument("--review-batch")
     register_finished.add_argument("--caption-placement-policy")
     register_finished.add_argument("--caption-placement-decision-json")
+    register_finished.add_argument(
+        "--product-mode",
+        choices=["static_reel", "calm_animation", "recreate_reel"],
+    )
+    register_finished.add_argument("--product-mode-evidence-source")
+    register_finished.add_argument("--product-mode-evidence-sha256")
     archive_inventory = sub.add_parser("archive-inventory")
     archive_inventory.add_argument("--folder", required=True)
     archive_inventory.add_argument("--campaign", required=True)
