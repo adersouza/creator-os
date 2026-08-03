@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     write_assignment_eligibility_artifact,
 )
-from .cli_dispatch_governance import dispatch_governance_commands
+from .blocked_experiment_cli import dispatch_blocked_experiment_command
 from .cli_dispatch_incident_privacy import dispatch_incident_privacy_commands
 from .cli_support import (
     load_hooks,
@@ -34,12 +35,16 @@ from .quality_calibration import track_q_calibration_status
 
 
 def dispatch_operations_commands(args, cf, settings) -> int | None:
-    if (governance_result := dispatch_governance_commands(args, cf)) is not None:
-        return governance_result
     if (
         incident_privacy_result := dispatch_incident_privacy_commands(args, cf)
     ) is not None:
         return incident_privacy_result
+    if (
+        blocked_experiment_result := dispatch_blocked_experiment_command(
+            args, cf.conn, print_json=print_json
+        )
+    ) is not None:
+        return blocked_experiment_result
     if args.cmd == "caption-outcome-report":
         print_json(
             cf.domains.performance_summary_repo.caption_outcome_report(args.campaign)
@@ -176,42 +181,6 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 ),
                 operator_exception_receipt=payload.get("operatorExceptionReceipt"),
                 reserved_by=payload.get("operator") or "authenticated_local_operator",
-            )
-        )
-        return 0
-    if args.cmd == "blocked-experiment-report":
-        from .blocked_experiment_reporting import blocked_experiment_report
-
-        print_json(
-            blocked_experiment_report(
-                cf.conn,
-                experiment_id=args.experiment_id,
-                record_interpretation=args.record_interpretation,
-            )
-        )
-        return 0
-    if args.cmd == "blocked-experiment-decision":
-        from .blocked_experiment_reporting import record_blocked_experiment_decision
-
-        print_json(
-            record_blocked_experiment_decision(
-                cf.conn,
-                experiment_id=args.experiment_id,
-                operator=args.operator,
-                decision=args.decision,
-                reason=args.reason,
-            )
-        )
-        return 0
-    if args.cmd == "blocked-experiment-rollback":
-        from .blocked_experiment_reporting import rollback_blocked_experiment_policy
-
-        print_json(
-            rollback_blocked_experiment_policy(
-                cf.conn,
-                experiment_id=args.experiment_id,
-                operator=args.operator,
-                reason=args.reason,
             )
         )
         return 0
@@ -1344,5 +1313,185 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
             )
             cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
+        return 0
+    if args.cmd == "creator-governance-status":
+        print_json(cf.domains.creator_governance.creator_status(args.creator))
+        return 0
+    if args.cmd == "creator-governance-transition":
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.transition_creator(
+                    args.creator,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence=load_json_object(args.evidence_json),
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.transition_creator(
+                    args.creator,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence=load_json_object(args.evidence_json),
+                )
+            )
+        return 0
+    if args.cmd == "creator-governance-rename":
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.rename_creator(
+                    args.creator,
+                    new_slug=args.new_slug,
+                    actor=args.actor,
+                    reason=args.reason,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.rename_creator(
+                    args.creator,
+                    new_slug=args.new_slug,
+                    actor=args.actor,
+                    reason=args.reason,
+                )
+            )
+        return 0
+    if args.cmd == "creator-identity-enroll":
+        profile_path = Path(args.profile_json).expanduser().resolve()
+        identity_profile = load_json_object(str(profile_path))
+        profile_sha = hashlib.sha256(profile_path.read_bytes()).hexdigest()
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.enroll_identity_profile(
+                    args.creator,
+                    provider=args.provider,
+                    provider_identity_id=args.provider_identity_id,
+                    profile=identity_profile or {},
+                    canonical_source_asset_id=args.canonical_source_asset_id,
+                    identity_manifest_path=profile_path,
+                    identity_manifest_sha256=profile_sha,
+                    operator=args.operator,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.enroll_identity_profile(
+                    args.creator,
+                    provider=args.provider,
+                    provider_identity_id=args.provider_identity_id,
+                    profile=identity_profile or {},
+                    canonical_source_asset_id=args.canonical_source_asset_id,
+                    identity_manifest_path=profile_path,
+                    identity_manifest_sha256=profile_sha,
+                    operator=args.operator,
+                )
+            )
+        return 0
+    if args.cmd == "creator-authorization-grant":
+        evidence = Path(args.evidence).expanduser().resolve()
+        evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.grant_authorization(
+                    args.creator,
+                    scope=args.scope,
+                    provider=args.provider,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                    actor=args.actor,
+                    reason=args.reason,
+                    effective_at=args.effective_at,
+                    expires_at=args.expires_at,
+                    territories=args.territory,
+                    account_scope=args.account_id,
+                    reference_video_use=args.reference_video_use,
+                    training_reference_use=args.training_reference_use,
+                    voice_authorized=args.voice_authorized,
+                    legal_hold=args.legal_hold,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.grant_authorization(
+                    args.creator,
+                    scope=args.scope,
+                    provider=args.provider,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                    actor=args.actor,
+                    reason=args.reason,
+                    effective_at=args.effective_at,
+                    expires_at=args.expires_at,
+                    territories=args.territory,
+                    account_scope=args.account_id,
+                    reference_video_use=args.reference_video_use,
+                    training_reference_use=args.training_reference_use,
+                    voice_authorized=args.voice_authorized,
+                    legal_hold=args.legal_hold,
+                )
+            )
+        return 0
+    if args.cmd == "creator-authorization-revoke":
+        evidence = Path(args.evidence).expanduser().resolve()
+        evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.revoke_authorization(
+                    args.authorization_id,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.revoke_authorization(
+                    args.authorization_id,
+                    actor=args.actor,
+                    reason=args.reason,
+                    evidence_path=evidence,
+                    evidence_sha256=evidence_sha,
+                )
+            )
+        return 0
+    if args.cmd == "campaign-governance-status":
+        print_json(cf.domains.creator_governance.campaign_status(args.campaign))
+        return 0
+    if args.cmd == "campaign-governance-transition":
+        evidence = load_json_object(args.evidence_json) or {}
+        if not args.apply:
+            print_json(
+                cf.domains.creator_governance.transition_campaign(
+                    args.campaign,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    blocker_codes=args.blocker_code,
+                    evidence=evidence,
+                    related_ids=args.related_id,
+                    validate_only=True,
+                )
+            )
+        else:
+            print_json(
+                cf.domains.creator_governance.transition_campaign(
+                    args.campaign,
+                    new_status=args.status,
+                    actor=args.actor,
+                    reason=args.reason,
+                    blocker_codes=args.blocker_code,
+                    evidence=evidence,
+                    related_ids=args.related_id,
+                )
+            )
         return 0
     return None

@@ -24,7 +24,7 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     persist_assignment_origin,
 )
-from .experiment_factor_validation import (
+from .blocked_experiment_assignment import (
     validate_audio_experiment_exception,
     validate_factor_values,
 )

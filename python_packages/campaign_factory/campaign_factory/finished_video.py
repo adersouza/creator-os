@@ -694,6 +694,105 @@ class FinishedVideoRepository:
             return "slideshow"
         return "selfie_video"
 
+    def add_synthetic_qualification_evidence(
+        self,
+        *,
+        result: dict[str, Any],
+        caption: str,
+        caption_hash: str,
+        evidence_sha: str,
+    ) -> None:
+        """Complete evidence only in the disposable parent-gate proof sandbox."""
+
+        if not Path(self.settings.root).name.startswith(
+            "campaign_factory_post_gate_proof_"
+        ):
+            raise ValueError("synthetic qualification evidence requires proof sandbox")
+        asset_id = str(result["renderedAssetId"])
+        subject_sha = str(result["contentHash"])
+        row = self.conn.execute(
+            "SELECT metadata_json, caption_generation_json FROM rendered_assets WHERE id = ?",
+            (asset_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"sandbox fixture asset not found: {asset_id}")
+        metadata = json.loads(row["metadata_json"] or "{}")
+        generation = json.loads(row["caption_generation_json"] or "{}")
+        rights = {
+            "required": True,
+            "usageRightsStatus": "operator_supplied_authorized",
+            "rightsSource": "temporary_parent_gate_fixture",
+            "territory": "test-only",
+            "accountScope": "temporary_nonproduction_sandbox",
+            "commercialUseAllowed": True,
+            "evidenceReceipt": {
+                "id": "synthetic-parent-gate-evidence",
+                "sha256": evidence_sha,
+            },
+        }
+        audio_intent = {
+            "schema": "pipeline.audio_intent.v1",
+            "policy": "original_embedded",
+            "required": True,
+            "status": "verified",
+            "operator_selection": {
+                "audio_id": "synthetic-parent-gate-audio",
+                "selected_at": "2026-08-03T00:00:00+00:00",
+                "verified_at": "2026-08-03T00:00:00+00:00",
+            },
+            "fulfillment": {
+                "status": "verified",
+                "audio_present": True,
+                "output_sha256": subject_sha,
+                "proof_type": "temporary_nonproduction_fixture",
+            },
+            "rights": rights,
+        }
+        metadata.update(
+            {
+                "audioIntent": audio_intent,
+                "audioEmbeddingReceipt": {
+                    "audioIntent": audio_intent,
+                    "finalVideo": {"sha256": subject_sha},
+                    "verification": {
+                        "status": "verified",
+                        "audioPresent": True,
+                    },
+                    "rights": rights,
+                },
+            }
+        )
+        generation.update(
+            {
+                "audioIntent": audio_intent,
+                "captionLineage": {
+                    "schema": "reel_factory.caption_lineage.v1",
+                    "variantType": "static",
+                    "captionHash": caption_hash,
+                    "staticTextHash": caption_hash,
+                    "captionPayloadHash": hashlib.sha256(
+                        json.dumps(
+                            {"variant_type": "static", "text": caption},
+                            sort_keys=True,
+                        ).encode()
+                    ).hexdigest(),
+                    "rawCaptionText": caption,
+                    "selectedBanks": ["post_gate_fixture"],
+                    "captionBankVersion": "synthetic_parent_gate_fixture.v1",
+                    "captionBankSourceHash": evidence_sha,
+                },
+            }
+        )
+        self.conn.execute(
+            "UPDATE rendered_assets SET metadata_json = ?, caption_generation_json = ? WHERE id = ?",
+            (
+                json.dumps(metadata, sort_keys=True),
+                json.dumps(generation, sort_keys=True),
+                asset_id,
+            ),
+        )
+        self.conn.commit()
+
     def register_finished_video(
         self,
         *,
@@ -718,7 +817,6 @@ class FinishedVideoRepository:
         product_mode: str | None = None,
         product_mode_evidence_source: str | None = None,
         product_mode_evidence_sha256: str | None = None,
-        qualification_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         source = Path(input_path).expanduser().resolve()
         if not source.exists() or not source.is_file():
@@ -777,11 +875,6 @@ class FinishedVideoRepository:
             product_mode=product_mode,
             evidence_source=product_mode_evidence_source,
             evidence_sha256=product_mode_evidence_sha256,
-        )
-        qualification = (
-            dict(qualification_evidence)
-            if isinstance(qualification_evidence, dict)
-            else {}
         )
         source_prompt = {
             "schema": "campaign_factory.finished_video_registration.v1",
@@ -889,17 +982,9 @@ class FinishedVideoRepository:
         }
         if caption_placement_policy:
             caption_context["captionPlacementPolicy"] = caption_placement_policy
-        placement_decision = (
-            caption_placement_decision
-            if isinstance(caption_placement_decision, dict)
-            else qualification.get("captionPlacementDecision")
-        )
-        if isinstance(placement_decision, dict):
-            caption_context["captionPlacementDecision"] = placement_decision
-        caption_lineage = qualification.get("captionLineage")
-        if isinstance(caption_lineage, dict):
-            caption_context["captionLineage"] = caption_lineage
-        default_audio_intent = {
+        if isinstance(caption_placement_decision, dict):
+            caption_context["captionPlacementDecision"] = caption_placement_decision
+        audio_intent = {
             "schema": "pipeline.audio_intent.v1",
             "status": "attached" if track_id else "missing",
             "source": audio_source or "operator_muxed_audio",
@@ -916,10 +1001,6 @@ class FinishedVideoRepository:
                 "notes": "Audio is embedded in the registered MP4.",
             },
         }
-        audio_intent = qualification.get("audioIntent")
-        if not isinstance(audio_intent, dict):
-            audio_intent = default_audio_intent
-        audio_embedding_receipt = qualification.get("audioEmbeddingReceipt")
         caption_generation = {
             "schema": "campaign_factory.finished_video_caption_generation.v1",
             "caption": normalized_caption,
@@ -933,9 +1014,9 @@ class FinishedVideoRepository:
             "captionOutcomeContext": caption_context,
             "audioIntent": audio_intent,
             "captionPlacementPolicy": caption_placement_policy,
-            "captionPlacementDecision": placement_decision,
-            "captionLineage": caption_lineage,
-            "audioEmbeddingReceipt": audio_embedding_receipt,
+            "captionPlacementDecision": caption_placement_decision
+            if isinstance(caption_placement_decision, dict)
+            else None,
             "productModeLineage": mode_lineage,
             "operatorReview": {
                 "operator": operator,
@@ -1002,11 +1083,7 @@ class FinishedVideoRepository:
                 json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
                 json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
                 json.dumps(
-                    {
-                        "productModeLineage": mode_lineage,
-                        "audioIntent": audio_intent,
-                        "audioEmbeddingReceipt": audio_embedding_receipt,
-                    },
+                    {"productModeLineage": mode_lineage},
                     ensure_ascii=False,
                     sort_keys=True,
                 ),

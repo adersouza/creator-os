@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import tempfile
-from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -278,66 +277,16 @@ class ParentFactoryTrialRepository:
                 registered = 0
                 late_discoverability = 0
                 publishability_failures = 0
-                publishability_failure_reasons: Counter[str] = Counter()
                 other_failures = 0
                 for index, candidate in enumerate(candidates):
                     video = media_dir / f"candidate_{index:03d}.mp4"
                     video.write_bytes(
                         f"fresh-candidate-{index}:{candidate['caption']}".encode()
                     )
-                    digest = hashlib.sha256(video.read_bytes()).hexdigest()
+                    subject_sha = hashlib.sha256(video.read_bytes()).hexdigest()
                     caption_hash = hashlib.sha256(
-                        str(candidate["caption"]).lower().encode()
+                        str(candidate["caption"]).strip().lower().encode()
                     ).hexdigest()
-                    audio_intent = {
-                        "schema": "pipeline.audio_intent.v1",
-                        "status": "verified",
-                        "source": "post_gate_fixture",
-                        "operator_selection": {
-                            "track_id": "audio_fixture",
-                            "selected_at": "2026-08-03T00:00:00+00:00",
-                            "verified_at": "2026-08-03T00:00:00+00:00",
-                        },
-                        "rights": {
-                            "usageRightsStatus": "operator_supplied_authorized",
-                            "commercialUseAllowed": True,
-                            "rightsSource": "post_gate_fixture",
-                            "territory": "US",
-                            "accountScope": "fixture_accounts",
-                            "evidenceReceipt": {
-                                "id": f"fixture-rights-{index}",
-                                "sha256": hashlib.sha256(
-                                    f"fixture-rights-{index}".encode()
-                                ).hexdigest(),
-                            },
-                        },
-                        "fulfillment": {
-                            "status": "verified",
-                            "audio_present": True,
-                            "output_sha256": digest,
-                        },
-                    }
-                    caption_lineage = {
-                        "schema": "reel_factory.caption_lineage.v1",
-                        "variantType": "static",
-                        "captionHash": caption_hash,
-                        "staticTextHash": caption_hash,
-                        "captionPayloadHash": hashlib.sha256(
-                            f"fixture-payload-{index}".encode()
-                        ).hexdigest(),
-                        "rawCaptionText": str(candidate["caption"]),
-                        "selectedBanks": ["post_gate_fixture"],
-                        "captionBankVersion": "post_gate_fixture.v1",
-                        "captionBankSourceHash": hashlib.sha256(
-                            b"post_gate_fixture"
-                        ).hexdigest(),
-                    }
-                    placement_decision = {
-                        "status": "passed",
-                        "selectedLane": "lower_center",
-                        "sampleCount": 6,
-                        "subjectSha256": digest,
-                    }
                     result = sandbox.finished_video.register_finished_video(
                         input_path=video,
                         campaign_slug="post_gate_fresh_batch_proof",
@@ -355,23 +304,15 @@ class ParentFactoryTrialRepository:
                         approval_reason="post-gate proof fixture",
                         review_batch="post_gate_fresh_batch_proof",
                         caption_placement_policy="focal_safe_v1",
-                        caption_placement_decision=placement_decision,
-                        product_mode="static_reel",
-                        product_mode_evidence_source="post_gate_fixture",
-                        product_mode_evidence_sha256=digest,
-                        qualification_evidence={
-                            "audioIntent": audio_intent,
-                            "audioEmbeddingReceipt": {
-                                "audioIntent": audio_intent,
-                                "finalVideo": {"sha256": digest},
-                                "verification": {
-                                    "status": "verified",
-                                    "audioPresent": True,
-                                },
-                            },
-                            "captionLineage": caption_lineage,
-                            "captionPlacementDecision": placement_decision,
+                        caption_placement_decision={
+                            "status": "passed",
+                            "selectedLane": "center",
+                            "sampleCount": 1,
+                            "subjectSha256": subject_sha,
                         },
+                        product_mode="static_reel",
+                        product_mode_evidence_source=str(video),
+                        product_mode_evidence_sha256=subject_sha,
                     )
                     if result.get("canProceed") is False:
                         blocked_item = self.post_gate_blocked_candidate_evidence(
@@ -381,7 +322,15 @@ class ParentFactoryTrialRepository:
                             blocked.append(blocked_item)
                         continue
                     registered += 1
-                    publishability = result.get("publishability") or {}
+                    sandbox.finished_video.add_synthetic_qualification_evidence(
+                        result=result,
+                        caption=str(candidate["caption"]),
+                        caption_hash=caption_hash,
+                        evidence_sha=subject_sha,
+                    )
+                    publishability = sandbox.publishability.explain_publishability(
+                        str(result["renderedAssetId"])
+                    )
                     if publishability.get("publishableCandidate"):
                         accepted += 1
                     else:
@@ -392,7 +341,6 @@ class ParentFactoryTrialRepository:
                             )
                             or []
                         }
-                        publishability_failure_reasons.update(reasons)
                         if "discoverability_safety_violation" in reasons:
                             late_discoverability += 1
                         elif reasons:
@@ -435,9 +383,6 @@ class ParentFactoryTrialRepository:
             "yieldPct": yield_pct,
             "lateDiscoverabilityFailures": late_discoverability,
             "publishabilityFailures": publishability_failures,
-            "publishabilityFailureReasons": dict(
-                sorted(publishability_failure_reasons.items())
-            ),
             "qualityFailures": 0,
             "duplicateFailures": 0,
             "otherFailures": other_failures,

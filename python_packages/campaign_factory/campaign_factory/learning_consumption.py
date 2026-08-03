@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .audio_learning_policy import measured_audio_performance
+from .blocked_experiment_assignment import asset_source_family
 from .blocked_experiment_reporting import apply_adopted_experiment_policy
-from .experiment_factor_validation import candidate_source_family
 from .learning_governance import (
     MINIMUM_POLICY_SAMPLE_COUNT,
     register_recommendation,
@@ -817,7 +817,10 @@ def _apply_blocked_source_family_policy(
 ) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
     if account is None or not sources:
         return sources, prompt, decision
-    families = [candidate_source_family(source) for source in sources]
+    families = [
+        asset_source_family(source, fallback_to_asset_identity=False)
+        for source in sources
+    ]
     if not all(families):
         return sources, prompt, decision
     eligible_families = list(dict.fromkeys(families))
@@ -836,11 +839,8 @@ def _apply_blocked_source_family_policy(
     selected_sources = [
         source
         for source in sources
-        if candidate_source_family(source) == selected_family
-    ] + [
-        source
-        for source in sources
-        if candidate_source_family(source) != selected_family
+        if asset_source_family(source, fallback_to_asset_identity=False)
+        == selected_family
     ]
     changed = selected_sources != sources
     decision.update(

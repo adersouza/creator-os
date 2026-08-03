@@ -16,17 +16,13 @@ from .caption_policy import (
     WARNING_CLASS_OPERATOR_OVERRIDABLE,
     caption_quality_recovery_class,
     contextual_instagram_post_caption_pool,
-    instagram_post_caption_quality,
     warning_class,
 )
 from .creative_approval import (
     CreativeApprovalStore,
     asset_requires_creative_approval,
 )
-from .creative_inventory_qualification import (
-    caption_repeat_count,
-    qualify_creative_inventory_asset,
-)
+from .creative_inventory_qualification import apply_gate
 from .distribution_surface import normalize_distribution_surface
 from .motion_qc_publishability import MotionQcPublishabilityMixin
 from .persistence import json_load
@@ -701,7 +697,50 @@ class PublishabilityRepository(
     def instagram_post_caption_quality(
         self, post_caption: dict[str, Any]
     ) -> dict[str, Any]:
-        return instagram_post_caption_quality(post_caption)
+        caption = str(post_caption.get("instagram_post_caption") or "").strip()
+        burned = str(post_caption.get("burned_caption_text") or "").strip()
+        hashtags = list(post_caption.get("hashtags") or [])
+        reasons: list[str] = []
+        if not caption:
+            return {
+                "passed": False,
+                "reasons": ["blank_instagram_post_caption"],
+                "policy": "simple_ig_post_caption_v1",
+                "maxCharacters": 140,
+                "maxLines": 3,
+                "maxHashtags": 5,
+            }
+        lines = [line for line in caption.splitlines() if line.strip()]
+        if len(caption) > 140:
+            reasons.append("instagram_post_caption_too_long")
+        if len(lines) > 3:
+            reasons.append("instagram_post_caption_too_many_lines")
+        if len(re.findall(r"#[A-Za-z0-9_]+", caption)) > 5 or len(hashtags) > 5:
+            reasons.append("instagram_post_caption_too_many_hashtags")
+        if re.search(
+            r"https?://|www\.|link\s*in\s*bio|dm\s+me|message\s+me|text\s+me|telegram|whatsapp|onlyfans|fansly",
+            caption,
+            re.IGNORECASE,
+        ):
+            reasons.append("instagram_post_caption_platform_risk")
+        caption_words = re.findall(r"[A-Za-z0-9']+", caption.lower())
+        burned_words = re.findall(r"[A-Za-z0-9']+", burned.lower())
+        if burned and caption.lower() == burned.lower() and len(burned_words) > 8:
+            reasons.append("instagram_post_caption_copied_long_burned_caption")
+        return {
+            "passed": not reasons,
+            "reasons": sorted(set(reasons)),
+            "policy": "simple_ig_post_caption_v1",
+            "maxCharacters": 140,
+            "maxLines": 3,
+            "maxHashtags": 5,
+            "characterCount": len(caption),
+            "lineCount": len(lines),
+            "wordCount": len(caption_words),
+            "hashtagCount": max(
+                len(re.findall(r"#[A-Za-z0-9_]+", caption)), len(hashtags)
+            ),
+        }
 
     def caption_quality_repair_plan(
         self,
@@ -985,13 +1024,6 @@ class PublishabilityRepository(
         final_artifact_integrity = final_artifact_integrity_for_publishability(
             asset, latest_audit
         )
-        creative_inventory_qualification = qualify_creative_inventory_asset(
-            asset,
-            audit=latest_audit,
-            final_integrity=final_artifact_integrity,
-            caption_repeat_count=caption_repeat_count(self.conn, asset.get("caption")),
-            audio_intent_override=audio_intent,
-        )
         readiness_blockers = list(
             ((latest_audit or {}).get("readinessSummary") or {}).get("blockingReasons")
             or []
@@ -1109,11 +1141,6 @@ class PublishabilityRepository(
             "creative_approval_valid": creative_approval.get("state")
             in {"approved", "not_required"},
             "ai_disclosure_resolved": ai_disclosure["resolved"] is True,
-            "creative_inventory_qualified": (
-                creative_inventory_qualification["productionQualified"]
-                if creative_inventory_qualification["applicable"]
-                else True
-            ),
             **motion_gate["checks"],
         }
         failures: list[str] = []
@@ -1169,8 +1196,7 @@ class PublishabilityRepository(
         if not checks["ai_disclosure_resolved"]:
             failures.append(AI_DISCLOSURE_BLOCKER)
         failures.extend(trust_blockers)
-        if creative_inventory_qualification["applicable"]:
-            failures.extend(creative_inventory_qualification["blockingReasons"])
+        inv = apply_gate(self, asset, latest_audit, checks, failures)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
         if quarantine:
@@ -1377,7 +1403,7 @@ class PublishabilityRepository(
             "contentFingerprint": content_fingerprint,
             "content_fingerprint": content_fingerprint,
             "finalArtifactIntegrity": final_artifact_integrity,
-            "creativeInventoryQualification": creative_inventory_qualification,
+            "creativeInventoryQualification": inv,
             "captionHash": export_caption_hash,
             "caption_hash": export_caption_hash,
             "captionOutcomeContext": caption_context,

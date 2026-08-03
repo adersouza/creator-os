@@ -81,10 +81,40 @@ def validate_factor_values(
         key: normalized["control"][key]
         for key in sorted(EXPERIMENT_FACTORS - {changed_variable})
     }
-    fingerprint = hashlib.sha256(
-        json.dumps(controls, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    return normalized, fingerprint
+    return normalized, _canonical_sha256(controls)
+
+
+def asset_source_family(
+    asset: Mapping[str, Any], *, fallback_to_asset_identity: bool = True
+) -> str:
+    metadata = _json_object(asset.get("metadata_json"))
+    notes = _json_object(asset.get("notes"))
+    family = str(
+        asset.get("sourceFamilyId")
+        or asset.get("source_family_id")
+        or metadata.get("sourceFamilyId")
+        or metadata.get("source_family_id")
+        or notes.get("sourceFamilyId")
+        or notes.get("source_family_id")
+        or ""
+    ).strip()
+    if family or not fallback_to_asset_identity:
+        return family
+    return str(asset.get("parent_asset_id") or asset.get("id") or "").strip()
+
+
+def asset_audio_track(asset: Mapping[str, Any]) -> str:
+    metadata = _json_object(asset.get("metadata_json"))
+    receipt = metadata.get("audioEmbeddingReceipt")
+    selected = receipt.get("selectedTrack") if isinstance(receipt, dict) else None
+    if not isinstance(selected, dict):
+        return ""
+    return str(
+        selected.get("canonicalTrackId")
+        or selected.get("musicId")
+        or selected.get("trackId")
+        or ""
+    )
 
 
 def validate_audio_experiment_exception(receipt: dict[str, Any] | None) -> None:
@@ -99,45 +129,19 @@ def validate_audio_experiment_exception(receipt: dict[str, Any] | None) -> None:
         raise PermissionError("audio reuse-policy exception is invalid")
 
 
-def asset_source_family(asset: dict[str, Any]) -> str:
-    metadata = json.loads(asset.get("metadata_json") or "{}")
-    return str(
-        metadata.get("sourceFamilyId")
-        or asset.get("parent_asset_id")
-        or asset.get("id")
-    )
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
-def asset_audio_track(asset: dict[str, Any]) -> str:
-    metadata = json.loads(asset.get("metadata_json") or "{}")
-    receipt = metadata.get("audioEmbeddingReceipt")
-    selected = receipt.get("selectedTrack") if isinstance(receipt, dict) else None
-    if not isinstance(selected, dict):
-        return ""
-    return str(
-        selected.get("canonicalTrackId")
-        or selected.get("musicId")
-        or selected.get("trackId")
-        or ""
-    )
-
-
-def candidate_source_family(source: Mapping[str, Any]) -> str:
-    raw_notes = source.get("notes")
-    if isinstance(raw_notes, Mapping):
-        notes = dict(raw_notes)
-    elif raw_notes is not None:
-        try:
-            decoded = json.loads(str(raw_notes))
-            notes = decoded if isinstance(decoded, dict) else {}
-        except json.JSONDecodeError:
-            notes = {}
-    else:
-        notes = {}
-    return str(
-        source.get("sourceFamilyId")
-        or source.get("source_family_id")
-        or notes.get("sourceFamilyId")
-        or notes.get("source_family_id")
-        or ""
-    ).strip()
+def _canonical_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()

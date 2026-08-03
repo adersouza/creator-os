@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
@@ -11,7 +12,10 @@ from typing import Any
 
 from creator_os_core.sqlite import connect_sqlite
 
-from .asset_evidence import verify_registered_asset_bytes
+from .asset_evidence import (
+    final_artifact_integrity_for_publishability,
+    verify_registered_asset_bytes,
+)
 
 PRODUCT_MODE_LINEAGE_SCHEMA = "campaign_factory.product_mode_lineage.v1"
 QUALIFICATION_SCHEMA = "campaign_factory.creative_inventory_qualification.v1"
@@ -45,16 +49,43 @@ def product_mode_lineage(
         raise ValueError(
             "product_mode must be static_reel, calm_animation, or recreate_reel"
         )
+    failure_reason: str | None = None
+    verified_sha: str | None = None
+    evidence_path: Path | None = None
     if not source:
-        raise ValueError("product_mode evidence_source is required")
-    if not _SHA256_RE.fullmatch(evidence_sha):
-        raise ValueError("product_mode evidence_sha256 must be a SHA-256 digest")
+        failure_reason = "product_mode_evidence_source_missing"
+    elif not _SHA256_RE.fullmatch(evidence_sha):
+        failure_reason = "product_mode_evidence_sha256_invalid"
+    else:
+        candidate = Path(source).expanduser()
+        try:
+            if candidate.is_symlink() or not candidate.is_file():
+                failure_reason = "product_mode_evidence_artifact_unreadable"
+            else:
+                evidence_path = candidate.resolve(strict=True)
+                with evidence_path.open("rb") as handle:
+                    verified_sha = hashlib.file_digest(handle, "sha256").hexdigest()
+                if verified_sha != evidence_sha:
+                    failure_reason = "product_mode_evidence_sha256_mismatch"
+        except OSError:
+            failure_reason = "product_mode_evidence_artifact_unreadable"
+    if failure_reason:
+        return {
+            "schema": PRODUCT_MODE_LINEAGE_SCHEMA,
+            "status": "unverified",
+            "productMode": mode,
+            "evidenceSource": str(evidence_path or source) or None,
+            "evidenceSha256": evidence_sha or None,
+            "verifiedEvidenceSha256": verified_sha,
+            "reason": failure_reason,
+        }
     return {
         "schema": PRODUCT_MODE_LINEAGE_SCHEMA,
         "status": "verified",
         "productMode": mode,
-        "evidenceSource": source,
+        "evidenceSource": str(evidence_path),
         "evidenceSha256": evidence_sha,
+        "verifiedEvidenceSha256": verified_sha,
         "reason": None,
     }
 
@@ -209,6 +240,33 @@ def qualify_creative_inventory_asset(
         "grantsApproval": False,
         "grantsPublishAuthority": False,
     }
+
+
+def apply_gate(
+    repository: Any,
+    asset: dict[str, Any],
+    audit: dict[str, Any] | None,
+    checks: dict[str, bool],
+    failures: list[str],
+) -> dict[str, Any]:
+    """Apply the final-inventory gate without growing the publishability owner."""
+
+    audio_intent, _ = repository._audio_selection_for_asset(asset)
+    result = qualify_creative_inventory_asset(
+        asset,
+        audit=audit,
+        final_integrity=final_artifact_integrity_for_publishability(asset, audit),
+        caption_repeat_count=caption_repeat_count(
+            repository.conn, asset.get("caption")
+        ),
+        audio_intent_override=audio_intent,
+    )
+    checks["creative_inventory_qualified"] = bool(
+        not result["applicable"] or result["productionQualified"]
+    )
+    if result["applicable"]:
+        failures.extend(result["blockingReasons"])
+    return result
 
 
 def build_operator_review_queue(

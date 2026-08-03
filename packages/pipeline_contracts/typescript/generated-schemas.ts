@@ -2741,7 +2741,38 @@ export const generatedPipelineContractSchemas = {
 	                    "type": "array",
 	                    "items": {
 	                      "type": "string",
-	                      "minLength": 1
+	                      "enum": [
+	                        "missing_burned_captions",
+	                        "wrong_visual",
+	                        "missing_caption_hash",
+	                        "missing_caption_outcome_context",
+	                        "missing_content_fingerprint",
+	                        "missing_audio",
+	                        "embedded_audio_missing",
+	                        "readiness_failed",
+	                        "not_approved",
+	                        "caption_placement_qc_failed",
+	                        "missing_instagram_post_caption",
+	                        "instagram_post_caption_quality_failed",
+	                        "visual_qc_unavailable",
+	                        "visual_qc_failed",
+	                        "identity_verification_unavailable",
+	                        "identity_verification_failed",
+	                        "creative_approval_missing",
+	                        "missing_audit",
+	                        "product_mode_lineage_unclassified",
+	                        "exact_final_sha_unverified",
+	                        "exact_final_audit_unverified",
+	                        "recreate_permission_not_granted",
+	                        "embedded_audio_unverified",
+	                        "audio_final_sha_unbound",
+	                        "audio_rights_evidence_unverified",
+	                        "timed_caption_semantic_approval_unverified",
+	                        "static_caption_lineage_unverified",
+	                        "caption_variant_lineage_unclassified",
+	                        "caption_placement_approval_unverified",
+	                        "caption_repeated_in_inventory"
+	                      ]
 	                    }
 	                  },
 	                  "blockingReason": {

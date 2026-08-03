@@ -91,17 +91,54 @@ def _static_caption(subject_sha: str) -> tuple[dict, dict]:
     return lineage, placement
 
 
-def test_product_mode_lineage_requires_exact_explicit_evidence() -> None:
+def _mode_evidence(
+    tmp_path: Path, name: str = "mode-evidence.json"
+) -> tuple[Path, str]:
+    path = tmp_path / name
+    path.write_text('{"productMode":"static_reel"}', encoding="utf-8")
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_product_mode_lineage_requires_exact_explicit_evidence(tmp_path: Path) -> None:
     assert product_mode_lineage(product_mode=None)["status"] == "unclassified"
-    with pytest.raises(ValueError, match="evidence_source"):
-        product_mode_lineage(product_mode="static_reel", evidence_sha256="a" * 64)
+    missing = product_mode_lineage(product_mode="static_reel", evidence_sha256="a" * 64)
+    assert missing["status"] == "unverified"
+    assert missing["reason"] == "product_mode_evidence_source_missing"
+    missing_artifact = product_mode_lineage(
+        product_mode="static_reel",
+        evidence_source=str(tmp_path / "missing-evidence.json"),
+        evidence_sha256="a" * 64,
+    )
+    assert missing_artifact["status"] == "unverified"
+    assert missing_artifact["reason"] == "product_mode_evidence_artifact_unreadable"
+    evidence, evidence_sha = _mode_evidence(tmp_path)
     lineage = product_mode_lineage(
         product_mode="static_reel",
-        evidence_source="operator_manifest:queue-1",
-        evidence_sha256="a" * 64,
+        evidence_source=str(evidence),
+        evidence_sha256=evidence_sha,
     )
     assert lineage["status"] == "verified"
     assert lineage["productMode"] == "static_reel"
+    assert lineage["verifiedEvidenceSha256"] == evidence_sha
+
+    evidence.write_text('{"productMode":"calm_animation"}', encoding="utf-8")
+    tampered = product_mode_lineage(
+        product_mode="static_reel",
+        evidence_source=str(evidence),
+        evidence_sha256=evidence_sha,
+    )
+    assert tampered["status"] == "unverified"
+    assert tampered["reason"] == "product_mode_evidence_sha256_mismatch"
+
+    symlink = tmp_path / "mode-evidence-link.json"
+    symlink.symlink_to(evidence)
+    linked = product_mode_lineage(
+        product_mode="static_reel",
+        evidence_source=str(symlink),
+        evidence_sha256=hashlib.sha256(evidence.read_bytes()).hexdigest(),
+    )
+    assert linked["status"] == "unverified"
+    assert linked["reason"] == "product_mode_evidence_artifact_unreadable"
 
 
 def test_qualification_requires_exact_evidence() -> None:
@@ -112,7 +149,9 @@ def test_qualification_requires_exact_evidence() -> None:
         "campaign_path": "/missing.mp4",
         "recipe": "finished_video_registered",
         "caption": "same caption",
-        "metadata_json": "{}",
+        "metadata_json": json.dumps(
+            {"inventoryQualificationScope": "synthetic_nonproduction_fixture"}
+        ),
         "caption_outcome_context_json": json.dumps(
             {
                 "burned_caption_text": "same caption",
@@ -131,6 +170,7 @@ def test_qualification_requires_exact_evidence() -> None:
         final_integrity={"passed": True},
         caption_repeat_count=3,
     )
+    assert result["applicable"] is True
     assert result["productionQualified"] is False
     assert set(result["blockingReasons"]) >= {
         "product_mode_lineage_unclassified",
@@ -143,14 +183,15 @@ def test_qualification_requires_exact_evidence() -> None:
     }
 
 
-def test_qualification_passes_only_fully_bound_evidence() -> None:
+def test_qualification_passes_only_fully_bound_evidence(tmp_path: Path) -> None:
     subject_sha = "c" * 64
     intent, receipt = _audio(subject_sha)
     lineage, placement = _timed_caption(subject_sha)
+    evidence, evidence_sha = _mode_evidence(tmp_path)
     mode = product_mode_lineage(
         product_mode="static_reel",
-        evidence_source="operator_manifest:queue-1",
-        evidence_sha256="d" * 64,
+        evidence_source=str(evidence),
+        evidence_sha256=evidence_sha,
     )
     asset = {
         "id": "asset-1",
@@ -183,14 +224,17 @@ def test_qualification_passes_only_fully_bound_evidence() -> None:
     assert result["blockingReasons"] == []
 
 
-def test_static_burned_caption_uses_static_lineage_not_timed_approval() -> None:
+def test_static_burned_caption_uses_static_lineage_not_timed_approval(
+    tmp_path: Path,
+) -> None:
     subject_sha = "4" * 64
     intent, receipt = _audio(subject_sha)
     lineage, placement = _static_caption(subject_sha)
+    evidence, evidence_sha = _mode_evidence(tmp_path)
     mode = product_mode_lineage(
         product_mode="static_reel",
-        evidence_source="operator_manifest:queue-1",
-        evidence_sha256="5" * 64,
+        evidence_source=str(evidence),
+        evidence_sha256=evidence_sha,
     )
     asset = {
         "id": "asset-static",
@@ -361,14 +405,15 @@ def test_finished_video_import_persists_explicit_product_mode_lineage(
     try:
         video = tmp_path / "finished.mp4"
         video.write_bytes(b"fake mp4 bytes")
+        evidence, evidence_sha = _mode_evidence(tmp_path)
         result = cf.domains.finished_video.register_finished_video(
             input_path=video,
             campaign_slug="larissa_import",
             model_slug="larissa",
             caption="caption text",
             product_mode="static_reel",
-            product_mode_evidence_source="operator_manifest:queue-1",
-            product_mode_evidence_sha256="a" * 64,
+            product_mode_evidence_source=str(evidence),
+            product_mode_evidence_sha256=evidence_sha,
         )
         row = cf.conn.execute(
             "SELECT metadata_json, caption_outcome_context_json FROM rendered_assets WHERE id = ?",
@@ -379,5 +424,19 @@ def test_finished_video_import_persists_explicit_product_mode_lineage(
         assert metadata["productModeLineage"]["status"] == "verified"
         assert context["productModeLineage"]["productMode"] == "static_reel"
         assert result["productModeLineage"] == metadata["productModeLineage"]
+    finally:
+        cf.close()
+
+
+def test_synthetic_qualification_writer_rejects_normal_runtime(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="requires proof sandbox"):
+            cf.domains.finished_video.add_synthetic_qualification_evidence(
+                result={"renderedAssetId": "asset-1", "contentHash": "a" * 64},
+                caption="fixture caption",
+                caption_hash="b" * 64,
+                evidence_sha="c" * 64,
+            )
     finally:
         cf.close()
