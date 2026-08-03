@@ -4,14 +4,22 @@ set -euo pipefail
 
 ROOT="${CREATOR_OS_RUNTIME_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ENV_FILE="${CREATOR_OS_GENERATION_ENV:-$HOME/.creator-os/generation.env}"
+INGEST_ENV_FILE="${CREATOR_OS_CAMPAIGN_INGEST_ENV:-$HOME/.creator-os/campaign-ingest.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creator OS generation policy is missing: $ENV_FILE" >&2
   exit 78
 fi
 
+set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
+
+if [ -f "$INGEST_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$INGEST_ENV_FILE"
+fi
+set +a
 
 : "${HIGGSFIELD_DAILY_BUDGET_CREDITS:?required}"
 : "${HIGGSFIELD_MONTHLY_BUDGET_CREDITS:?required}"
