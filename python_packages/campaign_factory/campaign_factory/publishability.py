@@ -22,6 +22,7 @@ from .creative_approval import (
     CreativeApprovalStore,
     asset_requires_creative_approval,
 )
+from .creative_inventory_qualification import apply_gate
 from .distribution_surface import normalize_distribution_surface
 from .motion_qc_publishability import MotionQcPublishabilityMixin
 from .persistence import json_load
@@ -1195,6 +1196,7 @@ class PublishabilityRepository(
         if not checks["ai_disclosure_resolved"]:
             failures.append(AI_DISCLOSURE_BLOCKER)
         failures.extend(trust_blockers)
+        inv = apply_gate(self, asset, latest_audit, checks, failures)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
         if quarantine:
@@ -1401,6 +1403,7 @@ class PublishabilityRepository(
             "contentFingerprint": content_fingerprint,
             "content_fingerprint": content_fingerprint,
             "finalArtifactIntegrity": final_artifact_integrity,
+            "creativeInventoryQualification": inv,
             "captionHash": export_caption_hash,
             "caption_hash": export_caption_hash,
             "captionOutcomeContext": caption_context,
