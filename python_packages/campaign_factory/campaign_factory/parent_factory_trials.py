@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import tempfile
 from collections.abc import Callable
@@ -282,12 +283,16 @@ class ParentFactoryTrialRepository:
                     video.write_bytes(
                         f"fresh-candidate-{index}:{candidate['caption']}".encode()
                     )
+                    subject_sha = hashlib.sha256(video.read_bytes()).hexdigest()
+                    caption_hash = hashlib.sha256(
+                        str(candidate["caption"]).strip().lower().encode()
+                    ).hexdigest()
                     result = sandbox.finished_video.register_finished_video(
                         input_path=video,
                         campaign_slug="post_gate_fresh_batch_proof",
                         model_slug="stacey",
                         caption=str(candidate["caption"]),
-                        caption_hash=f"fresh_caption_hash_{index:03d}",
+                        caption_hash=caption_hash,
                         caption_bank="post_gate_fixture",
                         creator_mix="Stacey",
                         creator_model="Stacey",
@@ -299,7 +304,15 @@ class ParentFactoryTrialRepository:
                         approval_reason="post-gate proof fixture",
                         review_batch="post_gate_fresh_batch_proof",
                         caption_placement_policy="focal_safe_v1",
-                        caption_placement_decision={"status": "passed"},
+                        caption_placement_decision={
+                            "status": "passed",
+                            "selectedLane": "center",
+                            "sampleCount": 1,
+                            "subjectSha256": subject_sha,
+                        },
+                        product_mode="static_reel",
+                        product_mode_evidence_source=str(video),
+                        product_mode_evidence_sha256=subject_sha,
                     )
                     if result.get("canProceed") is False:
                         blocked_item = self.post_gate_blocked_candidate_evidence(
@@ -309,7 +322,15 @@ class ParentFactoryTrialRepository:
                             blocked.append(blocked_item)
                         continue
                     registered += 1
-                    publishability = result.get("publishability") or {}
+                    sandbox.finished_video.add_synthetic_qualification_evidence(
+                        result=result,
+                        caption=str(candidate["caption"]),
+                        caption_hash=caption_hash,
+                        evidence_sha=subject_sha,
+                    )
+                    publishability = sandbox.publishability.explain_publishability(
+                        str(result["renderedAssetId"])
+                    )
                     if publishability.get("publishableCandidate"):
                         accepted += 1
                     else:
