@@ -9,6 +9,7 @@ import pytest
 from campaign_factory.creative_inventory_qualification import (
     REVIEW_MANIFEST_SCHEMA,
     build_operator_review_queue,
+    open_read_only_database,
     product_mode_lineage,
     qualify_creative_inventory_asset,
 )
@@ -97,6 +98,16 @@ def _mode_evidence(
     path = tmp_path / name
     path.write_text('{"productMode":"static_reel"}', encoding="utf-8")
     return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_inventory_database_is_immutable_and_query_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "inventory.sqlite"
+    with sqlite3.connect(db_path) as writer:
+        writer.execute("CREATE TABLE assets (id TEXT PRIMARY KEY)")
+    with open_read_only_database(db_path) as conn:
+        assert conn.execute("PRAGMA query_only").fetchone()[0] == 1
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO assets VALUES ('blocked')")
 
 
 def test_product_mode_lineage_requires_exact_explicit_evidence(tmp_path: Path) -> None:
