@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from creator_os_core.runtime_promotion import (
+    validate_runtime_promotion_receipt_file,
+)
+
 from .adapters.contentforge import audit_campaign
 from .adapters.threadsdash_account_projection import (
     summarize_threadsdash_usage,
@@ -46,6 +50,7 @@ from .learning_cohort import (
     run_learning_cohort_day,
 )
 from .production_higgsfield_authorization import provider_control_reconciliation
+from .production_readiness import build_production_readiness_proof
 from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
 from .reconciliation import (
@@ -84,6 +89,23 @@ from .variation_stage import run_variation_stage
 
 
 def dispatch_pipeline_commands(args, cf, settings) -> int | None:
+    if args.cmd == "production-readiness-proof":
+        promotion_receipt = (
+            validate_runtime_promotion_receipt_file(args.runtime_promotion_receipt)
+            if args.runtime_promotion_receipt
+            else None
+        )
+        print_json(
+            build_production_readiness_proof(
+                cf.conn,
+                creative_approvals_dir=settings.creative_approvals_dir,
+                promotion_receipt=promotion_receipt,
+                expected_runtime_sha=args.expected_runtime_sha,
+                threadsdash_deployed_sha=args.threadsdash_deployed_sha,
+                threadsdash_deployed_at=args.threadsdash_deployed_at,
+            )
+        )
+        return 0
     if args.cmd == "reconcile":
         if args.reconcile_cmd == "report":
             report = reconciliation_report(cf.conn, settings)

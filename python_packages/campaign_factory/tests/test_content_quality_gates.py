@@ -767,6 +767,13 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert exported["assets"][0]["renderedAssetId"] == rendered["id"]
         assert exported["assets"][0]["contentForgeRunId"] == "reel_review_batch"
         assert exported["assets"][0]["auditSummary"]["overallVerdict"] == "pass"
+        exact_audit = exported["assets"][0]["_metadata"]["exactFinalAudit"]
+        assert exact_audit["auditReportId"] == audit["id"]
+        assert exact_audit["auditSubjectSha256"] == rendered["content_hash"]
+        assert (
+            exact_audit["auditReportSha256"]
+            == hashlib.sha256(contentforge_audit.read_bytes()).hexdigest()
+        )
         assert (
             exported["assets"][0]["generatedAssetLineage"]["pipelineTraceId"]
             == "trace_review_1"
@@ -3507,6 +3514,32 @@ def test_inventory_factory_audit_and_yield_analysis_are_read_only(tmp_path: Path
         assert yield_report["validatedToScheduleSafeYield"] == 0
         assert yield_report["largestDropoff"]
         assert yield_report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_inventory_stage_counts_exclude_review_ready_without_handoff_evidence(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET review_state = 'review_ready', audit_status = 'approved_candidate'
+            WHERE id = 'asset_1'
+            """
+        )
+        cf.conn.commit()
+
+        counts = cf.domains.inventory_planning.inventory_yield_analysis(
+            campaign_slug="may"
+        )["stageCounts"]
+
+        assert counts["validatedAssets"] == 0
+        assert counts["publishableAssets"] == 0
+        assert counts["scheduleSafeAssets"] == 0
     finally:
         cf.close()
 
