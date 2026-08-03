@@ -718,6 +718,7 @@ class FinishedVideoRepository:
         product_mode: str | None = None,
         product_mode_evidence_source: str | None = None,
         product_mode_evidence_sha256: str | None = None,
+        qualification_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         source = Path(input_path).expanduser().resolve()
         if not source.exists() or not source.is_file():
@@ -776,6 +777,11 @@ class FinishedVideoRepository:
             product_mode=product_mode,
             evidence_source=product_mode_evidence_source,
             evidence_sha256=product_mode_evidence_sha256,
+        )
+        qualification = (
+            dict(qualification_evidence)
+            if isinstance(qualification_evidence, dict)
+            else {}
         )
         source_prompt = {
             "schema": "campaign_factory.finished_video_registration.v1",
@@ -883,9 +889,17 @@ class FinishedVideoRepository:
         }
         if caption_placement_policy:
             caption_context["captionPlacementPolicy"] = caption_placement_policy
-        if isinstance(caption_placement_decision, dict):
-            caption_context["captionPlacementDecision"] = caption_placement_decision
-        audio_intent = {
+        placement_decision = (
+            caption_placement_decision
+            if isinstance(caption_placement_decision, dict)
+            else qualification.get("captionPlacementDecision")
+        )
+        if isinstance(placement_decision, dict):
+            caption_context["captionPlacementDecision"] = placement_decision
+        caption_lineage = qualification.get("captionLineage")
+        if isinstance(caption_lineage, dict):
+            caption_context["captionLineage"] = caption_lineage
+        default_audio_intent = {
             "schema": "pipeline.audio_intent.v1",
             "status": "attached" if track_id else "missing",
             "source": audio_source or "operator_muxed_audio",
@@ -902,6 +916,10 @@ class FinishedVideoRepository:
                 "notes": "Audio is embedded in the registered MP4.",
             },
         }
+        audio_intent = qualification.get("audioIntent")
+        if not isinstance(audio_intent, dict):
+            audio_intent = default_audio_intent
+        audio_embedding_receipt = qualification.get("audioEmbeddingReceipt")
         caption_generation = {
             "schema": "campaign_factory.finished_video_caption_generation.v1",
             "caption": normalized_caption,
@@ -915,9 +933,9 @@ class FinishedVideoRepository:
             "captionOutcomeContext": caption_context,
             "audioIntent": audio_intent,
             "captionPlacementPolicy": caption_placement_policy,
-            "captionPlacementDecision": caption_placement_decision
-            if isinstance(caption_placement_decision, dict)
-            else None,
+            "captionPlacementDecision": placement_decision,
+            "captionLineage": caption_lineage,
+            "audioEmbeddingReceipt": audio_embedding_receipt,
             "productModeLineage": mode_lineage,
             "operatorReview": {
                 "operator": operator,
@@ -984,7 +1002,11 @@ class FinishedVideoRepository:
                 json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
                 json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
                 json.dumps(
-                    {"productModeLineage": mode_lineage},
+                    {
+                        "productModeLineage": mode_lineage,
+                        "audioIntent": audio_intent,
+                        "audioEmbeddingReceipt": audio_embedding_receipt,
+                    },
                     ensure_ascii=False,
                     sort_keys=True,
                 ),

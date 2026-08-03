@@ -13,7 +13,10 @@ from campaign_factory.blocked_experiment_reporting import (
     rollback_blocked_experiment_policy,
 )
 from campaign_factory.content_director_operations import design_experiment
-from campaign_factory.inventory_reservations import InventoryReservationRepository
+from campaign_factory.experiment_factor_validation import (
+    validate_audio_experiment_exception,
+    validate_factor_values,
+)
 from campaign_factory.learning_consumption import (
     apply_learning_to_production_plan,
     persist_learning_decision_receipt,
@@ -26,6 +29,7 @@ from campaign_factory.observed_experiment_reporting import (
     _metric_revision_reconciliation_reasons,
 )
 from campaign_test_support import make_factory
+
 from pipeline_contracts import (
     ContractValidationError,
     validate_experiment_assignment_receipt,
@@ -161,7 +165,7 @@ def test_factor_validation_rejects_a_second_changed_variable() -> None:
     }
     control = _factor_values(timing="static")
     treatment = _factor_values(timing="timed")
-    normalized, fingerprint = InventoryReservationRepository._validate_factor_values(
+    normalized, fingerprint = validate_factor_values(
         changed_variable="overlay_timing",
         variants=["static", "timed"],
         factor_values=(control, treatment),
@@ -172,7 +176,7 @@ def test_factor_validation_rejects_a_second_changed_variable() -> None:
     assert len(fingerprint) == 64
 
     with pytest.raises(ValueError, match="differ only"):
-        InventoryReservationRepository._validate_factor_values(
+        validate_factor_values(
             changed_variable="overlay_timing",
             variants=["static", "timed"],
             factor_values=(
@@ -186,8 +190,8 @@ def test_factor_validation_rejects_a_second_changed_variable() -> None:
 
 def test_exact_track_assignment_requires_operator_exception() -> None:
     with pytest.raises(PermissionError, match="reuse-policy exception"):
-        InventoryReservationRepository._validate_audio_experiment_exception(None)
-    InventoryReservationRepository._validate_audio_experiment_exception(
+        validate_audio_experiment_exception(None)
+    validate_audio_experiment_exception(
         {
             "exceptionId": "operator_exception_1",
             "authorizedBy": "operator",

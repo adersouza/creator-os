@@ -2741,26 +2741,7 @@ export const generatedPipelineContractSchemas = {
 	                    "type": "array",
 	                    "items": {
 	                      "type": "string",
-	                      "enum": [
-	                        "missing_burned_captions",
-	                        "wrong_visual",
-	                        "missing_caption_hash",
-	                        "missing_caption_outcome_context",
-	                        "missing_content_fingerprint",
-	                        "missing_audio",
-	                        "embedded_audio_missing",
-	                        "readiness_failed",
-	                        "not_approved",
-	                        "caption_placement_qc_failed",
-	                        "missing_instagram_post_caption",
-	                        "instagram_post_caption_quality_failed",
-	                        "visual_qc_unavailable",
-	                        "visual_qc_failed",
-	                        "identity_verification_unavailable",
-	                        "identity_verification_failed",
-	                        "creative_approval_missing",
-	                        "missing_audit"
-	                      ]
+	                      "minLength": 1
 	                    }
 	                  },
 	                  "blockingReason": {
@@ -5141,7 +5122,46 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "factorValues": {
 	      "type": "object",
-	      "minProperties": 7
+	      "additionalProperties": false,
+	      "required": [
+	        "source_family",
+	        "overlay_text",
+	        "overlay_timing",
+	        "audio_track",
+	        "observed_profile",
+	        "motion_mode",
+	        "posting_window"
+	      ],
+	      "properties": {
+	        "source_family": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "overlay_text": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "overlay_timing": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "audio_track": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "observed_profile": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "motion_mode": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "posting_window": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
 	    },
 	    "controlledValuesFingerprint": {
 	      "$ref": "#/$defs/sha256"

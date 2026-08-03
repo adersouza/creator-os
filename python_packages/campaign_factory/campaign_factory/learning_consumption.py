@@ -9,6 +9,7 @@ from typing import Any
 
 from .audio_learning_policy import measured_audio_performance
 from .blocked_experiment_reporting import apply_adopted_experiment_policy
+from .experiment_factor_validation import candidate_source_family
 from .learning_governance import (
     MINIMUM_POLICY_SAMPLE_COUNT,
     register_recommendation,
@@ -816,7 +817,7 @@ def _apply_blocked_source_family_policy(
 ) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
     if account is None or not sources:
         return sources, prompt, decision
-    families = [_source_family(source) for source in sources]
+    families = [candidate_source_family(source) for source in sources]
     if not all(families):
         return sources, prompt, decision
     eligible_families = list(dict.fromkeys(families))
@@ -833,8 +834,14 @@ def _apply_blocked_source_family_policy(
     if not policy_receipt["learningApplied"]:
         return sources, prompt, decision
     selected_sources = [
-        source for source in sources if _source_family(source) == selected_family
-    ] + [source for source in sources if _source_family(source) != selected_family]
+        source
+        for source in sources
+        if candidate_source_family(source) == selected_family
+    ] + [
+        source
+        for source in sources
+        if candidate_source_family(source) != selected_family
+    ]
     changed = selected_sources != sources
     decision.update(
         {
@@ -859,24 +866,6 @@ def _apply_blocked_source_family_policy(
         }
     )
     return selected_sources, prompt, decision
-
-
-def _source_family(source: Mapping[str, Any]) -> str:
-    raw_notes = source.get("notes")
-    notes = (
-        dict(raw_notes)
-        if isinstance(raw_notes, Mapping)
-        else json_load(str(raw_notes), {})
-        if raw_notes is not None
-        else {}
-    )
-    return str(
-        source.get("sourceFamilyId")
-        or source.get("source_family_id")
-        or notes.get("sourceFamilyId")
-        or notes.get("source_family_id")
-        or ""
-    ).strip()
 
 
 def recommendation_state(

@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.sqlite import connect_sqlite
+
 from .asset_evidence import verify_registered_asset_bytes
 
 PRODUCT_MODE_LINEAGE_SCHEMA = "campaign_factory.product_mode_lineage.v1"
@@ -297,8 +299,7 @@ def build_operator_review_queue(
 
 def open_read_only_database(path: Path) -> sqlite3.Connection:
     database = path.expanduser().resolve()
-    conn = sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(database, readonly=True, immutable=True, wal=False)
     conn.execute("PRAGMA query_only = ON")
     return conn
 

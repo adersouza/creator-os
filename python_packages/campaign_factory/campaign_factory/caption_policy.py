@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 CAPTION_PLACEMENT_QC_WARNING_CODES = {
@@ -93,3 +94,48 @@ def caption_quality_recovery_class(quality_reasons: list[str]) -> str:
     if "instagram_post_caption_platform_risk" in reasons:
         return "recoverableByCTARemoval"
     return "recoverableByCaptionRewrite"
+
+
+def instagram_post_caption_quality(post_caption: dict[str, Any]) -> dict[str, Any]:
+    caption = str(post_caption.get("instagram_post_caption") or "").strip()
+    burned = str(post_caption.get("burned_caption_text") or "").strip()
+    hashtags = list(post_caption.get("hashtags") or [])
+    reasons: list[str] = []
+    if not caption:
+        return {
+            "passed": False,
+            "reasons": ["blank_instagram_post_caption"],
+            "policy": "simple_ig_post_caption_v1",
+            "maxCharacters": 140,
+            "maxLines": 3,
+            "maxHashtags": 5,
+        }
+    lines = [line for line in caption.splitlines() if line.strip()]
+    if len(caption) > 140:
+        reasons.append("instagram_post_caption_too_long")
+    if len(lines) > 3:
+        reasons.append("instagram_post_caption_too_many_lines")
+    if len(re.findall(r"#[A-Za-z0-9_]+", caption)) > 5 or len(hashtags) > 5:
+        reasons.append("instagram_post_caption_too_many_hashtags")
+    if re.search(
+        r"https?://|www\.|link\s*in\s*bio|dm\s+me|message\s+me|text\s+me|telegram|whatsapp|onlyfans|fansly",
+        caption,
+        re.IGNORECASE,
+    ):
+        reasons.append("instagram_post_caption_platform_risk")
+    caption_words = re.findall(r"[A-Za-z0-9']+", caption.lower())
+    burned_words = re.findall(r"[A-Za-z0-9']+", burned.lower())
+    if burned and caption.lower() == burned.lower() and len(burned_words) > 8:
+        reasons.append("instagram_post_caption_copied_long_burned_caption")
+    return {
+        "passed": not reasons,
+        "reasons": sorted(set(reasons)),
+        "policy": "simple_ig_post_caption_v1",
+        "maxCharacters": 140,
+        "maxLines": 3,
+        "maxHashtags": 5,
+        "characterCount": len(caption),
+        "lineCount": len(lines),
+        "wordCount": len(caption_words),
+        "hashtagCount": max(len(re.findall(r"#[A-Za-z0-9_]+", caption)), len(hashtags)),
+    }
