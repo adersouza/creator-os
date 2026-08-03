@@ -2003,6 +2003,12 @@ def _validate_receipt_file(path: Path) -> dict[str, Any]:
     return payload
 
 
+def validate_runtime_promotion_receipt_file(path: Path) -> dict[str, Any]:
+    """Load and authenticate one runtime-promotion receipt file."""
+
+    return _validate_receipt_file(path.expanduser())
+
+
 def _load_all_receipts(state_root: Path) -> list[dict[str, Any]]:
     receipt_root = _owned_subroot(state_root, "receipts", create=False)
     if receipt_root is None:

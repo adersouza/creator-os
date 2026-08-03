@@ -31,6 +31,9 @@ def add_audit_report(
     warning_codes = warning_codes or []
     report_path = Path(asset["campaign_path"]).with_suffix(f".{audit_id}.json")
     report_payload = {
+        "schema": "campaign_factory.contentforge_audit.v1",
+        "contentForgeRunId": "run_1",
+        "renderedAssetId": rendered_asset_id,
         "subjectSha256": asset["content_hash"],
         "readinessSummary": {
             "uploadReady": upload_ready,
