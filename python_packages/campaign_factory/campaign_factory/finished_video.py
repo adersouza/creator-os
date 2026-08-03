@@ -10,6 +10,8 @@ from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
 
+from .creative_inventory_qualification import product_mode_lineage
+
 
 class FinishedVideoRepository:
     def __init__(
@@ -713,6 +715,9 @@ class FinishedVideoRepository:
         review_batch: str | None = None,
         caption_placement_policy: str | None = None,
         caption_placement_decision: dict[str, Any] | None = None,
+        product_mode: str | None = None,
+        product_mode_evidence_source: str | None = None,
+        product_mode_evidence_sha256: str | None = None,
     ) -> dict[str, Any]:
         source = Path(input_path).expanduser().resolve()
         if not source.exists() or not source.is_file():
@@ -767,6 +772,11 @@ class FinishedVideoRepository:
             shutil.copy2(source, staged)
         now = self._utc_now()
         source_asset_id = f"src_finished_{digest[:12]}"
+        mode_lineage = product_mode_lineage(
+            product_mode=product_mode,
+            evidence_source=product_mode_evidence_source,
+            evidence_sha256=product_mode_evidence_sha256,
+        )
         source_prompt = {
             "schema": "campaign_factory.finished_video_registration.v1",
             "inputPath": str(source),
@@ -774,6 +784,7 @@ class FinishedVideoRepository:
             "reviewBatch": review_batch,
             "operator": operator,
             "approvalReason": approval_reason,
+            "productModeLineage": mode_lineage,
             "audio": {
                 "trackId": track_id,
                 "trackName": track_name,
@@ -868,6 +879,7 @@ class FinishedVideoRepository:
             "identityVerificationStatus": "passed",
             "visualQc": {"status": "passed"},
             "identityVerification": {"status": "passed"},
+            "productModeLineage": mode_lineage,
         }
         if caption_placement_policy:
             caption_context["captionPlacementPolicy"] = caption_placement_policy
@@ -906,6 +918,7 @@ class FinishedVideoRepository:
             "captionPlacementDecision": caption_placement_decision
             if isinstance(caption_placement_decision, dict)
             else None,
+            "productModeLineage": mode_lineage,
             "operatorReview": {
                 "operator": operator,
                 "approvalReason": approval_reason,
@@ -921,11 +934,11 @@ class FinishedVideoRepository:
              campaign_path, filename, caption, caption_hash, caption_bank, caption_banks_json,
              creator_mix, creator_model, frame_type, length_class, format_class,
              caption_fit_version, suitability_decision, suitability_reason, source_clip,
-             caption_outcome_context_json, caption_generation_json, recipe, target_ratio,
+             caption_outcome_context_json, caption_generation_json, recipe, target_ratio, metadata_json,
              audit_status, review_state, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'selfie_video', 'short',
              'reel', 'operator_finished_video_v1', 'allowed', 'operator approved finished video',
-             ?, ?, ?, 'finished_video_registered', '9:16', 'passed', 'approved', ?, ?)
+             ?, ?, ?, 'finished_video_registered', '9:16', ?, 'passed', 'approved', ?, ?)
             ON CONFLICT(campaign_id, content_hash) DO UPDATE SET
               output_path = excluded.output_path,
               campaign_path = excluded.campaign_path,
@@ -947,6 +960,7 @@ class FinishedVideoRepository:
               caption_generation_json = excluded.caption_generation_json,
               recipe = excluded.recipe,
               target_ratio = excluded.target_ratio,
+              metadata_json = excluded.metadata_json,
               audit_status = excluded.audit_status,
               review_state = excluded.review_state,
               updated_at = excluded.updated_at
@@ -969,6 +983,11 @@ class FinishedVideoRepository:
                 str(source),
                 json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
                 json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    {"productModeLineage": mode_lineage},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 now,
             ),
@@ -1078,6 +1097,7 @@ class FinishedVideoRepository:
             "captionHash": caption_hash_value,
             "mediaPath": str(staged),
             "audioIntent": audio_intent,
+            "productModeLineage": mode_lineage,
             "publishability": publishability,
             "rejectionEvidenceCapture": rejection_capture,
         }

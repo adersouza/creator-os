@@ -22,6 +22,10 @@ from .creative_approval import (
     CreativeApprovalStore,
     asset_requires_creative_approval,
 )
+from .creative_inventory_qualification import (
+    caption_repeat_count,
+    qualify_creative_inventory_asset,
+)
 from .distribution_surface import normalize_distribution_surface
 from .motion_qc_publishability import MotionQcPublishabilityMixin
 from .persistence import json_load
@@ -1023,6 +1027,13 @@ class PublishabilityRepository(
         final_artifact_integrity = final_artifact_integrity_for_publishability(
             asset, latest_audit
         )
+        creative_inventory_qualification = qualify_creative_inventory_asset(
+            asset,
+            audit=latest_audit,
+            final_integrity=final_artifact_integrity,
+            caption_repeat_count=caption_repeat_count(self.conn, asset.get("caption")),
+            audio_intent_override=audio_intent,
+        )
         readiness_blockers = list(
             ((latest_audit or {}).get("readinessSummary") or {}).get("blockingReasons")
             or []
@@ -1140,6 +1151,11 @@ class PublishabilityRepository(
             "creative_approval_valid": creative_approval.get("state")
             in {"approved", "not_required"},
             "ai_disclosure_resolved": ai_disclosure["resolved"] is True,
+            "creative_inventory_qualified": (
+                creative_inventory_qualification["productionQualified"]
+                if creative_inventory_qualification["applicable"]
+                else True
+            ),
             **motion_gate["checks"],
         }
         failures: list[str] = []
@@ -1195,6 +1211,8 @@ class PublishabilityRepository(
         if not checks["ai_disclosure_resolved"]:
             failures.append(AI_DISCLOSURE_BLOCKER)
         failures.extend(trust_blockers)
+        if creative_inventory_qualification["applicable"]:
+            failures.extend(creative_inventory_qualification["blockingReasons"])
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
         if quarantine:
@@ -1401,6 +1419,7 @@ class PublishabilityRepository(
             "contentFingerprint": content_fingerprint,
             "content_fingerprint": content_fingerprint,
             "finalArtifactIntegrity": final_artifact_integrity,
+            "creativeInventoryQualification": creative_inventory_qualification,
             "captionHash": export_caption_hash,
             "caption_hash": export_caption_hash,
             "captionOutcomeContext": caption_context,
