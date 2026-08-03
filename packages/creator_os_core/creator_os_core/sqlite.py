@@ -11,10 +11,13 @@ def connect_sqlite(
     db_path: str | Path,
     *,
     readonly: bool = False,
+    immutable: bool = False,
     row_factory: Any = sqlite3.Row,
     wal: bool = True,
     busy_timeout_ms: int = 30_000,
 ) -> sqlite3.Connection:
+    if immutable and not readonly:
+        raise ValueError("immutable SQLite connections must be read-only")
     if str(db_path) == ":memory:":
         conn = sqlite3.connect(":memory:", timeout=30.0)
         conn.row_factory = row_factory
@@ -22,7 +25,10 @@ def connect_sqlite(
         return conn
     path = Path(db_path).expanduser()
     if readonly:
-        conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", timeout=30.0, uri=True)
+        immutable_query = "&immutable=1" if immutable else ""
+        conn = sqlite3.connect(
+            f"file:{path.resolve()}?mode=ro{immutable_query}", timeout=30.0, uri=True
+        )
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path, timeout=30.0)

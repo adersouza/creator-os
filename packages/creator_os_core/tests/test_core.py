@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -63,6 +64,32 @@ def test_sqlite_connection_supports_true_in_memory_database(tmp_path: Path) -> N
         conn.execute("INSERT INTO example VALUES ('ok')")
         assert conn.execute("SELECT value FROM example").fetchone()[0] == "ok"
     assert not marker.exists()
+
+
+def test_sqlite_immutable_connection_is_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "state.sqlite"
+    with connect_sqlite(db_path, wal=False) as conn:
+        conn.execute("CREATE TABLE items (id TEXT PRIMARY KEY)")
+    real_connect = sqlite3.connect
+    opened: list[str] = []
+
+    def capture_connect(database: str, *args: object, **kwargs: object):
+        opened.append(str(database))
+        return real_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr("creator_os_core.sqlite.sqlite3.connect", capture_connect)
+    with connect_sqlite(db_path, readonly=True, immutable=True, wal=False) as conn:
+        assert opened == [f"file:{db_path.resolve()}?mode=ro&immutable=1"]
+        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO items VALUES ('blocked')")
+
+
+def test_sqlite_immutable_connection_requires_readonly(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="must be read-only"):
+        connect_sqlite(tmp_path / "state.sqlite", immutable=True)
 
 
 def test_vector_contract() -> None:
