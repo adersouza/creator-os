@@ -9,12 +9,15 @@ from campaign_factory.blocked_experiment_reporting import (
     _cluster_summary,
     _hierarchical_cluster_interval,
     _promotion_status,
-    apply_adopted_experiment_policy,
     record_blocked_experiment_decision,
     rollback_blocked_experiment_policy,
 )
 from campaign_factory.content_director_operations import design_experiment
 from campaign_factory.inventory_reservations import InventoryReservationRepository
+from campaign_factory.learning_consumption import (
+    apply_learning_to_production_plan,
+    persist_learning_decision_receipt,
+)
 from campaign_factory.learning_governance import register_experiment_measurement
 from campaign_factory.observed_experiment_reporting import (
     BLOCKED_ASSIGNMENT_METHOD,
@@ -23,6 +26,10 @@ from campaign_factory.observed_experiment_reporting import (
     _metric_revision_reconciliation_reasons,
 )
 from campaign_test_support import make_factory
+from pipeline_contracts import (
+    ContractValidationError,
+    validate_experiment_assignment_receipt,
+)
 
 
 def _plan(cf, *, factor: str = "overlay_timing") -> tuple[str, str]:
@@ -78,6 +85,39 @@ def _factor_values(*, timing: str, overlay: str = "hook_a") -> dict[str, str]:
         "motion_mode": "static_reel",
         "posting_window": "weekday_1830",
     }
+
+
+def test_blocked_assignment_contract_rejects_unknown_or_empty_factor_values() -> None:
+    example_path = (
+        Path(__file__).parents[3]
+        / "packages"
+        / "pipeline_contracts"
+        / "pipeline_contracts"
+        / "schemas"
+        / "experiment_assignment_receipt.v1.example.json"
+    )
+    receipt = json.loads(example_path.read_text(encoding="utf-8"))
+    receipt.update(
+        {
+            "assignmentAlgorithmVersion": BLOCKED_ASSIGNMENT_METHOD,
+            "changedVariable": "overlay_timing",
+            "sourceFamilyBlockId": "family_a",
+            "factorValues": _factor_values(timing="static"),
+            "controlledValuesFingerprint": "c" * 64,
+            "metricRevisionPolicy": "immutable_final_reconciled_observation.v1",
+        }
+    )
+    validate_experiment_assignment_receipt(receipt)
+
+    unknown = json.loads(json.dumps(receipt))
+    unknown["factorValues"]["unexpected_factor"] = "value"
+    with pytest.raises(ContractValidationError):
+        validate_experiment_assignment_receipt(unknown)
+
+    empty = json.loads(json.dumps(receipt))
+    empty["factorValues"]["motion_mode"] = ""
+    with pytest.raises(ContractValidationError):
+        validate_experiment_assignment_receipt(empty)
 
 
 def test_design_predeclares_generalized_block_controls(tmp_path: Path) -> None:
@@ -225,13 +265,13 @@ def test_metric_revision_must_match_latest_immutable_observation(
 def test_adopted_policy_changes_choice_and_rollback_removes_it(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
-        plan_id, now = _plan(cf)
+        plan_id, now = _plan(cf, factor="source_family")
         design = design_experiment(
             cf.conn,
             plan_id=plan_id,
-            changed_variable="overlay_timing",
-            variants=("static", "timed"),
-            hypothesis="timing changes reach",
+            changed_variable="source_family",
+            variants=("family_a", "family_b"),
+            hypothesis="source family changes reach",
             apply=True,
             assignment_method=BLOCKED_ASSIGNMENT_METHOD,
         )
@@ -260,18 +300,56 @@ def test_adopted_policy_changes_choice_and_rollback_removes_it(tmp_path: Path) -
             reason="qualified blocked result",
         )
         assert decision["productionUsageChanged"] is True
-        selected, receipt = apply_adopted_experiment_policy(
+        sources = [
+            {
+                "id": "source_a",
+                "status": "approved",
+                "notes": json.dumps({"sourceFamilyId": "family_a"}),
+            },
+            {
+                "id": "source_b",
+                "status": "approved",
+                "notes": json.dumps({"sourceFamilyId": "family_b"}),
+            },
+        ]
+        selected, prompt, receipt = apply_learning_to_production_plan(
             cf.conn,
             creator="stacey",
-            account_id="account_a",
-            content_intent="passive_selfie",
-            changed_variable="overlay_timing",
-            eligible_values=["static", "timed"],
-            base_value="static",
+            creator_identity_profile="stacey",
+            account="account_a",
+            intent="passive_selfie",
+            sources=sources,
+            base_prompt="base prompt",
         )
-        assert selected == "timed"
+        assert [source["id"] for source in selected] == ["source_b", "source_a"]
+        assert prompt == "base prompt"
         assert receipt["learningInfluenced"] is True
         assert receipt["finalChoiceChanged"] is True
+        assert receipt["eligibleFactorValuesBeforeLearning"] == [
+            "family_a",
+            "family_b",
+        ]
+        assert receipt["baseFactorValue"] == "family_a"
+        assert receipt["finalFactorValue"] == "family_b"
+        receipt_id = persist_learning_decision_receipt(
+            cf.conn,
+            decision=receipt,
+            results=[{"jobId": "job_1", "status": "succeeded", "result": {}}],
+        )
+        persisted = cf.conn.execute(
+            "SELECT decision_payload_json FROM manager_decisions WHERE id = ?",
+            (receipt_id,),
+        ).fetchone()
+        assert persisted is not None
+        payload = json.loads(persisted["decision_payload_json"])
+        assert payload["learningInfluenced"] is True
+        assert payload["finalChoiceChanged"] is True
+        assert payload["eligibleFactorValuesBeforeLearning"] == [
+            "family_a",
+            "family_b",
+        ]
+        assert payload["baseFactorValue"] == "family_a"
+        assert payload["finalFactorValue"] == "family_b"
 
         rollback = rollback_blocked_experiment_policy(
             cf.conn,
@@ -280,16 +358,16 @@ def test_adopted_policy_changes_choice_and_rollback_removes_it(tmp_path: Path) -
             reason="72h guardrail regression",
         )
         assert rollback["productionUsageChanged"] is True
-        selected, receipt = apply_adopted_experiment_policy(
+        selected, _, receipt = apply_learning_to_production_plan(
             cf.conn,
             creator="stacey",
-            account_id="account_a",
-            content_intent="passive_selfie",
-            changed_variable="overlay_timing",
-            eligible_values=["static", "timed"],
-            base_value="static",
+            creator_identity_profile="stacey",
+            account="account_a",
+            intent="passive_selfie",
+            sources=sources,
+            base_prompt="base prompt",
         )
-        assert selected == "static"
+        assert [source["id"] for source in selected] == ["source_a", "source_b"]
         assert receipt["finalChoiceChanged"] is False
     finally:
         cf.close()

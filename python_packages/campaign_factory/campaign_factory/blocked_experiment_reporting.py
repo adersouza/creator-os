@@ -35,6 +35,7 @@ MIN_ACCOUNTS = 48
 MIN_SOURCE_FAMILY_BLOCKS = 96
 MIN_DESIGN_EFFECT = 1.25
 ACCOUNT_INTRACLUSTER_CORRELATION = 0.10
+PRODUCTION_CONNECTED_FACTORS = frozenset({"source_family"})
 
 
 def blocked_experiment_report(
@@ -160,6 +161,11 @@ def blocked_experiment_report(
         guardrails_pass=bool(guardrails["pass"]),
         confirmatory_pass=confirmatory_pass,
     )
+    if (
+        status == "operator_review_eligible"
+        and changed_variable not in PRODUCTION_CONNECTED_FACTORS
+    ):
+        status = "production_consumer_unavailable"
     report = {
         "schema": "creator_os.blocked_experiment_report.v1",
         "experimentId": experiment_id,
@@ -194,6 +200,8 @@ def blocked_experiment_report(
         "changedDecisionProof": {
             "receiptSchema": "campaign_factory.learning_decision_receipt.v1",
             "requiredTrueFields": ["learningInfluenced", "finalChoiceChanged"],
+            "productionConnected": changed_variable in PRODUCTION_CONNECTED_FACTORS,
+            "connectedFactors": sorted(PRODUCTION_CONNECTED_FACTORS),
         },
         "fingerprint": "",
     }
@@ -229,7 +237,11 @@ def record_blocked_experiment_decision(
     if not operator.strip() or not reason.strip():
         raise ValueError("experiment decision requires operator and reason")
     row = conn.execute(
-        "SELECT interpretation_json, variants_json FROM creative_plan_experiments WHERE id = ?",
+        """
+        SELECT interpretation_json, variants_json, changed_variable
+        FROM creative_plan_experiments
+        WHERE id = ?
+        """,
         (experiment_id,),
     ).fetchone()
     if row is None:
@@ -243,6 +255,11 @@ def record_blocked_experiment_decision(
         != "operator_review_eligible"
     ):
         raise ValueError("only an operator-review-eligible result can be adopted")
+    if (
+        normalized == "adopt"
+        and str(row["changed_variable"]) not in PRODUCTION_CONNECTED_FACTORS
+    ):
+        raise ValueError("experiment factor has no active production consumer")
     variants = json.loads(row["variants_json"] or "[]")
     receipt = {
         "schema": "creator_os.blocked_experiment_decision.v1",
