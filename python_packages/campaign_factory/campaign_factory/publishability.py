@@ -1015,6 +1015,11 @@ class PublishabilityRepository(
             or caption_hash
         )
         content_fingerprint = asset.get("content_hash") or asset.get("contentHash")
+        if cover_frame:
+            cover_frame = {
+                **cover_frame,
+                "source_media_sha256": content_fingerprint,
+            }
         final_artifact_integrity = final_artifact_integrity_for_publishability(
             asset, latest_audit
         )
@@ -1276,9 +1281,12 @@ class PublishabilityRepository(
                 ],
                 "caption_cta": post_caption["caption_cta"],
                 "hashtags": post_caption["hashtags"],
+                "hashtag_decision": "selected" if post_caption["hashtags"] else "none",
                 "post_caption_style": post_caption["post_caption_style"],
                 "burned_caption_text": post_caption["burned_caption_text"],
                 "burned_caption_hash": post_caption["burned_caption_hash"],
+                "cover_decision": "selected" if cover_frame else "none",
+                "cover_frame": cover_frame,
                 "ai_disclosure": ai_disclosure,
                 "visualQcStatus": trust_statuses["visualQcStatus"],
                 "identityVerificationStatus": trust_statuses[
@@ -1338,8 +1346,6 @@ class PublishabilityRepository(
             ]
             if audio_segment:
                 manifest["audio_segment"] = audio_segment
-            if cover_frame:
-                manifest["cover_frame"] = cover_frame
             if variant_lineage:
                 manifest.update(
                     {

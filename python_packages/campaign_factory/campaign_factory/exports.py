@@ -175,11 +175,11 @@ def export_manifest(
             (row["id"],),
         ).fetchone()
         audit_summary = {}
+        exact_final_audit = None
         if latest_audit and latest_audit["report_path"]:
             try:
-                audit_report = json_load(
-                    Path(latest_audit["report_path"]).read_text(encoding="utf-8"), {}
-                )
+                audit_report_bytes = Path(latest_audit["report_path"]).read_bytes()
+                audit_report = json_load(audit_report_bytes.decode("utf-8"), {})
                 creative = audit_report.get("creativeQuality") or {}
                 reference_match = audit_report.get("referenceMatch") or {}
                 audit_summary = {
@@ -191,6 +191,14 @@ def export_manifest(
                     or reference_match.get("differenceScore"),
                     "referenceMatchLevel": reference_match.get("referenceMatchLevel"),
                     "warningCount": len(audit_report.get("warnings") or []),
+                }
+                exact_final_audit = {
+                    "auditReportId": latest_audit["id"],
+                    "auditReportSha256": hashlib.sha256(audit_report_bytes).hexdigest(),
+                    "auditSubjectSha256": latest_audit["subject_sha256"],
+                    "auditStatus": latest_audit["status"],
+                    "auditOverallVerdict": latest_audit["overall_verdict"]
+                    or audit_report.get("overallVerdict"),
                 }
             except OSError:
                 audit_summary = {}
@@ -296,6 +304,9 @@ def export_manifest(
                     "auditReportId": latest_audit["id"],
                 },
             )
+        asset_metadata = json_load(row.get("metadata_json"), {})
+        if exact_final_audit:
+            asset_metadata["exactFinalAudit"] = exact_final_audit
         assets.append(
             {
                 "graphId": rendered_graph_id,
@@ -334,7 +345,7 @@ def export_manifest(
                 "tags": [f"campaign:{campaign['slug']}", f"recipe:{row['recipe']}"],
                 # Producer-private evidence used to bind the exact final bytes at
                 # handoff. shared_handoff_payload strips underscore-prefixed keys.
-                "_metadata": json_load(row.get("metadata_json"), {}),
+                "_metadata": asset_metadata,
             }
         )
     payload = {

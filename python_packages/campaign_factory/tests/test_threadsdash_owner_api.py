@@ -90,6 +90,29 @@ def test_media_preparation_binds_allowed_profile_to_exact_final_bytes(
         media_preparation_evidence(asset, final_sha256="0" * 64)
 
 
+def test_media_preparation_accepts_exact_final_audit_for_normal_media() -> None:
+    final_sha = "a" * 64
+    asset = {
+        "_metadata": {
+            "exactFinalAudit": {
+                "auditReportId": "audit_1",
+                "auditReportSha256": "b" * 64,
+                "auditSubjectSha256": final_sha,
+                "auditStatus": "passed",
+                "auditOverallVerdict": "pass",
+            }
+        }
+    }
+
+    evidence = media_preparation_evidence(asset, final_sha256=final_sha)
+
+    assert evidence["method"] == "exact_final"
+    assert evidence["outputSha256"] == final_sha
+    asset["_metadata"]["exactFinalAudit"]["auditSubjectSha256"] = "c" * 64
+    with pytest.raises(ValueError, match="not bound"):
+        media_preparation_evidence(asset, final_sha256=final_sha)
+
+
 def test_delivery_media_uses_owner_ticket_and_exact_approved_bytes(
     tmp_path: Path, monkeypatch
 ) -> None:
