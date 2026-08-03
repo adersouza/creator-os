@@ -1106,6 +1106,47 @@ def test_single_owner_ci_accepts_consolidated_policy_and_exact_main_evidence(
     assert not any("/reviews?" in endpoint for endpoint in live["calls"])
 
 
+def test_single_owner_ci_accepts_latest_successful_required_context_rerun(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    original = next(
+        check for check in live["branchChecks"] if check["name"] == "hygiene"
+    )
+    rerun = {
+        **original,
+        "id": 2_000,
+        "details_url": "https://github.com/example/creator-os/actions/runs/503/job/2000",
+        "completed_at": "2020-01-01T00:30:00Z",
+    }
+    live["branchChecks"].append(rerun)
+    workflow_name, workflow_path = TRUSTED_BRANCH_CHECK_WORKFLOWS["hygiene"]
+    live["workflows"][503] = {
+        "id": 503,
+        "name": workflow_name,
+        "path": workflow_path,
+        "head_sha": approval["reviewedCommit"],
+        "status": "completed",
+        "conclusion": "success",
+        "repository": {"full_name": approval["repository"]},
+        "head_repository": {"full_name": approval["repository"]},
+    }
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    evidence = _verify_github_approval_evidence(source, approval)
+
+    assert rerun["id"] in evidence["checkRunIds"]
+    assert original["id"] not in evidence["checkRunIds"]
+
+
 def test_single_owner_ci_missing_required_pr_context_blocks(
     repositories,
     monkeypatch,
