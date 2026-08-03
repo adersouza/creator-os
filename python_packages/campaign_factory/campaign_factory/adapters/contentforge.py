@@ -555,6 +555,14 @@ def _audit_asset(
     subject_sha256 = str(byte_integrity["actualSha256"])
     final_integrity = verify_final_artifact_integrity(asset)
     source_path = _source_path_for_asset(factory, asset)
+    variant_family_id = str(asset.get("variant_family_id") or "").strip()
+    sibling_assets = _variant_family_siblings(factory, asset)
+    sibling_paths = [Path(str(sibling["campaign_path"])) for sibling in sibling_assets]
+    audit_layers = list(layers)
+    if sibling_assets:
+        for layer in ("pdq", "sscd"):
+            if layer not in audit_layers:
+                audit_layers.append(layer)
     locked_static = asset.get("recipe") == "static_mp4"
     run_id = uuid.uuid4().hex[:8]
     failed: list[str] = []
@@ -569,7 +577,10 @@ def _audit_asset(
             source_path,
             media_path,
             reference_paths or [],
-        ) as (staged_source, staged_path, staged_references):
+            sibling_paths if sibling_assets else None,
+        ) as staged:
+            staged_source, staged_path, staged_references = staged[:3]
+            staged_comparisons = staged[3] if len(staged) == 4 else []
             staged_source_name = staged_source.name
             staged_name = staged_path.name
             post_kwargs = {
@@ -577,7 +588,7 @@ def _audit_asset(
                 "target_file": staged_path.name,
                 "run_id": staged_path.parent.parent.name,
                 "audit_profile": DEFAULT_AUDIT_PROFILE,
-                "layers": layers,
+                "layers": audit_layers,
             }
             if locked_static:
                 post_kwargs["animation_mode"] = "static_image_mp4"
@@ -586,10 +597,41 @@ def _audit_asset(
                 post_kwargs["originality_reference_files"] = [
                     path.name for path in staged_references
                 ]
+            if staged_comparisons:
+                post_kwargs["comparison_files"] = [
+                    path.name for path in staged_comparisons
+                ]
             response = _post_similarity(
                 factory.settings.contentforge_root, **post_kwargs
             )
         failed, warnings = _extract_checks(response)
+        if sibling_assets:
+            verdicts = response.get("verdicts")
+            verdicts = verdicts if isinstance(verdicts, dict) else {}
+            distinctness_failures = [
+                f"variant_family_{layer}_distinctness_not_passed"
+                for layer in ("pdq", "sscd")
+                if verdicts.get(layer) != "pass"
+            ]
+            if distinctness_failures:
+                failed.extend(distinctness_failures)
+                response["overallVerdict"] = "fail"
+                readiness = response.get("readinessSummary")
+                readiness = dict(readiness) if isinstance(readiness, dict) else {}
+                readiness["uploadReady"] = False
+                readiness["blockingCodes"] = sorted(
+                    {
+                        *(readiness.get("blockingCodes") or []),
+                        *distinctness_failures,
+                    }
+                )
+                readiness["blockingReasons"] = sorted(
+                    {
+                        *(readiness.get("blockingReasons") or []),
+                        "Variant-family sibling distinctness was not proven by both PDQ and SSCD",
+                    }
+                )
+                response["readinessSummary"] = readiness
         if (
             response.get("targetFile") not in {None, staged_name}
             or int(response.get("filesAnalyzed") or 0) != 1
@@ -686,9 +728,20 @@ def _audit_asset(
         "finalArtifactIntegrity": final_integrity,
         "analyzerEvidence": _contentforge_analyzer_evidence(
             factory.settings.contentforge_root,
-            layers=layers,
+            layers=audit_layers,
             response=response,
         ),
+        "variantFamilyDistinctness": {
+            "variantFamilyId": variant_family_id or None,
+            "comparisonCount": len(sibling_assets),
+            "siblings": [
+                {
+                    "renderedAssetId": str(sibling["id"]),
+                    "subjectSha256": str(sibling["content_hash"]),
+                }
+                for sibling in sibling_assets
+            ],
+        },
         "sourceFile": str(source_path),
         "stagedSourceFile": staged_source_name,
         "file": str(media_path),
@@ -861,6 +914,32 @@ def _source_path_for_asset(factory: CampaignFactory, asset: dict[str, Any]) -> P
     return path
 
 
+def _variant_family_siblings(
+    factory: CampaignFactory, asset: dict[str, Any]
+) -> list[dict[str, Any]]:
+    from ..asset_evidence import verify_registered_asset_bytes
+
+    family_id = str(asset.get("variant_family_id") or "").strip()
+    if not family_id:
+        return []
+    rows = factory.conn.execute(
+        """
+        SELECT * FROM rendered_assets
+        WHERE campaign_id = ? AND variant_family_id = ? AND id != ?
+        ORDER BY created_at, id
+        """,
+        (asset["campaign_id"], family_id, asset["id"]),
+    ).fetchall()
+    siblings: list[dict[str, Any]] = []
+    for row in rows:
+        sibling = dict(row)
+        integrity = verify_registered_asset_bytes(sibling)
+        if integrity.get("passed") is not True:
+            raise ValueError("contentforge_variant_family_sibling_sha_mismatch")
+        siblings.append(sibling)
+    return siblings
+
+
 def _existing_reference_paths(reference_pattern: dict[str, Any] | None) -> list[Path]:
     paths: list[Path] = []
     for value in (reference_pattern or {}).get("localPaths") or []:
@@ -876,6 +955,7 @@ def _stage_contentforge_asset(
     source_path: Path,
     media_path: Path,
     reference_paths: list[Path] | None = None,
+    comparison_paths: list[Path] | None = None,
 ):
     if not source_path.exists():
         raise FileNotFoundError(source_path)
@@ -894,6 +974,7 @@ def _stage_contentforge_asset(
         final_dir / f"campaign_factory_variant_{token}{media_path.suffix.lower()}"
     )
     staged_references: list[Path] = []
+    staged_comparisons: list[Path] = []
     try:
         shutil.copy2(source_path, staged_source)
         shutil.copy2(media_path, staged_path)
@@ -909,9 +990,21 @@ def _stage_contentforge_asset(
             )
             shutil.copy2(reference_path, staged_reference)
             staged_references.append(staged_reference)
-        yield staged_source, staged_path, staged_references
+        for idx, comparison_path in enumerate(comparison_paths or [], 1):
+            staged_comparison = (
+                final_dir
+                / f"campaign_factory_comparison_{token}_{idx:02d}{comparison_path.suffix.lower()}"
+            )
+            shutil.copy2(comparison_path, staged_comparison)
+            staged_comparisons.append(staged_comparison)
+        if comparison_paths is None:
+            yield staged_source, staged_path, staged_references
+        else:
+            yield staged_source, staged_path, staged_references, staged_comparisons
     finally:
         try:
+            for staged_comparison in staged_comparisons:
+                staged_comparison.unlink(missing_ok=True)
             for staged_reference in staged_references:
                 if staged_reference.exists():
                     staged_reference.unlink()

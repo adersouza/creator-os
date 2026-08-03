@@ -1096,13 +1096,13 @@ def test_primary_fallback_requires_reach_missing_on_both_arms(
         )
         _insert_metrics(cf, assignments=pair["assignments"], items=items)
         cf.conn.execute(
-            "UPDATE performance_snapshots SET reach = NULL WHERE id LIKE 'experiment_%_72h'"
+            "UPDATE performance_snapshots SET reach = NULL WHERE id LIKE 'experiment_%_24h'"
         )
         cf.conn.commit()
         views_report = observed_experiment_report(cf.conn, experiment_id=experiment_id)
         assert views_report["pairs"][0]["primaryMetric"] == "views"
         cf.conn.execute(
-            "UPDATE performance_snapshots SET reach = 800 WHERE id = 'experiment_0_72h'"
+            "UPDATE performance_snapshots SET reach = 800 WHERE id = 'experiment_0_24h'"
         )
         cf.conn.commit()
         excluded = observed_experiment_report(cf.conn, experiment_id=experiment_id)
@@ -1154,37 +1154,38 @@ def _insert_metrics(
     campaign_id = cf.domains.campaign_by_slug("observed")["id"]
     for index, (assignment, item) in enumerate(zip(assignments, items, strict=True)):
         account = assignment["accountId"]
-        baseline_id = f"baseline_{index}"
         baseline_published = publication - timedelta(days=7)
-        baseline_snapshot = baseline_published + timedelta(hours=72)
-        cf.conn.execute(
-            """
-            INSERT INTO performance_snapshots
-            (id, campaign_id, post_id, account_id, published_at, snapshot_at,
-             views, likes, comments, shares, saves, impressions, reach,
-             watch_time_seconds,
-             metrics_eligible, history_source, lineage_v2_valid, raw_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1000, 50, 10, 5, 5, 1100, 800, 5000,
-                    1, 'metric_history', 1, ?, ?)
-            """,
-            (
-                baseline_id,
-                campaign_id,
-                f"baseline_post_{index}",
-                account,
-                baseline_published.isoformat(),
-                baseline_snapshot.isoformat(),
-                json.dumps(
-                    {
-                        "engagement_rate": 0.0875,
-                        "ig_reels_avg_watch_time": 5000,
-                        "completion_rate": 0.40,
-                        "retention_rate": 0.55,
-                    }
+        for baseline_bucket, baseline_hours in (("24h", 24), ("72h", 72)):
+            baseline_id = f"baseline_{index}_{baseline_bucket}"
+            baseline_snapshot = baseline_published + timedelta(hours=baseline_hours)
+            cf.conn.execute(
+                """
+                INSERT INTO performance_snapshots
+                (id, campaign_id, post_id, account_id, published_at, snapshot_at,
+                 views, likes, comments, shares, saves, impressions, reach,
+                 watch_time_seconds, metrics_eligible, history_source,
+                 lineage_v2_valid, raw_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1000, 50, 10, 5, 5, 1100, 800, 5000,
+                        1, 'metric_history', 1, ?, ?)
+                """,
+                (
+                    baseline_id,
+                    campaign_id,
+                    f"baseline_post_{index}_{baseline_bucket}",
+                    account,
+                    baseline_published.isoformat(),
+                    baseline_snapshot.isoformat(),
+                    json.dumps(
+                        {
+                            "engagement_rate": 0.0875,
+                            "ig_reels_avg_watch_time": 5000,
+                            "completion_rate": 0.40,
+                            "retention_rate": 0.55,
+                        }
+                    ),
+                    baseline_snapshot.isoformat(),
                 ),
-                baseline_snapshot.isoformat(),
-            ),
-        )
+            )
         for bucket, hours in (("1h", 1), ("24h", 24), ("72h", 72)):
             snapshot_id = f"experiment_{index}_{bucket}"
             is_treatment = assignment["role"] == "treatment"
@@ -1270,6 +1271,11 @@ def test_end_to_end_pair_metrics_report_is_deterministic_and_operator_only(
         assert first["includedPairCount"] == 1
         assert first["medianPairedLift"] == 0.2
         assert first["measurementPlan"] == OBSERVED_MEASUREMENT_PLAN
+        assert first["primaryMetricPolicy"].startswith("24h_")
+        assert first["confirmatoryMetricPolicy"].startswith("72h_")
+        assert first["confirmatory72h"]["pass"] is True
+        assert first["pairs"][0]["observationBucket"] == "24h"
+        assert first["pairs"][0]["confirmatory72h"]["observationBucket"] == "72h"
         assert first["pairs"][0]["secondaryLifts"]["impressions"] == 0.2
         assert first["pairs"][0]["secondaryLifts"]["completionRate"] == 0.2
         assert first["interpretation"]["status"] == "insufficient"

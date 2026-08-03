@@ -189,9 +189,9 @@ def measured_audio_performance(
                 "bestSegmentOffsetSeconds": best_row.get("segment_start_seconds"),
                 "scoringVersion": summary.get("scoringVersion"),
                 "effectiveSampleSize": summary.get("effectiveSampleSize"),
-                "explorationPriority": (summary.get("bandit") or {}).get(
-                    "explorationPriority"
-                ),
+                "explorationPriority": (
+                    summary.get("posteriorRanking") or summary.get("bandit") or {}
+                ).get("explorationPriority"),
                 "postIdsFingerprint": hashlib.sha256(
                     "\n".join(post_ids).encode("utf-8")
                 ).hexdigest(),

@@ -767,6 +767,13 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert exported["assets"][0]["renderedAssetId"] == rendered["id"]
         assert exported["assets"][0]["contentForgeRunId"] == "reel_review_batch"
         assert exported["assets"][0]["auditSummary"]["overallVerdict"] == "pass"
+        exact_audit = exported["assets"][0]["_metadata"]["exactFinalAudit"]
+        assert exact_audit["auditReportId"] == audit["id"]
+        assert exact_audit["auditSubjectSha256"] == rendered["content_hash"]
+        assert (
+            exact_audit["auditReportSha256"]
+            == hashlib.sha256(contentforge_audit.read_bytes()).hexdigest()
+        )
         assert (
             exported["assets"][0]["generatedAssetLineage"]["pipelineTraceId"]
             == "trace_review_1"
@@ -1394,6 +1401,87 @@ def test_contentforge_audit_can_target_explicit_rendered_assets(
                 campaign_slug="may",
                 rendered_asset_ids=["missing_asset"],
             )
+    finally:
+        cf.close()
+
+
+def test_contentforge_family_audit_compares_siblings_and_requires_pdq_sscd_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_final_artifact_integrity(monkeypatch)
+    cf = make_factory(tmp_path)
+    seen: dict[str, Any] = {}
+
+    def fake_similarity(_contentforge_root, **kwargs):
+        seen.update(kwargs)
+        return {
+            "targetFile": kwargs["target_file"],
+            "layers": {"pdq": {}, "sscd": {}},
+            "verdicts": {"pdq": "warn", "sscd": "pass"},
+            "overallVerdict": "warn",
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "blockingCodes": [],
+                "warningCodes": [],
+            },
+            "filesAnalyzed": 1,
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        first = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        sibling_path = tmp_path / "sibling.mp4"
+        sibling_path.write_bytes(b"sibling-rendered")
+        sibling = {
+            **first,
+            "id": "asset_2",
+            "filename": sibling_path.name,
+            "output_path": str(sibling_path),
+            "campaign_path": str(sibling_path),
+            "content_hash": hashlib.sha256(sibling_path.read_bytes()).hexdigest(),
+            "variant_family_id": "vfam_shared",
+        }
+        columns = list(sibling)
+        cf.conn.execute(
+            f"INSERT INTO rendered_assets ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            [sibling[column] for column in columns],
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET variant_family_id = ? WHERE id = ?",
+            ("vfam_shared", "asset_1"),
+        )
+        cf.conn.commit()
+
+        result = audit_campaign(
+            cf,
+            campaign_slug="may",
+            rendered_asset_ids=["asset_1"],
+            layers=["temporal"],
+        )
+
+        report = result["reports"][0]
+        assert seen["layers"] == ["temporal", "pdq", "sscd"]
+        assert len(seen["comparison_files"]) == 1
+        assert report["variantFamilyDistinctness"] == {
+            "variantFamilyId": "vfam_shared",
+            "comparisonCount": 1,
+            "siblings": [
+                {
+                    "renderedAssetId": "asset_2",
+                    "subjectSha256": sibling["content_hash"],
+                }
+            ],
+        }
+        assert report["overallVerdict"] == "fail"
+        assert report["readinessSummary"]["uploadReady"] is False
+        assert "variant_family_pdq_distinctness_not_passed" in report["failedChecks"]
     finally:
         cf.close()
 
@@ -3426,6 +3514,32 @@ def test_inventory_factory_audit_and_yield_analysis_are_read_only(tmp_path: Path
         assert yield_report["validatedToScheduleSafeYield"] == 0
         assert yield_report["largestDropoff"]
         assert yield_report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_inventory_stage_counts_exclude_review_ready_without_handoff_evidence(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET review_state = 'review_ready', audit_status = 'approved_candidate'
+            WHERE id = 'asset_1'
+            """
+        )
+        cf.conn.commit()
+
+        counts = cf.domains.inventory_planning.inventory_yield_analysis(
+            campaign_slug="may"
+        )["stageCounts"]
+
+        assert counts["validatedAssets"] == 0
+        assert counts["publishableAssets"] == 0
+        assert counts["scheduleSafeAssets"] == 0
     finally:
         cf.close()
 

@@ -678,27 +678,13 @@ class InventoryPlanningRepository:
         )
         readiness = self._build_surface_readiness(assets)
         schedule_safe = sum(1 for item in readiness if item.get("canHandoff"))
-        validated = sum(
-            1
-            for asset in assets
-            if str(asset.get("review_state") or "").lower()
-            in {"approved", "review_ready"}
-        )
-        publishable = sum(
-            1
-            for asset in assets
-            if str(asset.get("audit_status") or "").lower()
-            in {"passed", "pass", "approved", "approved_candidate"}
-            or str(asset.get("review_state") or "").lower()
-            in {"approved", "review_ready"}
-        )
         return {
             "parentAssets": parent_assets,
             "captionFamilies": caption_families,
             "captionVersions": caption_versions,
             "variantAssets": variant_assets,
-            "validatedAssets": validated,
-            "publishableAssets": publishable,
+            "validatedAssets": schedule_safe,
+            "publishableAssets": schedule_safe,
             "scheduleSafeAssets": schedule_safe,
         }
 

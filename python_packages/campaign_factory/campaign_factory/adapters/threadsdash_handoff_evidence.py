@@ -93,13 +93,13 @@ def creative_approval_evidence(approval: Any) -> dict[str, Any] | None:
 def media_preparation_evidence(
     asset: dict[str, Any], *, final_sha256: str
 ) -> dict[str, Any]:
-    """Return path-free OFM/Spoofzy observed-profile proof for exact final bytes."""
+    """Return path-free preparation proof bound to the exact final bytes."""
     metadata = asset.get("_metadata")
     if not isinstance(metadata, dict):
         raise ValueError("media preparation evidence is missing")
     reference = metadata.get("visualDerivativeReceipt")
     if not isinstance(reference, dict):
-        raise ValueError("media preparation receipt is missing")
+        return _exact_final_media_evidence(metadata, final_sha256=final_sha256)
     receipt_path = Path(str(reference.get("path") or "")).expanduser().resolve()
     if not receipt_path.is_file() or receipt_path.is_symlink():
         raise ValueError("media preparation receipt file is unavailable")
@@ -202,6 +202,39 @@ def media_preparation_evidence(
         "acceptedIndex": accepted["acceptedIndex"],
         "qcStatus": "passed",
         "postProcessChain": post_process_chain,
+    }
+
+
+def _exact_final_media_evidence(
+    metadata: dict[str, Any], *, final_sha256: str
+) -> dict[str, Any]:
+    audit = metadata.get("exactFinalAudit")
+    if not isinstance(audit, dict):
+        raise ValueError("media preparation receipt is missing")
+    output_sha = str(final_sha256 or "").lower()
+    subject_sha = str(audit.get("auditSubjectSha256") or "").lower()
+    report_sha = str(audit.get("auditReportSha256") or "").lower()
+    if (
+        not _is_sha256(output_sha)
+        or subject_sha != output_sha
+        or not _is_sha256(report_sha)
+        or str(audit.get("auditStatus") or "").lower()
+        not in {"pass", "passed", "approved", "approved_candidate"}
+        or str(audit.get("auditOverallVerdict") or "").lower() != "pass"
+        or not str(audit.get("auditReportId") or "").strip()
+    ):
+        raise ValueError("exact-final audit is not bound to the final media")
+    return {
+        "schema": "creator_os.media_preparation_evidence.v1",
+        "method": "exact_final",
+        "outputSha256": output_sha,
+        "auditReportId": str(audit["auditReportId"]),
+        "auditReportSha256": report_sha,
+        "auditSubjectSha256": subject_sha,
+        "auditStatus": str(audit["auditStatus"]).lower(),
+        "auditOverallVerdict": "pass",
+        "qcStatus": "passed",
+        "postProcessChain": [],
     }
 
 
