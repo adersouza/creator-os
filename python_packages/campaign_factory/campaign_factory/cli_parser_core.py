@@ -426,6 +426,13 @@ def register_core_commands(sub) -> None:
     )
     mass_ready.add_argument("--limit", type=int, default=1000)
     mass_ready.add_argument("--format", choices=["json", "markdown"], default="json")
+    production_ready = sub.add_parser(
+        "production-readiness-proof",
+        help="read-only exact-evidence gate for a supervised production canary",
+    )
+    production_ready.add_argument("--runtime-promotion-receipt", type=Path)
+    production_ready.add_argument("--expected-runtime-sha")
+    production_ready.add_argument("--threadsdash-deployment-receipt", type=Path)
     caption_outcome = sub.add_parser("caption-outcome-report")
     caption_outcome.add_argument("--campaign", required=True)
     reference_outcome = sub.add_parser("reference-outcome-report")

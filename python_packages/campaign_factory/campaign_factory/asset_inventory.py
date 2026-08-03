@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .creative_approval import asset_requires_creative_approval
+from .creative_approval import CreativeApprovalStore, asset_requires_creative_approval
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -253,6 +254,23 @@ def current_handoff_evidence(
 ) -> dict[str, Any]:
     """Require current bytes, audit, exact decision, and v2 approval as applicable."""
 
+    return current_handoff_evidence_read_only(
+        factory.conn,
+        asset,
+        creative_approvals_dir=factory.settings.creative_approvals_dir,
+        path=path,
+    )
+
+
+def current_handoff_evidence_read_only(
+    conn: sqlite3.Connection,
+    asset: dict[str, Any],
+    *,
+    creative_approvals_dir: Path,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Evaluate the canonical handoff gate using only persisted evidence and files."""
+
     current_sha = str(asset.get("content_hash") or "").strip().lower()
     path = path or Path(str(asset.get("output_path") or ""))
     blockers: list[str] = []
@@ -264,9 +282,10 @@ def current_handoff_evidence(
     ):
         blockers.append("current_final_bytes_unverified")
 
-    audit_row = factory.conn.execute(
+    audit_row = conn.execute(
         """
-        SELECT subject_sha256, status, overall_verdict
+        SELECT id, subject_sha256, contentforge_run_id, status,
+               overall_verdict, report_path
         FROM audit_reports
         WHERE rendered_asset_id = ?
         ORDER BY created_at DESC, id DESC LIMIT 1
@@ -274,14 +293,25 @@ def current_handoff_evidence(
         (asset["id"],),
     ).fetchone()
     audit = dict(audit_row) if audit_row else {}
+    audit_passed = (
+        audit.get("subject_sha256") == current_sha
+        and str(audit.get("overall_verdict") or "").lower() == "pass"
+        and str(audit.get("status") or "").lower()
+        in {"pass", "passed", "approved_candidate"}
+    )
     if audit.get("subject_sha256") != current_sha:
         blockers.append("current_sha_audit_missing")
-    elif str(audit.get("overall_verdict") or "").lower() != "pass" or str(
-        audit.get("status") or ""
-    ).lower() not in {"pass", "passed", "approved_candidate"}:
+    elif not audit_passed:
         blockers.append("current_sha_audit_not_passed")
+    audit_receipt = _exact_final_audit_evidence(
+        audit,
+        rendered_asset_id=str(asset["id"]),
+        current_sha=current_sha,
+    )
+    if audit_passed:
+        blockers.extend(audit_receipt["blockers"])
 
-    decision_row = factory.conn.execute(
+    decision_row = conn.execute(
         """
         SELECT subject_sha256, decision
         FROM approval_decisions
@@ -298,9 +328,7 @@ def current_handoff_evidence(
 
     creative_approval_state = "not_required"
     if asset_requires_creative_approval(asset):
-        creative = factory.domains.publishability.creative_approval_for_asset(
-            str(asset["id"])
-        )
+        creative = CreativeApprovalStore(creative_approvals_dir).status_for_asset(asset)
         creative_approval_state = str(creative.get("state") or "missing")
         if creative_approval_state != "approved":
             blockers.append(
@@ -311,9 +339,96 @@ def current_handoff_evidence(
         "currentSha256": current_sha or None,
         "auditSubjectSha256": audit.get("subject_sha256"),
         "approvalSubjectSha256": decision.get("subject_sha256"),
+        "auditReportId": audit.get("id"),
+        "auditReportSha256": audit_receipt["reportSha256"],
+        "contentForgeRunId": audit.get("contentforge_run_id"),
         "creativeApprovalState": creative_approval_state,
         "blockers": list(dict.fromkeys(blockers)),
     }
+
+
+def _exact_final_audit_evidence(
+    audit: dict[str, Any], *, rendered_asset_id: str, current_sha: str
+) -> dict[str, Any]:
+    report_path = Path(str(audit.get("report_path") or "")).expanduser()
+    if report_path.is_symlink() or not report_path.is_file():
+        return {
+            "reportSha256": None,
+            "blockers": ["current_sha_contentforge_receipt_missing"],
+        }
+    try:
+        report_bytes = report_path.read_bytes()
+        payload = json.loads(report_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "reportSha256": None,
+            "blockers": ["current_sha_contentforge_receipt_invalid"],
+        }
+    report_sha256 = hashlib.sha256(report_bytes).hexdigest()
+    if not isinstance(payload, dict):
+        return {
+            "reportSha256": report_sha256,
+            "blockers": ["current_sha_contentforge_receipt_invalid"],
+        }
+    if (
+        payload.get("schema") != "campaign_factory.contentforge_audit.v1"
+        or payload.get("renderedAssetId") != rendered_asset_id
+        or payload.get("contentForgeRunId") != audit.get("contentforge_run_id")
+    ):
+        return {
+            "reportSha256": report_sha256,
+            "blockers": ["current_sha_contentforge_receipt_binding_mismatch"],
+        }
+    if payload.get("subjectSha256") != current_sha:
+        return {
+            "reportSha256": report_sha256,
+            "blockers": ["current_sha_contentforge_receipt_subject_mismatch"],
+        }
+
+    blockers: list[str] = []
+    readiness = payload.get("readinessSummary")
+    readiness = readiness if isinstance(readiness, dict) else {}
+    if (
+        payload.get("overallVerdict") != "pass"
+        or readiness.get("uploadReady") is not True
+        or readiness.get("blockingReasons")
+        or readiness.get("blockingCodes")
+    ):
+        blockers.append("current_sha_contentforge_not_upload_ready")
+    if readiness.get("visualQcStatus") != "passed":
+        blockers.append("current_sha_visual_qc_not_passed")
+    if readiness.get("identityVerificationStatus") != "passed":
+        blockers.append("current_sha_identity_qc_not_passed")
+
+    integrity = payload.get("finalArtifactIntegrity")
+    integrity = integrity if isinstance(integrity, dict) else {}
+    if (
+        integrity.get("schema") != "campaign_factory.final_artifact_integrity.v1"
+        or integrity.get("subjectSha256") != current_sha
+        or integrity.get("passed") is not True
+        or not isinstance(integrity.get("decode"), dict)
+        or integrity["decode"].get("passed") is not True
+        or not isinstance(integrity.get("probe"), dict)
+        or integrity["probe"].get("passed") is not True
+        or not isinstance(integrity.get("captionBinding"), dict)
+        or integrity["captionBinding"].get("passed") is not True
+    ):
+        blockers.append("current_sha_final_artifact_integrity_not_passed")
+    if (
+        not isinstance(integrity.get("audioBinding"), dict)
+        or integrity["audioBinding"].get("passed") is not True
+    ):
+        blockers.append("current_sha_audio_qc_not_passed")
+    analyzer = payload.get("analyzerEvidence")
+    analyzer = analyzer if isinstance(analyzer, dict) else {}
+    if (
+        not SHA256_RE.fullmatch(str(analyzer.get("implementationFingerprint") or ""))
+        or str(analyzer.get("analyzerVersion") or "") in {"", "unknown"}
+        or not isinstance(analyzer.get("implementationComponents"), dict)
+        or not analyzer["implementationComponents"]
+    ):
+        blockers.append("current_sha_contentforge_analyzer_unproven")
+    return {"reportSha256": report_sha256, "blockers": blockers}
 
 
 def _json_object(value: Any) -> dict[str, Any]:
