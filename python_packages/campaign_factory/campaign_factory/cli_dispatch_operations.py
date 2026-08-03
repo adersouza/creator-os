@@ -13,6 +13,7 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     write_assignment_eligibility_artifact,
 )
+from .blocked_experiment_cli import dispatch_blocked_experiment_command
 from .cli_dispatch_incident_privacy import dispatch_incident_privacy_commands
 from .cli_support import (
     load_hooks,
@@ -38,6 +39,12 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         incident_privacy_result := dispatch_incident_privacy_commands(args, cf)
     ) is not None:
         return incident_privacy_result
+    if (
+        blocked_experiment_result := dispatch_blocked_experiment_command(
+            args, cf.conn, print_json=print_json
+        )
+    ) is not None:
+        return blocked_experiment_result
     if args.cmd == "caption-outcome-report":
         print_json(
             cf.domains.performance_summary_repo.caption_outcome_report(args.campaign)
@@ -167,6 +174,12 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 eligible_slots=tuple(payload["eligibleSlots"]),
                 plan_item_ids=tuple(payload["planItemIds"]),
                 treatment_profile=payload["treatmentProfile"],
+                factor_values=(
+                    tuple(payload["factorValues"])
+                    if payload.get("factorValues")
+                    else None
+                ),
+                operator_exception_receipt=payload.get("operatorExceptionReceipt"),
                 reserved_by=payload.get("operator") or "authenticated_local_operator",
             )
         )
@@ -1091,6 +1104,9 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 review_batch=args.review_batch,
                 caption_placement_policy=args.caption_placement_policy,
                 caption_placement_decision=placement_decision,
+                product_mode=args.product_mode,
+                product_mode_evidence_source=args.product_mode_evidence_source,
+                product_mode_evidence_sha256=args.product_mode_evidence_sha256,
             )
         )
         return 0

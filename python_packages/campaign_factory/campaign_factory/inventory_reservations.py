@@ -24,8 +24,16 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     persist_assignment_origin,
 )
+from .blocked_experiment_assignment import (
+    validate_audio_experiment_exception,
+    validate_factor_values,
+)
 from .learning_governance import register_experiment_assignment
-from .observed_experiment_reporting import OBSERVED_MEASUREMENT_PLAN
+from .observed_experiment_reporting import (
+    BLOCKED_ASSIGNMENT_METHOD,
+    BLOCKED_MEASUREMENT_PLAN,
+    OBSERVED_MEASUREMENT_PLAN,
+)
 
 DEFAULT_REUSE_COOLDOWN_DAYS = 14
 
@@ -272,13 +280,12 @@ class InventoryReservationRepository:
         eligible_slots: tuple[dict[str, str], dict[str, str]],
         plan_item_ids: tuple[str, str],
         treatment_profile: str,
+        factor_values: tuple[dict[str, Any], dict[str, Any]] | None = None,
+        operator_exception_receipt: dict[str, Any] | None = None,
         reserved_by: str = "authenticated_local_operator",
         reuse_cooldown_days: int = DEFAULT_REUSE_COOLDOWN_DAYS,
     ) -> dict[str, Any]:
-        """Atomically reserve and immutably assign one cross-account pair."""
-
-        if len(set(account_ids)) != 2:
-            raise ValueError("experiment pair requires two distinct accounts")
+        """Atomically reserve and immutably assign one governed experiment pair."""
         if len(set(plan_item_ids)) != 2:
             raise ValueError("experiment pair requires two distinct plan items")
         experiment = self.conn.execute(
@@ -286,20 +293,36 @@ class InventoryReservationRepository:
         ).fetchone()
         if not experiment:
             raise ValueError(f"experiment not found: {experiment_id}")
-        if str(experiment["assignment_method"]) != "cross_account_blocked_rotation.v1":
+        assignment_method = str(experiment["assignment_method"])
+        if assignment_method not in {
+            "cross_account_blocked_rotation.v1",
+            BLOCKED_ASSIGNMENT_METHOD,
+        }:
             raise ValueError(
-                "experiment assignment method is not cross-account rotation"
+                "experiment assignment method is not a governed blocked method"
             )
+        blocked = assignment_method == BLOCKED_ASSIGNMENT_METHOD
+        if blocked and len(set(account_ids)) != 1:
+            raise ValueError("blocked experiment pair must stay within one account")
+        if not blocked and len(set(account_ids)) != 2:
+            raise ValueError("cross-account experiment requires two distinct accounts")
         variants = json.loads(experiment["variants_json"] or "[]")
-        if variants != ["control", treatment_profile]:
+        if variants != ["control", treatment_profile] and not blocked:
             raise ValueError("experiment must contain one control and one profile")
         measurement_plan = json.loads(experiment["interpretation_json"] or "{}").get(
             "measurementPlan"
         )
-        if measurement_plan != OBSERVED_MEASUREMENT_PLAN:
+        expected_measurement = (
+            BLOCKED_MEASUREMENT_PLAN if blocked else OBSERVED_MEASUREMENT_PLAN
+        )
+        if measurement_plan != expected_measurement:
             raise ValueError("observed-profile measurement plan was not predeclared")
-        if set(json.loads(experiment["account_scope_json"] or "[]")) != set(
-            account_ids
+        experiment_accounts = set(json.loads(experiment["account_scope_json"] or "[]"))
+        if (
+            blocked
+            and not set(account_ids).issubset(experiment_accounts)
+            or not blocked
+            and experiment_accounts != set(account_ids)
         ):
             raise ValueError("experiment pair accounts do not match experiment scope")
         assets = {
@@ -308,21 +331,38 @@ class InventoryReservationRepository:
         }
         if assets["control"]["campaign_id"] != assets["treatment"]["campaign_id"]:
             raise ValueError("experiment assets belong to different campaigns")
-        self._validate_renderer_qualification(assets["control"])
-        self._validate_treatment_lineage(
-            assets["control"],
-            assets["treatment"],
-            treatment_profile=treatment_profile,
-        )
-        self._validate_parent_family(
-            assets["control"], assets["treatment"], parent_family_id
-        )
-        self._validate_audio_equivalence(assets["control"], assets["treatment"])
-        self._validate_audio_cooldown(
-            assets,
-            now=self._utc_now(),
-            cooldown_days=reuse_cooldown_days,
-        )
+        changed_variable = str(experiment["changed_variable"])
+        normalized_factors: dict[str, dict[str, Any]] | None = None
+        controlled_fingerprint: str | None = None
+        if blocked:
+            normalized_factors, controlled_fingerprint = validate_factor_values(
+                changed_variable=changed_variable,
+                variants=variants,
+                factor_values=factor_values,
+                assets=assets,
+                source_family_block_id=parent_family_id,
+            )
+            if changed_variable == "audio_track":
+                validate_audio_experiment_exception(operator_exception_receipt)
+        if changed_variable == "observed_profile":
+            self._validate_renderer_qualification(assets["control"])
+            self._validate_treatment_lineage(
+                assets["control"],
+                assets["treatment"],
+                treatment_profile=treatment_profile,
+            )
+        if changed_variable != "source_family":
+            self._validate_parent_family(
+                assets["control"], assets["treatment"], parent_family_id
+            )
+        if changed_variable != "audio_track":
+            self._validate_audio_equivalence(assets["control"], assets["treatment"])
+        if changed_variable != "audio_track":
+            self._validate_audio_cooldown(
+                assets,
+                now=self._utc_now(),
+                cooldown_days=reuse_cooldown_days,
+            )
         items = [
             self.conn.execute(
                 "SELECT * FROM creative_plan_items WHERE id = ?", (item_id,)
@@ -369,7 +409,7 @@ class InventoryReservationRepository:
             ).fetchone()
             if prior:
                 raise ValueError("plan item observation window has already started")
-        if (
+        if not blocked and (
             eligible_slots[0]["windowStart"] != eligible_slots[1]["windowStart"]
             or eligible_slots[0]["windowEnd"] != eligible_slots[1]["windowEnd"]
         ):
@@ -380,6 +420,8 @@ class InventoryReservationRepository:
             "accountIds": list(account_ids),
             "eligibleWindows": list(eligible_slots),
             "pairIndex": int(pair_index),
+            "changedVariable": changed_variable,
+            "factorValues": normalized_factors,
         }
         assignment_fingerprint = self._canonical_sha256(fingerprint_input)
         pair_id = f"expair_{assignment_fingerprint[:20]}"
@@ -393,14 +435,14 @@ class InventoryReservationRepository:
             (pair_id,),
         ).fetchall()
         if existing:
-            receipts = [json.loads(row["receipt_json"]) for row in existing]
-            if len(receipts) != 2:
+            existing_receipts = [json.loads(row["receipt_json"]) for row in existing]
+            if len(existing_receipts) != 2:
                 raise ValueError("experiment pair has incomplete immutable assignment")
             return {
                 "schema": "creator_os.experiment_pair_assignment.v1",
                 "pairId": pair_id,
                 "idempotent": True,
-                "assignments": receipts,
+                "assignments": existing_receipts,
             }
         base_rotation = int(
             self._canonical_sha256(
@@ -477,7 +519,7 @@ class InventoryReservationRepository:
                     },
                     "parentFamilyId": parent_family_id,
                     "observationCohorts": ["1h", "24h", "72h"],
-                    "assignmentAlgorithmVersion": "cross_account_blocked_rotation.v1",
+                    "assignmentAlgorithmVersion": assignment_method,
                     "assignmentFingerprint": assignment_fingerprint,
                     "reservationId": reservation["reservation_id"],
                     "assignedAssetId": str(asset["id"]),
@@ -495,6 +537,29 @@ class InventoryReservationRepository:
                     },
                     "assignedAt": now,
                 }
+                if blocked:
+                    assert normalized_factors is not None
+                    assert controlled_fingerprint is not None
+                    receipt.update(
+                        {
+                            "changedVariable": changed_variable,
+                            "sourceFamilyBlockId": parent_family_id,
+                            "factorValues": normalized_factors[role],
+                            "controlledValuesFingerprint": controlled_fingerprint,
+                            "metricRevisionPolicy": (
+                                "immutable_final_reconciled_observation.v1"
+                            ),
+                            **(
+                                {
+                                    "operatorExceptionReceipt": (
+                                        operator_exception_receipt
+                                    )
+                                }
+                                if operator_exception_receipt is not None
+                                else {}
+                            ),
+                        }
+                    )
                 validate_experiment_assignment_receipt(receipt)
                 item = items[index]
                 prior_generation = json.loads(item["generation_identity_json"] or "{}")

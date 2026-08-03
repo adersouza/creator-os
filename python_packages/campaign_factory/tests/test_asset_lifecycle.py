@@ -1452,10 +1452,12 @@ def test_register_finished_video_preserves_caption_placement_qc(tmp_path: Path):
         )
 
         explanation = result["publishability"]
-        assert explanation["publishableCandidate"] is True
+        assert explanation["publishableCandidate"] is False
         assert explanation["checks"]["caption_placement_qc_passed"] is True
         assert explanation["captionPlacementPolicy"] == "focal_safe_v1"
         assert explanation["captionPlacementDecision"] == decision
+        assert "product_mode_lineage_unclassified" in explanation["failureReasons"]
+        assert "audio_rights_evidence_unverified" in explanation["failureReasons"]
     finally:
         cf.close()
 
@@ -1490,10 +1492,11 @@ def test_register_finished_video_can_keep_post_caption_separate_from_burned_capt
         )
 
         explanation = result["publishability"]
-        assert explanation["publishableCandidate"] is True
+        assert explanation["publishableCandidate"] is False
         assert explanation["burned_caption_text"] == "Save this so you don't forget it"
         assert explanation["instagram_post_caption"] == "mirror check"
         assert explanation["instagramPostCaptionQuality"]["passed"] is True
+        assert "caption_variant_lineage_unclassified" in explanation["failureReasons"]
     finally:
         cf.close()
 

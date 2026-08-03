@@ -1,0 +1,64 @@
+{
+  "schema": "creator_os.creative_inventory_review_manifest.v1",
+  "name": "creative_inventory_supervised_review_queue_2026-08-03",
+  "publishAuthority": false,
+  "approvalAuthority": false,
+  "entries": [
+    {
+      "day": 1,
+      "renderedAssetId": "asset_a1d5edab7bee",
+      "expectedSha256": "50c0c214f559e55176f1c0492ae5a963960a3447d2c6005dc6ef5e2929080ad3",
+      "creator": "Stacey",
+      "classification": "static_reel",
+      "recommendation": "operator_review_candidate"
+    },
+    {
+      "day": 2,
+      "renderedAssetId": "asset_existing_cf20127bd8d35604",
+      "expectedSha256": "cf20127bd8d3560498db2cacde7cd6bf546aa690cc42e94d3e52f461dc87108d",
+      "creator": "Stacey",
+      "classification": "calm_animation",
+      "recommendation": "operator_review_candidate"
+    },
+    {
+      "day": 3,
+      "renderedAssetId": "asset_finished_cdac166510e5",
+      "expectedSha256": "cdac166510e599a4938f8b8ee187be20269158d9e9a566ad106f0aec5a1884dd",
+      "creator": "Larissa",
+      "classification": "unclassified",
+      "recommendation": "operator_review_candidate"
+    },
+    {
+      "day": 4,
+      "renderedAssetId": "asset_finished_6428e7a86b41",
+      "expectedSha256": "6428e7a86b41756549f1d651ada355bf1616d84958f2f9932bc3ca0eff47732d",
+      "creator": "Lola",
+      "classification": "unclassified",
+      "recommendation": "operator_review_candidate"
+    },
+    {
+      "day": 5,
+      "renderedAssetId": "asset_8e6348fd5fb0",
+      "expectedSha256": "9afebb226e2f35ac701202a2e7f2171887053ce7158a86b4a7bc123aa7ded365",
+      "creator": "Stacey",
+      "classification": "static_reel",
+      "recommendation": "operator_review_candidate"
+    },
+    {
+      "day": 6,
+      "renderedAssetId": "asset_finished_19e38a3a0e73",
+      "expectedSha256": "19e38a3a0e73ba171dbaae3f5e5b8923ee897bbcefa0762f6eb04c4b61a64aba",
+      "creator": "Larissa",
+      "classification": "unclassified",
+      "recommendation": "operator_review_candidate"
+    },
+    {
+      "day": 7,
+      "renderedAssetId": "asset_finished_0e1b297ad78c",
+      "expectedSha256": "0e1b297ad78cdc5b0919487a55e7a43b50faa71cd9ef893af4d651728eaff715",
+      "creator": "Lola",
+      "classification": "unclassified",
+      "recommendation": "operator_review_candidate"
+    }
+  ]
+}
