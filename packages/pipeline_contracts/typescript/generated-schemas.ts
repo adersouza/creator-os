@@ -5141,7 +5141,46 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "factorValues": {
 	      "type": "object",
-	      "minProperties": 7
+	      "additionalProperties": false,
+	      "required": [
+	        "source_family",
+	        "overlay_text",
+	        "overlay_timing",
+	        "audio_track",
+	        "observed_profile",
+	        "motion_mode",
+	        "posting_window"
+	      ],
+	      "properties": {
+	        "source_family": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "overlay_text": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "overlay_timing": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "audio_track": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "observed_profile": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "motion_mode": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "posting_window": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
 	    },
 	    "controlledValuesFingerprint": {
 	      "$ref": "#/$defs/sha256"

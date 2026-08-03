@@ -13,6 +13,7 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     write_assignment_eligibility_artifact,
 )
+from .blocked_experiment_cli import dispatch_blocked_experiment_command
 from .cli_dispatch_incident_privacy import dispatch_incident_privacy_commands
 from .cli_support import (
     load_hooks,
@@ -38,6 +39,12 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         incident_privacy_result := dispatch_incident_privacy_commands(args, cf)
     ) is not None:
         return incident_privacy_result
+    if (
+        blocked_experiment_result := dispatch_blocked_experiment_command(
+            args, cf.conn, print_json=print_json
+        )
+    ) is not None:
+        return blocked_experiment_result
     if args.cmd == "caption-outcome-report":
         print_json(
             cf.domains.performance_summary_repo.caption_outcome_report(args.campaign)
@@ -174,42 +181,6 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 ),
                 operator_exception_receipt=payload.get("operatorExceptionReceipt"),
                 reserved_by=payload.get("operator") or "authenticated_local_operator",
-            )
-        )
-        return 0
-    if args.cmd == "blocked-experiment-report":
-        from .blocked_experiment_reporting import blocked_experiment_report
-
-        print_json(
-            blocked_experiment_report(
-                cf.conn,
-                experiment_id=args.experiment_id,
-                record_interpretation=args.record_interpretation,
-            )
-        )
-        return 0
-    if args.cmd == "blocked-experiment-decision":
-        from .blocked_experiment_reporting import record_blocked_experiment_decision
-
-        print_json(
-            record_blocked_experiment_decision(
-                cf.conn,
-                experiment_id=args.experiment_id,
-                operator=args.operator,
-                decision=args.decision,
-                reason=args.reason,
-            )
-        )
-        return 0
-    if args.cmd == "blocked-experiment-rollback":
-        from .blocked_experiment_reporting import rollback_blocked_experiment_policy
-
-        print_json(
-            rollback_blocked_experiment_policy(
-                cf.conn,
-                experiment_id=args.experiment_id,
-                operator=args.operator,
-                reason=args.reason,
             )
         )
         return 0

@@ -24,11 +24,14 @@ from .assignment_eligibility import (
     evaluate_assignment_eligibility,
     persist_assignment_origin,
 )
+from .blocked_experiment_assignment import (
+    validate_audio_experiment_exception,
+    validate_factor_values,
+)
 from .learning_governance import register_experiment_assignment
 from .observed_experiment_reporting import (
     BLOCKED_ASSIGNMENT_METHOD,
     BLOCKED_MEASUREMENT_PLAN,
-    EXPERIMENT_FACTORS,
     OBSERVED_MEASUREMENT_PLAN,
 )
 
@@ -332,7 +335,7 @@ class InventoryReservationRepository:
         normalized_factors: dict[str, dict[str, Any]] | None = None
         controlled_fingerprint: str | None = None
         if blocked:
-            normalized_factors, controlled_fingerprint = self._validate_factor_values(
+            normalized_factors, controlled_fingerprint = validate_factor_values(
                 changed_variable=changed_variable,
                 variants=variants,
                 factor_values=factor_values,
@@ -340,7 +343,7 @@ class InventoryReservationRepository:
                 source_family_block_id=parent_family_id,
             )
             if changed_variable == "audio_track":
-                self._validate_audio_experiment_exception(operator_exception_receipt)
+                validate_audio_experiment_exception(operator_exception_receipt)
         if changed_variable == "observed_profile":
             self._validate_renderer_qualification(assets["control"])
             self._validate_treatment_lineage(
@@ -670,123 +673,6 @@ class InventoryReservationRepository:
             "assignments": receipts,
             "reservations": reservations,
         }
-
-    @classmethod
-    def _validate_factor_values(
-        cls,
-        *,
-        changed_variable: str,
-        variants: list[Any],
-        factor_values: tuple[dict[str, Any], dict[str, Any]] | None,
-        assets: dict[str, dict[str, Any]],
-        source_family_block_id: str,
-    ) -> tuple[dict[str, dict[str, Any]], str]:
-        if changed_variable not in EXPERIMENT_FACTORS:
-            raise ValueError(
-                f"unsupported blocked experiment factor: {changed_variable}"
-            )
-        if factor_values is None or len(factor_values) != 2:
-            raise ValueError("blocked experiment requires factor values for both arms")
-        normalized = {
-            "control": dict(factor_values[0]),
-            "treatment": dict(factor_values[1]),
-        }
-        for role, values in normalized.items():
-            if set(values) != set(EXPERIMENT_FACTORS):
-                missing = sorted(set(EXPERIMENT_FACTORS) - set(values))
-                extra = sorted(set(values) - set(EXPERIMENT_FACTORS))
-                raise ValueError(
-                    f"{role} factor values are incomplete: missing={missing} extra={extra}"
-                )
-            if any(
-                not isinstance(value, str) or not value.strip()
-                for value in values.values()
-            ):
-                raise ValueError(f"{role} factor values must be non-empty strings")
-        differing = {
-            factor
-            for factor in EXPERIMENT_FACTORS
-            if normalized["control"][factor] != normalized["treatment"][factor]
-        }
-        if differing != {changed_variable}:
-            raise ValueError(
-                "experiment arms must differ only on the declared factor: "
-                f"declared={changed_variable} differing={sorted(differing)}"
-            )
-        if len(variants) != 2:
-            raise ValueError("blocked experiment requires exactly two variants")
-        control_value = normalized["control"][changed_variable]
-        treatment_value = normalized["treatment"][changed_variable]
-        if treatment_value != variants[1]:
-            raise ValueError("treatment factor value does not match experiment variant")
-        if not (
-            control_value == variants[0]
-            or (changed_variable == "observed_profile" and variants[0] == "control")
-        ):
-            raise ValueError("control factor value does not match experiment variant")
-
-        actual_families = {
-            role: cls._asset_source_family(asset) for role, asset in assets.items()
-        }
-        if changed_variable == "source_family":
-            if len(set(actual_families.values())) != 2:
-                raise ValueError(
-                    "source-family experiment requires two source families"
-                )
-        elif set(actual_families.values()) != {source_family_block_id}:
-            raise ValueError("experiment assets do not match the source-family block")
-        for role, actual in actual_families.items():
-            if normalized[role]["source_family"] != actual:
-                raise ValueError(f"{role} source-family factor does not match asset")
-
-        if changed_variable == "audio_track":
-            for role, asset in assets.items():
-                actual_track = cls._asset_audio_track(asset)
-                if not actual_track:
-                    raise ValueError(f"{role} exact audio track evidence is missing")
-                if normalized[role]["audio_track"] != actual_track:
-                    raise ValueError(f"{role} audio-track factor does not match asset")
-
-        controls = {
-            key: normalized["control"][key]
-            for key in sorted(EXPERIMENT_FACTORS - {changed_variable})
-        }
-        return normalized, cls._canonical_sha256(controls)
-
-    @staticmethod
-    def _asset_source_family(asset: dict[str, Any]) -> str:
-        metadata = json.loads(asset.get("metadata_json") or "{}")
-        return str(
-            metadata.get("sourceFamilyId")
-            or asset.get("parent_asset_id")
-            or asset.get("id")
-        )
-
-    @staticmethod
-    def _asset_audio_track(asset: dict[str, Any]) -> str:
-        metadata = json.loads(asset.get("metadata_json") or "{}")
-        receipt = metadata.get("audioEmbeddingReceipt")
-        selected = receipt.get("selectedTrack") if isinstance(receipt, dict) else None
-        if not isinstance(selected, dict):
-            return ""
-        return str(
-            selected.get("canonicalTrackId")
-            or selected.get("musicId")
-            or selected.get("trackId")
-            or ""
-        )
-
-    @staticmethod
-    def _validate_audio_experiment_exception(receipt: dict[str, Any] | None) -> None:
-        required = {"exceptionId", "authorizedBy", "reason", "scope"}
-        if not isinstance(receipt, dict) or not required.issubset(receipt):
-            raise PermissionError(
-                "exact-track experiment requires an operator reuse-policy exception"
-            )
-        if receipt.get("scope") != "exact_track_controlled_experiment" or any(
-            not str(receipt.get(key) or "").strip() for key in required
-        ):
-            raise PermissionError("audio reuse-policy exception is invalid")
 
     def _approved_experiment_asset(self, asset_id: str) -> dict[str, Any]:
         asset = self._rendered_asset(asset_id)
