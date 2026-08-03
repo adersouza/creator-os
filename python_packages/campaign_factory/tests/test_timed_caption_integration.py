@@ -81,6 +81,15 @@ def test_approved_timed_payload_survives_bank_selection_sidecar_and_render_plan(
                                 "finalPlacement": "placement.py",
                             },
                             "hookVariants": {"timed": {"segments": segments}},
+                            "contentMatch": {
+                                "family": "self_validation",
+                                "scene_tags": ["general"],
+                                "action_tags": ["pose"],
+                                "visual_intensity": "cute",
+                                "delivery": "timed_setup_payoff",
+                                "timing_anchor": None,
+                                "required_context_tags": [],
+                            },
                             "reviewer": "operator-1",
                             "decidedAt": "2026-07-29T12:00:00Z",
                         }

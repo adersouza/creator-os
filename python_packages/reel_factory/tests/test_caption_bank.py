@@ -201,6 +201,66 @@ class CaptionBankTests(unittest.TestCase):
         self.assertTrue(selected)
         self.assertTrue(all(item["variant_type"] == "static" for item in selected))
 
+    def test_timed_selection_requires_full_approval_and_content_match(self):
+        root = self._root_with_sources()
+        (root / "01_captions" / "clip_approved_timed.json").write_text(
+            json.dumps(
+                {
+                    "hooks": [
+                        {
+                            "segments": [
+                                {"text": "We are just friends", "end": 2.0},
+                                {"text": "until he gets jealous", "start": 2.0},
+                            ]
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        store = CaptionBankStore.build(root)
+        timed = next(
+            item
+            for item in store.all_items()
+            if item["text"] == "We are just friends\nuntil he gets jealous"
+        )
+
+        self.assertEqual(
+            store.resolve_banks(timed["banks"], limit=None, variant_types={"timed"}),
+            [],
+        )
+
+        timed.update(
+            {
+                "approval_id": "approval_operator_1",
+                "approval_file_sha": "a" * 64,
+                "approval_reviewer": "operator",
+                "approval_decided_at": "2026-08-02T12:00:00Z",
+                "content_match": {
+                    "family": "relationship_payoff",
+                    "scene_tags": ["generic_selfie"],
+                    "action_tags": ["expression"],
+                    "visual_intensity": "cute",
+                    "delivery": "timed_setup_payoff",
+                    "timing_anchor": None,
+                    "required_context_tags": [],
+                },
+            }
+        )
+        selected = store.resolve_banks(
+            timed["banks"], limit=None, variant_types={"timed"}
+        )
+        self.assertEqual(
+            [item["caption_payload_hash"] for item in selected],
+            [timed["caption_payload_hash"]],
+        )
+
+        timed["content_match"] = {"family": "relationship_payoff"}
+        self.assertEqual(
+            store.resolve_banks(timed["banks"], limit=None, variant_types={"timed"}),
+            [],
+        )
+
     def test_selection_excludes_semantically_incomplete_static_overlays(self):
         root = self._root_with_sources()
         (root / "01_captions" / "clip_004.json").write_text(
