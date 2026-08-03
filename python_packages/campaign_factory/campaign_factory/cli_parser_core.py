@@ -1024,6 +1024,20 @@ def register_core_commands(sub) -> None:
         choices=["continue_sequence", "stop", "adopt", "reject"],
     )
     experiment_decision.add_argument("--reason", required=True)
+    blocked_report = sub.add_parser("blocked-experiment-report")
+    blocked_report.add_argument("--experiment-id", required=True)
+    blocked_report.add_argument("--record-interpretation", action="store_true")
+    blocked_decision = sub.add_parser("blocked-experiment-decision")
+    blocked_decision.add_argument("--experiment-id", required=True)
+    blocked_decision.add_argument("--operator", required=True)
+    blocked_decision.add_argument(
+        "--decision", required=True, choices=["continue", "stop", "adopt", "reject"]
+    )
+    blocked_decision.add_argument("--reason", required=True)
+    blocked_rollback = sub.add_parser("blocked-experiment-rollback")
+    blocked_rollback.add_argument("--experiment-id", required=True)
+    blocked_rollback.add_argument("--operator", required=True)
+    blocked_rollback.add_argument("--reason", required=True)
     winner_plan = sub.add_parser("winner-expansion-plan")
     winner_plan.add_argument(
         "--input-json",

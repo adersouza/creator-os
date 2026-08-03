@@ -57,6 +57,34 @@ OBSERVED_PROFILE_SEQUENCE = (
 )
 OBSERVED_SPLIT_PROFILES = OBSERVED_PROFILE_SEQUENCE
 
+BLOCKED_ASSIGNMENT_METHOD = "within_account_source_family_block.v1"
+EXPERIMENT_FACTORS = frozenset(
+    {
+        "source_family",
+        "overlay_text",
+        "overlay_timing",
+        "audio_track",
+        "observed_profile",
+        "motion_mode",
+        "posting_window",
+    }
+)
+BLOCKED_MEASUREMENT_PLAN = {
+    **OBSERVED_MEASUREMENT_PLAN,
+    "schema": "creator_os.blocked_experiment_measurement_plan.v1",
+    "assignment": "within account and source-family block",
+    "primary": "24h reach; views only when reach is unavailable on both arms",
+    "confirmatory": "72h using the same metric on both arms",
+    "revisionPolicy": "latest immutable observation must carry a final reconciliation receipt",
+    "clusterPolicy": "account/source-family hierarchical bootstrap with design-effect ESS",
+    "promotionFloor": {
+        "validPairs": 96,
+        "clusterAdjustedEffectiveSampleSize": 75,
+        "accounts": 48,
+        "sourceFamilyBlocks": 96,
+    },
+}
+
 
 def select_observed_profile(
     conn: sqlite3.Connection,
@@ -506,6 +534,7 @@ def _matched_pair(
     rows: list[tuple[str, dict[str, Any]]],
     experiment_asset_ids: set[str],
     observation_bucket: str = "72h",
+    require_reconciled_revision: bool = False,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     if len(rows) != 2:
         return None, ["pair_assignment_incomplete"]
@@ -538,6 +567,7 @@ def _matched_pair(
             snapshot,
             receipt,
             required_observation_bucket=f"approximately_{observation_bucket}",
+            require_reconciled_revision=require_reconciled_revision,
         )
         reasons.extend(f"{role}_{reason}" for reason in snapshot_reasons)
         observations[role] = {
@@ -681,6 +711,7 @@ def _snapshot_exclusion_reasons(
     snapshot: dict[str, Any],
     receipt: dict[str, Any] | None = None,
     required_observation_bucket: str = "approximately_72h",
+    require_reconciled_revision: bool = False,
 ) -> list[str]:
     if receipt is None:
         if not isinstance(conn, dict):
@@ -713,6 +744,10 @@ def _snapshot_exclusion_reasons(
     revision = _recursive_value(raw, "revision_status", "metric_revision_status")
     if revision and str(revision).lower() not in {"reconciled", "final"}:
         reasons.append("metric_revision_unreconciled")
+    if require_reconciled_revision:
+        reasons.extend(
+            _metric_revision_reconciliation_reasons(governance_conn, snapshot_row, raw)
+        )
     if _recursive_truthy(raw, "publication_ambiguity", "ambiguous_publication"):
         reasons.append("publication_ambiguity")
     if governance_conn is not None:
@@ -724,6 +759,38 @@ def _snapshot_exclusion_reasons(
         )
         reasons.extend(str(reason) for reason in governance["reasons"])
     return sorted(set(reasons))
+
+
+def _metric_revision_reconciliation_reasons(
+    conn: sqlite3.Connection | None,
+    snapshot: dict[str, Any],
+    raw: dict[str, Any],
+) -> list[str]:
+    if conn is None:
+        return ["metric_revision_observation_unavailable"]
+    receipt = _recursive_value(raw, "metric_revision_receipt", "metricRevisionReceipt")
+    if not isinstance(receipt, dict):
+        return ["metric_revision_receipt_missing"]
+    if str(receipt.get("status") or "").lower() not in {"reconciled", "final"}:
+        return ["metric_revision_unreconciled"]
+    observation = conn.execute(
+        """
+        SELECT id, source_hash
+        FROM performance_snapshot_observations
+        WHERE post_id = ? AND snapshot_at = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (snapshot.get("post_id"), snapshot.get("snapshot_at")),
+    ).fetchone()
+    if observation is None:
+        return ["metric_revision_observation_missing"]
+    reasons = []
+    if receipt.get("observationId") != observation["id"]:
+        reasons.append("metric_revision_observation_mismatch")
+    if receipt.get("sourceHash") != observation["source_hash"]:
+        reasons.append("metric_revision_source_hash_mismatch")
+    return reasons
 
 
 def _account_baseline(

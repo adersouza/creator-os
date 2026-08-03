@@ -170,7 +170,19 @@
                         "identity_verification_unavailable",
                         "identity_verification_failed",
                         "creative_approval_missing",
-                        "missing_audit"
+                        "missing_audit",
+                        "product_mode_lineage_unclassified",
+                        "exact_final_sha_unverified",
+                        "exact_final_audit_unverified",
+                        "recreate_permission_not_granted",
+                        "embedded_audio_unverified",
+                        "audio_final_sha_unbound",
+                        "audio_rights_evidence_unverified",
+                        "timed_caption_semantic_approval_unverified",
+                        "static_caption_lineage_unverified",
+                        "caption_variant_lineage_unclassified",
+                        "caption_placement_approval_unverified",
+                        "caption_repeated_in_inventory"
                       ]
                     }
                   },

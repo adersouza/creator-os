@@ -2759,7 +2759,19 @@ export const generatedPipelineContractSchemas = {
 	                        "identity_verification_unavailable",
 	                        "identity_verification_failed",
 	                        "creative_approval_missing",
-	                        "missing_audit"
+	                        "missing_audit",
+	                        "product_mode_lineage_unclassified",
+	                        "exact_final_sha_unverified",
+	                        "exact_final_audit_unverified",
+	                        "recreate_permission_not_granted",
+	                        "embedded_audio_unverified",
+	                        "audio_final_sha_unbound",
+	                        "audio_rights_evidence_unverified",
+	                        "timed_caption_semantic_approval_unverified",
+	                        "static_caption_lineage_unverified",
+	                        "caption_variant_lineage_unclassified",
+	                        "caption_placement_approval_unverified",
+	                        "caption_repeated_in_inventory"
 	                      ]
 	                    }
 	                  },
@@ -5048,7 +5060,10 @@ export const generatedPipelineContractSchemas = {
 	      ]
 	    },
 	    "assignmentAlgorithmVersion": {
-	      "const": "cross_account_blocked_rotation.v1"
+	      "enum": [
+	        "cross_account_blocked_rotation.v1",
+	        "within_account_source_family_block.v1"
+	      ]
 	    },
 	    "assignmentFingerprint": {
 	      "$ref": "#/$defs/sha256"
@@ -5120,8 +5135,122 @@ export const generatedPipelineContractSchemas = {
 	    "assignedAt": {
 	      "type": "string",
 	      "format": "date-time"
+	    },
+	    "changedVariable": {
+	      "enum": [
+	        "source_family",
+	        "overlay_text",
+	        "overlay_timing",
+	        "audio_track",
+	        "observed_profile",
+	        "motion_mode",
+	        "posting_window"
+	      ]
+	    },
+	    "sourceFamilyBlockId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "factorValues": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "source_family",
+	        "overlay_text",
+	        "overlay_timing",
+	        "audio_track",
+	        "observed_profile",
+	        "motion_mode",
+	        "posting_window"
+	      ],
+	      "properties": {
+	        "source_family": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "overlay_text": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "overlay_timing": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "audio_track": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "observed_profile": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "motion_mode": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "posting_window": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "controlledValuesFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "metricRevisionPolicy": {
+	      "const": "immutable_final_reconciled_observation.v1"
+	    },
+	    "operatorExceptionReceipt": {
+	      "type": "object",
+	      "required": [
+	        "exceptionId",
+	        "authorizedBy",
+	        "reason",
+	        "scope"
+	      ],
+	      "properties": {
+	        "exceptionId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "authorizedBy": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "reason": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "scope": {
+	          "const": "exact_track_controlled_experiment"
+	        }
+	      },
+	      "additionalProperties": false
 	    }
 	  },
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "assignmentAlgorithmVersion": {
+	            "const": "within_account_source_family_block.v1"
+	          }
+	        },
+	        "required": [
+	          "assignmentAlgorithmVersion"
+	        ]
+	      },
+	      "then": {
+	        "required": [
+	          "changedVariable",
+	          "sourceFamilyBlockId",
+	          "factorValues",
+	          "controlledValuesFingerprint",
+	          "metricRevisionPolicy"
+	        ]
+	      }
+	    }
+	  ],
 	  "$defs": {
 	    "sha256": {
 	      "type": "string",
