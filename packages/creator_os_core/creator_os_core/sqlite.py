@@ -16,6 +16,8 @@ def connect_sqlite(
     wal: bool = True,
     busy_timeout_ms: int = 30_000,
 ) -> sqlite3.Connection:
+    if immutable and not readonly:
+        raise ValueError("immutable SQLite connections must be read-only")
     if str(db_path) == ":memory:":
         conn = sqlite3.connect(":memory:", timeout=30.0)
         conn.row_factory = row_factory

@@ -356,8 +356,7 @@ def build_operator_review_queue(
 
 
 def open_read_only_database(path: Path) -> sqlite3.Connection:
-    database = path.expanduser().resolve()
-    conn = connect_sqlite(database, readonly=True, immutable=True, wal=False)
+    conn = connect_sqlite(path, readonly=True, immutable=True, wal=False)
     conn.execute("PRAGMA query_only = ON")
     return conn
 
