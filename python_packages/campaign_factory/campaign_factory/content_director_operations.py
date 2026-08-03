@@ -24,6 +24,9 @@ from .content_director import (
 )
 from .learning_governance import register_experiment_design
 from .observed_experiment_reporting import (
+    BLOCKED_ASSIGNMENT_METHOD,
+    BLOCKED_MEASUREMENT_PLAN,
+    EXPERIMENT_FACTORS,
     OBSERVED_MEASUREMENT_PLAN,
     OBSERVED_PROFILE_SEQUENCE,
     select_observed_profile,
@@ -54,6 +57,7 @@ EXPERIMENT_VARIABLES = frozenset(
         "audio_profile",
         "posting_window",
         "observed_profile",
+        *EXPERIMENT_FACTORS,
     }
 )
 
@@ -207,15 +211,32 @@ def design_experiment(
     if len(set(variants)) != 2:
         raise ValueError("an initial experiment requires exactly two distinct variants")
     plan = load_plan(conn, plan_id)
-    items = plan["items"][:2]
+    blocked = assignment_method == BLOCKED_ASSIGNMENT_METHOD
+    if blocked and changed_variable not in EXPERIMENT_FACTORS:
+        raise ValueError(
+            f"blocked experiment does not support factor: {changed_variable}"
+        )
+    items = plan["items"] if blocked else plan["items"][:2]
     if len(items) < 2:
         raise ValueError("experiment requires at least two plan items")
-    observed = assignment_method == "cross_account_blocked_rotation.v1"
+    if blocked and len(items) % 2:
+        raise ValueError("blocked experiment requires an even number of plan items")
+    if blocked:
+        account_counts: dict[str, int] = {}
+        for item in items:
+            account = str(item["target_account"])
+            account_counts[account] = account_counts.get(account, 0) + 1
+        if any(count % 2 for count in account_counts.values()):
+            raise ValueError(
+                "blocked experiment requires paired plan items within every account"
+            )
+    legacy_observed = assignment_method == "cross_account_blocked_rotation.v1"
+    if legacy_observed and changed_variable != "observed_profile":
+        raise ValueError("cross-account rotation requires observed_profile")
+    observed = changed_variable == "observed_profile" and (legacy_observed or blocked)
     profile_decision = None
     if observed:
-        if changed_variable != "observed_profile":
-            raise ValueError("cross-account rotation requires observed_profile")
-        if len({item["target_account"] for item in items}) != 2:
+        if legacy_observed and len({item["target_account"] for item in items}) != 2:
             raise ValueError("observed-profile experiment requires two accounts")
         if variants == ("control", "auto"):
             profile_decision = select_observed_profile(
@@ -259,22 +280,22 @@ def design_experiment(
                 raise ValueError(
                     f"previous observed-profile experiment is not decided: {previous}"
                 )
-    elif len({item["target_account"] for item in items}) != 1:
+    elif not blocked and len({item["target_account"] for item in items}) != 1:
         raise ValueError("experiment variants must use the same account")
     if len({item["content_intent"] for item in items}) != 1:
         raise ValueError("experiment variants must use the same content intent")
     seed = int(_fingerprint([plan_id, changed_variable, variants])[:8], 16)
     experiment_id = f"pexp_{_fingerprint([plan_id, changed_variable, variants])[:16]}"
-    controlled = sorted(
-        {
-            "creator",
-            "account",
-            "content_intent",
-            "observation_cohort",
-            "publication_window",
-        }
-        - {changed_variable}
-    )
+    controlled_universe = {
+        "creator",
+        "account",
+        "content_intent",
+        "observation_cohort",
+        "publication_window",
+    }
+    if blocked:
+        controlled_universe.update(EXPERIMENT_FACTORS)
+    controlled = sorted(controlled_universe - {changed_variable})
     assignments = (
         [
             {
@@ -284,7 +305,7 @@ def design_experiment(
             }
             for item in items
         ]
-        if observed
+        if legacy_observed or blocked
         else [
             {
                 "planItemId": item["id"],
@@ -308,15 +329,26 @@ def design_experiment(
         "assignmentMethod": assignment_method,
         "deterministicSeed": seed,
         "requiredObservationCohort": (
-            "24h_primary_72h_confirmatory" if observed else "24h"
+            "24h_primary_72h_confirmatory" if legacy_observed or blocked else "24h"
         ),
         "minimumSampleWarning": (
             "fewer than three matched pairs are insufficient"
-            if observed
+            if legacy_observed or blocked
             else "two items show an observed difference only; not causal proof"
         ),
-        "measurementPlan": OBSERVED_MEASUREMENT_PLAN if observed else None,
+        "measurementPlan": (
+            BLOCKED_MEASUREMENT_PLAN
+            if blocked
+            else OBSERVED_MEASUREMENT_PLAN
+            if legacy_observed
+            else None
+        ),
         "profileDecision": profile_decision,
+        "operationalBlockers": (
+            ["exact_track_reuse_policy_exception_required"]
+            if blocked and changed_variable == "audio_track"
+            else []
+        ),
         "assignments": assignments,
         "status": "PROPOSED",
     }
@@ -350,18 +382,19 @@ def design_experiment(
                 receipt["minimumSampleWarning"],
                 _json(
                     {
-                        "measurementPlan": OBSERVED_MEASUREMENT_PLAN,
+                        "measurementPlan": receipt["measurementPlan"],
                         "profileDecision": profile_decision,
+                        "operationalBlockers": receipt["operationalBlockers"],
                     }
                 )
-                if observed
+                if legacy_observed or blocked
                 else "{}",
                 now,
                 now,
             ),
         )
         for assignment in assignments:
-            if observed:
+            if legacy_observed or blocked:
                 continue
             conn.execute(
                 """

@@ -84,7 +84,10 @@
       ]
     },
     "assignmentAlgorithmVersion": {
-      "const": "cross_account_blocked_rotation.v1"
+      "enum": [
+        "cross_account_blocked_rotation.v1",
+        "within_account_source_family_block.v1"
+      ]
     },
     "assignmentFingerprint": {
       "$ref": "#/$defs/sha256"
@@ -156,8 +159,70 @@
     "assignedAt": {
       "type": "string",
       "format": "date-time"
+    },
+    "changedVariable": {
+      "enum": [
+        "source_family",
+        "overlay_text",
+        "overlay_timing",
+        "audio_track",
+        "observed_profile",
+        "motion_mode",
+        "posting_window"
+      ]
+    },
+    "sourceFamilyBlockId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "factorValues": {
+      "type": "object",
+      "minProperties": 7
+    },
+    "controlledValuesFingerprint": {
+      "$ref": "#/$defs/sha256"
+    },
+    "metricRevisionPolicy": {
+      "const": "immutable_final_reconciled_observation.v1"
+    },
+    "operatorExceptionReceipt": {
+      "type": "object",
+      "required": [
+        "exceptionId",
+        "authorizedBy",
+        "reason",
+        "scope"
+      ],
+      "properties": {
+        "exceptionId": {"type": "string", "minLength": 1},
+        "authorizedBy": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "scope": {"const": "exact_track_controlled_experiment"}
+      },
+      "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "assignmentAlgorithmVersion": {
+            "const": "within_account_source_family_block.v1"
+          }
+        },
+        "required": ["assignmentAlgorithmVersion"]
+      },
+      "then": {
+        "required": [
+          "changedVariable",
+          "sourceFamilyBlockId",
+          "factorValues",
+          "controlledValuesFingerprint",
+          "metricRevisionPolicy"
+        ]
+      }
+    }
+  ],
   "$defs": {
     "sha256": {
       "type": "string",

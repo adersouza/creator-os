@@ -1088,7 +1088,11 @@ def _parser() -> argparse.ArgumentParser:
     experiment.add_argument("--hypothesis", required=True)
     experiment.add_argument(
         "--assignment-method",
-        choices=["deterministic_alternation", "cross_account_blocked_rotation.v1"],
+        choices=[
+            "deterministic_alternation",
+            "cross_account_blocked_rotation.v1",
+            "within_account_source_family_block.v1",
+        ],
         default="deterministic_alternation",
     )
     experiment_mode = experiment.add_mutually_exclusive_group(required=True)
