@@ -284,7 +284,8 @@ def current_handoff_evidence_read_only(
 
     audit_row = conn.execute(
         """
-        SELECT subject_sha256, status, overall_verdict, report_path
+        SELECT id, subject_sha256, contentforge_run_id, status,
+               overall_verdict, report_path
         FROM audit_reports
         WHERE rendered_asset_id = ?
         ORDER BY created_at DESC, id DESC LIMIT 1
@@ -292,14 +293,23 @@ def current_handoff_evidence_read_only(
         (asset["id"],),
     ).fetchone()
     audit = dict(audit_row) if audit_row else {}
+    audit_passed = (
+        audit.get("subject_sha256") == current_sha
+        and str(audit.get("overall_verdict") or "").lower() == "pass"
+        and str(audit.get("status") or "").lower()
+        in {"pass", "passed", "approved_candidate"}
+    )
     if audit.get("subject_sha256") != current_sha:
         blockers.append("current_sha_audit_missing")
-    elif str(audit.get("overall_verdict") or "").lower() != "pass" or str(
-        audit.get("status") or ""
-    ).lower() not in {"pass", "passed", "approved_candidate"}:
+    elif not audit_passed:
         blockers.append("current_sha_audit_not_passed")
-    else:
-        blockers.extend(_exact_final_audit_blockers(audit, current_sha=current_sha))
+    audit_receipt = _exact_final_audit_evidence(
+        audit,
+        rendered_asset_id=str(asset["id"]),
+        current_sha=current_sha,
+    )
+    if audit_passed:
+        blockers.extend(audit_receipt["blockers"])
 
     decision_row = conn.execute(
         """
@@ -329,23 +339,51 @@ def current_handoff_evidence_read_only(
         "currentSha256": current_sha or None,
         "auditSubjectSha256": audit.get("subject_sha256"),
         "approvalSubjectSha256": decision.get("subject_sha256"),
+        "auditReportId": audit.get("id"),
+        "auditReportSha256": audit_receipt["reportSha256"],
+        "contentForgeRunId": audit.get("contentforge_run_id"),
         "creativeApprovalState": creative_approval_state,
         "blockers": list(dict.fromkeys(blockers)),
     }
 
 
-def _exact_final_audit_blockers(
-    audit: dict[str, Any], *, current_sha: str
-) -> list[str]:
+def _exact_final_audit_evidence(
+    audit: dict[str, Any], *, rendered_asset_id: str, current_sha: str
+) -> dict[str, Any]:
     report_path = Path(str(audit.get("report_path") or "")).expanduser()
     if report_path.is_symlink() or not report_path.is_file():
-        return ["current_sha_contentforge_receipt_missing"]
+        return {
+            "reportSha256": None,
+            "blockers": ["current_sha_contentforge_receipt_missing"],
+        }
     try:
-        payload = json.loads(report_path.read_text(encoding="utf-8"))
+        report_bytes = report_path.read_bytes()
+        payload = json.loads(report_bytes.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return ["current_sha_contentforge_receipt_invalid"]
-    if not isinstance(payload, dict) or payload.get("subjectSha256") != current_sha:
-        return ["current_sha_contentforge_receipt_subject_mismatch"]
+        return {
+            "reportSha256": None,
+            "blockers": ["current_sha_contentforge_receipt_invalid"],
+        }
+    report_sha256 = hashlib.sha256(report_bytes).hexdigest()
+    if not isinstance(payload, dict):
+        return {
+            "reportSha256": report_sha256,
+            "blockers": ["current_sha_contentforge_receipt_invalid"],
+        }
+    if (
+        payload.get("schema") != "campaign_factory.contentforge_audit.v1"
+        or payload.get("renderedAssetId") != rendered_asset_id
+        or payload.get("contentForgeRunId") != audit.get("contentforge_run_id")
+    ):
+        return {
+            "reportSha256": report_sha256,
+            "blockers": ["current_sha_contentforge_receipt_binding_mismatch"],
+        }
+    if payload.get("subjectSha256") != current_sha:
+        return {
+            "reportSha256": report_sha256,
+            "blockers": ["current_sha_contentforge_receipt_subject_mismatch"],
+        }
 
     blockers: list[str] = []
     readiness = payload.get("readinessSummary")
@@ -390,7 +428,7 @@ def _exact_final_audit_blockers(
         or not analyzer["implementationComponents"]
     ):
         blockers.append("current_sha_contentforge_analyzer_unproven")
-    return blockers
+    return {"reportSha256": report_sha256, "blockers": blockers}
 
 
 def _json_object(value: Any) -> dict[str, Any]:

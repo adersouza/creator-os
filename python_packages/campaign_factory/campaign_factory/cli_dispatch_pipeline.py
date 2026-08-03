@@ -50,7 +50,10 @@ from .learning_cohort import (
     run_learning_cohort_day,
 )
 from .production_higgsfield_authorization import provider_control_reconciliation
-from .production_readiness import build_production_readiness_proof
+from .production_readiness import (
+    build_production_readiness_proof,
+    load_threadsdashboard_deployment_receipt_file,
+)
 from .qc_explain import explain_asset_qc
 from .readiness_report import build_mass_production_readiness_report
 from .reconciliation import (
@@ -95,14 +98,20 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
             if args.runtime_promotion_receipt
             else None
         )
+        deployment_receipt = (
+            load_threadsdashboard_deployment_receipt_file(
+                args.threadsdash_deployment_receipt
+            )
+            if args.threadsdash_deployment_receipt
+            else None
+        )
         print_json(
             build_production_readiness_proof(
                 cf.conn,
                 creative_approvals_dir=settings.creative_approvals_dir,
                 promotion_receipt=promotion_receipt,
                 expected_runtime_sha=args.expected_runtime_sha,
-                threadsdash_deployed_sha=args.threadsdash_deployed_sha,
-                threadsdash_deployed_at=args.threadsdash_deployed_at,
+                threadsdash_deployment_receipt=deployment_receipt,
             )
         )
         return 0
