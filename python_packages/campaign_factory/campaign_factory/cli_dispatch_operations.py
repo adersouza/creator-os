@@ -167,7 +167,49 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 eligible_slots=tuple(payload["eligibleSlots"]),
                 plan_item_ids=tuple(payload["planItemIds"]),
                 treatment_profile=payload["treatmentProfile"],
+                factor_values=(
+                    tuple(payload["factorValues"])
+                    if payload.get("factorValues")
+                    else None
+                ),
+                operator_exception_receipt=payload.get("operatorExceptionReceipt"),
                 reserved_by=payload.get("operator") or "authenticated_local_operator",
+            )
+        )
+        return 0
+    if args.cmd == "blocked-experiment-report":
+        from .blocked_experiment_reporting import blocked_experiment_report
+
+        print_json(
+            blocked_experiment_report(
+                cf.conn,
+                experiment_id=args.experiment_id,
+                record_interpretation=args.record_interpretation,
+            )
+        )
+        return 0
+    if args.cmd == "blocked-experiment-decision":
+        from .blocked_experiment_reporting import record_blocked_experiment_decision
+
+        print_json(
+            record_blocked_experiment_decision(
+                cf.conn,
+                experiment_id=args.experiment_id,
+                operator=args.operator,
+                decision=args.decision,
+                reason=args.reason,
+            )
+        )
+        return 0
+    if args.cmd == "blocked-experiment-rollback":
+        from .blocked_experiment_reporting import rollback_blocked_experiment_policy
+
+        print_json(
+            rollback_blocked_experiment_policy(
+                cf.conn,
+                experiment_id=args.experiment_id,
+                operator=args.operator,
+                reason=args.reason,
             )
         )
         return 0

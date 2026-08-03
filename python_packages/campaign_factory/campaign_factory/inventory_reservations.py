@@ -25,7 +25,12 @@ from .assignment_eligibility import (
     persist_assignment_origin,
 )
 from .learning_governance import register_experiment_assignment
-from .observed_experiment_reporting import OBSERVED_MEASUREMENT_PLAN
+from .observed_experiment_reporting import (
+    BLOCKED_ASSIGNMENT_METHOD,
+    BLOCKED_MEASUREMENT_PLAN,
+    EXPERIMENT_FACTORS,
+    OBSERVED_MEASUREMENT_PLAN,
+)
 
 DEFAULT_REUSE_COOLDOWN_DAYS = 14
 
@@ -272,13 +277,12 @@ class InventoryReservationRepository:
         eligible_slots: tuple[dict[str, str], dict[str, str]],
         plan_item_ids: tuple[str, str],
         treatment_profile: str,
+        factor_values: tuple[dict[str, Any], dict[str, Any]] | None = None,
+        operator_exception_receipt: dict[str, Any] | None = None,
         reserved_by: str = "authenticated_local_operator",
         reuse_cooldown_days: int = DEFAULT_REUSE_COOLDOWN_DAYS,
     ) -> dict[str, Any]:
-        """Atomically reserve and immutably assign one cross-account pair."""
-
-        if len(set(account_ids)) != 2:
-            raise ValueError("experiment pair requires two distinct accounts")
+        """Atomically reserve and immutably assign one governed experiment pair."""
         if len(set(plan_item_ids)) != 2:
             raise ValueError("experiment pair requires two distinct plan items")
         experiment = self.conn.execute(
@@ -286,20 +290,36 @@ class InventoryReservationRepository:
         ).fetchone()
         if not experiment:
             raise ValueError(f"experiment not found: {experiment_id}")
-        if str(experiment["assignment_method"]) != "cross_account_blocked_rotation.v1":
+        assignment_method = str(experiment["assignment_method"])
+        if assignment_method not in {
+            "cross_account_blocked_rotation.v1",
+            BLOCKED_ASSIGNMENT_METHOD,
+        }:
             raise ValueError(
-                "experiment assignment method is not cross-account rotation"
+                "experiment assignment method is not a governed blocked method"
             )
+        blocked = assignment_method == BLOCKED_ASSIGNMENT_METHOD
+        if blocked and len(set(account_ids)) != 1:
+            raise ValueError("blocked experiment pair must stay within one account")
+        if not blocked and len(set(account_ids)) != 2:
+            raise ValueError("cross-account experiment requires two distinct accounts")
         variants = json.loads(experiment["variants_json"] or "[]")
-        if variants != ["control", treatment_profile]:
+        if variants != ["control", treatment_profile] and not blocked:
             raise ValueError("experiment must contain one control and one profile")
         measurement_plan = json.loads(experiment["interpretation_json"] or "{}").get(
             "measurementPlan"
         )
-        if measurement_plan != OBSERVED_MEASUREMENT_PLAN:
+        expected_measurement = (
+            BLOCKED_MEASUREMENT_PLAN if blocked else OBSERVED_MEASUREMENT_PLAN
+        )
+        if measurement_plan != expected_measurement:
             raise ValueError("observed-profile measurement plan was not predeclared")
-        if set(json.loads(experiment["account_scope_json"] or "[]")) != set(
-            account_ids
+        experiment_accounts = set(json.loads(experiment["account_scope_json"] or "[]"))
+        if (
+            blocked
+            and not set(account_ids).issubset(experiment_accounts)
+            or not blocked
+            and experiment_accounts != set(account_ids)
         ):
             raise ValueError("experiment pair accounts do not match experiment scope")
         assets = {
@@ -308,21 +328,38 @@ class InventoryReservationRepository:
         }
         if assets["control"]["campaign_id"] != assets["treatment"]["campaign_id"]:
             raise ValueError("experiment assets belong to different campaigns")
-        self._validate_renderer_qualification(assets["control"])
-        self._validate_treatment_lineage(
-            assets["control"],
-            assets["treatment"],
-            treatment_profile=treatment_profile,
-        )
-        self._validate_parent_family(
-            assets["control"], assets["treatment"], parent_family_id
-        )
-        self._validate_audio_equivalence(assets["control"], assets["treatment"])
-        self._validate_audio_cooldown(
-            assets,
-            now=self._utc_now(),
-            cooldown_days=reuse_cooldown_days,
-        )
+        changed_variable = str(experiment["changed_variable"])
+        normalized_factors: dict[str, dict[str, Any]] | None = None
+        controlled_fingerprint: str | None = None
+        if blocked:
+            normalized_factors, controlled_fingerprint = self._validate_factor_values(
+                changed_variable=changed_variable,
+                variants=variants,
+                factor_values=factor_values,
+                assets=assets,
+                source_family_block_id=parent_family_id,
+            )
+            if changed_variable == "audio_track":
+                self._validate_audio_experiment_exception(operator_exception_receipt)
+        if changed_variable == "observed_profile":
+            self._validate_renderer_qualification(assets["control"])
+            self._validate_treatment_lineage(
+                assets["control"],
+                assets["treatment"],
+                treatment_profile=treatment_profile,
+            )
+        if changed_variable != "source_family":
+            self._validate_parent_family(
+                assets["control"], assets["treatment"], parent_family_id
+            )
+        if changed_variable != "audio_track":
+            self._validate_audio_equivalence(assets["control"], assets["treatment"])
+        if changed_variable != "audio_track":
+            self._validate_audio_cooldown(
+                assets,
+                now=self._utc_now(),
+                cooldown_days=reuse_cooldown_days,
+            )
         items = [
             self.conn.execute(
                 "SELECT * FROM creative_plan_items WHERE id = ?", (item_id,)
@@ -369,7 +406,7 @@ class InventoryReservationRepository:
             ).fetchone()
             if prior:
                 raise ValueError("plan item observation window has already started")
-        if (
+        if not blocked and (
             eligible_slots[0]["windowStart"] != eligible_slots[1]["windowStart"]
             or eligible_slots[0]["windowEnd"] != eligible_slots[1]["windowEnd"]
         ):
@@ -380,6 +417,8 @@ class InventoryReservationRepository:
             "accountIds": list(account_ids),
             "eligibleWindows": list(eligible_slots),
             "pairIndex": int(pair_index),
+            "changedVariable": changed_variable,
+            "factorValues": normalized_factors,
         }
         assignment_fingerprint = self._canonical_sha256(fingerprint_input)
         pair_id = f"expair_{assignment_fingerprint[:20]}"
@@ -393,14 +432,14 @@ class InventoryReservationRepository:
             (pair_id,),
         ).fetchall()
         if existing:
-            receipts = [json.loads(row["receipt_json"]) for row in existing]
-            if len(receipts) != 2:
+            existing_receipts = [json.loads(row["receipt_json"]) for row in existing]
+            if len(existing_receipts) != 2:
                 raise ValueError("experiment pair has incomplete immutable assignment")
             return {
                 "schema": "creator_os.experiment_pair_assignment.v1",
                 "pairId": pair_id,
                 "idempotent": True,
-                "assignments": receipts,
+                "assignments": existing_receipts,
             }
         base_rotation = int(
             self._canonical_sha256(
@@ -477,7 +516,7 @@ class InventoryReservationRepository:
                     },
                     "parentFamilyId": parent_family_id,
                     "observationCohorts": ["1h", "24h", "72h"],
-                    "assignmentAlgorithmVersion": "cross_account_blocked_rotation.v1",
+                    "assignmentAlgorithmVersion": assignment_method,
                     "assignmentFingerprint": assignment_fingerprint,
                     "reservationId": reservation["reservation_id"],
                     "assignedAssetId": str(asset["id"]),
@@ -495,6 +534,29 @@ class InventoryReservationRepository:
                     },
                     "assignedAt": now,
                 }
+                if blocked:
+                    assert normalized_factors is not None
+                    assert controlled_fingerprint is not None
+                    receipt.update(
+                        {
+                            "changedVariable": changed_variable,
+                            "sourceFamilyBlockId": parent_family_id,
+                            "factorValues": normalized_factors[role],
+                            "controlledValuesFingerprint": controlled_fingerprint,
+                            "metricRevisionPolicy": (
+                                "immutable_final_reconciled_observation.v1"
+                            ),
+                            **(
+                                {
+                                    "operatorExceptionReceipt": (
+                                        operator_exception_receipt
+                                    )
+                                }
+                                if operator_exception_receipt is not None
+                                else {}
+                            ),
+                        }
+                    )
                 validate_experiment_assignment_receipt(receipt)
                 item = items[index]
                 prior_generation = json.loads(item["generation_identity_json"] or "{}")
@@ -608,6 +670,123 @@ class InventoryReservationRepository:
             "assignments": receipts,
             "reservations": reservations,
         }
+
+    @classmethod
+    def _validate_factor_values(
+        cls,
+        *,
+        changed_variable: str,
+        variants: list[Any],
+        factor_values: tuple[dict[str, Any], dict[str, Any]] | None,
+        assets: dict[str, dict[str, Any]],
+        source_family_block_id: str,
+    ) -> tuple[dict[str, dict[str, Any]], str]:
+        if changed_variable not in EXPERIMENT_FACTORS:
+            raise ValueError(
+                f"unsupported blocked experiment factor: {changed_variable}"
+            )
+        if factor_values is None or len(factor_values) != 2:
+            raise ValueError("blocked experiment requires factor values for both arms")
+        normalized = {
+            "control": dict(factor_values[0]),
+            "treatment": dict(factor_values[1]),
+        }
+        for role, values in normalized.items():
+            if set(values) != set(EXPERIMENT_FACTORS):
+                missing = sorted(set(EXPERIMENT_FACTORS) - set(values))
+                extra = sorted(set(values) - set(EXPERIMENT_FACTORS))
+                raise ValueError(
+                    f"{role} factor values are incomplete: missing={missing} extra={extra}"
+                )
+            if any(
+                not isinstance(value, str) or not value.strip()
+                for value in values.values()
+            ):
+                raise ValueError(f"{role} factor values must be non-empty strings")
+        differing = {
+            factor
+            for factor in EXPERIMENT_FACTORS
+            if normalized["control"][factor] != normalized["treatment"][factor]
+        }
+        if differing != {changed_variable}:
+            raise ValueError(
+                "experiment arms must differ only on the declared factor: "
+                f"declared={changed_variable} differing={sorted(differing)}"
+            )
+        if len(variants) != 2:
+            raise ValueError("blocked experiment requires exactly two variants")
+        control_value = normalized["control"][changed_variable]
+        treatment_value = normalized["treatment"][changed_variable]
+        if treatment_value != variants[1]:
+            raise ValueError("treatment factor value does not match experiment variant")
+        if not (
+            control_value == variants[0]
+            or (changed_variable == "observed_profile" and variants[0] == "control")
+        ):
+            raise ValueError("control factor value does not match experiment variant")
+
+        actual_families = {
+            role: cls._asset_source_family(asset) for role, asset in assets.items()
+        }
+        if changed_variable == "source_family":
+            if len(set(actual_families.values())) != 2:
+                raise ValueError(
+                    "source-family experiment requires two source families"
+                )
+        elif set(actual_families.values()) != {source_family_block_id}:
+            raise ValueError("experiment assets do not match the source-family block")
+        for role, actual in actual_families.items():
+            if normalized[role]["source_family"] != actual:
+                raise ValueError(f"{role} source-family factor does not match asset")
+
+        if changed_variable == "audio_track":
+            for role, asset in assets.items():
+                actual_track = cls._asset_audio_track(asset)
+                if not actual_track:
+                    raise ValueError(f"{role} exact audio track evidence is missing")
+                if normalized[role]["audio_track"] != actual_track:
+                    raise ValueError(f"{role} audio-track factor does not match asset")
+
+        controls = {
+            key: normalized["control"][key]
+            for key in sorted(EXPERIMENT_FACTORS - {changed_variable})
+        }
+        return normalized, cls._canonical_sha256(controls)
+
+    @staticmethod
+    def _asset_source_family(asset: dict[str, Any]) -> str:
+        metadata = json.loads(asset.get("metadata_json") or "{}")
+        return str(
+            metadata.get("sourceFamilyId")
+            or asset.get("parent_asset_id")
+            or asset.get("id")
+        )
+
+    @staticmethod
+    def _asset_audio_track(asset: dict[str, Any]) -> str:
+        metadata = json.loads(asset.get("metadata_json") or "{}")
+        receipt = metadata.get("audioEmbeddingReceipt")
+        selected = receipt.get("selectedTrack") if isinstance(receipt, dict) else None
+        if not isinstance(selected, dict):
+            return ""
+        return str(
+            selected.get("canonicalTrackId")
+            or selected.get("musicId")
+            or selected.get("trackId")
+            or ""
+        )
+
+    @staticmethod
+    def _validate_audio_experiment_exception(receipt: dict[str, Any] | None) -> None:
+        required = {"exceptionId", "authorizedBy", "reason", "scope"}
+        if not isinstance(receipt, dict) or not required.issubset(receipt):
+            raise PermissionError(
+                "exact-track experiment requires an operator reuse-policy exception"
+            )
+        if receipt.get("scope") != "exact_track_controlled_experiment" or any(
+            not str(receipt.get(key) or "").strip() for key in required
+        ):
+            raise PermissionError("audio reuse-policy exception is invalid")
 
     def _approved_experiment_asset(self, asset_id: str) -> dict[str, Any]:
         asset = self._rendered_asset(asset_id)

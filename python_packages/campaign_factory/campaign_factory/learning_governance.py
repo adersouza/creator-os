@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -265,7 +265,7 @@ def register_experiment_assignment(
     *,
     experiment_id: str,
     pair_id: str,
-    assignments: list[Mapping[str, Any]],
+    assignments: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     experiment = conn.execute(
         "SELECT * FROM creative_plan_experiments WHERE id = ?", (experiment_id,)
@@ -347,6 +347,70 @@ def register_experiment_interpretation(
         creator=str(experiment["creator"]),
         content_intent=str(experiment["content_intent"]),
         operator_interpretation_json=dict(decision),
+    )
+
+
+def authorize_experiment_policy(
+    conn: sqlite3.Connection,
+    *,
+    experiment_id: str,
+    decision: Mapping[str, Any],
+) -> dict[str, Any]:
+    experiment = conn.execute(
+        "SELECT * FROM creative_plan_experiments WHERE id = ?", (experiment_id,)
+    ).fetchone()
+    if experiment is None:
+        raise ValueError(f"experiment not found: {experiment_id}")
+    if decision.get("decision") != "adopt":
+        raise ValueError("only an adopted experiment can authorize a policy")
+    return append_learning_governance_revision(
+        conn,
+        root_id=f"experiment:{experiment_id}",
+        event_key=(
+            f"experiment_policy:{experiment_id}:"
+            f"{decision['reportFingerprint']}:{decision['adoptedVariant']}"
+        ),
+        state="policy_authorized",
+        evidence_class="production_rule",
+        experiment_id=experiment_id,
+        creator=str(experiment["creator"]),
+        content_intent=str(experiment["content_intent"]),
+        production_policy_json={
+            "changedVariable": experiment["changed_variable"],
+            "adoptedVariant": decision["adoptedVariant"],
+            "reportFingerprint": decision["reportFingerprint"],
+            "operator": decision["operator"],
+            "reason": decision["reason"],
+            "authorizedAt": decision["decidedAt"],
+            "automaticExpansion": False,
+        },
+    )
+
+
+def rollback_experiment_policy(
+    conn: sqlite3.Connection,
+    *,
+    experiment_id: str,
+    rollback: Mapping[str, Any],
+) -> dict[str, Any]:
+    experiment = conn.execute(
+        "SELECT * FROM creative_plan_experiments WHERE id = ?", (experiment_id,)
+    ).fetchone()
+    if experiment is None:
+        raise ValueError(f"experiment not found: {experiment_id}")
+    return append_learning_governance_revision(
+        conn,
+        root_id=f"experiment:{experiment_id}",
+        event_key=(
+            f"experiment_policy_rollback:{experiment_id}:"
+            f"{rollback['rolledBackDecisionFingerprint']}"
+        ),
+        state="rolled_back",
+        evidence_class="production_rule",
+        experiment_id=experiment_id,
+        creator=str(experiment["creator"]),
+        content_intent=str(experiment["content_intent"]),
+        rollback_json=dict(rollback),
     )
 
 

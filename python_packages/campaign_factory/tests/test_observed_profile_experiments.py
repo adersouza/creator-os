@@ -11,6 +11,9 @@ import pytest
 from campaign_factory.content_director_operations import design_experiment
 from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.observed_experiment_reporting import (
+    BLOCKED_ASSIGNMENT_METHOD,
+    BLOCKED_MEASUREMENT_PLAN,
+    EXPERIMENT_FACTORS,
     OBSERVED_MEASUREMENT_PLAN,
     OBSERVED_PROFILE_SEQUENCE,
     _bootstrap_interval,
@@ -27,6 +30,18 @@ from reel_factory.observed_profiles import (
 )
 
 TEST_PROFILE = "mirror_crop_tone@1"
+
+
+def _blocked_profile_factors(*, profile: str) -> dict[str, str]:
+    return {
+        "source_family": "control_asset",
+        "overlay_text": "none",
+        "overlay_timing": "static",
+        "audio_track": "track_1",
+        "observed_profile": profile,
+        "motion_mode": "passive_selfie",
+        "posting_window": "weekday_midday",
+    }
 
 
 def _sha(path: Path) -> str:
@@ -1323,6 +1338,76 @@ def test_end_to_end_pair_metrics_report_is_deterministic_and_operator_only(
         )
         assert production["selectedProfile"] is None
         assert production["mode"] == "normal_control"
+    finally:
+        cf.close()
+
+
+def test_within_account_blocked_profile_assignment_is_immutable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cf, experiment_id, items, accounts, slots = _fixture(tmp_path, monkeypatch)
+    try:
+        controlled = sorted(
+            {
+                "creator",
+                "account",
+                "content_intent",
+                "observation_cohort",
+                "publication_window",
+                *EXPERIMENT_FACTORS,
+            }
+            - {"observed_profile"}
+        )
+        cf.conn.execute(
+            """
+            UPDATE creative_plan_experiments
+            SET account_scope_json = ?, assignment_method = ?,
+                controlled_variables_json = ?, interpretation_json = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps([accounts[0]]),
+                BLOCKED_ASSIGNMENT_METHOD,
+                json.dumps(controlled),
+                json.dumps({"measurementPlan": BLOCKED_MEASUREMENT_PLAN}),
+                experiment_id,
+            ),
+        )
+        cf.conn.execute(
+            "UPDATE creative_plan_items SET target_account = ? WHERE id = ?",
+            (accounts[0], items[1]),
+        )
+        cf.conn.commit()
+        pair = cf.domains.inventory_reservations.reserve_experiment_pair(
+            experiment_id=experiment_id,
+            parent_family_id="control_asset",
+            pair_index=0,
+            control_asset_id="control_asset",
+            treatment_asset_id="treatment_asset",
+            account_ids=(accounts[0], accounts[0]),
+            eligible_slots=slots,
+            plan_item_ids=items,
+            treatment_profile=TEST_PROFILE,
+            factor_values=(
+                _blocked_profile_factors(profile="normal"),
+                _blocked_profile_factors(profile=TEST_PROFILE),
+            ),
+        )
+        assert {item["accountId"] for item in pair["assignments"]} == {accounts[0]}
+        assert {item["assignmentAlgorithmVersion"] for item in pair["assignments"]} == {
+            BLOCKED_ASSIGNMENT_METHOD
+        }
+        assert all(
+            item["metricRevisionPolicy"] == "immutable_final_reconciled_observation.v1"
+            for item in pair["assignments"]
+        )
+        with pytest.raises(Exception, match="immutable"):
+            cf.conn.execute(
+                """
+                UPDATE creative_plan_item_events SET reason = 'changed'
+                WHERE event_type = 'experiment_assignment'
+                """
+            )
     finally:
         cf.close()
 

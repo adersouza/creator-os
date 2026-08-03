@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .audio_learning_policy import measured_audio_performance
+from .blocked_experiment_reporting import apply_adopted_experiment_policy
 from .learning_governance import (
     MINIMUM_POLICY_SAMPLE_COUNT,
     register_recommendation,
@@ -598,10 +599,26 @@ def apply_learning_to_production_plan(
         if "no such table" not in str(exc).lower():
             raise
         decision["fallbackReason"] = "no_persisted_pack"
-        return base_sources, base_prompt, decision
+        return _apply_blocked_source_family_policy(
+            conn,
+            creator=creator,
+            account=account,
+            intent=intent,
+            sources=base_sources,
+            prompt=base_prompt,
+            decision=decision,
+        )
     if row is None:
         decision["fallbackReason"] = "no_persisted_pack"
-        return base_sources, base_prompt, decision
+        return _apply_blocked_source_family_policy(
+            conn,
+            creator=creator,
+            account=account,
+            intent=intent,
+            sources=base_sources,
+            prompt=base_prompt,
+            decision=decision,
+        )
     decision["learningConsulted"] = True
     pack = json_load(row["payload_json"], {})
     try:
@@ -609,7 +626,15 @@ def apply_learning_to_production_plan(
     except ValueError:
         decision["fallbackReason"] = "no_eligible_recommendation"
         decision["reason"] = "invalid_knowledge_pack_fingerprint"
-        return base_sources, base_prompt, decision
+        return _apply_blocked_source_family_policy(
+            conn,
+            creator=creator,
+            account=account,
+            intent=intent,
+            sources=base_sources,
+            prompt=base_prompt,
+            decision=decision,
+        )
     decision["knowledgePackId"] = pack.get("packId")
     decision["knowledgePackSourceFingerprint"] = pack.get("sourceFingerprint")
     rows = conn.execute(
@@ -624,7 +649,15 @@ def apply_learning_to_production_plan(
     ).fetchall()
     if not rows:
         decision["fallbackReason"] = "no_eligible_recommendation"
-        return base_sources, base_prompt, decision
+        return _apply_blocked_source_family_policy(
+            conn,
+            creator=creator,
+            account=account,
+            intent=intent,
+            sources=base_sources,
+            prompt=base_prompt,
+            decision=decision,
+        )
     matched: list[tuple[dict[str, Any], dict[str, Any]]] = []
     mismatch_reasons: set[str] = set()
     reference_now = now or datetime.now(UTC)
@@ -700,7 +733,15 @@ def apply_learning_to_production_plan(
             (reason for reason in priority if reason in mismatch_reasons),
             "no_eligible_recommendation",
         )
-        return base_sources, base_prompt, decision
+        return _apply_blocked_source_family_policy(
+            conn,
+            creator=creator,
+            account=account,
+            intent=intent,
+            sources=base_sources,
+            prompt=base_prompt,
+            decision=decision,
+        )
     stored, evidence = matched[0]
     selected_sources = list(base_sources)
     preferred_sha = str(evidence.get("preferredSourceSha256") or "")
@@ -752,7 +793,90 @@ def apply_learning_to_production_plan(
             "fallbackReason": None if influenced else "final_choice_unchanged",
         }
     )
-    return selected_sources, selected_prompt, decision
+    return _apply_blocked_source_family_policy(
+        conn,
+        creator=creator,
+        account=account,
+        intent=intent,
+        sources=selected_sources,
+        prompt=selected_prompt,
+        decision=decision,
+    )
+
+
+def _apply_blocked_source_family_policy(
+    conn: Any,
+    *,
+    creator: str,
+    account: str | None,
+    intent: str,
+    sources: list[dict[str, Any]],
+    prompt: str,
+    decision: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
+    if account is None or not sources:
+        return sources, prompt, decision
+    families = [_source_family(source) for source in sources]
+    if not all(families):
+        return sources, prompt, decision
+    eligible_families = list(dict.fromkeys(families))
+    base_family = families[0]
+    selected_family, policy_receipt = apply_adopted_experiment_policy(
+        conn,
+        creator=creator,
+        account_id=account,
+        content_intent=intent,
+        changed_variable="source_family",
+        eligible_values=eligible_families,
+        base_value=base_family,
+    )
+    if not policy_receipt["learningApplied"]:
+        return sources, prompt, decision
+    selected_sources = [
+        source for source in sources if _source_family(source) == selected_family
+    ] + [source for source in sources if _source_family(source) != selected_family]
+    changed = selected_sources != sources
+    decision.update(
+        {
+            "learningConsulted": True,
+            "learningEligible": True,
+            "learningApplied": True,
+            "learningInfluenced": bool(decision["learningInfluenced"] or changed),
+            "finalChoiceChanged": bool(decision["finalChoiceChanged"] or changed),
+            "finalSelectedSource": (
+                str(selected_sources[0]["id"]) if selected_sources else None
+            ),
+            "blockedExperimentPolicy": policy_receipt,
+            "eligibleFactorValuesBeforeLearning": eligible_families,
+            "baseFactorValue": base_family,
+            "finalFactorValue": selected_family,
+            "reason": (
+                "operator_adopted_blocked_experiment"
+                if changed
+                else "adopted_experiment_policy_left_choice_unchanged"
+            ),
+            "fallbackReason": None if changed else "final_choice_unchanged",
+        }
+    )
+    return selected_sources, prompt, decision
+
+
+def _source_family(source: Mapping[str, Any]) -> str:
+    raw_notes = source.get("notes")
+    notes = (
+        dict(raw_notes)
+        if isinstance(raw_notes, Mapping)
+        else json_load(str(raw_notes), {})
+        if raw_notes is not None
+        else {}
+    )
+    return str(
+        source.get("sourceFamilyId")
+        or source.get("source_family_id")
+        or notes.get("sourceFamilyId")
+        or notes.get("source_family_id")
+        or ""
+    ).strip()
 
 
 def recommendation_state(
