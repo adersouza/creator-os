@@ -247,7 +247,7 @@ def test_unmeasured_is_explicit_not_fake_average():
     assert performance_score(summary) is None
 
 
-def test_bandit_planning_score_prefers_baseline_beating_arm():
+def test_deterministic_posterior_ranking_prefers_baseline_beating_arm():
     snapshots = [
         _snapshot(post_id="baseline_a", account="ig_1", views=1000, likes=50),
         _snapshot(post_id="baseline_b", account="ig_1", views=1000, likes=50),
@@ -263,10 +263,15 @@ def test_bandit_planning_score_prefers_baseline_beating_arm():
     winner = aggregate_performance([snapshots[2]], account_baselines=baselines)
     loser = aggregate_performance([snapshots[3]], account_baselines=baselines)
 
-    assert winner["learning"]["bandit"]["algorithm"] == "beta_bernoulli_decayed_v1"
+    ranking = winner["learning"]["posteriorRanking"]
+    assert ranking["algorithm"] == "beta_bernoulli_decayed_v1"
+    assert ranking["method"] == "deterministic_beta_posterior_ranking_v1"
+    assert ranking["selectionMode"] == "deterministic"
+    assert ranking["randomized"] is False
+    assert winner["learning"]["bandit"] == ranking
     assert (
-        winner["learning"]["bandit"]["posteriorMean"]
-        > loser["learning"]["bandit"]["posteriorMean"]
+        ranking["posteriorMean"]
+        > loser["learning"]["posteriorRanking"]["posteriorMean"]
     )
     assert performance_planning_score(winner) > performance_planning_score(loser)
 
@@ -278,10 +283,10 @@ def test_sparse_arm_carries_explicit_exploration_floor():
         ]
     )
 
-    bandit = summary["learning"]["bandit"]
-    assert bandit["explorationFloor"] == 0.15
-    assert bandit["explorationPriority"] == "explore"
-    assert bandit["effectiveTrials"] == summary["learning"]["effectiveSampleSize"]
+    ranking = summary["learning"]["posteriorRanking"]
+    assert ranking["explorationFloor"] == 0.15
+    assert ranking["explorationPriority"] == "explore"
+    assert ranking["effectiveTrials"] == summary["learning"]["effectiveSampleSize"]
 
 
 def test_snapshot_normalized_reward_matches_learning_summary_relative_reward():

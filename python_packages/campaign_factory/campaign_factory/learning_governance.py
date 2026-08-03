@@ -12,6 +12,8 @@ from typing import Any
 from .learning_score import learning_ineligibility_reasons
 from .persistence import json_load
 
+MINIMUM_POLICY_SAMPLE_COUNT = 10
+
 REGISTRY_SCHEMA = "campaign_factory.learning_governance_registry.v1"
 ELIGIBILITY_SCHEMA = "campaign_factory.learning_eligibility.v1"
 
@@ -417,8 +419,28 @@ def authorize_learning_policy(
         raise ValueError("recommendation must be accepted before policy authorization")
     evidence = json_load(row["evidence_json"], {})
     fingerprint = str(evidence.get("recommendationFingerprint") or "")
-    if not fingerprint:
-        raise ValueError("recommendation fingerprint is missing")
+    core = evidence.get("recommendationCore")
+    measured_outcome_ids = (
+        core.get("measuredOutcomeIds") if isinstance(core, Mapping) else []
+    )
+    unique_outcome_ids = {
+        str(outcome_id).strip()
+        for outcome_id in measured_outcome_ids or []
+        if str(outcome_id).strip()
+    }
+    sample_count = int(evidence.get("sampleCount") or 0)
+    if (
+        not fingerprint
+        or not isinstance(core, Mapping)
+        or canonical_fingerprint(dict(core)) != fingerprint
+        or evidence.get("eligibleForOperatorApproval") is not True
+        or core.get("observationBucket") != "approximately_24h"
+        or sample_count < MINIMUM_POLICY_SAMPLE_COUNT
+        or sample_count != len(unique_outcome_ids)
+    ):
+        raise ValueError(
+            "recommendation evidence is not eligible for policy authorization"
+        )
     if (
         expected_recommendation_fingerprint
         and expected_recommendation_fingerprint != fingerprint
@@ -737,11 +759,11 @@ def _observation_bucket(published_at: Any, snapshot_at: Any) -> str | None:
     if published is None or observed is None or observed < published:
         return None
     hours = (observed - published).total_seconds() / 3600
-    if 0.5 <= hours <= 2:
+    if 0.75 <= hours <= 3:
         return "approximately_1h"
     if 20 <= hours <= 28:
         return "approximately_24h"
-    if 66 <= hours <= 78:
+    if 68 <= hours <= 76:
         return "approximately_72h"
     return None
 
