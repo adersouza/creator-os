@@ -1115,6 +1115,7 @@ def _draft_metadata(
         if isinstance(draft.get("handoffManifest"), dict)
         else publishability.get("handoff_manifest")
     )
+    handoff = handoff_manifest if isinstance(handoff_manifest, dict) else {}
     caption_context = (
         draft.get("captionOutcomeContext")
         if isinstance(draft.get("captionOutcomeContext"), dict)
@@ -1171,19 +1172,12 @@ def _draft_metadata(
         if isinstance(audio_intent.get("operator_selection"), dict)
         else {}
     )
-    handoff_audio_id = (
-        handoff_manifest.get("audio_id") if isinstance(handoff_manifest, dict) else None
-    )
-    audio_segment = publishability.get("audio_segment") or (
-        handoff_manifest.get("audio_segment")
-        if isinstance(handoff_manifest, dict)
-        else None
-    )
-    cover_frame = publishability.get("cover_frame") or (
-        handoff_manifest.get("cover_frame")
-        if isinstance(handoff_manifest, dict)
-        else None
-    )
+    handoff_audio_id = handoff.get("audio_id")
+    audio_segment = publishability.get("audio_segment") or handoff.get("audio_segment")
+    cover_frame = publishability.get("cover_frame") or handoff.get("cover_frame")
+    if isinstance(cover_frame, dict):
+        cover_frame = {**cover_frame, "source_media_sha256": draft.get("contentHash")}
+    hashtags = draft.get("hashtags") or draft.get("topics") or []
     audio_id = next(
         (
             value
@@ -1283,6 +1277,8 @@ def _draft_metadata(
             or publishability.get("contentFingerprint")
             or draft.get("contentHash"),
             "source_content_hash": draft.get("sourceContentHash"),
+            "destination_account_id": draft.get("instagramAccountId")
+            or draft.get("accountId"),
             "concept_id": publishability.get("concept_id")
             or publishability.get("conceptId"),
             "parent_reel_id": publishability.get("parent_reel_id")
@@ -1329,7 +1325,8 @@ def _draft_metadata(
             "instagram_post_caption": draft.get("instagramPostCaption") or "",
             "instagram_post_caption_hash": draft.get("instagramPostCaptionHash"),
             "caption_cta": draft.get("captionCta"),
-            "hashtags": draft.get("hashtags") or draft.get("topics") or [],
+            "hashtag_decision": "selected" if hashtags else "none",
+            "hashtags": hashtags,
             "post_caption_style": draft.get("postCaptionStyle") or "short_natural",
             "burned_caption_text": draft.get("burnedCaptionText"),
             "burned_caption_hash": draft.get("burnedCaptionHash")
@@ -1356,6 +1353,7 @@ def _draft_metadata(
             )
             if isinstance(audio_recommendations, dict)
             else True,
+            "cover_decision": "selected" if isinstance(cover_frame, dict) else "none",
             "cover_frame": cover_frame if isinstance(cover_frame, dict) else None,
             "variation_score": audit_summary.get("variationScore"),
             "creative_score": audit_summary.get("creativeScore"),

@@ -1181,6 +1181,17 @@ def test_handoff_manifest_preserves_distinct_instagram_post_caption(tmp_path: Pa
             "instagram_post_caption_hash"
         ] == threadsdash_client_adapter._text_hash(manifest["instagram_post_caption"])
         assert manifest["post_caption_style"] == "short_natural"
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        metadata = payload["drafts"][0]["metadata"]["campaign_factory"]
+        assert metadata["destination_account_id"] == "ig_1"
+        assert (
+            metadata["instagram_post_caption_hash"]
+            == manifest["instagram_post_caption_hash"]
+        )
+        assert metadata["hashtag_decision"] == "selected"
+        assert metadata["hashtags"] == ["#stacey", "#mirrorfit", "#reels"]
+        assert metadata["cover_decision"] == "none"
+        assert metadata["cover_frame"] is None
     finally:
         cf.close()
 

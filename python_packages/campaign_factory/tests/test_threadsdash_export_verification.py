@@ -1370,7 +1370,7 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
             seconds=1.4,
             cover_image_path="/tmp/stacey-cover.jpg",
             cover_image_url="https://cdn.example.com/stacey-cover.jpg",
-            cover_image_hash="cover_hash_1",
+            cover_image_hash="a" * 64,
             reason="best face and outfit framing",
         )
         plan = cf.domains.distribution.create_distribution_plan(
@@ -1408,9 +1408,11 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
             "seconds": 1.4,
             "image_path": "/tmp/stacey-cover.jpg",
             "image_url": "https://cdn.example.com/stacey-cover.jpg",
-            "image_hash": "cover_hash_1",
+            "image_hash": "a" * 64,
             "reason": "best face and outfit framing",
+            "source_media_sha256": payload["drafts"][0]["contentHash"],
         }
+        assert campaign_meta["cover_decision"] == "selected"
         assert manifest["cover_frame"] == campaign_meta["cover_frame"]
         assert (
             payload["drafts"][0]["media"][0]["thumbnailUrl"]
