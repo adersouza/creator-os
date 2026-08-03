@@ -1360,11 +1360,16 @@ def _verify_required_branch_checks(
             raise RuntimePromotionError(
                 f"runtime_promotion_required_context_missing:{name}"
             )
-        if len(matches) != 1:
+        if any(
+            isinstance(run.get("id"), bool)
+            or not isinstance(run.get("id"), int)
+            or int(run["id"]) <= 0
+            for run in matches
+        ):
             raise RuntimePromotionError(
-                f"runtime_promotion_required_context_ambiguous:{name}"
+                f"runtime_promotion_required_context_untrusted:{name}"
             )
-        live_check = matches[0]
+        live_check = max(matches, key=lambda run: int(run["id"]))
         _verify_live_check_state(
             live_check,
             name=name,
