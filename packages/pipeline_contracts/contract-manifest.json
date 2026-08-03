@@ -18,7 +18,7 @@
     "pipeline_contracts/schemas/campaign_draft_payload.v1.example.json": "92cfeb94716a9b7b587fb50bbb9b805fa41c82b1ddf9937d17697aa718968c10",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json": "c3ab72d9dde40f45509b17086a7029c0fdc59d04dff83441f9ded717ea1e64f4",
     "pipeline_contracts/schemas/campaign_draft_payload.v2.example.json": "23088af2c0fc4bfa499422b7c72fe45b46c57fa945a35f3b36f34433631cf53c",
-    "pipeline_contracts/schemas/campaign_draft_payload.v2.schema.json": "3b35a2796e030f3f30f47b5996600413962954943b113954eeabe255a79318e5",
+    "pipeline_contracts/schemas/campaign_draft_payload.v2.schema.json": "079f8d339be4b14fded2aa005da85020ca1c3d109e4b2478d15e5349661d1f8e",
     "pipeline_contracts/schemas/campaign_draft_payload.v3.example.json": "d7ab5a87930d0ba582993994f563412255343a711eb6f339ec9bc3f59525d15d",
     "pipeline_contracts/schemas/campaign_draft_payload.v3.schema.json": "ef5fa2a7387d3aaa51c7d2a4f73e1d57c21234af09b6b88ad620d584ca81c3f4",
     "pipeline_contracts/schemas/caption_outcome_context.v1.example.json": "9776d530eee99587695fee2d07953713ddc9beff7297927a78940ec14389896d",
@@ -104,7 +104,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "2ef75e30e6748f0aa5cb6741069804b0e3714efe82ce16cee40fc72e2007029c",
+    "typescript/generated-schemas.ts": "d78cb830d65d892bfe7b2262f5fea603483780422f6a622815ad7b9ce0024e51",
     "typescript/index.ts": "4ac6f9eed6a498a02572c17707e300f4fd0e56f4fc7e52d8daef205bf0d337bf"
   }
 }
