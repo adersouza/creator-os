@@ -61,6 +61,7 @@
     "pipeline_contracts/schemas/motion_edit_render.v1.example.json": "6cb05a01ca512f9a65c526993be108a5b8cd2b626b6e399aaca17546dc76512f",
     "pipeline_contracts/schemas/motion_edit_render.v1.schema.json": "e7f0d58dbb92675130cc30a0e240608f64ba412edc5c144936640c3760ceb59a",
     "pipeline_contracts/schemas/motion_specific_qc_receipt.v2.schema.json": "2682e830e9ab8f16699d2e1eda9923c2abeb185a74281d98d014bea7ac1f1d54",
+    "pipeline_contracts/schemas/operator_preference_profile.v1.schema.json": "70affa570148d0eb9b08674ecdebb8c53f31f10c8a5c62abe967a633fc85898a",
     "pipeline_contracts/schemas/owned_library_lineage.v1.schema.json": "8669cd007458f2181cfd5da2dd9bf634a9c3541ada983a65bd51f158e39413c6",
     "pipeline_contracts/schemas/paid_motion_execution_receipt.v1.schema.json": "cb89a081c54e709c758ce009a510e46df33fc30c780b8f040f01dd4ea6808864",
     "pipeline_contracts/schemas/pattern_card.v1.example.json": "4192775e4002316cc36e4c84ea47e9412e8f344a0833661fc089f84e5a44050e",
@@ -104,7 +105,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "7aaa564f4b9832c74370e996a279d2f781f29bcff81ac47c9f3f543a73d40fb7",
+    "typescript/generated-schemas.ts": "d97adca834127f8b3f61a0738deaccca2522f7389a1bb9383075cfb683321669",
     "typescript/index.ts": "4ac6f9eed6a498a02572c17707e300f4fd0e56f4fc7e52d8daef205bf0d337bf"
   }
 }

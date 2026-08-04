@@ -42,9 +42,7 @@ def generate_recreation_anchor(
     )
     creator_image = prompt_pack.get("creatorImage")
     soul_identity = prompt_pack.get("soulIdentity")
-    if isinstance(prompt_pack.get("referenceVideo"), dict) and isinstance(
-        soul_identity, dict
-    ):
+    if isinstance(soul_identity, dict):
         campaign, model_id = _campaign_for_soul_identity(
             factory,
             creator=creator_slug,
@@ -110,6 +108,11 @@ def generate_recreation_anchor(
             "referenceVideoSha256": (prompt_pack.get("referenceVideo") or {}).get(
                 "sha256"
             ),
+            "referenceImageSha256": (prompt_pack.get("creatorImage") or {}).get(
+                "sha256"
+            )
+            if prompt_pack.get("referenceImageRole") == "structural_reference"
+            else None,
             "promptPackPath": str(prompt_path),
             "promptPackFingerprint": prompt_pack["promptPackFingerprint"],
             **execution_binding,
@@ -541,6 +544,22 @@ def _validated_recreation_execution_binding(
     prompt_pack: dict[str, Any],
 ) -> dict[str, Any]:
     core = {key: value for key, value in plan.items() if key != "planFingerprint"}
+    if prompt_pack.get("promptScope") == "soul_image_only":
+        reference_image = prompt_pack.get("creatorImage") or {}
+        if (
+            plan.get("schema") != "campaign_factory.structural_image_plan.v1"
+            or plan.get("planFingerprint") != _fingerprint(core)
+            or plan.get("creator") != creator
+            or plan.get("referenceAuthorized") is not True
+            or plan.get("referenceImageSha256") != reference_image.get("sha256")
+            or (plan.get("promptPack") or {}).get("promptPackFingerprint")
+            != prompt_pack.get("promptPackFingerprint")
+        ):
+            raise PermissionError("structural_image_execution_plan_invalid")
+        return {
+            "referenceImageSha256": str(plan["referenceImageSha256"]),
+            "structuralImagePlanFingerprint": str(plan["planFingerprint"]),
+        }
     if (
         plan.get("schema") != "campaign_factory.recreation_plan.v1"
         or plan.get("planFingerprint") != _fingerprint(core)

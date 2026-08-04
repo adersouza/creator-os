@@ -263,7 +263,7 @@ def test_paid_prompt_requires_current_exact_registry_material_before_authorizati
     prompt = "The image is the approved creator identity for a calm short animation."
     governance = bind_campaign_prompt(
         prompt_id="campaign.openai_recreation_pack",
-        version="5",
+        version="17",
         provider="openai",
         model="gpt-5",
         compiled_prompt=prompt,

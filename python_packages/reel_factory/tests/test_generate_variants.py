@@ -99,9 +99,9 @@ def test_sexy_variant_is_append_only_cleavage() -> None:
     assert "butt" not in sexy.lower()  # cleavage-only for a selfie
 
 
-def test_pick_aspect_selfie_vs_fullbody_vs_reel() -> None:
-    assert pick_aspect("a close-up selfie in a bikini") == "3:4"
-    assert pick_aspect("a wide shot seated on a boat, legs forward") == "2:3"
+def test_pick_aspect_is_always_reel_canvas() -> None:
+    assert pick_aspect("a close-up selfie in a bikini") == "9:16"
+    assert pick_aspect("a wide shot seated on a boat, legs forward") == "9:16"
     assert pick_aspect("a vertical video reel of a beach") == "9:16"
 
 

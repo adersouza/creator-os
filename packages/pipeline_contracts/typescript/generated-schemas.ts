@@ -11562,6 +11562,241 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	operatorPreferenceProfile: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reference_factory.operator_preference_profile.v1",
+	  "title": "Operator Preference Profile",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "collectionId",
+	    "status",
+	    "generatedAt",
+	    "sourceFingerprint",
+	    "summary",
+	    "houseDirection",
+	    "brief",
+	    "items"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reference_factory.operator_preference_profile.v1"
+	    },
+	    "collectionId": {
+	      "type": "string",
+	      "minLength": 1,
+	      "maxLength": 200
+	    },
+	    "status": {
+	      "enum": [
+	        "active",
+	        "incomplete"
+	      ]
+	    },
+	    "generatedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "sourceFingerprint": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    },
+	    "summary": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "total",
+	        "rated",
+	        "remaining",
+	        "average",
+	        "byKind",
+	        "byScore"
+	      ],
+	      "properties": {
+	        "total": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "rated": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "remaining": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "average": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "minimum": 1,
+	          "maximum": 5
+	        },
+	        "byKind": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "reel",
+	            "profile",
+	            "selfie"
+	          ],
+	          "properties": {
+	            "reel": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "profile": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "selfie": {
+	              "type": "integer",
+	              "minimum": 0
+	            }
+	          }
+	        },
+	        "byScore": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "1",
+	            "2",
+	            "3",
+	            "4",
+	            "5"
+	          ],
+	          "properties": {
+	            "1": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "2": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "3": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "4": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "5": {
+	              "type": "integer",
+	              "minimum": 0
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "houseDirection": {
+	      "type": "object"
+	    },
+	    "brief": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "principles",
+	        "masterItemIds",
+	        "strongItemIds",
+	        "usefulItemIds",
+	        "avoidItemIds"
+	      ],
+	      "properties": {
+	        "principles": {
+	          "type": "array",
+	          "items": {
+	            "type": "string",
+	            "minLength": 1,
+	            "maxLength": 2000
+	          },
+	          "uniqueItems": true
+	        },
+	        "masterItemIds": {
+	          "$ref": "#/$defs/itemIds"
+	        },
+	        "strongItemIds": {
+	          "$ref": "#/$defs/itemIds"
+	        },
+	        "usefulItemIds": {
+	          "$ref": "#/$defs/itemIds"
+	        },
+	        "avoidItemIds": {
+	          "$ref": "#/$defs/itemIds"
+	        }
+	      }
+	    },
+	    "items": {
+	      "type": "array",
+	      "items": {
+	        "$ref": "#/$defs/preferenceItem"
+	      }
+	    }
+	  },
+	  "$defs": {
+	    "itemIds": {
+	      "type": "array",
+	      "items": {
+	        "type": "string",
+	        "minLength": 1,
+	        "maxLength": 200
+	      },
+	      "uniqueItems": true
+	    },
+	    "preferenceItem": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "itemId",
+	        "kind",
+	        "title",
+	        "score",
+	        "operatorNotes",
+	        "recommendation",
+	        "updatedAt"
+	      ],
+	      "properties": {
+	        "itemId": {
+	          "type": "string",
+	          "minLength": 1,
+	          "maxLength": 200
+	        },
+	        "kind": {
+	          "enum": [
+	            "reel",
+	            "profile",
+	            "selfie"
+	          ]
+	        },
+	        "title": {
+	          "type": "string",
+	          "minLength": 1,
+	          "maxLength": 500
+	        },
+	        "score": {
+	          "type": "integer",
+	          "minimum": 1,
+	          "maximum": 5
+	        },
+	        "operatorNotes": {
+	          "type": "string",
+	          "maxLength": 2000
+	        },
+	        "recommendation": {
+	          "type": "string",
+	          "maxLength": 10000
+	        },
+	        "updatedAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	ownedLibraryLineage: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.owned_library_lineage.v1",
@@ -17799,6 +18034,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "localModelRouterDecision", filename: "local_model_router_decision.v1.schema.json", id: "reel_factory.local_model_router_decision.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },
 	{ key: "motionSpecificQcReceiptV2", filename: "motion_specific_qc_receipt.v2.schema.json", id: "https://creator-os.local/schemas/motion_specific_qc_receipt.v2.schema.json" },
+	{ key: "operatorPreferenceProfile", filename: "operator_preference_profile.v1.schema.json", id: "reference_factory.operator_preference_profile.v1" },
 	{ key: "ownedLibraryLineage", filename: "owned_library_lineage.v1.schema.json", id: "campaign_factory.owned_library_lineage.v1" },
 	{ key: "paidMotionExecutionReceipt", filename: "paid_motion_execution_receipt.v1.schema.json", id: "campaign_factory.paid_motion_execution_receipt.v1" },
 	{ key: "patternCard", filename: "pattern_card.v1.schema.json", id: "reference_factory.pattern_card.v1" },

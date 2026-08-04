@@ -119,7 +119,7 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert pack["creativeContext"]["mode"] == "calm_animation"
     assert pack["creativeContext"]["visualStyleId"] == "low_effort_selfie_reels.v1"
     planning = pack["promptPlanning"]
-    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v5"
+    assert planning["builderVersion"] == "creator_os_openai_prompt_builder.v17"
     request_text = json.dumps(observed["payload"], ensure_ascii=False).lower()
     assert "deliberately casual, believable handheld selfie" in request_text
     assert "cute fitted everyday clothing" in request_text
@@ -194,6 +194,124 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert cached["cache"]["promptCallAuthorization"]["authorized"] is False
     assert cached["cache"]["promptCallAuthorization"]["currentRunCalls"] == 0
     assert cached["promptPackFingerprint"] == pack["promptPackFingerprint"]
+
+
+def test_openai_structural_image_prompt_preserves_visible_attraction_details() -> None:
+    instruction = recreation_prompting._directed_instruction(
+        "passive_selfie",
+        False,
+        reference_video_sha256=None,
+        creator="stacey",
+        soul_identity=_soul_identity(),
+        structural_reference_image=True,
+    )
+
+    assert "sole creator identity source" in instruction
+    assert "exact pose" in instruction
+    assert "strap placement" in instruction
+    assert "expression" in instruction
+    assert "clothing" in instruction
+    assert "visible breast size and fullness" in instruction
+    assert "cleavage depth and shape" in instruction
+    assert "waist-to-hip proportions" in instruction
+    assert "butt size and roundness" in instruction
+    assert "tightness and how it contours the body" in instruction
+    assert "visible detail that makes the composition sexy" in instruction
+    assert "Ground every detail in the visible reference" in instruction
+    assert "invented mood" in instruction
+    assert "reference artifacts outside the scene" in instruction
+    assert "handheld camera held in front of the face" in instruction
+    assert "affirmative desired-result language only" in instruction
+    assert "aspect ratio" not in instruction
+    assert "Intent:" not in instruction
+    assert "canvas dimensions in provider settings" in instruction
+    assert "casual photographic imperfections" in instruction
+    assert "scores and briefs" not in instruction
+    assert "Operator preference JSON" not in instruction
+    assert "Seedance" not in instruction
+    assert "Kling" not in instruction
+    assert "timeline" not in instruction
+    assert "soul-stacey" not in instruction
+    image_schema = recreation_prompting._response_schema(image_only=True)
+    assert image_schema["required"] == ["anchorPrompt"]
+    assert set(image_schema["properties"]) == {"anchorPrompt"}
+    assert "negativePrompt" not in image_schema["properties"]
+
+
+@pytest.mark.parametrize(
+    ("has_reference_video", "structural_reference_image"),
+    [(False, False), (False, True), (True, False)],
+)
+def test_openai_instructions_leave_canvas_ratio_and_internal_labels_to_runtime(
+    has_reference_video: bool, structural_reference_image: bool
+) -> None:
+    instruction = recreation_prompting._directed_instruction(
+        "passive_selfie",
+        has_reference_video,
+        reference_video_sha256=("a" * 64 if has_reference_video else None),
+        creator="stacey",
+        soul_identity=_soul_identity(),
+        structural_reference_image=structural_reference_image,
+    )
+
+    assert "9:16" not in instruction
+    assert "Intent:" not in instruction
+    assert "snapshot" not in instruction.lower()
+
+
+def test_openai_structural_image_request_returns_only_soul_image_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_image = tmp_path / "reference.png"
+    reference_image.write_bytes(b"structural reference")
+    observed: dict[str, Any] = {}
+
+    def fake_post(payload: dict[str, Any], *, api_key: str) -> dict[str, Any]:
+        observed["payload"] = payload
+        return {
+            "id": "resp_image_only",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": json.dumps(
+                                {
+                                    "anchorPrompt": (
+                                        "Adult woman, age 19, with dark hair, seated at "
+                                        "a three-quarter angle in a softly lit bedroom, "
+                                        "wearing a fitted black top with a relaxed gaze."
+                                    )
+                                }
+                            ),
+                        }
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(recreation_prompting, "_post_responses", fake_post)
+    pack = recreation_prompting.build_openai_prompt_pack(
+        creator="stacey",
+        creator_image=reference_image,
+        intent="static_selfie",
+        api_key="test-key",
+        cache_root=tmp_path / "cache-image-only",
+        external_call_authorized=True,
+        soul_identity=_soul_identity(),
+        **_cost_context(tmp_path),
+    )
+
+    schema = observed["payload"]["text"]["format"]["schema"]
+    assert schema["required"] == ["anchorPrompt"]
+    assert set(schema["properties"]) == {"anchorPrompt"}
+    assert pack["promptScope"] == "soul_image_only"
+    assert pack["providerPlans"] == {}
+    assert "seedancePrompt" not in pack
+    assert "klingPrompt" not in pack
+    assert "timeline" not in pack
+    recreation_prompting.validate_prompt_pack(pack)
 
 
 def test_openai_prompt_pack_requires_signed_quote_before_provider_call(
@@ -530,8 +648,9 @@ def test_reference_prompt_input_is_exact_sha_bound_and_visually_directed(
     assert "fuller-chest and cleavage framing" in instruction
     assert "rounded hip and butt silhouette" in instruction
     assert "adult woman, age 19, with dark hair" in instruction
-    assert "creator slug stacey" in instruction.lower()
-    assert "soul-stacey" in instruction
+    assert "creator slug stacey" not in instruction.lower()
+    assert "soul-stacey" not in instruction
+    assert "profile fingerprint" not in instruction.lower()
     assert "approved creator image" not in instruction.lower()
     assert "first image is the approved creator identity" not in instruction.lower()
     assert len(labels[1:]) >= 8
@@ -553,12 +672,62 @@ def test_reference_prompt_input_is_exact_sha_bound_and_visually_directed(
     )
 
 
-@pytest.mark.parametrize("word", ["tattoo", "tattoos", "young"])
+@pytest.mark.parametrize(
+    "word",
+    [
+        "tattoo",
+        "tattoos",
+        "young",
+        "overlay",
+        "caption",
+        "UI",
+        "interface",
+        "screenshot",
+        "watermark",
+        "logo",
+        "Snapchat",
+        "snapshot",
+        "private-message",
+    ],
+)
 def test_generated_prompt_language_rejects_forbidden_terms(word: str) -> None:
     with pytest.raises(ValueError, match="contains_forbidden_language"):
         recreation_prompting._validated_positive_prompt(
             f"Adult woman, age 19, with dark hair and {word} styling.",
             "seedance",
+        )
+
+
+def test_anchor_prompt_rejects_provider_aspect_ratio() -> None:
+    with pytest.raises(ValueError, match="contains_provider_aspect_ratio"):
+        recreation_prompting._validated_anchor_prompt(
+            "Adult woman, age 19, with dark hair in a vertical 4:5 crop."
+        )
+
+
+def test_television_screen_normalizes_without_weakening_screen_guard() -> None:
+    assert recreation_prompting._validated_anchor_prompt(
+        "Adult woman, age 19, with dark hair near a TV screen emitting cool light."
+    ).endswith("near a television emitting cool light.")
+    with pytest.raises(ValueError, match="contains_forbidden_language"):
+        recreation_prompting._validated_anchor_prompt(
+            "Adult woman, age 19, with dark hair near a projection screen."
+        )
+
+
+def test_adult_age_format_normalizes_without_changing_presentation() -> None:
+    prompt = recreation_prompting._validated_anchor_prompt(
+        "Adult woman, 19, with dark hair in a softly lit bedroom."
+    )
+    assert "adult woman, age 19" in prompt.lower()
+    recreation_prompting._validated_creator_presentation(prompt, "anchor")
+
+
+@pytest.mark.parametrize("label", ["anchor", "seedance", "kling"])
+def test_every_generated_prompt_rejects_internal_intent_label(label: str) -> None:
+    with pytest.raises(ValueError, match="contains_internal_label"):
+        recreation_prompting._validated_positive_prompt(
+            "Intent: passive selfie. Adult woman, age 19, with dark hair.", label
         )
 
 

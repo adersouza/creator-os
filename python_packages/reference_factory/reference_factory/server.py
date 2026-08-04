@@ -9,7 +9,7 @@ from creator_os_core.local_api_auth import (
 )
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .audio import (
     audio_catalog_health,
@@ -22,8 +22,14 @@ from .audio import (
     upsert_audio_record,
     upsert_audio_trend_snapshot,
 )
-from .config import DEFAULT_DB_PATH
+from .config import DEFAULT_DATA_ROOT, DEFAULT_DB_PATH
 from .db import connect
+from .operator_collection_review import (
+    operator_collection_payload,
+    operator_collection_reel_media_path,
+    require_collection_dir,
+    set_operator_collection_rating,
+)
 from .reference_intake import (
     export_analysis_queue,
     import_reference_analysis,
@@ -95,7 +101,16 @@ class GenerateVideoPromptsPayload(BaseModel):
     includePending: bool = True
 
 
-def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
+class OperatorCollectionRatingPayload(BaseModel):
+    itemId: str = Field(min_length=1, max_length=200)
+    score: int | None = Field(default=None, ge=1, le=5)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+def create_app(
+    db_path: Path = DEFAULT_DB_PATH,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> FastAPI:
     app = FastAPI(
         title="Reference Factory Review",
         version="0.1.0",
@@ -109,6 +124,51 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return REVIEW_HTML
+
+    @app.get("/collections/{collection_id}", response_class=HTMLResponse)
+    def collection_review(collection_id: str) -> str:
+        require_collection_dir(data_root, collection_id)
+        return COLLECTION_REVIEW_HTML
+
+    @app.get("/api/operator-collections/{collection_id}")
+    def operator_collection(collection_id: str) -> dict[str, object]:
+        return operator_collection_payload(data_root, collection_id)
+
+    @app.post("/api/operator-collections/{collection_id}/rating")
+    def operator_collection_rating(
+        collection_id: str,
+        payload: Annotated[OperatorCollectionRatingPayload, Body()],
+    ) -> dict[str, object]:
+        return set_operator_collection_rating(
+            data_root,
+            collection_id,
+            payload.itemId,
+            payload.score,
+            payload.notes,
+        )
+
+    @app.get("/api/operator-collections/{collection_id}/media/{relative_path:path}")
+    def operator_collection_media(
+        collection_id: str, relative_path: str
+    ) -> FileResponse:
+        collection_dir = require_collection_dir(data_root, collection_id)
+        path = (collection_dir / relative_path).resolve()
+        if (
+            not path.is_relative_to(collection_dir.resolve())
+            or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}
+            or not path.is_file()
+        ):
+            raise HTTPException(status_code=404, detail="Collection media not found")
+        return FileResponse(path)
+
+    @app.get("/api/operator-collections/{collection_id}/reels/{shortcode}/media")
+    def operator_collection_reel_media(
+        collection_id: str, shortcode: str
+    ) -> FileResponse:
+        return FileResponse(
+            operator_collection_reel_media_path(data_root, collection_id, shortcode),
+            media_type="video/mp4",
+        )
 
     @app.get("/api/stats")
     def stats() -> dict[str, object]:
@@ -354,10 +414,170 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     return app
 
 
-def run_server(host: str, port: int, db_path: Path = DEFAULT_DB_PATH) -> None:
+def run_server(
+    host: str,
+    port: int,
+    db_path: Path = DEFAULT_DB_PATH,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> None:
     import uvicorn
 
-    uvicorn.run(create_app(db_path), host=host, port=port)
+    uvicorn.run(create_app(db_path, data_root), host=host, port=port)
+
+
+COLLECTION_REVIEW_HTML = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inspiration Rating Board</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0d0d0f; color: #f5f5f6; font: 14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
+    header { position: sticky; top: 0; z-index: 3; display: grid; gap: 10px; padding: 14px 18px; background: rgba(13,13,15,.96); border-bottom: 1px solid #29292d; }
+    h1 { margin: 0; font-size: 20px; }
+    .summary, .legend, .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .summary span, .legend span { padding: 5px 9px; border-radius: 999px; background: #1b1b1f; color: #c9c9cd; }
+    .rubric { color: #c9c9cd; line-height: 1.4; }
+    .rubric strong { color: #fff; }
+    select, button, textarea { border: 1px solid #3a3a40; border-radius: 7px; background: #1c1c20; color: #f7f7f8; }
+    select, button { min-height: 34px; padding: 0 10px; }
+    button { cursor: pointer; font-weight: 700; }
+    button:hover, button.active { border-color: #ff7ca8; background: #35202a; }
+    main { padding: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+    .card { overflow: hidden; display: grid; align-content: start; border: 1px solid #2c2c31; border-radius: 12px; background: #17171a; }
+    .media { width: 100%; aspect-ratio: 9/14; object-fit: cover; background: #070708; }
+    .placeholder { display: grid; place-content: center; gap: 8px; text-align: center; color: #a4a4aa; }
+    .placeholder strong { color: #f2f2f3; font-size: 18px; }
+    .content { display: grid; gap: 9px; padding: 12px; }
+    .eyebrow { color: #ff9abc; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+    p { margin: 0; line-height: 1.4; color: #d1d1d4; }
+    .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+    .tag { padding: 3px 6px; border: 1px solid #34343a; border-radius: 999px; color: #b8b8bd; font-size: 11px; }
+    .source { color: #9edcff; font-weight: 700; text-decoration: none; }
+    .ratings { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+    .ratings button { padding: 0; }
+    textarea { width: 100%; min-height: 64px; padding: 8px; resize: vertical; font: inherit; }
+    .note-actions { display: flex; gap: 6px; }
+    .muted { color: #96969c; font-size: 12px; }
+    .empty { padding: 50px 20px; text-align: center; color: #aaaab0; }
+    @media (max-width: 620px) { header { position: static; } main { padding: 10px; } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Inspiration Rating Board</h1>
+    <div class="summary" id="summary">Loading collection…</div>
+    <div class="legend"><span>1 = skip</span><span>2 = weak</span><span>3 = useful element</span><span>4 = strong format</span><span>5 = build a reusable master</span></div>
+    <div class="rubric"><strong>Rate how strongly Creator OS should reproduce the format—not the current person.</strong> Consider the muted hook, how repeatable it is for Stacey/Larissa, whether generation looks feasible, and how many controlled outfit, setting, overlay, or audio variants it could support.</div>
+    <div class="controls">
+      <select id="kind" aria-label="Filter by type">
+        <option value="">All types</option><option value="reel">Reels</option><option value="profile">Profiles</option><option value="selfie">Selfies</option>
+      </select>
+      <select id="rating" aria-label="Filter by rating">
+        <option value="">All ratings</option><option value="unrated">Unrated</option><option value="5">5 only</option><option value="4">4 only</option><option value="3">3 only</option><option value="2">2 only</option><option value="1">1 only</option>
+      </select>
+      <select id="sort" aria-label="Sort inspirations">
+        <option value="order">Collection order</option><option value="high">Highest rated</option><option value="low">Lowest rated</option>
+      </select>
+    </div>
+  </header>
+  <main><section class="grid" id="grid"></section></main>
+  <script>
+    const collectionId = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop());
+    let collection = null;
+    const esc = value => String(value ?? "").replace(/[&<>"'`]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"}[ch]));
+    const scoreOf = item => item.rating && Number.isInteger(item.rating.score) ? item.rating.score : null;
+
+    function summary() {
+      const scores = collection.items.map(scoreOf).filter(Number.isInteger);
+      const average = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : "—";
+      const kinds = collection.summary.byKind;
+      document.getElementById("summary").innerHTML =
+        `<span><strong>${scores.length}/${collection.items.length}</strong> rated</span>` +
+        `<span><strong>${collection.items.length - scores.length}</strong> remaining</span>` +
+        `<span>average <strong>${average}</strong></span>` +
+        `<span>${kinds.reel} Reels · ${kinds.profile} profiles · ${kinds.selfie} selfies</span>`;
+    }
+
+    function card(item) {
+      const rating = scoreOf(item);
+      const tags = [...(item.focus || []), ...(item.mustPreserve || [])].slice(0, 6);
+      const media = item.kind === "reel" && item.mediaUrl
+        ? `<video class="media" controls preload="metadata" playsinline src="${esc(item.mediaUrl)}"></video>`
+        : item.mediaUrl
+          ? `<img class="media" src="${esc(item.mediaUrl)}" loading="lazy" alt="${esc(item.title)}">`
+          : `<div class="media placeholder"><strong>${esc(item.kind)}</strong><span>${item.kind === "reel" ? "Local playback unavailable · open source" : "Open the source to review"}</span></div>`;
+      const buttons = [1,2,3,4,5].map(score =>
+        `<button class="${rating === score ? "active" : ""}" data-action="score" data-score="${score}" aria-label="Rate ${score} out of 5">${score}</button>`
+      ).join("");
+      return `<article class="card" data-id="${esc(item.itemId)}">
+        ${media}
+        <div class="content">
+          <div class="eyebrow">${esc(item.kind)}</div>
+          <h2>${esc(item.title)}</h2>
+          ${item.url ? `<a class="source" href="${esc(item.url)}" target="_blank" rel="noreferrer">Open source ↗</a>` : ""}
+          <p>${esc(item.recommendation)}</p>
+          <div class="tags">${tags.map(tag => `<span class="tag">${esc(tag)}</span>`).join("")}</div>
+          <div class="ratings">${buttons}</div>
+          <textarea aria-label="Rating notes" placeholder="Why do you like or dislike this?">${esc(item.rating?.notes || "")}</textarea>
+          <div class="note-actions"><button data-action="notes">Save note</button><button data-action="clear">Clear</button></div>
+          <span class="muted">${esc(item.itemId)}</span>
+        </div>
+      </article>`;
+    }
+
+    function render() {
+      const kind = document.getElementById("kind").value;
+      const rating = document.getElementById("rating").value;
+      const sort = document.getElementById("sort").value;
+      let items = collection.items.filter(item => !kind || item.kind === kind);
+      if (rating === "unrated") items = items.filter(item => scoreOf(item) === null);
+      else if (rating) items = items.filter(item => scoreOf(item) === Number(rating));
+      if (sort === "high") items.sort((a, b) => (scoreOf(b) || 0) - (scoreOf(a) || 0));
+      if (sort === "low") items.sort((a, b) => (scoreOf(a) || 6) - (scoreOf(b) || 6));
+      document.getElementById("grid").innerHTML = items.length ? items.map(card).join("") : '<div class="empty">No inspirations match this filter.</div>';
+      summary();
+    }
+
+    async function save(itemId, score, notes) {
+      const response = await fetch(`/api/operator-collections/${encodeURIComponent(collectionId)}/rating`, {
+        method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({itemId, score, notes})
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Rating could not be saved");
+      collection.items.find(item => item.itemId === itemId).rating = result.rating;
+      render();
+    }
+
+    document.getElementById("grid").addEventListener("click", async event => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const cardElement = button.closest(".card");
+      const item = collection.items.find(row => row.itemId === cardElement.dataset.id);
+      const notes = cardElement.querySelector("textarea").value;
+      button.disabled = true;
+      try {
+        if (button.dataset.action === "score") await save(item.itemId, Number(button.dataset.score), notes);
+        if (button.dataset.action === "notes") await save(item.itemId, scoreOf(item), notes);
+        if (button.dataset.action === "clear") await save(item.itemId, null, "");
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+    for (const id of ["kind", "rating", "sort"]) document.getElementById(id).addEventListener("change", render);
+
+    fetch(`/api/operator-collections/${encodeURIComponent(collectionId)}`)
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("Collection could not be loaded")))
+      .then(data => { collection = data; render(); })
+      .catch(error => { document.getElementById("grid").innerHTML = `<div class="empty">${esc(error.message)}</div>`; });
+  </script>
+</body>
+</html>"""
 
 
 REVIEW_HTML = """<!doctype html>

@@ -65,7 +65,7 @@ def _prompt_pack() -> dict[str, Any]:
             "natural blinking, and subtle head movement."
         ),
         "promptPlanning": {
-            "builderVersion": "creator_os_openai_prompt_builder.v5",
+            "builderVersion": "creator_os_openai_prompt_builder.v17",
             "requestFingerprint": "e" * 64,
             "responseId": "response-test",
             "usage": {},
@@ -233,6 +233,7 @@ def test_openai_anchor_prompt_is_the_soul_prompt(
         plan["anchorPlan"]["requests"][0]["request"]["conditioning"]
         == "text_only_soul_identity"
     )
+    assert plan["anchorPlan"]["requests"][0]["request"]["aspect_ratio"] == "9:16"
     assert "image_references" not in plan["anchorPlan"]["requests"][0]["request"]
     assert plan["anchorPlan"]["videoSubmissionBlockedUntilApproved"] is True
 

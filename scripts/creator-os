@@ -1334,8 +1334,8 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(["--recreation-attempt-id", args.recreation_attempt_id])
         if args.mode == "recreate_reel":
             command.extend(["--recreate-mode", args.recreate_mode])
-            if args.through:
-                command.extend(["--through", args.through])
+        if args.through and (args.mode == "recreate_reel" or args.creator_image):
+            command.extend(["--through", args.through])
         if args.reference_platform:
             command.extend(["--reference-platform", args.reference_platform])
         if args.reference_authorized:

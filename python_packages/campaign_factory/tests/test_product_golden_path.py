@@ -37,7 +37,10 @@ from campaign_factory.production_prompts import (
     build_reel_creative_context,
 )
 from campaign_factory.production_quality_policy import production_quality_policy
+from campaign_factory.recreation_prompting import _operator_preference_instruction
 from PIL import Image
+
+from pipeline_contracts import operator_preference_profile_fingerprint
 
 
 def test_reel_creative_context_makes_each_mode_purpose_explicit() -> None:
@@ -57,6 +60,60 @@ def test_reel_creative_context_makes_each_mode_purpose_explicit() -> None:
             }
         )
         == 3
+    )
+
+
+def test_reel_creative_context_consumes_active_operator_preferences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = {
+        "schema": "reference_factory.operator_preference_profile.v1",
+        "collectionId": "test-style",
+        "status": "active",
+        "generatedAt": "2026-08-04T12:00:00Z",
+        "summary": {
+            "total": 1,
+            "rated": 1,
+            "remaining": 0,
+            "average": 5,
+            "byKind": {"reel": 0, "profile": 0, "selfie": 1},
+            "byScore": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1},
+        },
+        "houseDirection": {},
+        "brief": {
+            "principles": ["Make the muted opening immediately interesting."],
+            "masterItemIds": ["selfie:one"],
+            "strongItemIds": [],
+            "usefulItemIds": [],
+            "avoidItemIds": [],
+        },
+        "items": [
+            {
+                "itemId": "selfie:one",
+                "kind": "selfie",
+                "title": "mirror pose",
+                "score": 5,
+                "operatorNotes": "Keep the casual framing and slipped strap.",
+                "recommendation": "Recreate the pose before varying clothing.",
+                "updatedAt": "2026-08-04T12:00:00Z",
+            }
+        ],
+    }
+    profile["sourceFingerprint"] = operator_preference_profile_fingerprint(profile)
+    path = tmp_path / "operator_preference_profile.json"
+    path.write_text(json.dumps(profile), encoding="utf-8")
+    monkeypatch.setenv("CREATOR_OS_OPERATOR_PREFERENCE_PROFILE", str(path))
+
+    context = build_reel_creative_context(mode="static_reel", intent="passive_selfie")
+
+    preference = context["operatorPreferenceProfile"]
+    assert preference["sourceFingerprint"] == profile["sourceFingerprint"]
+    assert preference["examples"][0]["operatorNotes"] == (
+        "Keep the casual framing and slipped strap."
+    )
+    assert preference["houseDirection"] == {}
+    assert "Keep the casual framing and slipped strap." in (
+        _operator_preference_instruction(preference)
     )
 
 
@@ -583,7 +640,7 @@ def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) ->
             "seedancePrompt": "Seedance calm motion.",
             "klingPrompt": "Kling calm motion.",
             "promptPlanning": {
-                "builderVersion": "creator_os_openai_prompt_builder.v5",
+                "builderVersion": "creator_os_openai_prompt_builder.v8",
                 "requestFingerprint": str(kwargs["creator_image"]),
                 "cost": {"status": "not_exposed", "usd": None},
             },

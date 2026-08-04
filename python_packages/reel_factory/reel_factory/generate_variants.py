@@ -10,7 +10,7 @@ half that used to be done by hand and got done wrong:
                        prompt Higgsfield auto-generates on the reference pass
                        (those fight the Soul identity / render fake app chrome).
   2. `sexy_variant`  - append-only body emphasis, house ceiling (cleavage[+butt]).
-  3. `pick_aspect`   - 3:4 selfie / 2:3 full-body / 9:16 reel.
+  3. `pick_aspect`   - Creator OS generation canvas, always 9:16.
   4. `build_spec`    - reuse the reference-pass output as the original and emit
                        exactly one additional sexy generation (TEXT-ONLY so the
                        edit sticks).
@@ -163,7 +163,7 @@ _STRIP_PATTERNS = (
 )
 _STRIP_RE = re.compile("|".join(_STRIP_PATTERNS), flags=re.IGNORECASE | re.DOTALL)
 
-# Full-body cues -> 2:3 (fits legs/butt); reel cues -> 9:16; else 3:4 selfie.
+# Full-body cues control body emphasis only; every generated canvas stays 9:16.
 _FULLBODY_CUES = (
     "full-body",
     "full body",
@@ -180,7 +180,6 @@ _FULLBODY_CUES = (
     "head to toe",
     "from head",
 )
-_REEL_CUES = ("reel", "story", "9:16", "vertical video", "tiktok")
 
 
 def clean_prompt(captured: str) -> str:
@@ -234,12 +233,8 @@ def sexy_variant(
 
 
 def pick_aspect(prompt: str) -> str:
-    low = prompt.lower()
-    if any(c in low for c in _REEL_CUES):
-        return "9:16"
-    if any(c in low for c in _FULLBODY_CUES):
-        return "2:3"
-    return "3:4"
+    del prompt
+    return "9:16"
 
 
 def build_spec(
@@ -259,7 +254,7 @@ def build_spec(
     """
     cleaned = clean_prompt(captured_prompt)
     aspect = pick_aspect(cleaned)
-    full_body = aspect == "2:3"
+    full_body = any(cue in cleaned.lower() for cue in _FULLBODY_CUES)
     guidance = identity_guidance
     sexy = sexy_variant(cleaned, include_butt=full_body, identity_guidance=guidance)
     return {
@@ -309,12 +304,12 @@ def _demo() -> None:
     assert spec["original"]["generation_required"] is False
     assert spec["provider_generation_count"] == 1
     assert "cleavage" in spec["sexy"]["prompt"].lower()
-    assert spec["original"]["aspect_ratio"] == "3:4"  # selfie
+    assert spec["original"]["aspect_ratio"] == "9:16"
     boat = build_spec(
         "A medium-wide shot, seated on the prow of a boat, wearing a bikini",
         soul_id="soul-y",
     )
-    assert boat["sexy"]["aspect_ratio"] == "2:3"  # full-body
+    assert boat["sexy"]["aspect_ratio"] == "9:16"
     assert "butt" in boat["sexy"]["prompt"].lower()
     print("generate_variants self-check OK")
     print(json.dumps(spec, indent=2))

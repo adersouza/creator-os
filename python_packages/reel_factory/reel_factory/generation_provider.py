@@ -69,6 +69,8 @@ def build_image_cmd(
     quality: str = "2k",
     wait: bool = False,
 ) -> list[str]:
+    if aspect_ratio != "9:16":
+        raise ValueError("Creator OS image generation requires 9:16")
     cmd = [
         "higgsfield",
         "generate",
@@ -104,6 +106,8 @@ def build_video_cmd(
     sound: str = "off",
     wait: bool = False,
 ) -> list[str]:
+    if aspect_ratio != "9:16":
+        raise ValueError("Creator OS video generation requires 9:16")
     cmd = [
         "higgsfield",
         "generate",

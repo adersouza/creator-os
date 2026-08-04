@@ -431,6 +431,25 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("5828d958-91dd-4d6d-8909-934503f47644", cmd)
         self.assertIn("--image", cmd)
 
+    def test_generate_assets_image_command_rejects_non_reel_aspect_ratio(self):
+        prompt = parse_asset_prompt_response(
+            json.dumps(
+                {
+                    "higgsfieldGridPrompt": "visual prompt",
+                    "klingMotionPrompt": "motion prompt",
+                    "notes": "ok",
+                }
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires 9:16"):
+            build_image_cmd(
+                prompt,
+                reference=None,
+                soul_id="soul-test",
+                aspect_ratio="3:4",
+            )
+
     def test_failed_generation_does_not_extract_nested_media_url(self):
         response = {
             "items": [

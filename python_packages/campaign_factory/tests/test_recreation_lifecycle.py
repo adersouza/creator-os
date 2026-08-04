@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from campaign_factory import recreation_lifecycle, recreation_prompting
 from campaign_factory.recreation_lifecycle import (
     _campaign_for_soul_identity,
     _register_anchor_candidate,
@@ -14,6 +15,121 @@ from campaign_factory.recreation_lifecycle import (
 )
 from campaign_test_support import authorize_campaign_governance, make_factory
 from PIL import Image
+
+
+def test_structural_image_anchor_uses_soul_text_only_at_nine_sixteen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        soul_id = "soul-stacey-verified"
+        governance = authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="stacey-structural-image",
+            provider="higgsfield",
+            soul_id=soul_id,
+            reference_video_use=True,
+        )
+        active = dict(
+            cf.domains.creator_governance.active_identity_profile(
+                "stacey", provider="higgsfield"
+            )
+        )
+        binding_core = {
+            "schema": "campaign_factory.verified_soul_identity_binding.v1",
+            "creatorSlug": "stacey",
+            "provider": "higgsfield",
+            "soulId": soul_id,
+            "identityProfileId": active["id"],
+            "identityProfileVersion": active["version"],
+            "identityProfileFingerprint": active["profile_fingerprint"],
+        }
+        soul_identity = {
+            **binding_core,
+            "bindingFingerprint": recreation_prompting._fingerprint(binding_core),
+        }
+        reference = tmp_path / "reference.png"
+        Image.new("RGB", (360, 640), "purple").save(reference)
+        reference_sha = hashlib.sha256(reference.read_bytes()).hexdigest()
+        pack_core = {
+            "schema": "campaign_factory.recreation_prompt_pack.v1",
+            "creator": "stacey",
+            "promptPlanning": {
+                "builderVersion": recreation_prompting.PROMPT_BUILDER_VERSION,
+                "requestFingerprint": "a" * 64,
+            },
+            "creatorImage": {"path": str(reference), "sha256": reference_sha},
+            "referenceImageRole": "structural_reference",
+            "soulIdentity": soul_identity,
+            "referenceVideo": None,
+            "promptScope": "soul_image_only",
+            "anchorPrompt": (
+                "Adult woman, age 19, with dark hair, wearing a fitted black top "
+                "in soft bedroom light."
+            ),
+        }
+        prompt_pack = {
+            **pack_core,
+            "promptPackFingerprint": recreation_prompting._fingerprint(pack_core),
+        }
+        prompt_path = tmp_path / "prompt.json"
+        prompt_path.write_text(json.dumps(prompt_pack), encoding="utf-8")
+        plan_core = {
+            "schema": "campaign_factory.structural_image_plan.v1",
+            "creator": "stacey",
+            "creatorGovernance": {"campaignId": governance["campaign"]["id"]},
+            "referenceImageSha256": reference_sha,
+            "referenceAuthorized": True,
+            "promptPack": {
+                "promptPackFingerprint": prompt_pack["promptPackFingerprint"]
+            },
+        }
+        plan = {
+            **plan_core,
+            "planFingerprint": recreation_lifecycle._fingerprint(plan_core),
+        }
+        generated = tmp_path / "generated.png"
+        Image.new("RGB", (720, 1280), "gold").save(generated)
+        lineage = tmp_path / "lineage.json"
+        lineage.write_text("{}", encoding="utf-8")
+        observed: dict[str, object] = {}
+
+        def fake_generate(_factory, args):
+            observed["args"] = list(args)
+            return {
+                "ok": True,
+                "path": str(lineage),
+                "lineage": {
+                    "assets": {"localPaths": {"image": str(generated)}},
+                    "generation": {"imageJobId": "soul-generation-1"},
+                },
+                "campaignSpendReceipt": None,
+            }
+
+        monkeypatch.setattr(
+            recreation_lifecycle, "_invoke_generate_assets", fake_generate
+        )
+        result = recreation_lifecycle.generate_recreation_anchor(
+            cf,
+            creator="stacey",
+            prompt_pack_path=prompt_path,
+            attempt_id="structural-image-attempt",
+            max_credits=10.0,
+            recreation_plan=plan,
+        )
+
+        args = observed["args"]
+        assert isinstance(args, list)
+        assert args[0] == "image"
+        assert args[args.index("--soul-id") + 1] == soul_id
+        assert args[args.index("--image-aspect-ratio") + 1] == "9:16"
+        assert "--image" not in args
+        assert result["status"] == "completed"
+        assert result["sourceAsset"]["status"] == "imported"
+    finally:
+        cf.close()
 
 
 def test_soul_bound_anchor_candidate_has_no_creator_image_lineage(

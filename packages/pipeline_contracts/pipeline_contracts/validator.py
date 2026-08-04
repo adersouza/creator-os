@@ -59,6 +59,7 @@ THREADSDASH_HANDSHAKE_SCHEMA = THREADSDASH_HANDSHAKE_V1_SCHEMA
 REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA = (
     "reference_factory_knowledge_pack.v1.schema.json"
 )
+OPERATOR_PREFERENCE_PROFILE_SCHEMA = "operator_preference_profile.v1.schema.json"
 PROVIDER_SPEND_AUTHORIZATION_SCHEMA = "provider_spend_authorization.v1.schema.json"
 PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA = "provider_spend_authorization.v2.schema.json"
 CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA = (
@@ -147,6 +148,8 @@ SCHEMA_NAMES = {
     "threadsdash_handshake_v2": THREADSDASH_HANDSHAKE_V2_SCHEMA,
     "reference_factory_knowledge_pack": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
     "reference_factory_knowledge_pack_v1": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
+    "operator_preference_profile": OPERATOR_PREFERENCE_PROFILE_SCHEMA,
+    "operator_preference_profile_v1": OPERATOR_PREFERENCE_PROFILE_SCHEMA,
     "provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
     "campaign_factory_provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
     "provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
@@ -664,6 +667,32 @@ def validate_threadsdash_handshake(value: Any) -> None:
 
 def validate_reference_factory_knowledge_pack(value: Any) -> None:
     validate_contract(value, REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA)
+
+
+def operator_preference_profile_fingerprint(value: Any) -> str:
+    if not isinstance(value, dict):
+        raise ContractValidationError("operator preference profile must be an object")
+    core = {
+        key: item
+        for key, item in value.items()
+        if key not in {"schema", "generatedAt", "sourceFingerprint"}
+    }
+    return hashlib.sha256(
+        json.dumps(
+            core,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def validate_operator_preference_profile(value: Any) -> None:
+    validate_contract(value, OPERATOR_PREFERENCE_PROFILE_SCHEMA)
+    if value["sourceFingerprint"] != operator_preference_profile_fingerprint(value):
+        raise ContractValidationError(
+            "operator preference profile sourceFingerprint does not match payload"
+        )
 
 
 def _validate_campaign_draft_graph_ids(value: Any) -> None:

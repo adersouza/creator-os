@@ -1250,7 +1250,7 @@ def main(argv: list[str] | None = None) -> int:
             from .server import run_server
 
             conn.close()
-            run_server(args.host, args.port, db_path)
+            run_server(args.host, args.port, db_path, data_root)
             return 0
         else:
             parser.error(f"Unknown command: {args.command}")
