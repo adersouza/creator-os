@@ -346,9 +346,9 @@
     "schema": "creator_os.persistence_ownership_registry.v1",
     "inventoryCommand": "uv run python scripts/inventory-persistence.py",
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
-    "directSqlWriterInventorySha256": "efd535c3a978d42dd0b7c5b576dea42d71d0c59cc7065ebb633ba3288d6d7e98",
+    "directSqlWriterInventorySha256": "d31c6bc92e019f5ea3c693532f4337fe79ec9f395c66c96edc34f05222b2a01d",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
-    "persistentJsonWriterInventorySha256": "35a183d9b00d944393f66f8561d55be0e787560b391082005f06d0de6bada796",
+    "persistentJsonWriterInventorySha256": "291b4454d1323c45bcafa11d5805de4054eee1a14de732846a34a22fbee0f808",
     "policyInheritance": [
       "store policy applies to every discovered record",
       "record policy applies to every discovered field unless a stricter field rule applies",
@@ -648,8 +648,7 @@
         "ownerDomain": "reel_factory",
         "legalWriters": [
           "python_packages/reel_factory/reel_factory/caption_bank.py",
-          "python_packages/reel_factory/reel_factory/caption_intake.py",
-          "python_packages/reel_factory/reel_factory/caption_generation_log.py"
+          "python_packages/reel_factory/reel_factory/caption_intake.py"
         ],
         "legalReaders": [
           "reel_factory",

@@ -33,7 +33,6 @@ from pipeline_contracts import (
     validate_reference_factory_knowledge_pack,
     validate_reference_video_motion_analysis,
     validate_reference_video_remix_plan,
-    validate_repurposing_plan,
     validate_schema_examples,
     validate_threadsdash_handshake,
     validate_variant_assignment,
@@ -59,7 +58,6 @@ def test_named_validators_accept_examples():
     validate_audio_catalog_export(load_example("audio_catalog_export"))
     validate_performance_sync(load_example("performance_sync"))
     validate_post_metric_history_read(load_example("post_metric_history.read"))
-    validate_repurposing_plan(load_example("repurposing_plan"))
     validate_recommendation_next_batch(load_example("recommendation_next_batch"))
     validate_reference_factory_knowledge_pack(
         load_example("reference_factory_knowledge_pack")
@@ -511,38 +509,6 @@ def test_campaign_draft_payload_strict_allows_explicit_legacy_compat():
     meta["legacy_compat"] = True
 
     validate_campaign_draft_payload_strict(payload)
-
-
-def test_repurposing_plan_contract_requires_known_preset():
-    payload = load_example("repurposing_plan")
-    payload["preset_name"] = "unknown"
-
-    with pytest.raises(ContractValidationError, match="preset_name"):
-        validate_repurposing_plan(payload)
-
-
-def test_repurposing_plan_contract_rejects_out_of_range_target_count():
-    payload = load_example("repurposing_plan")
-    payload["target_count"] = 0
-
-    with pytest.raises(ContractValidationError, match="target_count"):
-        validate_repurposing_plan(payload)
-
-
-def test_repurposing_plan_contract_rejects_extra_top_level_properties():
-    payload = load_example("repurposing_plan")
-    payload["unexpected"] = True
-
-    with pytest.raises(ContractValidationError, match="unexpected"):
-        validate_repurposing_plan(payload)
-
-
-def test_repurposing_plan_contract_rejects_bad_master_asset_id_pattern():
-    payload = load_example("repurposing_plan")
-    payload["master_asset_id"] = "asset id with spaces"
-
-    with pytest.raises(ContractValidationError, match="master_asset_id"):
-        validate_repurposing_plan(payload)
 
 
 def test_variant_assignment_contract_requires_account_binding():

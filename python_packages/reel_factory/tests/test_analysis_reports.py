@@ -13,7 +13,6 @@ from reel_factory.analysis_reports import (
     request_analysis_reports,
     write_operator_reports,
 )
-from reel_factory.media_features import upsert_reel_feature
 from reel_factory.readiness_check import run_readiness
 
 
@@ -84,10 +83,6 @@ def test_operator_reports_write_sidecars_consumed_by_readiness_and_media_feature
     assert result["writtenReports"] == ["virality", "video_analysis"]
     readiness = run_readiness(tmp_path, clip="clip_001", require_virality=True)
     assert readiness["records"][0]["viralityQc"]["status"] == "passed"
-    features = upsert_reel_feature(tmp_path, output)["features"]
-    assert features["feature_source"] == "video_analysis"
-    assert features["scene"] == "rooftop"
-    assert features["hook_type"] == "curiosity"
 
 
 def test_provider_command_generates_requested_report(

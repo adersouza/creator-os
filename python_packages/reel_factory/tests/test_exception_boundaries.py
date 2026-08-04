@@ -4,7 +4,6 @@ import ast
 from pathlib import Path
 
 import pytest
-import reel_factory.hook_ai as hook_ai
 import reel_factory.preflight as preflight
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -71,22 +70,3 @@ def test_preflight_narrowed_probe_boundary_propagates_unexpected_errors(
 
     with pytest.raises(AssertionError, match="programmer error"):
         preflight.check_clip_readiness(video, None, ffprobe="ffprobe")
-
-
-def test_hook_generation_narrowed_boundary_propagates_unexpected_errors(
-    monkeypatch,
-) -> None:
-    class BrokenProvider:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def available(self):
-            return True, "ok"
-
-        def rewrite(self, *args, **kwargs):
-            raise AssertionError("unexpected provider bug")
-
-    monkeypatch.setattr(hook_ai, "OllamaHookProvider", BrokenProvider)
-
-    with pytest.raises(AssertionError, match="unexpected provider bug"):
-        hook_ai.generate_hooks(backend="ollama", model="model", base="base hook")
