@@ -11734,6 +11734,15 @@ export const generatedPipelineContractSchemas = {
 	      "items": {
 	        "$ref": "#/$defs/preferenceItem"
 	      }
+	    },
+	    "outcomeWeights": {
+	      "type": "object",
+	      "description": "Optional measured-performance deltas keyed by itemId, produced by Reference Factory from published post outcomes. Refines selection ordering among items the operator already rated selectable; never overrides the operator score or note.",
+	      "additionalProperties": {
+	        "type": "number",
+	        "minimum": -1,
+	        "maximum": 1
+	      }
 	    }
 	  },
 	  "$defs": {

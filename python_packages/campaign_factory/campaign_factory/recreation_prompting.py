@@ -666,14 +666,30 @@ def _instruction(
 def _operator_preference_instruction(value: object) -> str:
     if not isinstance(value, dict):
         return ""
-    return (
-        " The following fingerprinted operator preference profile is the current "
-        "early creative prior. Analyze its scores and written explanations, including "
-        "negative examples, and apply the relevant preferences without overriding "
-        "the current authorized reference, verified creator identity, or production "
-        "safety constraints. Preserve distinct item notes instead of flattening them "
-        "into a generic style. Operator preference JSON: "
-        + json.dumps(
+    selected = value.get("selectedReference")
+    if isinstance(selected, dict):
+        lead = (
+            " Exactly one operator-rated reference has been selected to drive this "
+            f"creation: {selected.get('itemId')}. Build the prompt from that single "
+            "reference's pose, framing, clothing, expression, lighting, and setting. "
+            "Its operatorNote is the operator's own reason for choosing it and is "
+            "authoritative; derivedRecommendation is a subordinate synthesis and must "
+            "never contradict the note. Do not blend in the other rated references. "
+            "Treat the avoid list as negative evidence only. This is an early "
+            "creative prior, not performance proof, and it cannot override the "
+            "authorized reference, verified creator identity, or production safety "
+            "constraints. Keep overlay text, captions, audio, and interface language "
+            "out of the image and video prompts. Selected reference JSON: "
+        )
+    else:
+        lead = (
+            " The following fingerprinted operator preference profile is the current "
+            "early creative prior. Apply the relevant preferences without overriding "
+            "the current authorized reference, verified creator identity, or "
+            "production safety constraints. Operator preference JSON: "
+        )
+    return lead + (
+        json.dumps(
             value,
             ensure_ascii=False,
             sort_keys=True,

@@ -16,45 +16,121 @@
     "items"
   ],
   "properties": {
-    "schema": { "const": "reference_factory.operator_preference_profile.v1" },
-    "collectionId": { "type": "string", "minLength": 1, "maxLength": 200 },
-    "status": { "enum": ["active", "incomplete"] },
-    "generatedAt": { "type": "string", "format": "date-time" },
-    "sourceFingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "schema": {
+      "const": "reference_factory.operator_preference_profile.v1"
+    },
+    "collectionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "status": {
+      "enum": [
+        "active",
+        "incomplete"
+      ]
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceFingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["total", "rated", "remaining", "average", "byKind", "byScore"],
+      "required": [
+        "total",
+        "rated",
+        "remaining",
+        "average",
+        "byKind",
+        "byScore"
+      ],
       "properties": {
-        "total": { "type": "integer", "minimum": 0 },
-        "rated": { "type": "integer", "minimum": 0 },
-        "remaining": { "type": "integer", "minimum": 0 },
-        "average": { "type": ["number", "null"], "minimum": 1, "maximum": 5 },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "average": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 5
+        },
         "byKind": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["reel", "profile", "selfie"],
+          "required": [
+            "reel",
+            "profile",
+            "selfie"
+          ],
           "properties": {
-            "reel": { "type": "integer", "minimum": 0 },
-            "profile": { "type": "integer", "minimum": 0 },
-            "selfie": { "type": "integer", "minimum": 0 }
+            "reel": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "profile": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "selfie": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
         "byScore": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["1", "2", "3", "4", "5"],
+          "required": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5"
+          ],
           "properties": {
-            "1": { "type": "integer", "minimum": 0 },
-            "2": { "type": "integer", "minimum": 0 },
-            "3": { "type": "integer", "minimum": 0 },
-            "4": { "type": "integer", "minimum": 0 },
-            "5": { "type": "integer", "minimum": 0 }
+            "1": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "2": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "3": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "4": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "5": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         }
       }
     },
-    "houseDirection": { "type": "object" },
+    "houseDirection": {
+      "type": "object"
+    },
     "brief": {
       "type": "object",
       "additionalProperties": false,
@@ -68,24 +144,51 @@
       "properties": {
         "principles": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
           "uniqueItems": true
         },
-        "masterItemIds": { "$ref": "#/$defs/itemIds" },
-        "strongItemIds": { "$ref": "#/$defs/itemIds" },
-        "usefulItemIds": { "$ref": "#/$defs/itemIds" },
-        "avoidItemIds": { "$ref": "#/$defs/itemIds" }
+        "masterItemIds": {
+          "$ref": "#/$defs/itemIds"
+        },
+        "strongItemIds": {
+          "$ref": "#/$defs/itemIds"
+        },
+        "usefulItemIds": {
+          "$ref": "#/$defs/itemIds"
+        },
+        "avoidItemIds": {
+          "$ref": "#/$defs/itemIds"
+        }
       }
     },
     "items": {
       "type": "array",
-      "items": { "$ref": "#/$defs/preferenceItem" }
+      "items": {
+        "$ref": "#/$defs/preferenceItem"
+      }
+    },
+    "outcomeWeights": {
+      "type": "object",
+      "description": "Optional measured-performance deltas keyed by itemId, produced by Reference Factory from published post outcomes. Refines selection ordering among items the operator already rated selectable; never overrides the operator score or note.",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": -1,
+        "maximum": 1
+      }
     }
   },
   "$defs": {
     "itemIds": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
       "uniqueItems": true
     },
     "preferenceItem": {
@@ -101,13 +204,40 @@
         "updatedAt"
       ],
       "properties": {
-        "itemId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "kind": { "enum": ["reel", "profile", "selfie"] },
-        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
-        "score": { "type": "integer", "minimum": 1, "maximum": 5 },
-        "operatorNotes": { "type": "string", "maxLength": 2000 },
-        "recommendation": { "type": "string", "maxLength": 10000 },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "itemId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "enum": [
+            "reel",
+            "profile",
+            "selfie"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "operatorNotes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "recommendation": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     }
   }

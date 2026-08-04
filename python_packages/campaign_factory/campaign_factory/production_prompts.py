@@ -114,7 +114,112 @@ def _fingerprint(value: dict[str, Any]) -> str:
     ).hexdigest()
 
 
-def _operator_preference_context(mode: str) -> dict[str, Any] | None:
+MODE_PREFERENCE_KINDS: Final[dict[str, tuple[str, ...]]] = {
+    # recreate_reel rebuilds an authorized Reel, so Reel structure references lead.
+    "recreate_reel": ("reel", "profile"),
+    # The selfie modes are driven by pose/framing references, not Reel edits.
+    "static_reel": ("selfie", "profile"),
+    "calm_animation": ("selfie", "profile"),
+}
+SELECTABLE_MIN_SCORE: Final = 4
+AVOID_MAX_SCORE: Final = 2
+_MAX_AVOID_EXAMPLES: Final = 4
+
+
+def _outcome_adjusted_score(item: dict[str, Any], outcomes: dict[str, float]) -> float:
+    """Blend the operator's initial score with measured Reel outcomes.
+
+    The operator score is the prior and always dominates ordering; published
+    outcomes only reorder items the operator already rated selectable. This is
+    the "outcomes refine, never erase" rule from the operator's direction.
+    """
+
+    return float(item["score"]) + max(-0.9, min(0.9, outcomes.get(item["itemId"], 0.0)))
+
+
+def select_preference_reference(
+    profile: dict[str, Any],
+    *,
+    mode: str,
+    intent: str,
+    outcomes: dict[str, float] | None = None,
+) -> dict[str, Any] | None:
+    """Choose ONE operator-rated reference to drive this creation.
+
+    The operator's direction is explicit that all 62 rated references must never
+    be merged into a single prompt. Exactly one item is selected per creation so
+    the authored prompt inherits that item's pose, framing, clothing, expression,
+    and — most importantly — the operator's own reason for liking it.
+    """
+
+    weights = outcomes or {}
+    kinds = MODE_PREFERENCE_KINDS.get(mode, ("reel", "selfie", "profile"))
+    candidates = [
+        item
+        for item in profile["items"]
+        if item["kind"] in kinds and int(item["score"]) >= SELECTABLE_MIN_SCORE
+    ]
+    if not candidates:
+        return None
+    # Deterministic per (collection, mode, intent) so the same creation request is
+    # reproducible, while different intents genuinely draw different references.
+    rotation = int(
+        hashlib.sha256(
+            f"{profile['sourceFingerprint']}:{mode}:{intent}".encode()
+        ).hexdigest(),
+        16,
+    )
+    ordered = sorted(
+        candidates,
+        key=lambda item: (
+            -_outcome_adjusted_score(item, weights),
+            # kind priority follows the mode's leading reference kind
+            kinds.index(item["kind"]),
+            item["itemId"],
+        ),
+    )
+    # Rotate only within the top tier so a master is always chosen, but the same
+    # master is not reused for every intent.
+    top_score = _outcome_adjusted_score(ordered[0], weights)
+    top_tier = [
+        item for item in ordered if _outcome_adjusted_score(item, weights) >= top_score
+    ]
+    return top_tier[rotation % len(top_tier)]
+
+
+def _selected_reference_payload(item: dict[str, Any]) -> dict[str, Any]:
+    """Emit one selected reference under the operator's stated authority order.
+
+    Authority order: the operator's raw written note outranks the score, which
+    outranks the derived recommendation. The derived text is therefore labelled
+    subordinate so prompt authoring cannot silently prefer it.
+    """
+
+    return {
+        "itemId": item["itemId"],
+        "kind": item["kind"],
+        "title": item["title"],
+        "score": item["score"],
+        "operatorNote": item["operatorNotes"],
+        "authority": (
+            "operatorNote is authoritative; derivedRecommendation is a "
+            "subordinate synthesis and must not contradict it"
+        ),
+        "derivedRecommendation": item["recommendation"],
+        "useAs": (
+            "Reproduce this reference's pose, framing, clothing, expression, "
+            "lighting, and setting. Identity comes only from the approved Soul "
+            "binding, never from the reference."
+        ),
+    }
+
+
+def _operator_preference_context(
+    mode: str,
+    *,
+    intent: str = "",
+    outcomes: dict[str, float] | None = None,
+) -> dict[str, Any] | None:
     configured = str(os.environ.get("CREATOR_OS_OPERATOR_PREFERENCE_PROFILE") or "")
     path = (
         Path(configured).expanduser()
@@ -134,46 +239,59 @@ def _operator_preference_context(mode: str) -> dict[str, Any] | None:
     validate_operator_preference_profile(profile)
     if profile["status"] != "active":
         return None
-    relevant_kinds = {"reel", "profile", "selfie"}
-    examples = []
-    for item in profile["items"]:
-        if item["kind"] not in relevant_kinds:
-            continue
-        example = {
+    # Measured outcomes reach selection through the profile artifact, because
+    # Reference Factory owns published post outcomes and Campaign Factory is
+    # forbidden from importing it.
+    resolved_outcomes: dict[str, float] = {
+        str(key): float(value)
+        for key, value in (profile.get("outcomeWeights") or {}).items()
+    }
+    resolved_outcomes.update(outcomes or {})
+    selected = select_preference_reference(
+        profile, mode=mode, intent=intent, outcomes=resolved_outcomes
+    )
+    if selected is None:
+        return None
+    avoid = [
+        {
             "itemId": item["itemId"],
             "kind": item["kind"],
-            "title": item["title"],
             "score": item["score"],
-            "operatorNotes": item["operatorNotes"],
-            "systemBrief": item["recommendation"],
+            "operatorNote": item["operatorNotes"],
         }
-        examples.append(example)
+        for item in sorted(profile["items"], key=lambda i: (i["score"], i["itemId"]))
+        if int(item["score"]) <= AVOID_MAX_SCORE and item["operatorNotes"]
+    ][:_MAX_AVOID_EXAMPLES]
     return {
         "schema": profile["schema"],
         "collectionId": profile["collectionId"],
         "sourceFingerprint": profile["sourceFingerprint"],
         "evidenceStatus": "operator_initial_preference_prior_not_performance_proof",
-        "ratingScale": {
-            "1": "skip",
-            "2": "weak",
-            "3": "useful element",
-            "4": "strong format",
-            "5": "build reusable master",
-        },
-        "summary": profile["summary"],
+        "selectionPolicy": (
+            "Exactly one rated reference drives this creation. Never merge the "
+            "full rated collection into one prompt."
+        ),
+        "selectedReference": _selected_reference_payload(selected),
+        "avoid": avoid,
         "houseDirection": profile["houseDirection"],
         "principles": profile["brief"]["principles"],
-        "examples": examples,
     }
 
 
-def build_reel_creative_context(*, mode: str, intent: str) -> dict[str, Any]:
+def build_reel_creative_context(
+    *,
+    mode: str,
+    intent: str,
+    preference_outcomes: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """Return the operator-owned creative purpose carried by every Reel mode."""
 
     if mode not in MODE_PURPOSES:
         raise ValueError(f"unsupported Creator OS mode: {mode}")
     reference_driven = mode == "recreate_reel"
-    operator_preferences = _operator_preference_context(mode)
+    operator_preferences = _operator_preference_context(
+        mode, intent=intent, outcomes=preference_outcomes
+    )
     core: dict[str, Any] = {
         "schema": REEL_CREATIVE_CONTEXT_SCHEMA,
         "mode": mode,
@@ -208,6 +326,14 @@ def build_reel_creative_context(*, mode: str, intent: str) -> dict[str, Any]:
     }
     if operator_preferences is not None:
         core["operatorPreferenceProfile"] = operator_preferences
+        # Creation lineage: which rated reference influenced this creation, and
+        # which rating snapshot it came from. Published outcomes are joined back
+        # on these two fields to refine later selection.
+        core["preferenceLineage"] = {
+            "itemId": operator_preferences["selectedReference"]["itemId"],
+            "sourceFingerprint": operator_preferences["sourceFingerprint"],
+            "collectionId": operator_preferences["collectionId"],
+        }
     return {**core, "contextFingerprint": _fingerprint(core)}
 
 

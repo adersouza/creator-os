@@ -672,10 +672,13 @@ def validate_reference_factory_knowledge_pack(value: Any) -> None:
 def operator_preference_profile_fingerprint(value: Any) -> str:
     if not isinstance(value, dict):
         raise ContractValidationError("operator preference profile must be an object")
+    # outcomeWeights is a derived performance overlay, not operator truth. It is
+    # excluded so the fingerprint keeps binding the profile to the operator's raw
+    # ratings and notes even after measured outcomes are refreshed.
     core = {
         key: item
         for key, item in value.items()
-        if key not in {"schema", "generatedAt", "sourceFingerprint"}
+        if key not in {"schema", "generatedAt", "sourceFingerprint", "outcomeWeights"}
     }
     return hashlib.sha256(
         json.dumps(
