@@ -43,14 +43,34 @@ def test_sync_threadsdash_performance_requires_configured_env():
     assert module.main(env={}) == 2
 
 
-def test_launchd_runner_resets_stale_logs_safely():
+def test_launchd_runner_resets_stale_logs_safely(tmp_path):
     runner = LAUNCHD_RUNNER_PATH.read_text(encoding="utf-8")
 
-    assert "XPC_SERVICE_NAME:-" in runner
+    assert "XPC_SERVICE_NAME" not in runner
+    assert 'if [ "${1:-}" != "--dry-run" ]; then' in runner
     assert "performance-sync.out.log" in runner
     assert "performance-sync.err.log" in runner
     assert '[ -L "$LOG" ]' in runner
     assert ': > "$LOG"' in runner
+
+    state_root = tmp_path / ".creator-os"
+    state_root.mkdir()
+    logs = [
+        state_root / "performance-sync.out.log",
+        state_root / "performance-sync.err.log",
+    ]
+    for log in logs:
+        log.write_text("stale failure\n", encoding="utf-8")
+    completed = subprocess.run(
+        ["bash", str(LAUNCHD_RUNNER_PATH)],
+        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0
+    assert all(log.read_bytes() == b"" for log in logs)
+    assert all(log.stat().st_mode & 0o777 == 0o600 for log in logs)
 
 
 def test_sync_threadsdash_performance_defaults_to_ten_thousand_posts():
