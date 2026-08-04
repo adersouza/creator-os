@@ -41,6 +41,129 @@ from .reference_audio_intake import (
 )
 
 
+def run_structural_image_analysis(
+    factory: Any,
+    *,
+    creator: str,
+    reference_image_path: Path,
+    reference_authorized: bool,
+    through: str | None,
+    max_credits: float | None,
+    recreation_attempt_id: str | None,
+    apply: bool,
+) -> dict[str, Any]:
+    """Create one Soul-bound prompt/anchor from an authorized structural still."""
+
+    image = reference_image_path.expanduser()
+    if image.is_symlink() or not image.resolve().is_file():
+        raise ValueError("structural reference image must be a regular file")
+    image = image.resolve()
+    if apply and not reference_authorized:
+        raise ValueError("--apply structural image requires --reference-authorized")
+    soul_identity = _active_soul_identity_binding(factory, creator)
+    governance_error = None
+    try:
+        governance = resolve_reference_analysis_governance(factory, creator)
+    except PermissionError as exc:
+        if apply:
+            raise
+        governance_error = str(exc)
+        governance = {
+            "creatorSlug": creator,
+            "campaignId": None,
+            "status": "missing_creation_campaign",
+        }
+    digest = _sha256(image)
+    selected_through = through or "anchor"
+    base = {
+        "ok": True,
+        "schema": "campaign_factory.structural_image_analysis.v1",
+        "creator": creator,
+        "creatorGovernance": governance,
+        "through": selected_through,
+        "apply": apply,
+        "referenceImage": {
+            "path": str(image),
+            "sha256": digest,
+            "role": "structural_reference",
+            "authorized": reference_authorized,
+        },
+        "soulIdentity": soul_identity,
+        "providerCalls": 0,
+        "paidSpend": 0,
+        "executionBlockers": [governance_error] if governance_error else [],
+    }
+    if not apply:
+        return {
+            **base,
+            "status": "planned_no_provider_calls",
+            "nextAction": "rerun with --apply to create the OpenAI prompt and Soul anchor",
+        }
+    prompt_pack = build_openai_prompt_pack(
+        creator=creator,
+        creator_image=image,
+        intent="static_selfie_reference_recreation",
+        external_call_authorized=True,
+        cost_connection=factory.conn,
+        campaign_id=str(governance["campaignId"]),
+        run_id=f"structural_image_prompt:{digest}",
+        governance_context=governance,
+        soul_identity=soul_identity,
+    )
+    prompt_root = factory.settings.reference_reels_root / "image_prompt_packs"
+    prompt_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(prompt_root, 0o700)
+    prompt_path = prompt_root / f"{digest}.json"
+    atomic_write_text(
+        prompt_path,
+        json.dumps(prompt_pack, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(prompt_path, 0o600)
+    result = {
+        **base,
+        "status": "prompt_created_anchor_review_required",
+        "promptPack": prompt_pack,
+        "promptPackPath": str(prompt_path),
+        "providerCalls": int(
+            (prompt_pack.get("cache") or {}).get("providerCallMade") is True
+        ),
+        "paidSpend": ((prompt_pack.get("promptPlanning") or {}).get("cost") or {}).get(
+            "usd"
+        ),
+    }
+    if selected_through != "anchor":
+        return result
+    plan_core = {
+        "schema": "campaign_factory.structural_image_plan.v1",
+        "creator": creator,
+        "creatorGovernance": governance,
+        "referenceImageSha256": digest,
+        "referenceAuthorized": True,
+        "promptPack": {"promptPackFingerprint": prompt_pack["promptPackFingerprint"]},
+    }
+    recreation_plan = {
+        **plan_core,
+        "planFingerprint": hashlib.sha256(
+            json.dumps(plan_core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+    anchor = generate_recreation_anchor(
+        factory,
+        creator=creator,
+        prompt_pack_path=prompt_path,
+        attempt_id=recreation_attempt_id,
+        max_credits=float(max_credits or 0),
+        recreation_plan=recreation_plan,
+    )
+    return {
+        **result,
+        "status": "anchor_generated_review_required",
+        "providerCalls": int(result["providerCalls"]) + 1,
+        "anchorGeneration": anchor,
+    }
+
+
 def run_reference_analysis(
     factory: Any,
     *,
@@ -61,6 +184,11 @@ def run_reference_analysis(
     recreation_attempt_id: str | None = None,
     apply: bool,
 ) -> dict[str, Any]:
+    if creator_image_path is not None:
+        raise ValueError(
+            "--creator-image is a structural-image input and cannot be combined "
+            "with a reference Reel"
+        )
     if apply and not reference_authorized:
         raise ValueError("--apply reference intake requires --reference-authorized")
     if declared_talking and declared_non_talking:

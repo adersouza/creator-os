@@ -5,8 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Final
+
+from creator_os_core.runtime_paths import resolve_runtime_paths
+
+from pipeline_contracts import validate_operator_preference_profile
 
 from .prompt_registry import bind_campaign_prompt
 
@@ -24,7 +29,7 @@ LOW_EFFORT_REEL_VISUAL_DIRECTION: Final = (
     "exposure policy, natural household lighting, slight off-center composition, "
     "and ordinary lived-in background detail. Selected static mirror compositions "
     "may hold the camera in front of part of the face while preserving enough "
-    "visible identity evidence. Use spontaneous snapshot energy and reserve polished "
+    "visible identity evidence. Use casual amateur realism and reserve polished "
     "editorial lighting or cinematic staging for an explicit request."
 )
 
@@ -109,12 +114,66 @@ def _fingerprint(value: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _operator_preference_context(mode: str) -> dict[str, Any] | None:
+    configured = str(os.environ.get("CREATOR_OS_OPERATOR_PREFERENCE_PROFILE") or "")
+    path = (
+        Path(configured).expanduser()
+        if configured
+        else resolve_runtime_paths().reference_data_root
+        / "learning"
+        / "operator_preference_profile.json"
+    )
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 2_000_000:
+        raise ValueError("operator preference profile path is not a trusted file")
+    try:
+        profile = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("operator preference profile is not valid JSON") from exc
+    validate_operator_preference_profile(profile)
+    if profile["status"] != "active":
+        return None
+    relevant_kinds = {"reel", "profile", "selfie"}
+    examples = []
+    for item in profile["items"]:
+        if item["kind"] not in relevant_kinds:
+            continue
+        example = {
+            "itemId": item["itemId"],
+            "kind": item["kind"],
+            "title": item["title"],
+            "score": item["score"],
+            "operatorNotes": item["operatorNotes"],
+            "systemBrief": item["recommendation"],
+        }
+        examples.append(example)
+    return {
+        "schema": profile["schema"],
+        "collectionId": profile["collectionId"],
+        "sourceFingerprint": profile["sourceFingerprint"],
+        "evidenceStatus": "operator_initial_preference_prior_not_performance_proof",
+        "ratingScale": {
+            "1": "skip",
+            "2": "weak",
+            "3": "useful element",
+            "4": "strong format",
+            "5": "build reusable master",
+        },
+        "summary": profile["summary"],
+        "houseDirection": profile["houseDirection"],
+        "principles": profile["brief"]["principles"],
+        "examples": examples,
+    }
+
+
 def build_reel_creative_context(*, mode: str, intent: str) -> dict[str, Any]:
     """Return the operator-owned creative purpose carried by every Reel mode."""
 
     if mode not in MODE_PURPOSES:
         raise ValueError(f"unsupported Creator OS mode: {mode}")
     reference_driven = mode == "recreate_reel"
+    operator_preferences = _operator_preference_context(mode)
     core: dict[str, Any] = {
         "schema": REEL_CREATIVE_CONTEXT_SCHEMA,
         "mode": mode,
@@ -147,6 +206,8 @@ def build_reel_creative_context(*, mode: str, intent: str) -> dict[str, Any]:
             "or operator creative direction."
         ),
     }
+    if operator_preferences is not None:
+        core["operatorPreferenceProfile"] = operator_preferences
     return {**core, "contextFingerprint": _fingerprint(core)}
 
 

@@ -2356,6 +2356,151 @@ def test_review_api_lists_labels_and_stats(tmp_path: Path) -> None:
     assert review_stats(connect(db_path))["counts"]["validVideos"] == 1
 
 
+def test_operator_collection_rating_board_lists_and_persists_ratings(
+    tmp_path: Path,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    data_root = tmp_path / "data"
+    collection = data_root / "operator_collections" / "test-collection"
+    selfie = collection / "selfies" / "selfie_reference_01.png"
+    selfie.parent.mkdir(parents=True)
+    selfie.write_bytes(b"png")
+    reel = data_root / "url_intake" / "instagram" / "reel-one" / "reference.mp4"
+    reel.parent.mkdir(parents=True)
+    reel.write_bytes(b"mp4")
+    (collection / "manifest.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "path": "selfies/selfie_reference_01.png",
+                        "sha256": "abc123",
+                    },
+                    {
+                        "path": "selfies/prepared/selfie_reference_01_clean.png",
+                        "sha256": "prepared",
+                    },
+                ],
+                "profileSources": [
+                    {
+                        "url": "https://www.instagram.com/example/reels/",
+                        "focus": ["angles"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (collection / "operator_notes.json").write_text(
+        json.dumps(
+            {
+                "reelNotes": [
+                    {
+                        "shortcode": "reel-one",
+                        "url": "https://www.instagram.com/reel/reel-one/",
+                        "recommendation": "Strong opening",
+                    },
+                    {
+                        "shortcode": "reel-two",
+                        "url": "https://www.instagram.com/reel/reel-two/",
+                        "recommendation": "Repeatable pose",
+                    },
+                ],
+                "profileNotes": [
+                    {
+                        "url": "https://www.instagram.com/example/reels/",
+                        "recommendation": "Useful angles",
+                    }
+                ],
+                "imageNotes": {
+                    "shotRecipes": [
+                        {
+                            "asset": "selfies/selfie_reference_01.png",
+                            "name": "mirror_pose",
+                            "pose": "Camera covers the face",
+                            "mustPreserve": ["rear three-quarter angle"],
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(tmp_path / "reference.sqlite", data_root))
+
+    page = client.get("/collections/test-collection")
+    response = client.get("/api/operator-collections/test-collection")
+    payload = response.json()
+
+    assert page.status_code == 200
+    assert "Inspiration Rating Board" in page.text
+    assert response.status_code == 200
+    assert payload["summary"] == {
+        "total": 4,
+        "rated": 0,
+        "remaining": 4,
+        "average": None,
+        "byKind": {"reel": 2, "profile": 1, "selfie": 1},
+    }
+    assert [item["kind"] for item in payload["items"]] == [
+        "reel",
+        "reel",
+        "profile",
+        "selfie",
+    ]
+    assert payload["items"][0]["mediaUrl"] == (
+        "/api/operator-collections/test-collection/reels/reel-one/media"
+    )
+    assert payload["items"][1]["mediaUrl"] is None
+    assert client.get(payload["items"][0]["mediaUrl"]).content == b"mp4"
+    assert (
+        client.get(
+            "/api/operator-collections/test-collection/reels/reel-two/media"
+        ).status_code
+        == 404
+    )
+    selfie_item = payload["items"][-1]
+    assert client.get(selfie_item["mediaUrl"]).content == b"png"
+
+    saved = client.post(
+        "/api/operator-collections/test-collection/rating",
+        json={"itemId": "reel:reel-one", "score": 5, "notes": "Make this first"},
+    )
+    reloaded = client.get("/api/operator-collections/test-collection").json()
+
+    assert saved.status_code == 200
+    assert saved.json()["summary"]["rated"] == 1
+    assert saved.json()["summary"]["average"] == 5.0
+    assert reloaded["items"][0]["rating"]["notes"] == "Make this first"
+    ratings = json.loads((collection / "operator_ratings.json").read_text())
+    assert ratings["ratings"]["reel:reel-one"]["score"] == 5
+    preference = json.loads(
+        (data_root / "learning" / "operator_preference_profile.json").read_text()
+    )
+    assert preference["status"] == "incomplete"
+    assert preference["brief"]["masterItemIds"] == ["reel:reel-one"]
+    assert preference["items"][0]["operatorNotes"] == "Make this first"
+    assert (
+        saved.json()["preferenceProfile"]["sourceFingerprint"]
+        == preference["sourceFingerprint"]
+    )
+    assert (
+        client.post(
+            "/api/operator-collections/test-collection/rating",
+            json={"itemId": "reel:reel-one", "score": 6},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/operator-collections/test-collection/rating",
+            json={"itemId": "missing", "score": 3},
+        ).status_code
+        == 404
+    )
+
+
 @pytest.mark.slow
 def test_reference_intake_api_queues_and_generates_prompt_exports(
     tmp_path: Path,

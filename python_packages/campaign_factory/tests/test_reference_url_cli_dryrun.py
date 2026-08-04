@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import campaign_factory.cli as cli
+import campaign_factory.cli_dispatch_pipeline as pipeline_dispatch
 import campaign_factory.reference_url_workflow as workflow
 import pytest
 from campaign_factory.config import Settings
@@ -128,6 +129,83 @@ def test_full_recreation_dry_run_also_bypasses_mutating_factory(
     }
     assert not settings.db_path.exists()
     assert not settings.campaigns_dir.exists()
+
+
+def test_create_routes_standalone_creator_image_to_structural_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = tmp_path / "reference.png"
+    image.write_bytes(b"structural image")
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        pipeline_dispatch,
+        "run_structural_image_analysis",
+        lambda _factory, **kwargs: observed.update(kwargs) or {"ok": True},
+    )
+    monkeypatch.setattr(pipeline_dispatch, "print_json", lambda _value: None)
+    args = SimpleNamespace(
+        cmd="create",
+        reference_id=None,
+        recreation_anchor_approval=None,
+        reference_url=None,
+        reference_video=None,
+        creator_image=image,
+        creator="stacey",
+        mode="static_reel",
+        reference_authorized=True,
+        through="anchor",
+        max_credits=10.0,
+        recreation_attempt_id=None,
+        apply=False,
+    )
+
+    assert (
+        pipeline_dispatch.dispatch_pipeline_commands(
+            args,
+            object(),
+            SimpleNamespace(reference_factory_db=tmp_path / "ref.sqlite"),
+        )
+        == 0
+    )
+    assert observed["reference_image_path"] == image
+    assert observed["creator"] == "stacey"
+    assert observed["through"] == "anchor"
+
+
+def test_structural_image_dry_run_binds_active_soul_without_provider_calls(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="stacey-image-plan",
+            provider="higgsfield",
+            soul_id="soul-stacey-active",
+            reference_video_use=True,
+        )
+        image = tmp_path / "reference.png"
+        image.write_bytes(b"authorized structural image")
+
+        result = workflow.run_structural_image_analysis(
+            cf,
+            creator="stacey",
+            reference_image_path=image,
+            reference_authorized=True,
+            through="anchor",
+            max_credits=10.0,
+            recreation_attempt_id=None,
+            apply=False,
+        )
+
+        assert result["status"] == "planned_no_provider_calls"
+        assert result["providerCalls"] == 0
+        assert result["referenceImage"]["role"] == "structural_reference"
+        assert result["soulIdentity"]["soulId"] == "soul-stacey-active"
+    finally:
+        cf.close()
 
 
 def test_reference_recreation_plan_uses_active_soul_without_creator_image(

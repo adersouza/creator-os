@@ -170,6 +170,7 @@
         "reel_analysis_and_provider_receipts",
         "reel_caption_banks_and_review_sidecars",
         "reference_intake_and_pattern_artifacts",
+        "reference_operator_collection_ratings",
         "reddit_research_and_handoff_artifacts"
       ],
       "allowedWriters": [
@@ -347,7 +348,7 @@
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
     "directSqlWriterInventorySha256": "efd535c3a978d42dd0b7c5b576dea42d71d0c59cc7065ebb633ba3288d6d7e98",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
-    "persistentJsonWriterInventorySha256": "7e5255c965f075aa5e401cd8073671277798fc5426db3d62b36101393ce354fc",
+    "persistentJsonWriterInventorySha256": "35a183d9b00d944393f66f8561d55be0e787560b391082005f06d0de6bada796",
     "policyInheritance": [
       "store policy applies to every discovered record",
       "record policy applies to every discovered field unless a stricter field rule applies",
@@ -686,6 +687,30 @@
         "deletionBehavior": "owner-domain archival or explicit rights-governed repair",
         "receiptBinding": "reference ID, content hash, and promotion fingerprint",
         "repairPath": "Reference Factory intake or promotion reconciliation"
+      },
+      {
+        "family": "reference_operator_collection_ratings",
+        "patterns": [
+          "**/operator_collections/**/operator_ratings.json",
+          "**/operator_collections/**/operator_preference_profile.json",
+          "**/learning/operator_preference_profile.json"
+        ],
+        "ownerDomain": "reference_factory",
+        "legalWriters": [
+          "python_packages/reference_factory/reference_factory/operator_collection_review.py"
+        ],
+        "legalReaders": [
+          "reference_factory_operator_review",
+          "campaign_factory_reference_selection"
+        ],
+        "fields": "collection ID plus item-keyed operator score, notes, update time, compiled preference tiers, and source fingerprint",
+        "mutability": "atomic operator-controlled replacement",
+        "allowedValues": "known collection item ID with optional integer score from 1 through 5 and bounded notes; compiled profiles must validate as reference_factory.operator_preference_profile.v1",
+        "stateTransitionOwner": "reference_factory_operator_collection_review",
+        "retention": "with the bound operator collection and its source receipts",
+        "deletionBehavior": "clear individual ratings through the review API; collection removal requires explicit operator cleanup",
+        "receiptBinding": "collection ID, stable Reel, profile, or selfie item ID, and compiled source fingerprint",
+        "repairPath": "reopen the Inspiration Rating Board and resave the affected item"
       },
       {
         "family": "reddit_research_and_handoff_artifacts",

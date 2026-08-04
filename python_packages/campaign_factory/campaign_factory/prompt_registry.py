@@ -34,7 +34,7 @@ _PASSIVE_COMPILED_FIXTURE = (
 )
 _OPENAI_RECREATION_FIXTURE = (
     "The image is the approved creator identity for a calm short animation. "
-    "Invent one attractive, realistic 9:16 scene and pose that will animate well "
+    "Invent one attractive, realistic scene and pose that will animate well "
     "with calm eye, head, breathing, hair, and small hand movements. Default visual "
     "direction: Favor a deliberately casual, believable handheld selfie aesthetic "
     "for Reel stills: close arm-length framing or a mirror self-portrait in an "
@@ -44,11 +44,11 @@ _OPENAI_RECREATION_FIXTURE = (
     "and exposure policy, natural household lighting, slight off-center composition, "
     "and ordinary lived-in background detail. Selected static mirror compositions "
     "may hold the camera in front of part of the face while preserving enough visible "
-    "identity evidence. Use spontaneous snapshot energy and reserve polished "
+    "identity evidence. Use casual amateur realism and reserve polished "
     "editorial lighting or cinematic staging for an explicit request. Return an "
     "anchorPrompt for Higgsfield Soul 2, a detailed Seedance 2 Fast prompt, a "
     "Kling 3 Turbo prompt with a 2500-character maximum, and a chronological "
-    "timeline. Intent: passive_selfie. The anchor prompt describes adult-coded "
+    "timeline. The anchor prompt describes adult-coded "
     "pose, wardrobe, setting, lighting, framing, and composition using affirmative "
     "desired-result language. The approved creator image exclusively supplies "
     "identity, face, skin tone, hair, tattoos, beauty marks, and permanent body "
@@ -56,8 +56,11 @@ _OPENAI_RECREATION_FIXTURE = (
     "Video prompts explicitly use the approved anchor as the exact person, "
     "preserve every visible identity and permanent feature, and describe only "
     "desired visuals, movement, timing, and camera behavior in affirmative "
-    "language. Provider settings control audio separately. Source writing stays "
-    "outside the generated prompts."
+    "language. Provider settings control audio separately. Every generated prompt "
+    "contains only affirmative desired-result language. Source writing, overlay, "
+    "caption, app, UI, interface, screen-chrome, watermark, logo, and device language "
+    "stay outside the anchor, Seedance, Kling, and timeline descriptions. Source "
+    "writing stays outside the generated prompts."
 )
 _DERIVED_STILL_FIXTURE = (
     "Change only the existing garment color, using these colors in order: black, "
@@ -85,12 +88,26 @@ _PRODUCTION_TEMPLATE_SOURCE = python_source_fingerprint(
 _RECREATION_COMPILER_SOURCE = python_source_fingerprint(
     _PACKAGE_ROOT / "recreation_prompting.py",
     source_id="campaign_factory.recreation_prompting",
-    symbols=("_instruction", "_response_schema"),
+    symbols=(
+        "_instruction",
+        "_operator_preference_instruction",
+        "_directed_instruction",
+        "_normalize_provider_trigger_language",
+        "_response_schema",
+        "_validated_anchor_prompt",
+        "_validated_positive_prompt",
+    ),
 )
 _RECREATION_TEMPLATE_SOURCE = python_source_fingerprint(
     _PACKAGE_ROOT / "recreation_prompting.py",
     source_id="campaign_factory.recreation_prompting.templates",
-    symbols=("PROMPT_BUILDER_VERSION", "_instruction", "_response_schema"),
+    symbols=(
+        "PROMPT_BUILDER_VERSION",
+        "_instruction",
+        "_operator_preference_instruction",
+        "_directed_instruction",
+        "_response_schema",
+    ),
 )
 _DERIVED_COMPILER_SOURCE = python_source_fingerprint(
     _REEL_FACTORY_ROOT / "derived_stills.py",
@@ -220,16 +237,26 @@ PROMPT_REGISTRY = prompt_registry(
         ),
         _definition(
             prompt_id="campaign.openai_recreation_pack",
-            version="5",
+            version="17",
             purpose="OpenAI-authored Soul anchor and provider motion prompts",
             provider="openai",
             models=("gpt-5",),
-            template_version="creator_os_openai_prompt_builder.v5",
+            template_version="creator_os_openai_prompt_builder.v17",
             builder_source={
-                "identity": "approved_creator_image_or_verified_higgsfield_soul",
-                "reference": "authorized_reel_structural_frames_optional",
-                "output": ["anchor", "seedance", "kling", "timeline"],
+                "identity": "verified_higgsfield_soul_when_structural_reference",
+                "reference": "authorized_image_or_reel_structural_authority_optional",
+                "output": {
+                    "structural_image": ["anchor"],
+                    "animation_or_recreation": [
+                        "anchor",
+                        "seedance",
+                        "kling",
+                        "timeline",
+                    ],
+                },
                 "positive_language_only": True,
+                "negativePrompt": "forbidden_and_not_in_schema",
+                "operatorPreference": "selection_context_not_structural_image_prompt",
             },
             compiler_source_fingerprint=_RECREATION_COMPILER_SOURCE,
             template_source_fingerprint=_RECREATION_TEMPLATE_SOURCE,
@@ -238,7 +265,7 @@ PROMPT_REGISTRY = prompt_registry(
             cost_behavior="paid_provider_call",
             regression_fixtures=(
                 regression_fixture_hash(
-                    fixture_id="campaign.openai_recreation_pack.no_reference.v5",
+                    fixture_id="campaign.openai_recreation_pack.no_reference.v17",
                     inputs={
                         "intent": "passive_selfie",
                         "hasReferenceVideo": False,
@@ -246,14 +273,14 @@ PROMPT_REGISTRY = prompt_registry(
                     compiled_prompt=_OPENAI_RECREATION_FIXTURE,
                 ),
             ),
-            approved_material_fingerprint="2aa8a03f944a891837a3b6beb6da45b32c72688bdbe6880622fec25d4dba4548",
-            approved_at="2026-07-30T22:25:00-04:00",
-            approval_evidence="operator_approved_low_effort_reel_visual_direction",
-            effective_at="2026-07-30T22:25:00-04:00",
+            approved_material_fingerprint="7c1a3b8565333fd1e80f95c28e9db615f586702933d02862ac9882e5c1833a2f",
+            approved_at="2026-08-04T00:00:00-04:00",
+            approval_evidence="operator_approved_structural_image_prompting_and_positive_only_outputs",
+            effective_at="2026-08-04T00:00:00-04:00",
         ),
         _definition(
             prompt_id="campaign.recreation_provider_compile",
-            version="3",
+            version="4",
             purpose="bind recreation prompt pack to one provider model",
             provider="any",
             models=("*",),
@@ -269,7 +296,7 @@ PROMPT_REGISTRY = prompt_registry(
             cost_behavior="local_compile",
             regression_fixtures=(
                 regression_fixture_hash(
-                    fixture_id="campaign.recreation_provider_compile.kling.v3",
+                    fixture_id="campaign.recreation_provider_compile.kling.v4",
                     inputs={
                         "promptPackFingerprint": "c" * 64,
                         "providerModel": "kling3_0",
@@ -277,10 +304,10 @@ PROMPT_REGISTRY = prompt_registry(
                     compiled_prompt="Calm provider-specific recreation motion.",
                 ),
             ),
-            approved_material_fingerprint="c4ac76b4c77a67943210c5d9304ea1b8c86890d56340381af0c64067628c9372",
-            approved_at="2026-07-30T22:25:00-04:00",
-            approval_evidence="operator_approved_low_effort_reel_visual_direction",
-            effective_at="2026-07-30T22:25:00-04:00",
+            approved_material_fingerprint="6e578f7178cbbd50e7837121b4c0bee8386a2a63a02b855b6260719a26a856ea",
+            approved_at="2026-08-04T00:00:00-04:00",
+            approval_evidence="operator_approved_structural_image_prompting_and_positive_only_outputs",
+            effective_at="2026-08-04T00:00:00-04:00",
         ),
         _definition(
             prompt_id="campaign.derived_still_edit",

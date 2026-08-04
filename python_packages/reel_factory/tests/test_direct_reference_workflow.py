@@ -87,7 +87,7 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             self.assertIn("--custom_reference_id", command)
             self.assertIn("d63ea9c7-b2c7-439c-bf0c-edfdf9938a36", command)
             self.assertIn("--aspect_ratio", command)
-            self.assertIn("3:4", command)
+            self.assertIn("9:16", command)
             self.assertNotIn("9:16 image", " ".join(command))
             self.assertNotIn("grok", " ".join(command).lower())
             self.assertNotIn("qwen", " ".join(command).lower())
@@ -158,7 +158,9 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             self.assertEqual(
                 lineage["generation"]["promptPolicy"]["visualSchemaUsed"], False
             )
-            self.assertEqual(lineage["generation"]["params"]["imageAspectRatio"], "3:4")
+            self.assertEqual(
+                lineage["generation"]["params"]["imageAspectRatio"], "9:16"
+            )
             self.assertEqual(
                 lineage["generation"]["promptPolicy"]["promptAppendUsed"], False
             )
@@ -245,20 +247,19 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             )
 
     def test_direct_reference_prompt_is_reference_only_seed(self):
-        prompt = direct_reference_prompt("3:4")
+        prompt = direct_reference_prompt("9:16")
 
         self.assertIn("Use the supplied reference image", prompt)
-        self.assertIn("3:4 image", prompt)
+        self.assertNotIn("9:16", prompt)
+        self.assertNotIn("3:4", prompt)
         self.assertNotIn("cleavage", prompt.lower())
         self.assertNotIn("bust", prompt.lower())
         self.assertNotIn("hips", prompt.lower())
         self.assertNotIn("sexier", prompt.lower())
 
-    def test_direct_reference_prompt_uses_requested_aspect_ratio(self):
-        prompt = direct_reference_prompt("9:16")
-
-        self.assertIn("9:16 image", prompt)
-        self.assertNotIn("3:4 image", prompt)
+    def test_direct_reference_prompt_rejects_non_reel_aspect_ratio(self):
+        with self.assertRaisesRegex(ValueError, "requires 9:16"):
+            direct_reference_prompt("3:4")
 
     def test_extract_higgsfield_generated_prompt_reads_params_prompt(self):
         raw = {

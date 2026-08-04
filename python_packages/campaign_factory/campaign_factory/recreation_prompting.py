@@ -42,12 +42,17 @@ from .production_source_selection import require_creation_enabled_creator
 from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
-PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v5"
+PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v17"
 _API_URL: Final = "https://api.openai.com/v1/responses"
-_ANCHOR_FORBIDDEN: Final = (
+_GENERATED_SURFACE_FORBIDDEN: Final = (
     "phone",
     "iphone",
     "smartphone",
+    "app",
+    "ui",
+    "screen",
+    "chrome",
+    "device",
     "story",
     "screenshot",
     "social media",
@@ -56,6 +61,16 @@ _ANCHOR_FORBIDDEN: Final = (
     "watermark",
     "caption",
     "overlay",
+    "text",
+    "lettering",
+    "logo",
+    "snapchat",
+    "snapshot",
+    "private-message",
+    "private message",
+)
+_ANCHOR_FORBIDDEN: Final = (
+    *_GENERATED_SURFACE_FORBIDDEN,
     "tattoo",
     "hair color",
     "blonde",
@@ -68,7 +83,13 @@ _NEGATIVE_LANGUAGE = re.compile(
     flags=re.IGNORECASE,
 )
 _FORBIDDEN_GENERATED_LANGUAGE = re.compile(
-    r"\b(?:tattoo|tattoos|young)\b", flags=re.IGNORECASE
+    r"\b(?:"
+    + "|".join(
+        re.escape(term)
+        for term in (*_GENERATED_SURFACE_FORBIDDEN, "tattoo", "tattoos", "young")
+    )
+    + r")\b",
+    flags=re.IGNORECASE,
 )
 _CREATOR_PRESENTATION_POLICY: Final = {
     "adultPresentation": "adult woman",
@@ -123,27 +144,46 @@ def build_openai_prompt_pack(
     image_sha256 = _sha256(image) if image is not None else None
     video_sha256 = _sha256(video) if video else None
     selected_soul_identity = None
-    if video is not None:
-        selected_soul_identity = (
-            _validate_soul_identity_binding(soul_identity, creator=creator)
-            if soul_identity is not None
-            else _verified_soul_identity_binding(
-                creator=creator, governance_context=governance_context
-            )
+    if soul_identity is not None:
+        selected_soul_identity = _validate_soul_identity_binding(
+            soul_identity, creator=creator
         )
+    elif video is not None or governance_context is not None:
+        selected_soul_identity = _verified_soul_identity_binding(
+            creator=creator, governance_context=governance_context
+        )
+    structural_reference_image = (
+        image is not None and selected_soul_identity is not None
+    )
     instruction = _directed_instruction(
         intent,
         bool(video),
         reference_video_sha256=video_sha256,
         creator=creator,
         soul_identity=selected_soul_identity,
+        structural_reference_image=structural_reference_image,
     )
+    operator_preferences = creative_context.get("operatorPreferenceProfile")
+    if not structural_reference_image:
+        instruction += _operator_preference_instruction(operator_preferences)
     prompt_inputs = {
         "creator": creator.strip().lower(),
         "intent": intent,
         "creatorImageSha256": image_sha256,
+        "referenceImageRole": (
+            "structural_reference"
+            if structural_reference_image
+            else "creator_identity"
+            if image is not None
+            else None
+        ),
         "referenceVideoSha256": video_sha256,
         "creativeContextFingerprint": creative_context["contextFingerprint"],
+        "operatorPreferenceFingerprint": (
+            operator_preferences.get("sourceFingerprint")
+            if isinstance(operator_preferences, dict)
+            else None
+        ),
         "frameSamplingPolicy": _FRAME_SAMPLING_POLICY,
         "soulIdentityBindingFingerprint": (
             selected_soul_identity["bindingFingerprint"]
@@ -153,7 +193,7 @@ def build_openai_prompt_pack(
     }
     prompt_governance = bind_campaign_prompt(
         prompt_id="campaign.openai_recreation_pack",
-        version="5",
+        version="17",
         provider="openai",
         model=selected_model,
         compiled_prompt=instruction,
@@ -171,7 +211,7 @@ def build_openai_prompt_pack(
         "instruction": instruction,
         "promptInputs": prompt_inputs,
         "frameSamplingPolicy": _FRAME_SAMPLING_POLICY,
-        "responseSchema": _response_schema(),
+        "responseSchema": _response_schema(image_only=structural_reference_image),
         "promptGovernance": prompt_governance,
     }
     request_fingerprint = _fingerprint(request_core)
@@ -287,7 +327,9 @@ def build_openai_prompt_pack(
                             "type": "json_schema",
                             "name": "creator_os_prompt_pack",
                             "strict": True,
-                            "schema": _response_schema(),
+                            "schema": _response_schema(
+                                image_only=structural_reference_image
+                            ),
                         }
                     },
                 },
@@ -324,28 +366,32 @@ def build_openai_prompt_pack(
     anchor_prompt = _validated_creator_presentation(
         _validated_anchor_prompt(str(value["anchorPrompt"])), "anchor"
     )
-    seedance_prompt = _validated_creator_presentation(
-        _validated_positive_prompt(str(value["seedancePrompt"]), "seedance"),
-        "seedance",
-    )
-    kling_prompt = _validated_creator_presentation(
-        _validated_positive_prompt(str(value["klingPrompt"]), "kling"),
-        "kling",
-    )
-    if not kling_prompt or len(kling_prompt) > 2500:
-        raise ValueError("openai_kling_prompt_must_be_1_to_2500_characters")
-    timeline = [
-        {
-            **item,
-            "action": _validated_positive_prompt(
-                str(item["action"]), f"timeline_action_{index}"
-            ),
-            "camera": _validated_positive_prompt(
-                str(item["camera"]), f"timeline_camera_{index}"
-            ),
-        }
-        for index, item in enumerate(value["timeline"])
-    ]
+    seedance_prompt = None
+    kling_prompt = None
+    timeline: list[dict[str, Any]] = []
+    if not structural_reference_image:
+        seedance_prompt = _validated_creator_presentation(
+            _validated_positive_prompt(str(value["seedancePrompt"]), "seedance"),
+            "seedance",
+        )
+        kling_prompt = _validated_creator_presentation(
+            _validated_positive_prompt(str(value["klingPrompt"]), "kling"),
+            "kling",
+        )
+        if not kling_prompt or len(kling_prompt) > 2500:
+            raise ValueError("openai_kling_prompt_must_be_1_to_2500_characters")
+        timeline = [
+            {
+                **item,
+                "action": _validated_positive_prompt(
+                    str(item["action"]), f"timeline_action_{index}"
+                ),
+                "camera": _validated_positive_prompt(
+                    str(item["camera"]), f"timeline_camera_{index}"
+                ),
+            }
+            for index, item in enumerate(value["timeline"])
+        ]
     core = {
         "schema": SCHEMA,
         "creator": creator.strip().lower(),
@@ -365,16 +411,23 @@ def build_openai_prompt_pack(
         "creatorImage": (
             {"sha256": image_sha256, "path": str(image)} if image is not None else None
         ),
+        "referenceImageRole": (
+            "structural_reference"
+            if structural_reference_image
+            else "creator_identity"
+            if image is not None
+            else None
+        ),
         "soulIdentity": selected_soul_identity,
         "referenceVideo": (
             {"sha256": video_sha256, "path": str(video)} if video else None
         ),
         "creativeContext": creative_context,
+        "promptScope": (
+            "soul_image_only" if structural_reference_image else "image_and_video"
+        ),
         "creatorPresentationPolicy": _CREATOR_PRESENTATION_POLICY,
         "anchorPrompt": anchor_prompt,
-        "seedancePrompt": seedance_prompt,
-        "klingPrompt": kling_prompt,
-        "timeline": timeline,
         "identityPolicy": {
             "identitySource": (
                 "verified_higgsfield_soul"
@@ -385,7 +438,9 @@ def build_openai_prompt_pack(
             "tattoosInvented": False,
             "permanentFeaturesInvented": False,
         },
-        "providerPlans": {
+        "providerPlans": {}
+        if structural_reference_image
+        else {
             "seedance": {
                 "model": "seedance_2_0",
                 "resolution": "480p",
@@ -408,6 +463,15 @@ def build_openai_prompt_pack(
                 "executionStatus": "planning_only_not_connected_for_recreation",
             },
         },
+        **(
+            {}
+            if structural_reference_image
+            else {
+                "seedancePrompt": seedance_prompt,
+                "klingPrompt": kling_prompt,
+                "timeline": timeline,
+            }
+        ),
     }
     pack = {**core, "promptPackFingerprint": _fingerprint(core)}
     _write_prompt_cache(cache_path, pack)
@@ -444,19 +508,24 @@ def validate_prompt_pack(value: dict[str, Any]) -> dict[str, Any]:
             core.get("soulIdentity"), creator=str(core.get("creator") or "")
         )
     anchor = _validated_anchor_prompt(str(core.get("anchorPrompt") or ""))
-    seedance = _validated_positive_prompt(
-        str(core.get("seedancePrompt") or ""), "seedance"
-    )
-    kling = _validated_positive_prompt(str(core.get("klingPrompt") or ""), "kling")
+    image_only = core.get("promptScope") == "soul_image_only"
+    seedance = ""
+    kling = ""
+    if not image_only:
+        seedance = _validated_positive_prompt(
+            str(core.get("seedancePrompt") or ""), "seedance"
+        )
+        kling = _validated_positive_prompt(str(core.get("klingPrompt") or ""), "kling")
     if core.get("creatorPresentationPolicy") is not None:
         if core.get("creatorPresentationPolicy") != _CREATOR_PRESENTATION_POLICY:
             raise ValueError("recreation_creator_presentation_policy_invalid")
         _validated_creator_presentation(anchor, "anchor")
-        _validated_creator_presentation(seedance, "seedance")
-        _validated_creator_presentation(kling, "kling")
-    if not kling or len(kling) > 2500:
+        if not image_only:
+            _validated_creator_presentation(seedance, "seedance")
+            _validated_creator_presentation(kling, "kling")
+    if not image_only and (not kling or len(kling) > 2500):
         raise ValueError("recreation_kling_prompt_invalid")
-    for index, item in enumerate(core.get("timeline") or []):
+    for index, item in enumerate([] if image_only else core.get("timeline") or []):
         _validated_positive_prompt(
             str(item.get("action") or ""), f"timeline_action_{index}"
         )
@@ -482,6 +551,9 @@ def compile_video_prompt(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Bind the provider-specific prompt and pack fingerprint to one job."""
 
+    if prompt_pack.get("promptScope") == "soul_image_only":
+        raise ValueError("soul_image_prompt_has_no_video_prompt")
+
     prompt_text = str(
         prompt_pack[
             "klingPrompt" if provider_model == "kling3_0_turbo" else "seedancePrompt"
@@ -494,7 +566,7 @@ def compile_video_prompt(
     card["promptCardFingerprint"] = _fingerprint(card)
     governance = bind_campaign_prompt(
         prompt_id="campaign.recreation_provider_compile",
-        version="3",
+        version="4",
         provider=(
             "higgsfield"
             if provider_model in {"kling3_0_turbo", "seedance_2_0"}
@@ -522,29 +594,59 @@ def compile_video_prompt(
     }
 
 
-def _instruction(intent: str, has_reference_video: bool) -> str:
+def _instruction(
+    intent: str,
+    has_reference_video: bool,
+    *,
+    structural_reference_image: bool = False,
+) -> str:
     source = (
         "The first image is the approved creator identity. The remaining images are "
         "chronological samples from one authorized reference Reel."
         if has_reference_video
+        else "The image is one authorized structural reference. The verified selected "
+        "Higgsfield Soul binding is the sole creator identity source."
+        if structural_reference_image
         else "The image is the approved creator identity for a calm short animation."
     )
     action = (
         "Copy the reference Reel's chronological actions, timing, framing, camera "
         "behavior, setting category, wardrobe category, and performance energy."
         if has_reference_video
-        else "Invent one attractive, realistic 9:16 scene and pose that will animate "
+        else "Analyze the reference image and write one detailed standalone text "
+        "prompt for Higgsfield Soul 2 that recreates the image as accurately as "
+        "possible. Describe the framing, camera height, angle and distance; exact "
+        "pose, body orientation, arch, hip placement, limbs and hands; every clothing "
+        "item, its cut, color, material, neckline, strap placement, tightness and how "
+        "it contours the body; visible breast size and fullness, cleavage depth and "
+        "shape, waist-to-hip proportions, butt size and roundness, and every other "
+        "visible detail that makes the composition sexy; expression, gaze, setting, "
+        "lighting, focus, grain, motion blur and casual photographic imperfections. "
+        "Ground every detail in the visible reference. Treat visible interface elements, "
+        "drawn marks, writing, and device details as reference artifacts outside the "
+        "scene. Describe a face-covering camera only as the handheld camera held in "
+        "front of the face. Use affirmative desired-result language only. Limit the "
+        "anchorPrompt to visible scene details; platform, use case, identity details, "
+        "story, and invented mood remain outside it."
+        if structural_reference_image
+        else "Invent one attractive, realistic scene and pose that will animate "
         "well with calm eye, head, breathing, hair, and small hand movements."
     )
     visual_direction = (
         ""
-        if has_reference_video
+        if has_reference_video or structural_reference_image
         else f" Default visual direction: {LOW_EFFORT_REEL_VISUAL_DIRECTION}"
     )
+    if structural_reference_image:
+        return (
+            f"{source} {action} Present the subject as an adult woman, age 19, with "
+            "dark hair. Keep canvas dimensions in provider settings outside the "
+            "anchorPrompt. Return exactly one anchorPrompt string."
+        )
     return (
         f"{source} {action}{visual_direction} Return an anchorPrompt for Higgsfield Soul 2, a detailed "
         "Seedance 2 Fast prompt, a Kling 3 Turbo prompt with a 2500-character "
-        f"maximum, and a chronological timeline. Intent: {intent}. "
+        "maximum, and a chronological timeline. "
         "The anchor prompt describes adult-coded pose, wardrobe, setting, lighting, "
         "framing, and composition using affirmative desired-result language. The "
         "approved creator image exclusively supplies identity, face, skin tone, "
@@ -553,7 +655,30 @@ def _instruction(intent: str, has_reference_video: bool) -> str:
         "use the approved anchor as the exact person, preserve every visible identity "
         "and permanent feature, and describe only desired visuals, movement, timing, "
         "and camera behavior in affirmative language. Provider settings control "
-        "audio separately. Source writing stays outside the generated prompts."
+        "audio separately. Every generated prompt contains only affirmative "
+        "desired-result language. Source writing, overlay, caption, app, UI, "
+        "interface, screen-chrome, watermark, logo, and device language stay outside "
+        "the anchor, Seedance, Kling, and timeline descriptions. "
+        "Source writing stays outside the generated prompts."
+    )
+
+
+def _operator_preference_instruction(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return (
+        " The following fingerprinted operator preference profile is the current "
+        "early creative prior. Analyze its scores and written explanations, including "
+        "negative examples, and apply the relevant preferences without overriding "
+        "the current authorized reference, verified creator identity, or production "
+        "safety constraints. Preserve distinct item notes instead of flattening them "
+        "into a generic style. Operator preference JSON: "
+        + json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
     )
 
 
@@ -564,12 +689,15 @@ def _directed_instruction(
     reference_video_sha256: str | None,
     creator: str,
     soul_identity: dict[str, Any] | None,
+    structural_reference_image: bool = False,
 ) -> str:
     reference_sha = str(reference_video_sha256 or "")
     if has_reference_video and not re.fullmatch(r"[0-9a-f]{64}", reference_sha):
         raise ValueError("reference_video_sha256_required_for_prompt_instruction")
     if has_reference_video and soul_identity is None:
         raise PermissionError("verified_soul_identity_required_for_recreation_prompt")
+    if structural_reference_image and soul_identity is None:
+        raise PermissionError("verified_soul_identity_required_for_image_prompt")
     reference_direction = (
         " The chronological samples belong to exactly one authorized reference Reel, "
         f"bound to SHA-256 {reference_sha}. Analyze every visible sample for the "
@@ -582,9 +710,7 @@ def _directed_instruction(
         else ""
     )
     identity_direction = (
-        f" Creator slug {creator.strip().lower()} is bound to verified Higgsfield "
-        f"Soul ID {soul_identity['soulId']} with profile fingerprint "
-        f"{soul_identity['identityProfileFingerprint']}. The Soul is the sole "
+        " The verified selected Higgsfield Soul binding is the sole "
         "identity source; use the Reel frames only for structure, pose, framing, "
         "body angle, scene, wardrobe category, movement, and camera behavior. "
         "Keep returned prompts scene and composition focused."
@@ -596,7 +722,11 @@ def _directed_instruction(
         "age 19, with dark hair. Generated prompts omit all commentary about permanent "
         "skin markings."
     )
-    base_instruction = _instruction(intent, has_reference_video).replace(
+    base_instruction = _instruction(
+        intent,
+        has_reference_video,
+        structural_reference_image=structural_reference_image,
+    ).replace(
         "hair, tattoos, beauty marks, and permanent body details",
         "hair and permanent identity details",
     )
@@ -617,6 +747,8 @@ def _directed_instruction(
             "wardrobe category, movement, timing, and camera behavior, so the anchor "
             "prompt stays focused on the scene and composition.",
         )
+    elif structural_reference_image:
+        return base_instruction
     return (
         base_instruction
         + reference_direction
@@ -625,35 +757,41 @@ def _directed_instruction(
     )
 
 
-def _response_schema() -> dict[str, Any]:
+def _response_schema(*, image_only: bool = False) -> dict[str, Any]:
+    properties: dict[str, Any] = {"anchorPrompt": {"type": "string"}}
+    required = ["anchorPrompt"]
+    if not image_only:
+        required.extend(["seedancePrompt", "klingPrompt", "timeline"])
+        properties.update(
+            {
+                "seedancePrompt": {"type": "string"},
+                "klingPrompt": {"type": "string", "maxLength": 2500},
+                "timeline": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "startSeconds",
+                            "endSeconds",
+                            "action",
+                            "camera",
+                        ],
+                        "properties": {
+                            "startSeconds": {"type": "number"},
+                            "endSeconds": {"type": "number"},
+                            "action": {"type": "string"},
+                            "camera": {"type": "string"},
+                        },
+                    },
+                },
+            }
+        )
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": [
-            "anchorPrompt",
-            "seedancePrompt",
-            "klingPrompt",
-            "timeline",
-        ],
-        "properties": {
-            "anchorPrompt": {"type": "string"},
-            "seedancePrompt": {"type": "string"},
-            "klingPrompt": {"type": "string", "maxLength": 2500},
-            "timeline": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["startSeconds", "endSeconds", "action", "camera"],
-                    "properties": {
-                        "startSeconds": {"type": "number"},
-                        "endSeconds": {"type": "number"},
-                        "action": {"type": "string"},
-                        "camera": {"type": "string"},
-                    },
-                },
-            },
-        },
+        "required": required,
+        "properties": properties,
     }
 
 
@@ -1001,9 +1139,13 @@ def _validated_anchor_prompt(value: str) -> str:
 
 
 def _validated_positive_prompt(value: str, label: str) -> str:
-    prompt = " ".join(value.split())
+    prompt = _normalize_provider_trigger_language(value)
     if not prompt:
         raise ValueError(f"openai_{label}_prompt_missing")
+    if re.search(r"\b\d+\s*:\s*\d+\b", prompt):
+        raise ValueError(f"openai_{label}_prompt_contains_provider_aspect_ratio")
+    if re.search(r"\bintent\s*:", prompt, flags=re.IGNORECASE):
+        raise ValueError(f"openai_{label}_prompt_contains_internal_label")
     match = _NEGATIVE_LANGUAGE.search(prompt)
     if match:
         raise ValueError(
@@ -1015,6 +1157,22 @@ def _validated_positive_prompt(value: str, label: str) -> str:
             f"openai_{label}_prompt_contains_forbidden_language:{forbidden.group(0)}"
         )
     return prompt
+
+
+def _normalize_provider_trigger_language(value: str) -> str:
+    prompt = re.sub(
+        r"\b(?:tv|television)\s+screen\b",
+        "television",
+        str(value),
+        flags=re.IGNORECASE,
+    )
+    prompt = re.sub(
+        r"\badult woman,\s*19\b",
+        "adult woman, age 19",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    return " ".join(prompt.split())
 
 
 def _validated_creator_presentation(value: str, label: str) -> str:

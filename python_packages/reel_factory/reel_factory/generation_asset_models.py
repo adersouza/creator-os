@@ -12,10 +12,10 @@ from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
 DEFAULT_GRID_IMAGE_ASPECT_RATIO = "9:16"
-DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO = "3:4"
+DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO = "9:16"
 DIRECT_REFERENCE_SEED_PROMPT = (
     "Use the supplied reference image as the visual guide. Recreate the same pose, clothing, setting, "
-    "camera framing, lighting, and social-photo mood for this Soul ID model as one realistic {aspect_ratio} image."
+    "camera framing, lighting, and social-photo mood for this Soul ID model as one realistic image."
 )
 IMAGE_MODEL_CANDIDATES = ("soul_2", "soul_v2", IMAGE_MODEL)
 VIDEO_MODEL_CANDIDATES = (VIDEO_MODEL,)
@@ -120,5 +120,7 @@ def direct_reference_prompt(
     aspect_ratio: str = DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO,
 ) -> str:
     """Return the only active direct-reference seed prompt."""
-    prompt = DIRECT_REFERENCE_SEED_PROMPT.format(aspect_ratio=aspect_ratio)
+    if aspect_ratio != "9:16":
+        raise ValueError("Creator OS direct-reference generation requires 9:16")
+    prompt = DIRECT_REFERENCE_SEED_PROMPT
     return " ".join(prompt.split())

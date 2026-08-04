@@ -680,6 +680,11 @@ for name, owner, purpose in (
         "Pinned OpenAI prompt model.",
     ),
     (
+        "CREATOR_OS_OPERATOR_PREFERENCE_PROFILE",
+        "campaign_factory",
+        "Exact operator preference profile consumed by creative prompting.",
+    ),
+    (
         "CREATOR_OS_ACCEPTANCE_DRIVER",
         "campaign_factory",
         "Explicit real-provider acceptance driver command.",

@@ -81,7 +81,11 @@ from .reddit_weekly import (
     prepare_reddit_weekly_plan,
     run_reddit_generation_request,
 )
-from .reference_url_workflow import resolve_stored_reference, run_reference_analysis
+from .reference_url_workflow import (
+    resolve_stored_reference,
+    run_reference_analysis,
+    run_structural_image_analysis,
+)
 from .state_ownership import explain_state, reconcile_bridge
 from .trial_reels import (
     graduate_trial_reel,
@@ -397,6 +401,25 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     audio_policy=args.audio_preference,
                     max_credits=args.max_credits,
                     creator_image_path=args.creator_image,
+                    recreation_attempt_id=args.recreation_attempt_id,
+                    apply=args.apply,
+                )
+            )
+            return 0
+        if (
+            args.creator_image
+            and not getattr(args, "reference_url", None)
+            and not args.reference_video
+            and not args.recreation_anchor_approval
+        ):
+            print_json(
+                run_structural_image_analysis(
+                    cf,
+                    creator=args.creator,
+                    reference_image_path=args.creator_image,
+                    reference_authorized=args.reference_authorized,
+                    through=getattr(args, "through", None),
+                    max_credits=args.max_credits,
                     recreation_attempt_id=args.recreation_attempt_id,
                     apply=args.apply,
                 )
