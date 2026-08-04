@@ -9,7 +9,7 @@ fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${CREATOR_OS_PERFORMANCE_SYNC_ENV:-$HOME/.creator-os/performance-sync.env}"
 
-if [ "${XPC_SERVICE_NAME:-}" = "com.creator-os.threadsdash-performance-sync" ]; then
+if [ "${1:-}" != "--dry-run" ]; then
   for LOG in "$HOME/.creator-os/performance-sync.out.log" "$HOME/.creator-os/performance-sync.err.log"; do
     if [ -L "$LOG" ] || { [ -e "$LOG" ] && [ ! -f "$LOG" ]; }; then
       echo "unsafe performance-sync log path: $LOG" >&2
