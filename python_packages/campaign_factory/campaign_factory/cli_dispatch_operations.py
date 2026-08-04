@@ -14,6 +14,7 @@ from .assignment_eligibility import (
     write_assignment_eligibility_artifact,
 )
 from .blocked_experiment_cli import dispatch_blocked_experiment_command
+from .cli_dispatch_creator_governance import dispatch_creator_governance_commands
 from .cli_dispatch_incident_privacy import dispatch_incident_privacy_commands
 from .cli_support import (
     load_hooks,
@@ -35,6 +36,10 @@ from .quality_calibration import track_q_calibration_status
 
 
 def dispatch_operations_commands(args, cf, settings) -> int | None:
+    if (
+        creator_governance_result := dispatch_creator_governance_commands(args, cf)
+    ) is not None:
+        return creator_governance_result
     if (
         incident_privacy_result := dispatch_incident_privacy_commands(args, cf)
     ) is not None:
@@ -1358,38 +1363,6 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                     new_slug=args.new_slug,
                     actor=args.actor,
                     reason=args.reason,
-                )
-            )
-        return 0
-    if args.cmd == "creator-identity-enroll":
-        profile_path = Path(args.profile_json).expanduser().resolve()
-        identity_profile = load_json_object(str(profile_path))
-        profile_sha = hashlib.sha256(profile_path.read_bytes()).hexdigest()
-        if not args.apply:
-            print_json(
-                cf.domains.creator_governance.enroll_identity_profile(
-                    args.creator,
-                    provider=args.provider,
-                    provider_identity_id=args.provider_identity_id,
-                    profile=identity_profile or {},
-                    canonical_source_asset_id=args.canonical_source_asset_id,
-                    identity_manifest_path=profile_path,
-                    identity_manifest_sha256=profile_sha,
-                    operator=args.operator,
-                    validate_only=True,
-                )
-            )
-        else:
-            print_json(
-                cf.domains.creator_governance.enroll_identity_profile(
-                    args.creator,
-                    provider=args.provider,
-                    provider_identity_id=args.provider_identity_id,
-                    profile=identity_profile or {},
-                    canonical_source_asset_id=args.canonical_source_asset_id,
-                    identity_manifest_path=profile_path,
-                    identity_manifest_sha256=profile_sha,
-                    operator=args.operator,
                 )
             )
         return 0

@@ -28,6 +28,13 @@ def test_supported_url_canonicalization(_dns) -> None:
         "platform": "instagram",
         "nativeMediaId": "DbQdqWFIvKQ",
     }
+    profile_qualified = canonicalize_reel_url(
+        "https://www.instagram.com/example.creator/reel/DbQdqWFIvKQ/"
+    )
+    assert profile_qualified == {
+        **instagram,
+        "originalUrl": "https://www.instagram.com/example.creator/reel/DbQdqWFIvKQ/",
+    }
     assert (
         canonicalize_reel_url(
             "https://www.tiktok.com/@creator/video/7412345678901234567?x=1"

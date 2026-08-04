@@ -39,6 +39,19 @@ def _cost_context(tmp_path: Path) -> dict[str, Any]:
     }
 
 
+def _soul_identity(creator: str = "stacey") -> dict[str, Any]:
+    core = {
+        "schema": "campaign_factory.verified_soul_identity_binding.v1",
+        "creatorSlug": creator,
+        "provider": "higgsfield",
+        "soulId": f"soul-{creator}",
+        "identityProfileId": f"identity-{creator}",
+        "identityProfileVersion": 3,
+        "identityProfileFingerprint": "f" * 64,
+    }
+    return {**core, "bindingFingerprint": recreation_prompting._fingerprint(core)}
+
+
 def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -51,14 +64,17 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
         observed["apiKey"] = api_key
         value = {
             "anchorPrompt": (
-                "Adult woman seated in a softly lit bedroom, centered vertical frame."
+                "Adult woman, age 19, with dark hair, seated in a softly lit "
+                "bedroom, centered vertical frame."
             ),
             "seedancePrompt": (
-                "Use the approved anchor as the exact person. Add calm natural "
-                "movement with stable framing and a relaxed expression."
+                "Use the approved anchor as the exact adult woman, age 19, with "
+                "dark hair. Add calm natural movement with stable framing and a "
+                "relaxed expression."
             ),
             "klingPrompt": (
-                "Use the approved anchor as the exact person. Add natural blinking."
+                "Use the approved anchor as the exact adult woman, age 19, with "
+                "dark hair. Add natural blinking."
             ),
             "timeline": [
                 {
@@ -108,6 +124,9 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     assert "deliberately casual, believable handheld selfie" in request_text
     assert "cute fitted everyday clothing" in request_text
     assert "camera in front of part of the face" in request_text
+    assert "adult woman, age 19, with dark hair" in request_text
+    assert "young" not in request_text
+    assert "tattoo" not in request_text
     assert planning["requestFingerprint"]
     assert planning["responseId"] == "resp_test"
     assert planning["usage"] == {
@@ -314,7 +333,7 @@ def test_anchor_prompt_rejects_invented_identity_details(
         },
     )
 
-    with pytest.raises(ValueError, match="identity_or_ui_terms"):
+    with pytest.raises(ValueError, match="contains_forbidden_language"):
         recreation_prompting.build_openai_prompt_pack(
             creator="stacey",
             creator_image=creator_image,
@@ -356,9 +375,17 @@ def test_openai_prompt_pack_rejects_negative_language(
     creator_image = tmp_path / "creator.png"
     creator_image.write_bytes(b"approved creator")
     response = {
-        "anchorPrompt": "Adult woman seated in a softly lit bedroom.",
-        "seedancePrompt": "Calm natural movement with stable framing.",
-        "klingPrompt": "Natural blinking with a relaxed expression.",
+        "anchorPrompt": (
+            "Adult woman, age 19, with dark hair, seated in a softly lit bedroom."
+        ),
+        "seedancePrompt": (
+            "The adult woman, age 19, with dark hair, moves naturally with stable "
+            "framing."
+        ),
+        "klingPrompt": (
+            "The adult woman, age 19, with dark hair, blinks naturally with a "
+            "relaxed expression."
+        ),
         "timeline": [
             {
                 "startSeconds": 0,
@@ -391,4 +418,131 @@ def test_openai_prompt_pack_rejects_negative_language(
             cache_root=tmp_path / f"cache-{field}",
             external_call_authorized=True,
             **_cost_context(tmp_path),
+        )
+
+
+def test_frame_sample_plan_prioritizes_opening_and_endpoint() -> None:
+    plan = recreation_prompting._frame_sample_plan(8.0)
+
+    assert len(plan) >= 8
+    assert plan[0] == {"role": "opening_first", "timestampSeconds": 0.0}
+    assert [item["role"] for item in plan[1:4]] == [
+        "opening_burst",
+        "opening_burst",
+        "opening_burst",
+    ]
+    assert plan[-1]["role"] == "endpoint"
+    assert plan[-1]["timestampSeconds"] == pytest.approx(7.92)
+    assert len({item["timestampSeconds"] for item in plan}) == len(plan)
+
+
+def test_reference_prompt_input_is_exact_sha_bound_and_visually_directed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_video = tmp_path / "reference.mp4"
+    reference_video.write_bytes(b"unique reference reel")
+    reference_sha = hashlib.sha256(reference_video.read_bytes()).hexdigest()
+    observed: dict[str, Any] = {}
+
+    def fake_samples(_video: Path, output_dir: Path) -> list[dict[str, Any]]:
+        samples: list[dict[str, Any]] = []
+        for index, item in enumerate(recreation_prompting._frame_sample_plan(8.0)):
+            frame = output_dir / f"frame-{index:02d}.jpg"
+            frame.write_bytes(f"frame-{index}".encode())
+            samples.append({**item, "path": frame})
+        return samples
+
+    def fake_post(payload: dict[str, Any], *, api_key: str) -> dict[str, Any]:
+        observed["payload"] = payload
+        observed["apiKey"] = api_key
+        value = {
+            "anchorPrompt": (
+                "Adult woman, age 19, with dark hair, holds the exact opening pose "
+                "at a low three-quarter body angle with fitted non-explicit styling."
+            ),
+            "seedancePrompt": (
+                "The exact adult woman, age 19, with dark hair, follows the visible "
+                "pose and framing progression with stable identity."
+            ),
+            "klingPrompt": (
+                "The exact adult woman, age 19, with dark hair, holds the visible "
+                "opening pose with subtle natural movement."
+            ),
+            "timeline": [
+                {
+                    "startSeconds": 0,
+                    "endSeconds": 8,
+                    "action": "Hold the opening pose, then complete the visible motion.",
+                    "camera": "Follow the sampled framing progression.",
+                }
+            ],
+        }
+        return {
+            "id": "resp_reference_test",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(value)}],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(recreation_prompting, "_sample_frames", fake_samples)
+    monkeypatch.setattr(recreation_prompting, "_post_responses", fake_post)
+
+    pack = recreation_prompting.build_openai_prompt_pack(
+        creator="stacey",
+        reference_video=reference_video,
+        intent="recreate_reel",
+        api_key="test-key",
+        cache_root=tmp_path / "cache-reference",
+        external_call_authorized=True,
+        soul_identity=_soul_identity(),
+        **_cost_context(tmp_path),
+    )
+
+    content = observed["payload"]["input"][0]["content"]
+    instruction = content[0]["text"]
+    labels = [item["text"] for item in content if item["type"] == "input_text"]
+    assert reference_sha in instruction
+    assert "exact pose, framing, body angle" in instruction
+    assert "fuller-chest and cleavage framing" in instruction
+    assert "rounded hip and butt silhouette" in instruction
+    assert "adult woman, age 19, with dark hair" in instruction
+    assert "creator slug stacey" in instruction.lower()
+    assert "soul-stacey" in instruction
+    assert "approved creator image" not in instruction.lower()
+    assert "first image is the approved creator identity" not in instruction.lower()
+    assert len(labels[1:]) >= 8
+    assert len([item for item in content if item["type"] == "input_image"]) == len(
+        labels[1:]
+    )
+    assert all(reference_sha in label for label in labels[1:])
+    assert "role=opening_first" in labels[1]
+    assert "role=endpoint" in labels[-1]
+    assert pack["referenceVideo"]["sha256"] == reference_sha
+    assert pack["creatorImage"] is None
+    assert pack["soulIdentity"] == _soul_identity()
+    assert pack["creatorPresentationPolicy"]["age"] == 19
+    assert (
+        pack["promptPlanning"]["authorization"]["payload"]["scope"][
+            "inputFingerprints"
+        ]["reference_video"]
+        == reference_sha
+    )
+
+
+@pytest.mark.parametrize("word", ["tattoo", "tattoos", "young"])
+def test_generated_prompt_language_rejects_forbidden_terms(word: str) -> None:
+    with pytest.raises(ValueError, match="contains_forbidden_language"):
+        recreation_prompting._validated_positive_prompt(
+            f"Adult woman, age 19, with dark hair and {word} styling.",
+            "seedance",
+        )
+
+
+def test_creator_presentation_requires_explicit_adult_age_and_dark_hair() -> None:
+    with pytest.raises(ValueError, match="missing_adult_presentation"):
+        recreation_prompting._validated_creator_presentation(
+            "Young woman with brunette hair in a casual selfie.", "anchor"
         )

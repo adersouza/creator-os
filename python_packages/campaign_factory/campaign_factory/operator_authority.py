@@ -64,6 +64,8 @@ _LEGACY_MUTATIONS: Final = {
 }
 _READ_ONLY_COMMANDS: Final = {
     "account-tiers",
+    "audio-catalog",
+    "audio-memory",
     "asset",
     "campaign-readiness",
     "caption-quality-repair-plan",
@@ -85,6 +87,7 @@ _READ_ONLY_COMMANDS: Final = {
     "assignment-eligibility",
     "export-readiness",
     "performance-summary",
+    "recommend-audio",
     "operator-status",
 }
 _READ_ONLY_MARKERS: Final = (

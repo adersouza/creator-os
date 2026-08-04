@@ -20,6 +20,7 @@ from .production_lane import (
     plan_production_batch,
     run_production_batch,
 )
+from .production_source_selection import require_creation_enabled_creator
 from .static_mp4_stage import run_static_mp4_stage
 
 CREATE_MODES: Final = ("static_reel", "calm_animation", "recreate_reel")
@@ -53,6 +54,7 @@ def run_creation_batch(
 ) -> dict[str, Any]:
     """Run one of the three product modes, reusing qualified media first."""
 
+    creator = require_creation_enabled_creator(creator)
     if mode not in CREATE_MODES:
         raise ValueError(f"unsupported Creator OS mode: {mode}")
     if style not in CALM_STYLES:

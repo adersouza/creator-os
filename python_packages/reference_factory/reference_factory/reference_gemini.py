@@ -24,7 +24,10 @@ from .reference_grok import (
 from .reference_intake import import_reference_analysis, queue_reference_analysis
 from .reference_intake_contracts import DEFAULT_INTAKE_PROFILE
 from .reference_lifecycle import require_reference_provider_rights
-from .reference_prompt_generation import generate_video_prompts
+from .reference_prompt_generation import (
+    generate_video_prompts,
+    require_creation_enabled_model_profile,
+)
 
 
 def import_gemini_app_response(
@@ -37,6 +40,11 @@ def import_gemini_app_response(
     generate_prompts_after_import: bool = True,
     model_profile: str | None = None,
 ) -> dict[str, object]:
+    generation_model_profile = (
+        require_creation_enabled_model_profile(model_profile)
+        if generate_prompts_after_import
+        else None
+    )
     queue = json.loads(Path(queue_path).expanduser().read_text(encoding="utf-8"))
     jobs = queue.get("jobs") if isinstance(queue, dict) else None
     if not isinstance(jobs, list) or not jobs:
@@ -77,7 +85,7 @@ def import_gemini_app_response(
             conn,
             data_root=data_root,
             target_tools=["higgsfield_soul_image", "kling_3_video"],
-            model_profile=model_profile,
+            model_profile=generation_model_profile,
             limit=10,
             include_pending=False,
         )
@@ -129,6 +137,7 @@ def analyze_reference_with_gemini_api(
         paid_action_authorizer,
         paid_action_reconciler,
     )
+    generation_model_profile = require_creation_enabled_model_profile(account_profile)
 
     queued = queue_reference_analysis(
         conn,
@@ -136,7 +145,7 @@ def analyze_reference_with_gemini_api(
         data_root=data_root,
         platform=platform,
         provider_target="gemini_api",
-        account_profile=account_profile,
+        account_profile=generation_model_profile,
         intake_profile=intake_profile,
         media_kinds=media_kinds or ["video"],
         limit=limit,
@@ -265,7 +274,7 @@ def analyze_reference_with_gemini_api(
             conn,
             data_root=data_root,
             target_tools=["higgsfield_soul_image", "kling_3_video"],
-            model_profile=account_profile,
+            model_profile=generation_model_profile,
             limit=max(1, analyzed),
             include_pending=False,
         )

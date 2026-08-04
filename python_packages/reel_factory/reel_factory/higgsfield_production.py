@@ -129,6 +129,7 @@ class HiggsfieldProductionRequest:
     attempt_id: str | None = None
     client_request_correlation_id: str | None = None
     recreation_anchor_approval: dict[str, Any] | None = None
+    reference_video_sha256: str | None = None
     public_mode: str | None = None
     campaign: str | None = None
     cohort_id: str | None = None
@@ -263,7 +264,13 @@ def _remote_anchor_binding(value: dict[str, Any] | None) -> dict[str, Any] | Non
             "receiptSha256",
             "promptPackFingerprint",
             "anchorPromptFingerprint",
+            "referenceId",
             "referenceVideoSha256",
+            "recreationPlanFingerprint",
+            "selectedRecreationMode",
+            "referenceClassification",
+            "referenceProviderRights",
+            "soulIdentity",
         )
         if value.get(key) is not None
     }
@@ -350,6 +357,9 @@ def build_higgsfield_production_plan(
     soul = _selected_soul(capabilities, request.soul_id)
     source_token, source = _source_identity(request, cli=cli)
     driving = _optional_media_identity(request.driving_video_path, "driving video")
+    reference_video_sha256 = request.reference_video_sha256 or (
+        str(driving["sha256"]) if driving is not None else None
+    )
     speech = _optional_media_identity(request.speech_audio_path, "speech audio")
     reference_elements_path, reference_element = _reference_element(request)
     anchor_approval = _recreation_anchor_approval(
@@ -401,6 +411,10 @@ def build_higgsfield_production_plan(
         "source": _remote_media_binding(source),
         "sourceApprovalFingerprint": request.source_approval,
         "recreationAnchorApproval": _remote_anchor_binding(anchor_approval),
+        "referenceVideoSha256": reference_video_sha256,
+        "referenceProviderRights": (
+            (anchor_approval or {}).get("referenceProviderRights")
+        ),
         "drivingVideo": _remote_media_binding(driving),
         "speechAudio": _remote_media_binding(speech),
         "referenceElement": _remote_reference_element_binding(
@@ -465,6 +479,10 @@ def build_higgsfield_production_plan(
         "soul": soul,
         "source": source,
         "recreationAnchorApproval": anchor_approval,
+        "referenceVideoSha256": reference_video_sha256,
+        "referenceProviderRights": (
+            (anchor_approval or {}).get("referenceProviderRights")
+        ),
         "drivingVideo": driving,
         "speechAudio": speech,
         "referenceElement": reference_element_binding,
@@ -641,6 +659,8 @@ def execute_higgsfield_production(
         "soulId": request.soul_id,
         "source": plan["source"],
         "recreationAnchorApproval": plan["recreationAnchorApproval"],
+        "referenceVideoSha256": plan.get("referenceVideoSha256"),
+        "referenceProviderRights": plan.get("referenceProviderRights"),
         "drivingVideo": plan["drivingVideo"],
         "speechAudio": plan["speechAudio"],
         "referenceElement": plan["referenceElement"],
@@ -1470,6 +1490,9 @@ def _completed_local_receipt(
         "generationId": None,
     }
     driving = _optional_media_identity(request.driving_video_path, "driving video")
+    reference_video_sha256 = request.reference_video_sha256 or (
+        str(driving["sha256"]) if driving is not None else None
+    )
     _, reference_element = _reference_element(request)
     expected_prompt = _candidate_prompt(
         request,
@@ -1508,6 +1531,9 @@ def _completed_local_receipt(
             or receipt_source.get("sha256") != source["sha256"]
             or receipt.get("drivingVideo") != driving
             or receipt.get("recreationAnchorApproval") != anchor
+            or receipt.get("referenceVideoSha256") != reference_video_sha256
+            or receipt.get("referenceProviderRights")
+            != (anchor or {}).get("referenceProviderRights")
             or Path(str(final.get("path") or "")).expanduser().resolve()
             != expected_output
             or not expected_output.is_file()
@@ -1538,6 +1564,8 @@ def _register_review_output(
             "referenceId": request.source_approval,
             "startImage": (receipt.get("source") or {}).get("path"),
             "recreationAnchorApproval": receipt.get("recreationAnchorApproval"),
+            "referenceVideoSha256": receipt.get("referenceVideoSha256"),
+            "referenceProviderRights": receipt.get("referenceProviderRights"),
             "soulId": request.soul_id,
             "drivingVideo": receipt.get("drivingVideo"),
             "speechAudio": receipt.get("speechAudio"),
@@ -1614,7 +1642,7 @@ def _candidate_capabilities(
             recipe_id="higgsfield_recreate_reel",
             purpose=(
                 "recreate broad Reel structure, performance, and camera progression "
-                "from one video reference with one approved creator image"
+                "from one video reference with one approved Soul-derived anchor"
             ),
             actual_tool=(
                 "higgsfield generate create seedance_2_0"
@@ -1771,7 +1799,7 @@ def _candidate_command(
             )
         if driving is None:
             raise ValueError("recreate_reel requires one reference video")
-        if reference_elements_path is None:
+        if reference_elements_path is None and not _soul_bound_recreation(request):
             raise ValueError("recreate_reel requires the creator reference element")
         if speech is not None:
             raise ValueError(
@@ -1859,23 +1887,54 @@ def _recreation_anchor_approval(
     source: dict[str, Any],
     driving: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    if request.recipe_id != "higgsfield_recreate_reel":
+    if (
+        request.public_mode != "recreate_reel"
+        and request.recipe_id != "higgsfield_recreate_reel"
+    ):
         return None
     approval = request.recreation_anchor_approval
     if not isinstance(approval, dict) or not approval.get("receiptPath"):
         raise PermissionError("recreation_anchor_approval_required_before_quote")
-    if driving is None:
-        raise ValueError("recreate_reel requires one reference video")
+    reference_sha256 = (
+        str(driving["sha256"])
+        if driving is not None
+        else str(request.reference_video_sha256 or "")
+    )
+    if not reference_sha256:
+        raise ValueError("recreate_reel requires an exact reference video sha256")
     validated = load_recreation_anchor_approval(
         Path(str(approval["receiptPath"])),
         expected_creator=request.creator,
         expected_soul_id=request.soul_id,
-        expected_creator_image_sha256=str(approval.get("creatorImageSha256") or ""),
-        expected_reference_video_sha256=str(driving["sha256"]),
+        expected_creator_image_sha256=(
+            str(approval["creatorImageSha256"])
+            if approval.get("creatorImageSha256")
+            else None
+        ),
+        expected_reference_video_sha256=reference_sha256,
         expected_prompt_pack_fingerprint=str(
             approval.get("promptPackFingerprint") or ""
         ),
         expected_anchor_file=Path(str(source.get("path") or "")),
+        expected_recreation_plan_fingerprint=str(
+            approval.get("recreationPlanFingerprint") or ""
+        ),
+        expected_selected_recreation_mode=str(
+            approval.get("selectedRecreationMode") or ""
+        ),
+        expected_reference_classification=str(
+            approval.get("referenceClassification") or ""
+        ),
+        expected_reference_provider_rights_fingerprint=str(
+            (approval.get("referenceProviderRights") or {}).get(
+                "rightsEvidenceFingerprint"
+            )
+        ),
+        expected_soul_identity_fingerprint=(
+            str((approval.get("soulIdentity") or {}).get("bindingFingerprint"))
+            if isinstance(approval.get("soulIdentity"), dict)
+            else None
+        ),
     )
     if (
         source.get("kind") != "local_approved_image"
@@ -1885,7 +1944,7 @@ def _recreation_anchor_approval(
     ):
         raise PermissionError("recreation_anchor_provider_binding_mismatch")
     return {
-        key: validated[key]
+        key: validated.get(key)
         for key in (
             "schema",
             "creator",
@@ -1895,8 +1954,14 @@ def _recreation_anchor_approval(
             "anchorPromptPackId",
             "promptPackFingerprint",
             "anchorPromptFingerprint",
+            "referenceId",
             "creatorImageSha256",
             "referenceVideoSha256",
+            "recreationPlanFingerprint",
+            "selectedRecreationMode",
+            "referenceClassification",
+            "referenceProviderRights",
+            "soulIdentity",
             "selectedCompositionFrameSha256",
             "anchorFilePath",
             "anchorFileSha256",
@@ -1922,7 +1987,14 @@ def _candidate_prompt(
 ) -> str:
     if request.recipe_id == "higgsfield_recreate_reel":
         if reference_element is None:
-            raise ValueError("recreate_reel requires the creator reference element")
+            if not _soul_bound_recreation(request):
+                raise ValueError("recreate_reel requires the creator reference element")
+            structural_prompt = " ".join(str(request.prompt or "").split())
+            if len(structural_prompt) < 20:
+                raise ValueError(
+                    "Soul-bound recreation prompt must contain at least 20 characters"
+                )
+            return structural_prompt
         reference_id = str(reference_element.get("id") or "").strip()
         if not reference_id:
             raise ValueError("creator reference element is missing its id")
@@ -2051,6 +2123,8 @@ def _reference_element(
 ) -> tuple[Path | None, dict[str, Any] | None]:
     if request.recipe_id != "higgsfield_recreate_reel":
         return None, None
+    if _soul_bound_recreation(request):
+        return None, None
     path = request.reference_elements_path or (
         Path.home()
         / ".creator-os"
@@ -2079,6 +2153,15 @@ def _reference_element(
         if key not in element:
             raise ValueError(f"creator reference element is missing {key}")
     return path, element
+
+
+def _soul_bound_recreation(request: HiggsfieldProductionRequest) -> bool:
+    approval = request.recreation_anchor_approval
+    return bool(
+        isinstance(approval, dict)
+        and approval.get("schema") == "creator_os.recreation_anchor_approval.v3"
+        and isinstance(approval.get("soulIdentity"), dict)
+    )
 
 
 def _probe_video(path: Path) -> dict[str, Any]:

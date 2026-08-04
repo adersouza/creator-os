@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "reel_factory.reference_video_motion_analysis.v1",
   "title": "Reference Video Structural Motion Analysis",
-  "description": "Motion-only analysis for an operator-selected reference video. The contract preserves reusable structure while explicitly excluding literal identity, styling, and text copying.",
+  "description": "Motion-only analysis for an operator-selected reference video. The contract preserves reusable single- or multi-shot structure while explicitly excluding literal identity, styling, text, and exact choreography copying.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -48,19 +48,42 @@
       "properties": {
         "durationSeconds": {
           "type": "number",
-          "minimum": 5,
-          "maximum": 12
+          "minimum": 4,
+          "maximum": 15
         },
         "shotCount": {
-          "const": 1
+          "type": "integer",
+          "minimum": 1
         },
         "hasCuts": {
-          "const": false
+          "type": "boolean"
         },
         "aspectRatio": {
           "const": "9:16"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "shotCount": {
+              "const": 1
+            },
+            "hasCuts": {
+              "const": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "shotCount": {
+              "minimum": 2
+            },
+            "hasCuts": {
+              "const": true
+            }
+          }
+        }
+      ]
     },
     "structure": {
       "type": "object",
@@ -114,13 +137,105 @@
               "endSeconds": {
                 "type": "number",
                 "exclusiveMinimum": 0,
-                "maximum": 12
+                "maximum": 15
               },
               "action": {
                 "type": "string",
                 "minLength": 1
               },
               "camera": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "shots": {
+          "description": "Chronological per-shot semantics. Required for sources with cuts; shotNumber and array order must agree with source.shotCount.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "shotNumber",
+              "startSeconds",
+              "endSeconds",
+              "semanticRole",
+              "framing",
+              "action",
+              "camera"
+            ],
+            "properties": {
+              "shotNumber": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "startSeconds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 15
+              },
+              "endSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 15
+              },
+              "semanticRole": {
+                "type": "string",
+                "enum": [
+                  "hook",
+                  "setup",
+                  "development",
+                  "transition",
+                  "payoff",
+                  "hold",
+                  "other"
+                ]
+              },
+              "framing": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "camera": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "cutTimeline": {
+          "description": "Chronological transitions between adjacent shots. Required and non-empty when source.hasCuts is true.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atSeconds",
+              "fromShotNumber",
+              "toShotNumber",
+              "transition"
+            ],
+            "properties": {
+              "atSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 15
+              },
+              "fromShotNumber": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "toShotNumber": {
+                "type": "integer",
+                "minimum": 2
+              },
+              "transition": {
                 "type": "string",
                 "minLength": 1
               }
@@ -194,6 +309,50 @@
     },
     "requiresReferenceVideoConditioning": {
       "type": "boolean"
+    },
+    "recreationPolicy": {
+      "description": "Explicit capability boundary for recreation prompts. Exact choreography transfer is unsupported.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fidelity", "exactChoreographySupported"],
+      "properties": {
+        "fidelity": {
+          "const": "broad_structure_only"
+        },
+        "exactChoreographySupported": {
+          "const": false
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "properties": {
+              "hasCuts": {
+                "const": true
+              }
+            },
+            "required": ["hasCuts"]
+          }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "required": ["recreationPolicy"],
+        "properties": {
+          "structure": {
+            "required": ["shots", "cutTimeline"],
+            "properties": {
+              "shots": {
+                "minItems": 2
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

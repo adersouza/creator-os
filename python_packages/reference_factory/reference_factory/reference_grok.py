@@ -43,7 +43,10 @@ from .reference_intake_contracts import (
     XAI_CHAT_COMPLETIONS_URL,
 )
 from .reference_lifecycle import require_reference_provider_rights
-from .reference_prompt_generation import generate_video_prompts
+from .reference_prompt_generation import (
+    generate_video_prompts,
+    require_creation_enabled_model_profile,
+)
 from .timeutil import now_iso
 
 
@@ -75,6 +78,7 @@ def analyze_reference_with_grok_api(
         paid_action_authorizer,
         paid_action_reconciler,
     )
+    generation_model_profile = require_creation_enabled_model_profile(account_profile)
 
     queued = queue_reference_analysis(
         conn,
@@ -82,7 +86,7 @@ def analyze_reference_with_grok_api(
         data_root=data_root,
         platform=platform,
         provider_target="grok_api",
-        account_profile=account_profile,
+        account_profile=generation_model_profile,
         intake_profile=intake_profile,
         media_kinds=media_kinds or ["video", "image"],
         limit=limit,
@@ -200,7 +204,7 @@ def analyze_reference_with_grok_api(
             conn,
             data_root=data_root,
             target_tools=["higgsfield_soul_image", "kling_3_video"],
-            model_profile=account_profile,
+            model_profile=generation_model_profile,
             limit=max(1, analyzed),
             include_pending=False,
         )

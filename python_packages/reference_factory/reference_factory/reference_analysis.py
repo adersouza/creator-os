@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from sqlite3 import Connection
 from typing import Any
 
@@ -17,6 +18,9 @@ from .reference_intake_contracts import (
     IG_OFM_CLOSENESS_CONTROLS,
     PATTERN_CARD_SCHEMA,
     _norm,
+    intake_operator_direction,
+    reference_source_binding,
+    structural_reference_policy,
 )
 
 
@@ -162,6 +166,38 @@ def _blueprint_first_frame(analysis: dict[str, Any]) -> dict[str, Any]:
         or blueprint.get("first_frame_blueprint")
     )
     return value if isinstance(value, dict) else {}
+
+
+def _first_frame_structure(analysis: dict[str, Any]) -> dict[str, Any]:
+    existing = analysis.get("firstFrameStructure")
+    existing = existing if isinstance(existing, dict) else {}
+    raw = analysis.get("raw") if isinstance(analysis.get("raw"), dict) else {}
+    raw_analysis = raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {}
+    source = analysis if _recreation_blueprint(analysis) else raw_analysis
+    first = _blueprint_first_frame(source)
+    camera = source.get("camera") if isinstance(source.get("camera"), dict) else {}
+    subject = source.get("subject") if isinstance(source.get("subject"), dict) else {}
+
+    def usable(value: Any) -> Any:
+        return value if value and value != "pending_semantic_analysis" else None
+
+    crop = usable(existing.get("crop")) or first.get("crop") or camera.get("framing")
+    angle = (
+        usable(existing.get("angle")) or first.get("body_angle") or camera.get("angle")
+    )
+    pose = (
+        usable(existing.get("pose"))
+        or first.get("pose")
+        or subject.get("pose")
+        or subject.get("action")
+    )
+    return {
+        "schema": "reference_factory.first_frame_structure.v1",
+        "angle": str(angle) if angle else "pending_semantic_analysis",
+        "crop": str(crop) if crop else "pending_semantic_analysis",
+        "pose": str(pose) if pose else "pending_semantic_analysis",
+        "complete": bool(angle and crop and pose),
+    }
 
 
 def _blueprint_motion_beats(analysis: dict[str, Any]) -> list[dict[str, Any]]:
@@ -405,14 +441,43 @@ def _sanitize_image_prompt_json(
         cleaned.get("prompt_schema_version") or "imageat_higgsfield.v1"
     )
 
-    subject = _clean_prompt_text(cleaned.get("subject"))
-    if subject:
-        legacy_profile = "Adult " + profile
-        subject = subject.replace(legacy_profile + " Soul ID model", profile)
-        subject = subject.replace(legacy_profile, profile)
-        subject = subject.replace("adult " + profile, profile)
-        subject = subject.replace("adult my Soul ID model", profile)
-        cleaned["subject"] = subject
+    cleaned["subject"] = (
+        f"Adult woman, age 19, with dark hair; use {profile} as the sole identity. "
+        "Use the source only for composition, crop, angle, and pose."
+    )
+    existing_hair = cleaned.get("hair") if isinstance(cleaned.get("hair"), dict) else {}
+    cleaned["hair"] = {
+        "color": "dark",
+        "style": existing_hair.get("style") or "natural creator-style hair",
+        "identity_policy": "belongs to the selected Soul ID, never the source person",
+    }
+    existing_body = cleaned.get("body") if isinstance(cleaned.get("body"), dict) else {}
+    cleaned["body"] = {
+        "build": "use the selected Soul ID's adult body proportions",
+        "pose_details": existing_body.get("pose_details")
+        or existing_body.get("poseDetails")
+        or "preserve only the source pose geometry",
+        "visual_direction": (
+            "body-forward but non-explicit; when the source visibly supports it, "
+            "preserve fuller-chest and cleavage framing plus a rounded hip and butt "
+            "silhouette through fitted clothing, crop, angle, and pose"
+        ),
+        "exposure": "fully covered and social-platform safe",
+    }
+    skin = cleaned.get("skin") if isinstance(cleaned.get("skin"), dict) else {}
+    cleaned["skin"] = {
+        "texture": skin.get("texture")
+        or "Realistic natural skin texture, believable phone-photo detail."
+    }
+    original_prompt = _clean_prompt_text(cleaned.get("prompt"))
+    canonical_intro = (
+        f"Use {profile} as the sole identity for an adult woman, age 19, with dark "
+        "hair. Treat the source only as a composition, crop, angle, and pose "
+        "reference. "
+    )
+    while original_prompt.startswith(canonical_intro):
+        original_prompt = original_prompt[len(canonical_intro) :].lstrip()
+    cleaned["prompt"] = (canonical_intro + original_prompt).strip()
 
     constraints = (
         cleaned.get("constraints")
@@ -433,13 +498,11 @@ def _sanitize_image_prompt_json(
             item for item in avoid if str(item).strip().lower() not in banned
         ]
         cleaned["constraints"] = constraints
+    constraints["identitySource"] = "selected Soul ID only"
+    constraints["sourceIdentityUse"] = "blocked"
+    constraints["exposure"] = "fully covered and non-explicit"
+    cleaned["constraints"] = constraints
 
-    cleaned.setdefault(
-        "skin",
-        {
-            "texture": "Realistic natural skin texture, believable phone-photo detail.",
-        },
-    )
     cleaned.setdefault(
         "expression_mood",
         {
@@ -470,7 +533,27 @@ def _sanitize_prompt_value(value: Any, *, profile: str) -> Any:
     }
     for source, target in replacements.items():
         value = value.replace(source, target)
-    return value
+    for term in ("tat" + "too", "body art", "inked markings"):
+        value = re.sub(rf"\b{re.escape(term)}s?\b", "", value, flags=re.IGNORECASE)
+    value = re.sub(
+        r"\b(?:same|source|original)\s+(?:girl|woman|person|face|identity|likeness)\b",
+        "selected Soul identity",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(
+        r"\b(?:blonde|blond|red|auburn|ginger|light brown|platinum) hair\b",
+        "dark hair",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(
+        r"\b\d{1,2}[- ]year[- ]old\b",
+        "adult woman, age 19",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return " ".join(value.split())
 
 
 def _imageat_prompt_payload(card: dict[str, Any]) -> dict[str, Any]:
@@ -502,6 +585,7 @@ def _imageat_prompt_payload(card: dict[str, Any]) -> dict[str, Any]:
 def _compose_higgsfield_from_image_json(
     card: dict[str, Any], *, model_profile: str | None, fallback_prompt: str
 ) -> str:
+    had_explicit_prompt = bool(_clean_prompt_text(card.get("prompt")))
     card = _sanitize_image_prompt_json(card, model_profile=model_profile)
     if card.get("promptMode") == "structured_json" or (
         isinstance(card.get("composition"), dict)
@@ -513,6 +597,10 @@ def _compose_higgsfield_from_image_json(
     base_prompt = _clean_prompt_text(card.get("prompt")) or _clean_prompt_text(
         fallback_prompt
     )
+    if not had_explicit_prompt:
+        base_prompt = " ".join(
+            part for part in (base_prompt, _clean_prompt_text(fallback_prompt)) if part
+        )
     sections = [
         _stringify_prompt_section(
             "Subject", card.get("subject") or f"{profile} as the subject"
@@ -557,15 +645,61 @@ def _store_pattern_and_analysis(
     provider: str,
     timestamp: str,
 ) -> None:
-    pattern = (
-        analysis.get("patternCard")
-        if isinstance(analysis.get("patternCard"), dict)
-        else {}
+    operator_direction = intake_operator_direction(job)
+    source_binding = reference_source_binding(job)
+    reference_policy = structural_reference_policy(job)
+    pattern_value = analysis.get("patternCard")
+    pattern: dict[str, Any] = (
+        dict(pattern_value) if isinstance(pattern_value, dict) else {}
     )
     pattern_id = str(
         pattern.get("id")
-        or stable_id("viral_pattern_card", job["reference_id"], provider)
+        or stable_id(
+            "viral_pattern_card",
+            job["reference_id"],
+            source_binding["sourceSha256"],
+            provider,
+        )
     )
+    pattern["operatorDirection"] = operator_direction
+    pattern_source_value = pattern.get("source")
+    pattern_source: dict[str, Any] = (
+        dict(pattern_source_value) if isinstance(pattern_source_value, dict) else {}
+    )
+    pattern_source["operatorDirection"] = operator_direction
+    pattern_source["sourceBinding"] = source_binding
+    pattern_source["structuralReferencePolicy"] = reference_policy
+    pattern["source"] = pattern_source
+    pattern["sourceBinding"] = source_binding
+    pattern["structuralReferencePolicy"] = reference_policy
+    pattern["firstFrameStructure"] = _first_frame_structure(analysis)
+    operator_warnings = _as_string_list(operator_direction.get("warnings"))
+    pattern["qualityWarnings"] = list(
+        dict.fromkeys(
+            [
+                *operator_warnings,
+                *_as_string_list(pattern.get("qualityWarnings")),
+            ]
+        )
+    )
+    analysis["operatorDirection"] = operator_direction
+    analysis["sourceBinding"] = source_binding
+    analysis["structuralReferencePolicy"] = reference_policy
+    analysis["firstFrameStructure"] = _first_frame_structure(analysis)
+    signals_value = analysis.get("signals")
+    signals: dict[str, Any] = (
+        dict(signals_value) if isinstance(signals_value, dict) else {}
+    )
+    signals["operatorDirection"] = operator_direction
+    signals["sourceBinding"] = source_binding
+    signals["firstFrameStructure"] = analysis["firstFrameStructure"]
+    analysis["signals"] = signals
+    raw_value = analysis.get("raw")
+    raw: dict[str, Any] = dict(raw_value) if isinstance(raw_value, dict) else {}
+    raw["operatorDirection"] = operator_direction
+    raw["sourceBinding"] = source_binding
+    raw["structuralReferencePolicy"] = reference_policy
+    analysis["raw"] = raw
     pattern["id"] = pattern_id
     analysis["patternCard"] = pattern
     validate_pattern_card(pattern)
@@ -660,6 +794,9 @@ def _store_pattern_and_analysis(
 def _pattern_card_from_analysis(
     job: dict[str, Any], analysis: dict[str, Any]
 ) -> dict[str, Any]:
+    operator_direction = intake_operator_direction(job)
+    source_binding = reference_source_binding(job)
+    reference_policy = structural_reference_policy(job)
     card = _winning_format_card(analysis, job)
     visual_format = str(
         card.get("visualFormat") or analysis.get("contentFormat") or "other"
@@ -668,7 +805,11 @@ def _pattern_card_from_analysis(
     return {
         "schema": PATTERN_CARD_SCHEMA,
         "id": stable_id(
-            "viral_pattern_card", job.get("reference_id"), visual_format, hook_type
+            "viral_pattern_card",
+            job.get("reference_id"),
+            source_binding["sourceSha256"],
+            visual_format,
+            hook_type,
         ),
         "platform": _norm(
             analysis.get("platformStyle") or job.get("source_platform") or "instagram"
@@ -678,11 +819,19 @@ def _pattern_card_from_analysis(
             "creator": job.get("account"),
             "path": job.get("path"),
             "fileName": job.get("file_name"),
+            "operatorDirection": operator_direction,
+            "sourceBinding": source_binding,
+            "structuralReferencePolicy": reference_policy,
         },
+        "operatorDirection": operator_direction,
+        "sourceBinding": source_binding,
+        "structuralReferencePolicy": reference_policy,
+        "firstFrameStructure": _first_frame_structure(analysis),
         "formatType": visual_format,
         "hookType": hook_type,
         "visualPattern": str(
-            analysis.get("summary")
+            operator_direction.get("description")
+            or analysis.get("summary")
             or f"{visual_format.replace('_', ' ')} creator reference"
         ),
         "setting": card.get("setting"),
@@ -721,9 +870,14 @@ def _pattern_card_from_analysis(
         "viralityMetrics": analysis.get("viralityMetrics")
         if isinstance(analysis.get("viralityMetrics"), dict)
         else {},
-        "qualityWarnings": analysis.get("qualityWarnings")
-        if isinstance(analysis.get("qualityWarnings"), list)
-        else [],
+        "qualityWarnings": list(
+            dict.fromkeys(
+                [
+                    *_as_string_list(operator_direction.get("warnings")),
+                    *_as_string_list(analysis.get("qualityWarnings")),
+                ]
+            )
+        ),
     }
 
 
@@ -732,6 +886,13 @@ def _analysis_from_pattern(analysis: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema": ANALYSIS_SCHEMA,
         "referenceId": analysis.get("referenceId"),
+        "sourceBinding": analysis.get("sourceBinding") or pattern.get("sourceBinding"),
+        "structuralReferencePolicy": analysis.get("structuralReferencePolicy")
+        or pattern.get("structuralReferencePolicy"),
+        "firstFrameStructure": analysis.get("firstFrameStructure")
+        or pattern.get("firstFrameStructure"),
+        "operatorDirection": analysis.get("operatorDirection")
+        or pattern.get("operatorDirection"),
         "summary": pattern.get("visualPattern") or "Local reference analysis",
         "platformStyle": pattern.get("platform") or "instagram",
         "contentFormat": pattern.get("formatType") or "other",
@@ -861,7 +1022,10 @@ def _analysis_value(analysis: dict[str, Any], key: str) -> Any:
 
 
 def _clean_prompt_text(value: Any) -> str:
-    return " ".join(str(value or "").strip().split())
+    cleaned = _sanitize_prompt_value(
+        " ".join(str(value or "").strip().split()), profile="my Soul ID model"
+    )
+    return str(cleaned)
 
 
 def _classify_reference_format(

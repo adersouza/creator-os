@@ -16,6 +16,39 @@ REFERENCE_PAID = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(REFERENCE_PAID)
 
 
+def test_reference_paid_derives_canonical_creation_profile_from_creator() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE models (id TEXT, slug TEXT)")
+    conn.executemany(
+        "INSERT INTO models VALUES (?, ?)",
+        [("creator_stacey", "Stacey"), ("creator_lola", "Lola")],
+    )
+
+    assert (
+        REFERENCE_PAID._creation_profile_for_creator(
+            conn,
+            creator_id="creator_stacey",
+            requested_profile=None,
+        )
+        == "stacey"
+    )
+    with pytest.raises(
+        PermissionError, match="reference_paid_account_profile_creator_mismatch"
+    ):
+        REFERENCE_PAID._creation_profile_for_creator(
+            conn,
+            creator_id="creator_stacey",
+            requested_profile="Larissa",
+        )
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:lola"):
+        REFERENCE_PAID._creation_profile_for_creator(
+            conn,
+            creator_id="creator_lola",
+            requested_profile=None,
+        )
+
+
 def test_reference_paid_requires_explicit_apply_before_opening_databases() -> None:
     with pytest.raises(PermissionError, match="reference_paid_action_requires_apply"):
         REFERENCE_PAID.main(

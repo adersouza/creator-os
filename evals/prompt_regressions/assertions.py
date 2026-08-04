@@ -56,7 +56,9 @@ def _assert_prompt_snapshot(prompt: str, variables: dict[str, Any]) -> None:
         "gemini_motion_analysis": lambda: (
             "reel_factory.reference_video_motion_analysis.v1" in prompt
             and str(variables.get("reference_id")) in prompt
-            and "one continuous 9:16 shot" in prompt
+            and "one or more shots" in prompt
+            and "structure.cutTimeline" in prompt
+            and "exactChoreographySupported to false" in prompt
             and "sourceTextPolicy.reuseVerbatim to false" in prompt
         ),
         "soul_reference_still": lambda: (

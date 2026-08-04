@@ -156,6 +156,7 @@ def reconciliation_report(
         known_paths,
         ignored_rendered_ids=set(rendered_by_id) - active_rendered_ids,
     )
+    _check_active_identity_evidence(conn, findings, known_paths, roots)
     _collect_other_database_paths(settings, findings, known_paths, roots)
     _check_receipt_paths(conn, findings, known_paths, roots)
     _check_path_identity_conflicts(findings, known_paths)
@@ -540,6 +541,75 @@ def _collect_generation_attempt_paths(
             subject_type="generation_attempt",
             subject_id=str(row["id"]),
         )
+
+
+def _check_active_identity_evidence(
+    conn: sqlite3.Connection,
+    findings: list[dict[str, Any]],
+    known: dict[Path, list[dict[str, Any]]],
+    roots: dict[str, Path],
+) -> None:
+    for row in _rows(conn, "creator_identity_profiles"):
+        if str(row.get("status") or "") != "active":
+            continue
+        profile_id = str(row["id"])
+        artifacts = [
+            (
+                "identity_manifest",
+                row.get("identity_manifest_path"),
+                str(row.get("identity_manifest_sha256") or ""),
+            )
+        ]
+        evidence_type = str(row.get("canonical_evidence_type") or "")
+        if evidence_type == "provider_identity_attestation":
+            if row.get("canonical_source_asset_id") is not None:
+                _add(
+                    findings,
+                    "identity_evidence_mode_invalid",
+                    "creator_identity_profile",
+                    profile_id,
+                    {"canonicalEvidenceType": evidence_type},
+                )
+                continue
+            artifacts.append(
+                (
+                    "provider_identity_evidence",
+                    row.get("provider_identity_evidence_path"),
+                    str(row.get("provider_identity_evidence_sha256") or ""),
+                )
+            )
+        elif evidence_type != "operator_approved_original" or not row.get(
+            "canonical_source_asset_id"
+        ):
+            _add(
+                findings,
+                "identity_evidence_mode_invalid",
+                "creator_identity_profile",
+                profile_id,
+                {"canonicalEvidenceType": evidence_type},
+            )
+            continue
+        for role, raw_path, expected_sha in artifacts:
+            path = Path(str(raw_path or "")).expanduser()
+            _check_registered_path(
+                findings,
+                known,
+                path=path,
+                expected_sha=expected_sha,
+                subject_type=role,
+                subject_id=profile_id,
+                external=True,
+                roots=roots,
+            )
+            absolute = Path(os.path.abspath(os.fspath(path)))
+            if is_regular_file(absolute) and root_keyed_path(absolute, roots) is None:
+                _add(
+                    findings,
+                    "external_identity_evidence_outside_backup_coverage",
+                    role,
+                    profile_id,
+                    {"path": str(absolute), "expectedSha256": expected_sha},
+                )
 
 
 def _is_operator_removed(row: dict[str, Any]) -> bool:

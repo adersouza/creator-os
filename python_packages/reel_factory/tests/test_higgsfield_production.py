@@ -99,6 +99,8 @@ def _request(tmp_path: Path, **overrides: Any) -> subject.HiggsfieldProductionRe
         and not values.get("recreation_anchor_approval")
     ):
         driving = Path(values["driving_video_path"])
+        driving_sha = hashlib.sha256(driving.read_bytes()).hexdigest()
+        reference_id = "reference-1"
         approval = write_recreation_anchor_approval(
             output_dir=tmp_path / "anchor-approvals",
             creator=str(values["creator"]),
@@ -109,9 +111,24 @@ def _request(tmp_path: Path, **overrides: Any) -> subject.HiggsfieldProductionRe
             prompt_pack_fingerprint="a" * 64,
             anchor_prompt_fingerprint="b" * 64,
             creator_image_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-            reference_video_sha256=hashlib.sha256(driving.read_bytes()).hexdigest(),
+            reference_video_sha256=driving_sha,
             selected_composition_frame_sha256="c" * 64,
             approved_by="operator@test",
+            reference_id=reference_id,
+            recreation_plan_fingerprint="8" * 64,
+            selected_recreation_mode="structural",
+            reference_classification="simple_pose_motion",
+            reference_provider_rights={
+                "schema": "reference_factory.provider_rights_eligibility.v1",
+                "eligible": True,
+                "referenceId": reference_id,
+                "provider": "higgsfield",
+                "operation": "recreation_generation",
+                "sourceSha256": driving_sha,
+                "rightsEventId": "rights-event-1",
+                "rightsEvidenceFingerprint": "9" * 64,
+                "rightsExpiresAt": "2026-08-04T00:00:00Z",
+            },
         )
         values["source_approval"] = approval["approvalFingerprint"]
         values["source_image_path"] = Path(approval["anchorFilePath"])

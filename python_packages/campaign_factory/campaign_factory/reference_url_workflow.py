@@ -173,6 +173,17 @@ def run_reference_analysis(
             if apply
             else None
         )
+        recreation_provider_rights = (
+            _require_reference_provider_rights(
+                db_path=factory.settings.reference_factory_db,
+                reference_id=str(reference["referenceId"]),
+                provider="higgsfield",
+                operation="recreation_generation",
+                source_sha256=reference_source_sha256,
+            )
+            if apply and through != "analyze"
+            else None
+        )
         structural_analysis = _analyze_reference_structure(
             factory=factory,
             source=source,
@@ -204,7 +215,7 @@ def run_reference_analysis(
                     or audio_policy == "reference_audio_required"
                 ),
             )
-        result = {
+        result: dict[str, Any] = {
             "ok": True,
             "schema": "campaign_factory.reference_url_analysis.v1",
             "creator": creator,
@@ -220,6 +231,7 @@ def run_reference_analysis(
             "analysisProviderCalls": int(structural_analysis.get("providerCalls") or 0),
             "analysisCost": structural_analysis.get("cost"),
             "providerRights": provider_rights,
+            "recreationProviderRights": recreation_provider_rights,
             "download": download_evidence,
             "reference": reference,
             "audio": audio,
@@ -229,13 +241,9 @@ def run_reference_analysis(
             ],
         }
         if through != "analyze":
-            if creator_image_path is None:
-                raise ValueError(
-                    "--creator-image is required for prompt-driven recreation"
-                )
+            soul_identity = _active_soul_identity_binding(factory, creator)
             prompt_pack = build_openai_prompt_pack(
                 creator=creator,
-                creator_image=creator_image_path,
                 intent="recreate_reel",
                 reference_video=source,
                 external_call_authorized=apply,
@@ -243,6 +251,7 @@ def run_reference_analysis(
                 campaign_id=str(governance_context["campaignId"]),
                 run_id=f"reference_prompt:{reference_id}",
                 governance_context=governance_context,
+                soul_identity=soul_identity,
             )
             prompt_cache = prompt_pack.get("cache") or {}
             prompt_call_made = prompt_cache.get("providerCallMade") is True
@@ -268,6 +277,7 @@ def run_reference_analysis(
                 max_credits=max_credits,
                 creator_governance=governance_context,
                 prompt_pack=prompt_pack,
+                provider_rights=recreation_provider_rights,
             )
             result["providerQuoteCalls"] = int(
                 _quote_provider_calls(result["recreation"])
@@ -299,6 +309,7 @@ def run_reference_analysis(
                         prompt_pack_path=prompt_path,
                         attempt_id=recreation_attempt_id,
                         max_credits=float(max_credits or 0),
+                        recreation_plan=result["recreation"],
                     )
                     result["anchorGeneration"] = anchor_generation
                     result["paidSpend"] = anchor_generation.get("campaignSpendReceipt")
@@ -309,6 +320,38 @@ def run_reference_analysis(
                     result["applyStatus"] = "ANALYSIS_PERSISTED_ANCHOR_REVIEW_REQUIRED"
                 result["paidExecutionBlocked"] = True
         return result
+
+
+def _active_soul_identity_binding(factory: Any, creator: str) -> dict[str, Any]:
+    identity = factory.domains.creator_governance.active_identity_profile(
+        creator, provider="higgsfield"
+    )
+    core = {
+        "schema": "campaign_factory.verified_soul_identity_binding.v1",
+        "creatorSlug": str(identity.get("creator_slug") or "").strip().lower(),
+        "provider": "higgsfield",
+        "soulId": str(identity.get("provider_identity_id") or "").strip(),
+        "identityProfileId": str(identity.get("id") or "").strip(),
+        "identityProfileVersion": identity.get("version"),
+        "identityProfileFingerprint": str(
+            identity.get("profile_fingerprint") or ""
+        ).strip(),
+    }
+    if (
+        core["creatorSlug"] != str(creator).strip().lower()
+        or not core["soulId"]
+        or not core["identityProfileId"]
+        or not isinstance(core["identityProfileVersion"], int)
+        or core["identityProfileVersion"] < 1
+        or len(core["identityProfileFingerprint"]) != 64
+    ):
+        raise PermissionError("active_higgsfield_soul_identity_invalid")
+    return {
+        **core,
+        "bindingFingerprint": hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
 
 
 def _run_reference_factory(
@@ -352,6 +395,59 @@ def _run_reference_factory(
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError("Reference Factory intake returned invalid JSON") from exc
+
+
+def resolve_stored_reference(*, db_path: Path, reference_id: str) -> dict[str, Any]:
+    """Resolve and byte-verify one stored URL-intake reference read-only."""
+
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("uv is required for stored Reference Factory lookup")
+    completed = subprocess.run(
+        [
+            uv,
+            "run",
+            "--package",
+            "reference-factory",
+            "python",
+            "-m",
+            "reference_factory.cli",
+            "--db",
+            str(db_path),
+            "resolve-url-intake",
+            "--reference-id",
+            str(reference_id),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=_source_root(),
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise ValueError(f"stored reference resolution failed: {detail[-1000:]}")
+    try:
+        resolved = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("stored reference resolution returned invalid JSON") from exc
+    source = resolved.get("source") if isinstance(resolved, dict) else None
+    if (
+        not isinstance(source, dict)
+        or resolved.get("referenceId") != reference_id
+        or not source.get("path")
+        or not source.get("sha256")
+    ):
+        raise ValueError("stored reference resolution is incomplete")
+    candidate = Path(str(source["path"])).expanduser()
+    if candidate.is_symlink() or not candidate.is_file():
+        raise ValueError("stored reference source is not a regular file")
+    path = candidate.resolve()
+    if _sha256(path) != str(source["sha256"]):
+        raise ValueError("stored reference source SHA-256 mismatch")
+    probe = resolved.get("videoProbe")
+    if not isinstance(probe, dict) or int(probe.get("valid") or 0) != 1:
+        raise ValueError("stored reference is missing a valid canonical video probe")
+    return {**resolved, "resolvedPath": str(path), "exactBytesVerified": True}
 
 
 def _analyze_reference_structure(

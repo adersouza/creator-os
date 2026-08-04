@@ -595,17 +595,25 @@ def test_audio_decision_prefers_resolved_instagram_over_unresolved_and_tiktok(
                         "creatorFitScore": 86,
                         "accountFitScore": 88,
                         "fatigue": {"level": "low"},
+                        "rightsStatus": "granted",
                     },
+                ],
+                "trendEvidence": [
                     {
                         "id": "ig_unresolved",
-                        "title": "Instagram audio example_deadbeef",
+                        "title": "Instagram audio example_deadbeef (title unresolved)",
                         "platform": "instagram",
-                        "nativeAudioId": "example_deadbeef",
-                        "nativeAudioUrl": "https://instagram.com/p/example",
+                        "nativeAudioId": "unresolved_sha256_deadbeef",
+                        "nativeAudioUrl": "https://instagram.com/reel/example",
                         "moodTags": ["mirror", "glam"],
                         "bestContentTypes": ["ofm_reels"],
                         "trendStatus": "rising",
                         "creatorFitScore": 90,
+                        "resolved": False,
+                        "rightsStatus": "unverified",
+                        "reviewReasons": ["missing_resolved_title"],
+                        "localPreviewPath": "/tmp/ig_unresolved.m4a",
+                        "previewSha256": "a" * 64,
                     },
                     {
                         "id": "tt_signal",
@@ -617,6 +625,9 @@ def test_audio_decision_prefers_resolved_instagram_over_unresolved_and_tiktok(
                         "bestContentTypes": ["ofm_reels"],
                         "trendStatus": "rising",
                         "creatorFitScore": 92,
+                        "resolved": False,
+                        "rightsStatus": "unverified",
+                        "reviewReasons": ["missing_resolved_title"],
                     },
                 ],
             }
@@ -625,17 +636,69 @@ def test_audio_decision_prefers_resolved_instagram_over_unresolved_and_tiktok(
     )
     cf = make_factory(tmp_path)
     try:
-        cf.domains.audio_recommendations.import_audio_memory(catalog_path)
+        imported = cf.domains.audio_recommendations.import_audio_memory(catalog_path)
         result = cf.domains.audio_recommendations.recommend_audio(
             platform="instagram", content_tags=["mirror", "glam"], limit=3
         )
         decision = result["decision"]
 
         assert decision["primaryAudio"]["catalogAudioId"] == "ig_resolved"
+        assert imported["productionTracksImported"] == 1
+        assert imported["trendEvidenceImported"] == 2
         assert "resolved_instagram_native_audio" in decision["decisionReasons"]
-        by_id = {item["catalogAudioId"]: item for item in result["recommendations"]}
-        assert "unresolved_or_generic_title" in by_id["ig_unresolved"]["riskFlags"]
-        assert "needs_ig_lookup" in by_id["tt_signal"]["riskFlags"]
+        assert [item["catalogAudioId"] for item in result["recommendations"]] == [
+            "ig_resolved"
+        ]
+        by_id = {item["catalogAudioId"]: item for item in result["trendEvidence"]}
+        assert by_id["ig_unresolved"]["referenceOnly"] is True
+        assert "do not attach" in by_id["ig_unresolved"]["instruction"].lower()
+        assert "attach native" not in by_id["tt_signal"]["instruction"].lower()
+        assert by_id["ig_unresolved"]["previewEvidence"] == {
+            "path": "/tmp/ig_unresolved.m4a",
+            "sha256": "a" * 64,
+            "sha256Format": "valid",
+        }
+    finally:
+        cf.close()
+
+
+def test_audio_memory_accepts_evidence_only_export(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "evidence_only.json"
+    catalog_path.write_text(
+        json.dumps(
+            {
+                "items": [],
+                "trendEvidence": [
+                    {
+                        "id": "reference_audio",
+                        "title": "Instagram audio example (title unresolved)",
+                        "platform": "instagram",
+                        "nativeAudioId": "unresolved_sha256_deadbeef",
+                        "rightsStatus": "unverified",
+                        "reviewReasons": ["missing_resolved_title"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cf = make_factory(tmp_path)
+    try:
+        imported = cf.domains.audio_recommendations.import_audio_memory(catalog_path)
+        assert imported["productionTracksImported"] == 0
+        assert imported["trendEvidenceImported"] == 1
+        cf.conn.execute(
+            "DELETE FROM content_graph_nodes "
+            "WHERE local_table = 'audio_catalog' AND local_id = 'reference_audio'"
+        )
+        cf.conn.commit()
+        assert (
+            cf.domains.audio_recommendations.recommend_audio(
+                platform="instagram", limit=3
+            )["recommendations"]
+            == []
+        )
+        assert cf.conn.in_transaction is False
     finally:
         cf.close()
 
@@ -657,6 +720,7 @@ def test_audio_decision_moves_high_fatigue_or_stale_audio_to_do_not_use(tmp_path
                         "bestContentTypes": ["ofm_reels"],
                         "trendStatus": "current",
                         "fatigue": {"level": "low"},
+                        "rightsStatus": "granted",
                     },
                     {
                         "id": "tired",
@@ -668,6 +732,7 @@ def test_audio_decision_moves_high_fatigue_or_stale_audio_to_do_not_use(tmp_path
                         "bestContentTypes": ["ofm_reels"],
                         "trendStatus": "stale",
                         "fatigue": {"level": "high"},
+                        "rightsStatus": "granted",
                     },
                 ],
             }
@@ -717,6 +782,7 @@ def test_audio_memory_v2_balanced_scoring_prefers_ofm_velocity_and_low_fatigue(
                         "performanceSummary": {"postCount": 2, "performanceLift": 8},
                         "trendSources": ["tiktok_creative_center", "reference_factory"],
                         "resolved": True,
+                        "rightsStatus": "granted",
                     },
                     {
                         "id": "generic_big",
@@ -732,6 +798,7 @@ def test_audio_memory_v2_balanced_scoring_prefers_ofm_velocity_and_low_fatigue(
                         "fatigue": {"level": "high", "fatigueScore": 90},
                         "sourceConfidence": 0.8,
                         "resolved": True,
+                        "rightsStatus": "granted",
                     },
                 ],
             }

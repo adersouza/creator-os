@@ -126,20 +126,28 @@ def persist_asset_creative_evidence(
     if job.get("referenceVideo"):
         approval = job.get("recreationAnchorApproval")
         approval = approval if isinstance(approval, Mapping) else {}
+        soul_identity = approval.get("soulIdentity")
+        soul_bound = isinstance(soul_identity, Mapping)
         metadata["recreationReview"] = {
             "schema": "campaign_factory.recreate_reel_review.v1",
             "finalSha256": registered["content_hash"],
             "referenceVideoSha256": job["referenceVideoSha256"],
             "approvedAnchorSha256": approval.get("anchorFileSha256"),
-            "canonicalCreatorReferences": [
-                {
-                    "sourceAssetId": job["sourceAssetId"],
-                    "sha256": job["sourceSha256"],
-                }
-            ],
+            "canonicalCreatorReferences": (
+                []
+                if soul_bound
+                else [
+                    {
+                        "sourceAssetId": job["sourceAssetId"],
+                        "sha256": job["sourceSha256"],
+                    }
+                ]
+            ),
+            "selectedSoulIdentity": dict(soul_identity) if soul_bound else None,
             "identityComparisonRequired": {
                 "approvedAnchor": True,
-                "canonicalCreatorReferences": True,
+                "canonicalCreatorReferences": not soul_bound,
+                "selectedSoulIdentity": soul_bound,
             },
             "identityComparisonStatus": "operator_review_required",
             "providerExecutionStatus": "completed",

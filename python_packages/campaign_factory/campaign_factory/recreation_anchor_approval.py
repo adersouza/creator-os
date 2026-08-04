@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,84 @@ from PIL import Image, UnidentifiedImageError
 from .production_prompts import require_creator_soul_id
 from .production_source_selection import active_production_identity
 from .recreation_prompting import validate_prompt_pack
+
+
+def validate_recreation_execution_anchor(
+    approval: Mapping[str, Any], *, reference_video_sha256: str
+) -> None:
+    rights = approval.get("referenceProviderRights")
+    if (
+        approval.get("schema")
+        not in {
+            "creator_os.recreation_anchor_approval.v2",
+            "creator_os.recreation_anchor_approval.v3",
+        }
+        or len(str(approval.get("recreationPlanFingerprint") or "")) != 64
+        or approval.get("selectedRecreationMode") not in {"calm", "structural"}
+        or not str(approval.get("referenceClassification") or "").strip()
+        or approval.get("referenceVideoSha256") != reference_video_sha256
+        or not isinstance(rights, Mapping)
+        or rights.get("eligible") is not True
+        or rights.get("referenceId") != approval.get("referenceId")
+        or rights.get("provider") != "higgsfield"
+        or rights.get("operation") != "recreation_generation"
+        or rights.get("sourceSha256") != reference_video_sha256
+        or not str(rights.get("rightsEventId") or "").strip()
+        or len(str(rights.get("rightsEvidenceFingerprint") or "")) != 64
+        or not str(rights.get("rightsExpiresAt") or "").strip()
+    ):
+        raise PermissionError("recreation_execution_anchor_binding_invalid")
+
+
+def recreation_recipe_bindings(
+    approval: Mapping[str, Any] | None,
+) -> dict[str, str | None]:
+    return {
+        "recreation_mode": str(approval["selectedRecreationMode"])
+        if approval
+        else None,
+        "reference_classification": str(approval["referenceClassification"])
+        if approval
+        else None,
+    }
+
+
+def recreation_anchor_verification_kwargs(
+    approval: Mapping[str, Any],
+) -> dict[str, str]:
+    return {
+        "expected_recreation_plan_fingerprint": str(
+            approval["recreationPlanFingerprint"]
+        ),
+        "expected_selected_recreation_mode": str(approval["selectedRecreationMode"]),
+        "expected_reference_classification": str(approval["referenceClassification"]),
+        "expected_reference_provider_rights_fingerprint": str(
+            approval["referenceProviderRights"]["rightsEvidenceFingerprint"]
+        ),
+    }
+
+
+def recreation_anchor_bindings(
+    approval: Mapping[str, Any] | None, *, include_rights: bool = False
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "recreationPlanFingerprint": approval.get("recreationPlanFingerprint")
+        if approval
+        else None,
+        "selectedRecreationMode": approval.get("selectedRecreationMode")
+        if approval
+        else None,
+        "referenceClassification": approval.get("referenceClassification")
+        if approval
+        else None,
+    }
+    rights = approval.get("referenceProviderRights") if approval else None
+    result[
+        "referenceProviderRights"
+        if include_rights
+        else "referenceProviderRightsFingerprint"
+    ] = rights if include_rights else (rights or {}).get("rightsEvidenceFingerprint")
+    return result
 
 
 def approve_recreation_anchor(
@@ -50,17 +129,36 @@ def approve_recreation_anchor(
         raise ValueError("recreation_prompt_pack_invalid")
     prompt_pack = validate_prompt_pack(prompt_pack)
     creator_image = prompt_pack.get("creatorImage")
+    soul_identity = prompt_pack.get("soulIdentity")
     reference_video = prompt_pack.get("referenceVideo")
     if (
         prompt_pack.get("creator") != creator_slug
-        or not isinstance(creator_image, dict)
         or not isinstance(reference_video, dict)
+        or not (isinstance(creator_image, dict) or isinstance(soul_identity, dict))
     ):
         raise PermissionError("recreation_anchor_prompt_pack_binding_mismatch")
+    if isinstance(soul_identity, dict):
+        if factory is None:
+            raise PermissionError("recreation_anchor_soul_identity_factory_required")
+        active = factory.domains.creator_governance.active_identity_profile(
+            creator_slug, provider="higgsfield"
+        )
+        if (
+            soul_identity.get("creatorSlug") != creator_slug
+            or soul_identity.get("provider") != "higgsfield"
+            or soul_identity.get("soulId") != soul_id
+            or soul_identity.get("soulId") != active.get("provider_identity_id")
+            or soul_identity.get("identityProfileId") != active.get("id")
+            or soul_identity.get("identityProfileVersion") != active.get("version")
+            or soul_identity.get("identityProfileFingerprint")
+            != active.get("profile_fingerprint")
+        ):
+            raise PermissionError("recreation_anchor_soul_identity_binding_mismatch")
     prompt_pack_id = str(
         (prompt_pack.get("promptPlanning") or {}).get("responseId") or ""
     ).strip() or str(prompt_pack["promptPackFingerprint"])
     candidate_source_id: str | None = None
+    execution_binding: dict[str, Any] = {}
     if factory is not None:
         digest = hashlib.sha256(anchor.read_bytes()).hexdigest()
         row = factory.conn.execute(
@@ -82,13 +180,43 @@ def approve_recreation_anchor(
             lineage.get("schema") != "campaign_factory.recreation_anchor_candidate.v1"
             or lineage.get("promptPackFingerprint")
             != prompt_pack["promptPackFingerprint"]
-            or lineage.get("creatorImageSha256")
-            != str(creator_image.get("sha256") or "")
+            or (
+                lineage.get("creatorImageSha256")
+                != str(creator_image.get("sha256") or "")
+                if isinstance(creator_image, dict)
+                else lineage.get("creatorImageSha256") is not None
+            )
+            or (
+                lineage.get("soulIdentity") != soul_identity
+                if isinstance(soul_identity, dict)
+                else lineage.get("soulIdentity") is not None
+            )
             or lineage.get("referenceVideoSha256")
             != str(reference_video.get("sha256") or "")
             or lineage.get("anchorSha256") != digest
         ):
             raise PermissionError("recreation_anchor_generation_lineage_mismatch")
+        rights = lineage.get("referenceProviderRights")
+        if (
+            not str(lineage.get("referenceId") or "").strip()
+            or len(str(lineage.get("recreationPlanFingerprint") or "")) != 64
+            or lineage.get("selectedRecreationMode") not in {"calm", "structural"}
+            or not str(lineage.get("referenceClassification") or "").strip()
+            or not isinstance(rights, dict)
+            or rights.get("eligible") is not True
+            or rights.get("referenceId") != lineage.get("referenceId")
+            or rights.get("provider") != "higgsfield"
+            or rights.get("operation") != "recreation_generation"
+            or rights.get("sourceSha256") != str(reference_video.get("sha256") or "")
+        ):
+            raise PermissionError("recreation_anchor_execution_binding_missing")
+        execution_binding = {
+            "reference_id": str(lineage["referenceId"]),
+            "recreation_plan_fingerprint": str(lineage["recreationPlanFingerprint"]),
+            "selected_recreation_mode": str(lineage["selectedRecreationMode"]),
+            "reference_classification": str(lineage["referenceClassification"]),
+            "reference_provider_rights": dict(rights),
+        }
         candidate_source_id = str(row["id"])
     receipt = write_recreation_anchor_approval(
         output_dir=output_dir,
@@ -101,10 +229,18 @@ def approve_recreation_anchor(
         anchor_prompt_fingerprint=hashlib.sha256(
             str(prompt_pack["anchorPrompt"]).encode("utf-8")
         ).hexdigest(),
-        creator_image_sha256=str(creator_image.get("sha256") or ""),
+        creator_image_sha256=(
+            str(creator_image.get("sha256") or "")
+            if isinstance(creator_image, dict)
+            else None
+        ),
         reference_video_sha256=str(reference_video.get("sha256") or ""),
         selected_composition_frame_sha256=selected_composition_frame_sha256,
         approved_by=approved_by,
+        soul_identity=(
+            dict(soul_identity) if isinstance(soul_identity, dict) else None
+        ),
+        **execution_binding,
     )
     if factory is not None:
         assert candidate_source_id is not None

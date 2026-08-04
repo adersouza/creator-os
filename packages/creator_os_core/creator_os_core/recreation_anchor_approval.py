@@ -14,9 +14,11 @@ from typing import Any, Final
 
 from .fileops import sha256_file as _sha256_file
 
-SCHEMA: Final = "creator_os.recreation_anchor_approval.v1"
+SCHEMA_V1: Final = "creator_os.recreation_anchor_approval.v1"
+SCHEMA_V2: Final = "creator_os.recreation_anchor_approval.v2"
+SCHEMA: Final = "creator_os.recreation_anchor_approval.v3"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_RECEIPT_FIELDS: Final = {
+_RECEIPT_FIELDS_V1: Final = {
     "schema",
     "creator",
     "soulId",
@@ -36,6 +38,14 @@ _RECEIPT_FIELDS: Final = {
     "approvedAt",
     "approvalFingerprint",
 }
+_RECEIPT_FIELDS_V2: Final = _RECEIPT_FIELDS_V1 | {
+    "referenceId",
+    "recreationPlanFingerprint",
+    "selectedRecreationMode",
+    "referenceClassification",
+    "referenceProviderRights",
+}
+_RECEIPT_FIELDS: Final = _RECEIPT_FIELDS_V2 | {"soulIdentity"}
 
 
 def write_recreation_anchor_approval(
@@ -48,10 +58,16 @@ def write_recreation_anchor_approval(
     prompt_pack_id: str,
     prompt_pack_fingerprint: str,
     anchor_prompt_fingerprint: str,
-    creator_image_sha256: str,
+    creator_image_sha256: str | None,
     reference_video_sha256: str,
     selected_composition_frame_sha256: str,
     approved_by: str,
+    reference_id: str | None = None,
+    recreation_plan_fingerprint: str | None = None,
+    selected_recreation_mode: str | None = None,
+    reference_classification: str | None = None,
+    reference_provider_rights: dict[str, Any] | None = None,
+    soul_identity: dict[str, Any] | None = None,
     approved_at: str | None = None,
 ) -> dict[str, Any]:
     """Write one immutable receipt approving the exact local anchor bytes."""
@@ -68,8 +84,49 @@ def write_recreation_anchor_approval(
             / f"{anchor_sha256}{source_anchor.suffix.lower() or '.bin'}"
         ),
     )
+    execution_binding_values = (
+        reference_id,
+        recreation_plan_fingerprint,
+        selected_recreation_mode,
+        reference_classification,
+        reference_provider_rights,
+    )
+    has_execution_binding = any(value is not None for value in execution_binding_values)
+    if has_execution_binding and any(
+        value is None for value in execution_binding_values
+    ):
+        raise ValueError("recreation execution binding must be complete")
+    execution_binding = (
+        _validated_execution_binding(
+            reference_id=str(reference_id),
+            recreation_plan_fingerprint=str(recreation_plan_fingerprint),
+            selected_recreation_mode=str(selected_recreation_mode),
+            reference_classification=str(reference_classification),
+            reference_provider_rights=dict(reference_provider_rights or {}),
+            reference_video_sha256=reference_video_sha256,
+        )
+        if has_execution_binding
+        else {}
+    )
+    validated_soul_identity = (
+        _validated_soul_identity(
+            soul_identity,
+            creator=creator_slug,
+            soul_id=soul_id,
+        )
+        if soul_identity is not None
+        else None
+    )
+    if validated_soul_identity is not None and not has_execution_binding:
+        raise ValueError("soul-bound recreation approval requires execution binding")
     core = {
-        "schema": SCHEMA,
+        "schema": (
+            SCHEMA
+            if validated_soul_identity is not None
+            else SCHEMA_V2
+            if has_execution_binding
+            else SCHEMA_V1
+        ),
         "creator": creator_slug,
         "soulId": _required(soul_id, "soul id"),
         "anchorGenerationId": _required(anchor_generation_id, "anchor generation id"),
@@ -81,7 +138,11 @@ def write_recreation_anchor_approval(
         "anchorPromptFingerprint": _sha(
             anchor_prompt_fingerprint, "anchor prompt fingerprint"
         ),
-        "creatorImageSha256": _sha(creator_image_sha256, "creator image sha256"),
+        "creatorImageSha256": (
+            None
+            if validated_soul_identity is not None
+            else _sha(creator_image_sha256, "creator image sha256")
+        ),
         "referenceVideoSha256": _sha(reference_video_sha256, "reference video sha256"),
         "selectedCompositionFrameSha256": _sha(
             selected_composition_frame_sha256,
@@ -94,6 +155,12 @@ def write_recreation_anchor_approval(
         "approvedBy": _required(approved_by, "approved by"),
         "approvedAt": approved_at
         or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        **execution_binding,
+        **(
+            {"soulIdentity": validated_soul_identity}
+            if validated_soul_identity is not None
+            else {}
+        ),
     }
     receipt = {**core, "approvalFingerprint": _fingerprint(core)}
     destination = (
@@ -126,10 +193,15 @@ def load_recreation_anchor_approval(
     *,
     expected_creator: str,
     expected_soul_id: str,
-    expected_creator_image_sha256: str,
+    expected_creator_image_sha256: str | None,
     expected_reference_video_sha256: str,
     expected_prompt_pack_fingerprint: str,
     expected_anchor_file: Path | None = None,
+    expected_recreation_plan_fingerprint: str | None = None,
+    expected_selected_recreation_mode: str | None = None,
+    expected_reference_classification: str | None = None,
+    expected_reference_provider_rights_fingerprint: str | None = None,
+    expected_soul_identity_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Validate the receipt and its exact anchor bytes against one request."""
 
@@ -137,14 +209,41 @@ def load_recreation_anchor_approval(
     if (
         receipt.get("creator") != expected_creator.strip().lower()
         or receipt.get("soulId") != expected_soul_id
-        or receipt.get("creatorImageSha256")
-        != _sha(expected_creator_image_sha256, "creator image sha256")
+        or (
+            receipt.get("creatorImageSha256")
+            != _sha(expected_creator_image_sha256, "creator image sha256")
+            if expected_creator_image_sha256 is not None
+            else receipt.get("creatorImageSha256") is not None
+        )
         or receipt.get("referenceVideoSha256")
         != _sha(expected_reference_video_sha256, "reference video sha256")
         or receipt.get("promptPackFingerprint")
         != _sha(expected_prompt_pack_fingerprint, "prompt pack fingerprint")
     ):
         raise PermissionError("recreation_anchor_approval_binding_mismatch")
+    if expected_soul_identity_fingerprint is not None and (
+        receipt.get("schema") != SCHEMA
+        or (receipt.get("soulIdentity") or {}).get("bindingFingerprint")
+        != _sha(expected_soul_identity_fingerprint, "soul identity fingerprint")
+    ):
+        raise PermissionError("recreation_soul_identity_binding_mismatch")
+    if expected_recreation_plan_fingerprint is not None and (
+        receipt.get("schema") not in {SCHEMA_V2, SCHEMA}
+        or receipt.get("recreationPlanFingerprint")
+        != _sha(expected_recreation_plan_fingerprint, "recreation plan fingerprint")
+        or receipt.get("selectedRecreationMode")
+        != _required(expected_selected_recreation_mode, "selected recreation mode")
+        or receipt.get("referenceClassification")
+        != _required(expected_reference_classification, "reference classification")
+        or (receipt.get("referenceProviderRights") or {}).get(
+            "rightsEvidenceFingerprint"
+        )
+        != _sha(
+            expected_reference_provider_rights_fingerprint,
+            "reference provider rights fingerprint",
+        )
+    ):
+        raise PermissionError("recreation_execution_plan_binding_mismatch")
     anchor = Path(str(receipt["anchorFilePath"]))
     if expected_anchor_file is not None and anchor != _regular_file(
         expected_anchor_file, "request anchor file"
@@ -176,28 +275,71 @@ def inspect_recreation_anchor_approval(path: Path) -> dict[str, Any]:
                 "approvedAt",
             )
         )
+        sha_keys = [
+            "promptPackFingerprint",
+            "anchorPromptFingerprint",
+            "referenceVideoSha256",
+            "selectedCompositionFrameSha256",
+            "anchorFileSha256",
+            "approvalFingerprint",
+        ]
+        if receipt.get("schema") != SCHEMA:
+            sha_keys.append("creatorImageSha256")
         sha_values_valid = all(
-            _sha(str(receipt.get(key) or ""), key)
-            for key in (
-                "promptPackFingerprint",
-                "anchorPromptFingerprint",
-                "creatorImageSha256",
-                "referenceVideoSha256",
-                "selectedCompositionFrameSha256",
-                "anchorFileSha256",
-                "approvalFingerprint",
-            )
+            _sha(str(receipt.get(key) or ""), key) for key in sha_keys
         )
     except ValueError as exc:
         raise PermissionError("recreation_anchor_approval_invalid") from exc
     core = {
         key: value for key, value in receipt.items() if key != "approvalFingerprint"
     }
+    schema = receipt.get("schema")
+    expected_fields = (
+        _RECEIPT_FIELDS
+        if schema == SCHEMA
+        else _RECEIPT_FIELDS_V2
+        if schema == SCHEMA_V2
+        else _RECEIPT_FIELDS_V1
+    )
+    execution_binding_valid = True
+    if schema in {SCHEMA_V2, SCHEMA}:
+        try:
+            execution_binding_valid = bool(
+                _validated_execution_binding(
+                    reference_id=str(receipt.get("referenceId") or ""),
+                    recreation_plan_fingerprint=str(
+                        receipt.get("recreationPlanFingerprint") or ""
+                    ),
+                    selected_recreation_mode=str(
+                        receipt.get("selectedRecreationMode") or ""
+                    ),
+                    reference_classification=str(
+                        receipt.get("referenceClassification") or ""
+                    ),
+                    reference_provider_rights=dict(
+                        receipt.get("referenceProviderRights") or {}
+                    ),
+                    reference_video_sha256=str(
+                        receipt.get("referenceVideoSha256") or ""
+                    ),
+                )
+            )
+        except (TypeError, ValueError):
+            execution_binding_valid = False
     if (
-        set(receipt) != _RECEIPT_FIELDS
+        set(receipt) != expected_fields
         or not required_values_valid
         or not sha_values_valid
-        or receipt.get("schema") != SCHEMA
+        or schema not in {SCHEMA_V1, SCHEMA_V2, SCHEMA}
+        or (
+            schema == SCHEMA
+            and not _valid_soul_identity_receipt(
+                receipt.get("soulIdentity"),
+                creator=str(receipt.get("creator") or ""),
+                soul_id=str(receipt.get("soulId") or ""),
+            )
+        )
+        or not execution_binding_valid
         or receipt.get("anchorModel") != "soul_2"
         or receipt.get("anchorApprovalDecision") != "approved"
         or not isinstance(receipt.get("anchorFileBytes"), int)
@@ -218,6 +360,70 @@ def inspect_recreation_anchor_approval(path: Path) -> dict[str, Any]:
         "anchorFilePath": str(anchor),
         "receiptPath": str(receipt_path),
         "receiptSha256": _sha256_file(receipt_path),
+    }
+
+
+def _validated_soul_identity(
+    value: dict[str, Any], *, creator: str, soul_id: str
+) -> dict[str, Any]:
+    if not _valid_soul_identity_receipt(value, creator=creator, soul_id=soul_id):
+        raise ValueError("soul identity binding is invalid")
+    return dict(value)
+
+
+def _valid_soul_identity_receipt(value: Any, *, creator: str, soul_id: str) -> bool:
+    if not isinstance(value, dict):
+        return False
+    core = {key: item for key, item in value.items() if key != "bindingFingerprint"}
+    return bool(
+        core.get("schema") == "campaign_factory.verified_soul_identity_binding.v1"
+        and core.get("creatorSlug") == creator
+        and core.get("provider") == "higgsfield"
+        and core.get("soulId") == soul_id
+        and str(core.get("identityProfileId") or "").strip()
+        and isinstance(core.get("identityProfileVersion"), int)
+        and int(core["identityProfileVersion"]) >= 1
+        and _SHA256.fullmatch(str(core.get("identityProfileFingerprint") or ""))
+        and value.get("bindingFingerprint") == _fingerprint(core)
+    )
+
+
+def _validated_execution_binding(
+    *,
+    reference_id: str,
+    recreation_plan_fingerprint: str,
+    selected_recreation_mode: str,
+    reference_classification: str,
+    reference_provider_rights: dict[str, Any],
+    reference_video_sha256: str,
+) -> dict[str, Any]:
+    reference = _required(reference_id, "reference id")
+    plan_fingerprint = _sha(recreation_plan_fingerprint, "recreation plan fingerprint")
+    if selected_recreation_mode not in {"calm", "structural"}:
+        raise ValueError("selected recreation mode must be calm or structural")
+    classification = _required(reference_classification, "reference classification")
+    rights = dict(reference_provider_rights)
+    if (
+        rights.get("schema") != "reference_factory.provider_rights_eligibility.v1"
+        or rights.get("eligible") is not True
+        or rights.get("referenceId") != reference
+        or rights.get("provider") != "higgsfield"
+        or rights.get("operation") != "recreation_generation"
+        or rights.get("sourceSha256")
+        != _sha(reference_video_sha256, "reference video sha256")
+        or not _required(rights.get("rightsEventId"), "rights event id")
+        or not _sha(
+            rights.get("rightsEvidenceFingerprint"), "rights evidence fingerprint"
+        )
+        or not _required(rights.get("rightsExpiresAt"), "rights expiry")
+    ):
+        raise ValueError("reference provider rights receipt is invalid")
+    return {
+        "referenceId": reference,
+        "recreationPlanFingerprint": plan_fingerprint,
+        "selectedRecreationMode": selected_recreation_mode,
+        "referenceClassification": classification,
+        "referenceProviderRights": rights,
     }
 
 

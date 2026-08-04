@@ -864,7 +864,12 @@ def _acquire_ranked_candidates(
         "creditsUsed": None,
         "creditsRemaining": None,
     }
-    active_count = _scalar(conn, "SELECT COUNT(*) FROM audio_catalog WHERE active = 1")
+    conn.execute(
+        "UPDATE audio_catalog SET active = 0 WHERE active = 1 AND resolved = 0"
+    )
+    active_count = _scalar(
+        conn, "SELECT COUNT(*) FROM audio_catalog WHERE active = 1 AND resolved = 1"
+    )
     for ranked_candidate in ranked:
         if activated >= max_new or active_count >= max_active:
             break
@@ -1117,7 +1122,11 @@ def _recalculate_lifecycle(
         catalog_id = str(row["id"])
         pinned = bool(row["pinned"])
         winner = _recent_performance_winner(conn, catalog_id, now=now, config=config)
-        if pinned:
+        if not bool(row["resolved"]):
+            state = "STALE"
+            active = 0
+            absences = int(row["consecutive_absences"] or 0)
+        elif pinned:
             state = "PINNED"
             active = 1
             absences = int(row["consecutive_absences"] or 0)
@@ -1202,7 +1211,8 @@ def _enforce_active_cap(
     pinned = {
         str(row["id"])
         for row in conn.execute(
-            "SELECT id FROM audio_catalog WHERE active = 1 AND pinned = 1"
+            "SELECT id FROM audio_catalog "
+            "WHERE active = 1 AND pinned = 1 AND resolved = 1"
         ).fetchall()
     }
     keep = set(pinned)
@@ -1220,7 +1230,8 @@ def _enforce_active_cap(
         for row in conn.execute(
             """
             SELECT id FROM audio_catalog
-            WHERE active = 1 AND lifecycle_state IN ('PROVEN', 'EVERGREEN', 'COOLING')
+            WHERE active = 1 AND resolved = 1
+              AND lifecycle_state IN ('PROVEN', 'EVERGREEN', 'COOLING')
             ORDER BY CASE lifecycle_state
               WHEN 'PROVEN' THEN 0 WHEN 'EVERGREEN' THEN 1 ELSE 2 END,
               updated_at DESC

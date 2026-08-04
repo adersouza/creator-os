@@ -10,9 +10,12 @@ import campaign_factory.db_migrations as governance_migrations
 import pytest
 from campaign_asset_test_support import add_schedule_safe_production_asset
 from campaign_factory import cli as cli_module
+from campaign_factory.cli_parser import build_cli_parser
+from campaign_factory.creator_governance import CreatorGovernanceRepository
 from campaign_factory.creator_governance_schema import CREATOR_GOVERNANCE_SCHEMA
 from campaign_factory.db import init_db
 from campaign_factory.db_migrations import _apply_creator_governance_backfill
+from campaign_factory.db_schema import SCHEMA
 from campaign_test_support import (
     add_rendered_asset,
     authorize_campaign_governance,
@@ -46,6 +49,306 @@ def _identity_profile(
             "sourceReferences": [{"recordId": source_id, "fingerprint": source_sha256}],
         },
     }
+
+
+def _provider_identity_artifacts(
+    tmp_path: Path,
+    *,
+    creator: str = "stacey",
+    soul_id: str = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+) -> tuple[dict, Path, str, Path, str]:
+    model_profile = f"higgsfield.soul:{soul_id}"
+    evidence = {
+        "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+        "creatorKey": creator,
+        "displayName": creator.title(),
+        "modelProfile": model_profile,
+        "identityReferences": [
+            {
+                "namespace": "higgsfield.soul",
+                "externalId": soul_id,
+                "fingerprint": None,
+            }
+        ],
+        "reviewedBy": "operator:test",
+        "reviewedAt": "2026-08-03T12:00:00Z",
+    }
+    evidence_path = tmp_path / f"{creator}.reviewed_identity_facts.v1.json"
+    evidence_path.write_text(json.dumps(evidence, sort_keys=True), encoding="utf-8")
+    evidence_sha = _sha(evidence_path)
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": f"{creator}_higgsfield_{soul_id}",
+        "creatorKey": creator,
+        "displayName": creator.title(),
+        "modelProfile": model_profile,
+        "identityReferences": evidence["identityReferences"],
+        "provenance": {
+            "producer": "reel_factory.local_model_arena.record_builder",
+            "producedAt": "2026-08-03T12:00:00Z",
+            "sourceReferences": [
+                {
+                    "recordId": f"reviewed_identity_facts:{evidence_sha[:24]}",
+                    "fingerprint": evidence_sha,
+                }
+            ],
+        },
+    }
+    manifest_path = tmp_path / f"{creator}.creator_identity_profile.v1.json"
+    manifest_path.write_text(json.dumps(profile, sort_keys=True), encoding="utf-8")
+    return profile, manifest_path, _sha(manifest_path), evidence_path, evidence_sha
+
+
+def test_provider_native_identity_enrollment_needs_no_canonical_image(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.models.upsert_model("stacey")
+        profile, manifest, manifest_sha, evidence, evidence_sha = (
+            _provider_identity_artifacts(tmp_path)
+        )
+
+        enrolled = cf.domains.creator_governance.enroll_identity_profile(
+            "stacey",
+            provider="higgsfield",
+            provider_identity_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+            profile=profile,
+            canonical_source_asset_id=None,
+            identity_manifest_path=manifest,
+            identity_manifest_sha256=manifest_sha,
+            operator="test",
+            provider_identity_evidence_path=evidence,
+            provider_identity_evidence_sha256=evidence_sha,
+            canonical_evidence_type="provider_identity_attestation",
+        )
+
+        assert enrolled["canonical_source_asset_id"] is None
+        assert enrolled["canonical_evidence_type"] == "provider_identity_attestation"
+        assert enrolled["provider_identity_evidence_path"] == str(evidence.resolve())
+        assert enrolled["provider_identity_evidence_sha256"] == evidence_sha
+        active = cf.domains.creator_governance.active_identity_profile(
+            "stacey", provider="higgsfield"
+        )
+        assert active["provider_identity_id"] == "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+
+        with pytest.raises(
+            sqlite3.IntegrityError, match="creator identity evidence is immutable"
+        ):
+            cf.conn.execute(
+                """
+                UPDATE creator_identity_profiles
+                SET provider_identity_evidence_sha256 = ? WHERE id = ?
+                """,
+                ("f" * 64, enrolled["id"]),
+            )
+    finally:
+        cf.close()
+
+
+def test_provider_native_identity_evidence_is_rehashed_at_runtime(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.models.upsert_model("stacey")
+        profile, manifest, manifest_sha, evidence, evidence_sha = (
+            _provider_identity_artifacts(tmp_path)
+        )
+        cf.domains.creator_governance.enroll_identity_profile(
+            "stacey",
+            provider="higgsfield",
+            provider_identity_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+            profile=profile,
+            canonical_source_asset_id=None,
+            identity_manifest_path=manifest,
+            identity_manifest_sha256=manifest_sha,
+            operator="test",
+            provider_identity_evidence_path=evidence,
+            provider_identity_evidence_sha256=evidence_sha,
+            canonical_evidence_type="provider_identity_attestation",
+        )
+        evidence.write_text("tampered", encoding="utf-8")
+
+        with pytest.raises(PermissionError, match="provider_identity_evidence_stale"):
+            cf.domains.creator_governance.active_identity_profile(
+                "stacey", provider="higgsfield"
+            )
+    finally:
+        cf.close()
+
+
+def test_provider_native_identity_requires_exact_reviewed_soul_binding(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.models.upsert_model("stacey")
+        profile, manifest, manifest_sha, evidence, evidence_sha = (
+            _provider_identity_artifacts(tmp_path)
+        )
+        reviewed = json.loads(evidence.read_text(encoding="utf-8"))
+        reviewed["identityReferences"][0]["externalId"] = "different-soul"
+        evidence.write_text(json.dumps(reviewed, sort_keys=True), encoding="utf-8")
+        evidence_sha = _sha(evidence)
+        profile["provenance"]["sourceReferences"] = [
+            {
+                "recordId": f"reviewed_identity_facts:{evidence_sha[:24]}",
+                "fingerprint": evidence_sha,
+            }
+        ]
+        manifest.write_text(json.dumps(profile, sort_keys=True), encoding="utf-8")
+
+        with pytest.raises(
+            PermissionError, match="provider_identity_evidence_binding_mismatch"
+        ):
+            cf.domains.creator_governance.enroll_identity_profile(
+                "stacey",
+                provider="higgsfield",
+                provider_identity_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+                profile=profile,
+                canonical_source_asset_id=None,
+                identity_manifest_path=manifest,
+                identity_manifest_sha256=_sha(manifest),
+                operator="test",
+                provider_identity_evidence_path=evidence,
+                provider_identity_evidence_sha256=evidence_sha,
+                canonical_evidence_type="provider_identity_attestation",
+            )
+    finally:
+        cf.close()
+
+
+def test_provider_native_identity_rejects_model_profile_or_provider_alias_drift(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.models.upsert_model("stacey")
+        profile, manifest, _manifest_sha, evidence, evidence_sha = (
+            _provider_identity_artifacts(tmp_path)
+        )
+        profile["modelProfile"] = "higgsfield.soul:different-soul"
+        reviewed = json.loads(evidence.read_text(encoding="utf-8"))
+        reviewed["modelProfile"] = profile["modelProfile"]
+        evidence.write_text(json.dumps(reviewed, sort_keys=True), encoding="utf-8")
+        evidence_sha = _sha(evidence)
+        profile["provenance"]["sourceReferences"] = [
+            {
+                "recordId": f"reviewed_identity_facts:{evidence_sha[:24]}",
+                "fingerprint": evidence_sha,
+            }
+        ]
+        manifest.write_text(json.dumps(profile, sort_keys=True), encoding="utf-8")
+
+        with pytest.raises(
+            PermissionError, match="provider_identity_evidence_binding_mismatch"
+        ):
+            cf.domains.creator_governance.enroll_identity_profile(
+                "stacey",
+                provider="higgsfield",
+                provider_identity_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+                profile=profile,
+                canonical_source_asset_id=None,
+                identity_manifest_path=manifest,
+                identity_manifest_sha256=_sha(manifest),
+                operator="test",
+                provider_identity_evidence_path=evidence,
+                provider_identity_evidence_sha256=evidence_sha,
+                canonical_evidence_type="provider_identity_attestation",
+            )
+
+        profile, manifest, manifest_sha, evidence, evidence_sha = (
+            _provider_identity_artifacts(tmp_path)
+        )
+        with pytest.raises(
+            ValueError, match="provider_identity_profile_binding_mismatch"
+        ):
+            cf.domains.creator_governance.enroll_identity_profile(
+                "stacey",
+                provider="field",
+                provider_identity_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+                profile=profile,
+                canonical_source_asset_id=None,
+                identity_manifest_path=manifest,
+                identity_manifest_sha256=manifest_sha,
+                operator="test",
+                provider_identity_evidence_path=evidence,
+                provider_identity_evidence_sha256=evidence_sha,
+                canonical_evidence_type="provider_identity_attestation",
+            )
+    finally:
+        cf.close()
+
+
+def test_creator_identity_cli_requires_exactly_one_evidence_mode() -> None:
+    parser = build_cli_parser()
+    common = [
+        "creator-identity-enroll",
+        "--creator",
+        "stacey",
+        "--provider",
+        "higgsfield",
+        "--provider-identity-id",
+        "soul-stacey",
+        "--profile-json",
+        "profile.json",
+        "--operator",
+        "test",
+    ]
+
+    assert (
+        parser.parse_args(
+            [*common, "--provider-identity-evidence", "reviewed.json"]
+        ).provider_identity_evidence
+        == "reviewed.json"
+    )
+    assert (
+        parser.parse_args(
+            [*common, "--canonical-source-asset-id", "source-1"]
+        ).canonical_source_asset_id
+        == "source-1"
+    )
+    with pytest.raises(SystemExit):
+        parser.parse_args(common)
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                *common,
+                "--provider-identity-evidence",
+                "reviewed.json",
+                "--canonical-source-asset-id",
+                "source-1",
+            ]
+        )
+
+
+def test_creator_status_reads_legacy_identity_table_shape() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.executescript(SCHEMA)
+        now = "2026-08-03T00:00:00Z"
+        conn.execute(
+            """
+            INSERT INTO models(id, slug, name, created_at, updated_at)
+            VALUES ('model_legacy', 'legacy', 'Legacy', ?, ?)
+            """,
+            (now, now),
+        )
+        repository = CreatorGovernanceRepository(
+            conn,
+            new_id=lambda prefix: f"{prefix}_test",
+            slugify=lambda value: value,
+            utc_now=lambda: now,
+        )
+
+        status = repository.creator_status("legacy")
+
+        assert status["identityProfiles"] == []
+        assert status["creator"]["id"] == "model_legacy"
+    finally:
+        conn.close()
 
 
 def test_identity_consent_and_campaign_state_fail_closed(tmp_path: Path):

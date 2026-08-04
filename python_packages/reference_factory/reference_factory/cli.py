@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.sqlite import connect_sqlite
 
 from . import reference_gemini as _reference_gemini
 from . import reference_grok as _reference_grok
@@ -41,7 +42,7 @@ from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
 from .knowledge_pack import MINIMUM_MEASURED_EXAMPLES, export_knowledge_pack
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
-from .ocr import ocr_cleanup, run_ocr
+from .ocr import ocr_cleanup, promote_url_overlay_candidate, run_ocr
 from .outcomes import import_prompt_outcomes_file
 from .patterns import (
     analyze_patterns,
@@ -76,6 +77,7 @@ from .reference_prompt_generation import export_video_prompts, generate_video_pr
 from .review import build_shortlist, export_gold, label_reference, review_batch
 from .scan import scan_source
 from .tiktok_archive import import_tiktok_archive
+from .url_intake import repair_url_intake_video_probes, resolve_url_intake_reference
 
 analyze_reference_with_gemini_api = _reference_gemini.analyze_reference_with_gemini_api
 compile_prompts_with_grok_api = _reference_grok.compile_prompts_with_grok_api
@@ -140,6 +142,30 @@ def build_parser() -> argparse.ArgumentParser:
     ocr.add_argument("--limit", default=None)
 
     sub.add_parser("ocr-cleanup", help="Remove low-value OCR caption patterns")
+
+    overlay_candidate = sub.add_parser(
+        "promote-overlay-candidate",
+        help="Promote one reviewed URL-intake overlay observation into caption patterns",
+    )
+    overlay_candidate.add_argument("--reference-id", required=True)
+    overlay_candidate.add_argument("--observation-index", type=int, required=True)
+    overlay_candidate.add_argument("--operator", required=True)
+    overlay_candidate.add_argument("--human-semantic-approval", action="store_true")
+    overlay_candidate.add_argument("--human-timing-approval", action="store_true")
+    overlay_candidate.add_argument("--notes", default=None)
+
+    repair_probes = sub.add_parser(
+        "repair-url-intake-probes",
+        help="Dry-run or repair missing canonical probes for stored URL intakes",
+    )
+    repair_probes.add_argument("--apply", action="store_true")
+    repair_probes.add_argument("--limit", default="all")
+
+    resolve_url_intake = sub.add_parser(
+        "resolve-url-intake",
+        help="Resolve one stored URL intake as read-only JSON",
+    )
+    resolve_url_intake.add_argument("--reference-id", required=True)
 
     sheet = sub.add_parser("contact-sheet", help="Generate HTML/image contact sheet")
     sheet.add_argument(
@@ -605,7 +631,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate Higgsfield/Kling prompt drafts from reference analysis",
     )
     generate_prompts.add_argument("--tools", default="higgsfield_soul,kling_3")
-    generate_prompts.add_argument("--model-profile", default=None)
+    generate_prompts.add_argument(
+        "--model-profile",
+        required=True,
+        help="Creation-enabled creator profile (Larissa or Stacey)",
+    )
     generate_prompts.add_argument("--limit", type=int, default=50)
     generate_prompts.add_argument(
         "--include-pending", action=argparse.BooleanOptionalAction, default=True
@@ -679,6 +709,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     db_path = Path(args.db).expanduser()
     data_root = Path(args.data_root or DEFAULT_DATA_ROOT).expanduser()
+    if args.command == "resolve-url-intake":
+        conn = connect_sqlite(db_path, readonly=True, wal=False)
+        conn.execute("PRAGMA query_only = ON")
+        try:
+            print_json(resolve_url_intake_reference(conn, args.reference_id))
+        finally:
+            conn.close()
+        return 0
     ensure_data_dirs(data_root)
     conn = connect(db_path)
     try:
@@ -701,6 +739,26 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "ocr-cleanup":
             print_json(ocr_cleanup(conn))
+        elif args.command == "promote-overlay-candidate":
+            print_json(
+                promote_url_overlay_candidate(
+                    conn,
+                    reference_id=args.reference_id,
+                    observation_index=args.observation_index,
+                    operator=args.operator,
+                    human_semantic_approval=args.human_semantic_approval,
+                    human_timing_approval=args.human_timing_approval,
+                    notes=args.notes,
+                )
+            )
+        elif args.command == "repair-url-intake-probes":
+            print_json(
+                repair_url_intake_video_probes(
+                    conn,
+                    apply=args.apply,
+                    limit=parse_limit(args.limit),
+                )
+            )
         elif args.command == "contact-sheet":
             print_json(
                 generate_contact_sheet(
@@ -1136,6 +1194,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "import-reference-analysis":
             print_json(import_reference_analysis(conn, Path(args.input)))
         elif args.command == "import-gemini-app-response":
+            if args.generate_prompts and not str(args.model_profile or "").strip():
+                parser.error(
+                    "--model-profile is required when --generate-prompts is enabled"
+                )
             print_json(
                 import_gemini_app_response(
                     conn,

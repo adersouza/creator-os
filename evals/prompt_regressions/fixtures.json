@@ -1,13 +1,13 @@
 [
   {
-    "description": "Gemini one-shot motion analysis instruction",
+    "description": "Gemini multi-shot motion analysis instruction",
     "vars": {
       "surface": "gemini_motion_analysis",
       "reference_id": "reference_video_fixture_001",
       "captured_fixture": "packages/pipeline_contracts/pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json",
-      "expected_prompt_sha256": "859066e03db091e39fbfc00de55f09c4c9fba3cef413ab0b79e9f799aa7eafec",
+      "expected_prompt_sha256": "f2f75c62738323e0ae84d51b1aa21c4c09ccf8841fd969e70cabfb259b48222d",
       "human_rubric": [
-        "Motion-only structure is clear without encouraging literal source copying.",
+        "Single-shot and multi-shot motion structure is clear without encouraging literal source copying.",
         "The requested JSON evidence is understandable to a human reviewer."
       ]
     }

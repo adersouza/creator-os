@@ -68,7 +68,7 @@ def test_wrong_type_mutations_fail_closed(payload: object) -> None:
         validate_audio_intent(malformed)
 
 
-@given(st.sampled_from([5, 12]))
+@given(st.sampled_from([4, 15]))
 def test_motion_duration_contract_accepts_both_inclusive_boundaries(
     duration_seconds: int,
 ) -> None:

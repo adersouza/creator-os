@@ -81,6 +81,7 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
                         "creatorFitScore": 91,
                         "usageCount": 10000,
                         "resolved": True,
+                        "rightsStatus": "granted",
                         "sourceConfidence": 0.9,
                     }
                 ],

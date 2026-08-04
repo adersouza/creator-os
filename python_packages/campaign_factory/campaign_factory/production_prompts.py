@@ -135,7 +135,12 @@ def build_reel_creative_context(*, mode: str, intent: str) -> dict[str, Any]:
             if reference_driven
             else LOW_EFFORT_REEL_VISUAL_DIRECTION
         ),
-        "identityPolicy": "Soul ID and the exact approved creator image supply identity.",
+        "identityPolicy": (
+            "The verified selected Higgsfield Soul binding is the sole identity "
+            "source; reference Reel frames supply structure only."
+            if reference_driven
+            else "Soul ID and the exact approved creator image supply identity."
+        ),
         "overlayPolicy": "Burned overlay copy is added later by Reel Factory.",
         "learningPolicy": (
             "Approved learning may refine selection but cannot replace mode purpose "

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Final
 
 from .production_higgsfield_authorization import _fingerprint
@@ -12,18 +13,62 @@ SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
 RECREATE_INTENTS: Final = frozenset({"recreate_reel"})
 
 
+def bind_recreation_duration(
+    recipe: dict[str, Any], reference_analysis: dict[str, Any]
+) -> None:
+    recipe["stages"][0]["durationSeconds"] = min(
+        5 if recipe.get("recreationMode") == "calm" else 15,
+        max(
+            4,
+            int(
+                math.floor(float(reference_analysis["media"]["durationSeconds"]) + 0.5)
+            ),
+        ),
+    )
+    core = {key: value for key, value in recipe.items() if key != "recipeFingerprint"}
+    recipe["recipeFingerprint"] = _fingerprint(core)
+
+
 def build_production_motion_recipe(
     *,
     creator: str,
     intent: str,
     execution: str,
     source_sha256: str,
+    recreation_mode: str | None = None,
+    reference_classification: str | None = None,
 ) -> dict[str, Any]:
     if not (creator_slug := creator.strip().lower().replace(" ", "_")):
         raise ValueError("creator is required")
     if intent not in INTENT_PROMPTS:
         raise ValueError(f"intent {intent!r} is not in the production motion catalog")
-    if execution == "cloud" and intent in RECREATE_INTENTS:
+    if intent in RECREATE_INTENTS and recreation_mode not in {
+        None,
+        "calm",
+        "structural",
+    }:
+        raise ValueError("recreation mode must be calm or structural")
+    if (
+        execution == "cloud"
+        and intent in RECREATE_INTENTS
+        and recreation_mode == "calm"
+    ):
+        mode = "recreate_reel"
+        stage = {
+            "modelId": "higgsfield_kling3_turbo_i2v",
+            "providerModel": "kling3_0_turbo",
+            "recipeId": "higgsfield_passive_selfie",
+            "durationSeconds": 5,
+            "resolution": "720p",
+            "mode": "turbo",
+            "providerAudioControl": "unavailable",
+            "requiredOutputAudioStreams": 0,
+        }
+        stages = ({**stage, "task": "image_to_video"},)
+        model_id = str(stages[0]["modelId"])
+        status = "supported"
+        visual_selection_required = False
+    elif execution == "cloud" and intent in RECREATE_INTENTS:
         mode = "recreate_reel"
         stages = ({**RECREATE_REEL_STAGE},)
         model_id = str(stages[0]["modelId"])
@@ -61,6 +106,10 @@ def build_production_motion_recipe(
         "researchSelectionRequired": False,
         "operatorVisualSelectionRequired": visual_selection_required,
         "provider": "higgsfield",
+        "recreationMode": recreation_mode if intent in RECREATE_INTENTS else None,
+        "referenceClassification": (
+            reference_classification if intent in RECREATE_INTENTS else None
+        ),
     }
     return {**core, "recipeFingerprint": _fingerprint(core)}
 

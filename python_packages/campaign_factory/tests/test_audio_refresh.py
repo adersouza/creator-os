@@ -26,12 +26,57 @@ from campaign_factory.audio_radar.refresh import (
     LifecycleThresholds,
     RefreshPaths,
     _prune_cache,
+    _recalculate_lifecycle,
     _separate_legacy_tiklive_sound_owners,
     refresh_audio_library,
 )
 from campaign_factory.db import connect, init_db
 
 FIXTURES = Path(__file__).parent / "fixtures" / "audio_radar"
+
+
+def test_refresh_never_keeps_unresolved_reference_audio_active(tmp_path: Path) -> None:
+    database = tmp_path / "campaign.sqlite"
+    with connect(database) as conn:
+        init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO audio_catalog (
+              id, title, platform, native_audio_id, native_audio_url,
+              resolved, lifecycle_state, pinned, active, raw_json,
+              imported_at, updated_at
+            ) VALUES (
+              'reference_unresolved',
+              'Instagram audio ABC (title unresolved)',
+              'instagram',
+              'unresolved_sha256_abc',
+              'https://www.instagram.com/reel/ABC/',
+              0, 'PINNED', 1, 1,
+              '{"referenceOnly":true,"rightsStatus":"unverified"}',
+              '2026-08-03T00:00:00+00:00',
+              '2026-08-03T00:00:00+00:00'
+            )
+            """
+        )
+        conn.commit()
+
+        _recalculate_lifecycle(
+            conn,
+            seen_catalog_ids=set(),
+            ranked=[],
+            catalog_ids={},
+            successful_platforms={"instagram"},
+            run_id="refresh_test",
+            now="2026-08-03T01:00:00+00:00",
+            max_active=10,
+            config=LifecycleThresholds(),
+        )
+
+        row = conn.execute(
+            "SELECT resolved, lifecycle_state, active FROM audio_catalog "
+            "WHERE id = 'reference_unresolved'"
+        ).fetchone()
+        assert dict(row) == {"resolved": 0, "lifecycle_state": "STALE", "active": 0}
 
 
 class FakeResponse:

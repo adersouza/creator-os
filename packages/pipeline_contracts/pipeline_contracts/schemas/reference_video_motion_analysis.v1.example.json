@@ -31,6 +31,17 @@
         "action": "Complete the hip shift and settle into the ending pose.",
         "camera": "Maintain the same framing and settle."
       }
+    ],
+    "shots": [
+      {
+        "shotNumber": 1,
+        "startSeconds": 0.0,
+        "endSeconds": 7.5,
+        "semanticRole": "hook",
+        "framing": "Centered waist-up framing throughout.",
+        "action": "Make a small shoulder turn, transfer hip weight, and settle into the ending pose.",
+        "camera": "Restrained handheld drift with no cut or zoom jump."
+      }
     ]
   },
   "distinctness": {
@@ -43,5 +54,9 @@
     "transcriptionUsedForMotionOnly": true
   },
   "motionPrompt": "Create one continuous vertical shot with a restrained shoulder turn, a small hip weight transfer, subtle handheld drift, and a stable final hold.",
-  "requiresReferenceVideoConditioning": true
+  "requiresReferenceVideoConditioning": true,
+  "recreationPolicy": {
+    "fidelity": "broad_structure_only",
+    "exactChoreographySupported": false
+  }
 }

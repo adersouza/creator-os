@@ -57,6 +57,12 @@ RECREATION_REVIEW_FIELDS: Final = (
     "obviousAiArtifacts",
     "audioSynchronization",
 )
+MUTED_WATCHABILITY_FIELDS: Final = (
+    "setupPayoff",
+    "meaningfulSilentMotion",
+    "anticipation",
+    "shotContinuity",
+)
 
 
 def detect_reference_video_scenes(path: Path) -> dict[str, Any]:
@@ -368,6 +374,33 @@ def build_recreation_review(
             "framingProgressionSimilarity": None,
         },
     }
+
+
+def build_muted_watchability_review(
+    *,
+    final_sha256: str,
+    reference_video_sha256: str,
+    assessments: dict[str, Any],
+    reviewed_by: str,
+    reviewed_at: str,
+) -> dict[str, Any]:
+    """Bind the required silent-playback semantics to exact final bytes."""
+
+    values = {key: assessments.get(key) for key in MUTED_WATCHABILITY_FIELDS}
+    if any(type(value) is not bool for value in values.values()):
+        raise ValueError("muted_watchability_review_incomplete")
+    core = {
+        "schema": "campaign_factory.muted_watchability_review.v1",
+        "finalSha256": _sha(final_sha256, "final_sha256"),
+        "referenceVideoSha256": _sha(reference_video_sha256, "reference_video_sha256"),
+        "assessments": values,
+        "status": "passed" if all(values.values()) else "failed",
+        "reviewedBy": str(reviewed_by or "").strip(),
+        "reviewedAt": str(reviewed_at or "").strip(),
+    }
+    if not core["reviewedBy"] or not core["reviewedAt"]:
+        raise ValueError("muted_watchability_reviewer_required")
+    return {**core, "reviewFingerprint": _fingerprint(core)}
 
 
 def rank_character_references(

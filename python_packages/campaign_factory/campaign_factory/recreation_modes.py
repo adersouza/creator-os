@@ -58,6 +58,7 @@ def plan_recreation(
     max_credits: float | None,
     creator_governance: Mapping[str, Any],
     prompt_pack: dict[str, Any] | None = None,
+    provider_rights: Mapping[str, Any] | None = None,
     quote_provider: QuoteProvider | None = None,
 ) -> dict[str, Any]:
     """Build one stable public plan without exposing private Soul identifiers."""
@@ -109,6 +110,11 @@ def plan_recreation(
         audio=audio,
     )
     prompts = validate_prompt_pack(prompt_pack) if prompt_pack else None
+    rights = _provider_rights_binding(
+        provider_rights,
+        reference_id=reference_id,
+        source_sha256=str(_mapping(reference.get("source")).get("sha256") or ""),
+    )
     scene_prompt = (
         str(prompts["anchorPrompt"])
         if prompts is not None
@@ -188,6 +194,8 @@ def plan_recreation(
     readiness = (
         "BLOCKED_OPENAI_PROMPT_PACK_REQUIRED"
         if prompts is None
+        else "BLOCKED_PROVIDER_RIGHTS_REQUIRED"
+        if rights is None
         else "MANUAL_REVIEW_REQUIRED"
         if route_status == "manual_review"
         else "EXPERIMENTAL_AUTHORIZATION_REQUIRED"
@@ -226,6 +234,7 @@ def plan_recreation(
         "selectedMode": routed_mode,
         "alternatives": alternatives,
         "promptPack": prompts,
+        "referenceProviderRights": rights,
         "productionReadiness": readiness,
         "through": through or "plan",
         "excerpt": excerpt,
@@ -266,6 +275,30 @@ def plan_recreation(
         "schedulingAllowed": False,
     }
     return {**public, "planFingerprint": _fingerprint(public)}
+
+
+def _provider_rights_binding(
+    value: Mapping[str, Any] | None,
+    *,
+    reference_id: str,
+    source_sha256: str,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    rights = dict(value)
+    if (
+        rights.get("schema") != "reference_factory.provider_rights_eligibility.v1"
+        or rights.get("eligible") is not True
+        or rights.get("referenceId") != reference_id
+        or rights.get("provider") != "higgsfield"
+        or rights.get("operation") != "recreation_generation"
+        or rights.get("sourceSha256") != source_sha256
+        or not str(rights.get("rightsEventId") or "").strip()
+        or len(str(rights.get("rightsEvidenceFingerprint") or "")) != 64
+        or not str(rights.get("rightsExpiresAt") or "").strip()
+    ):
+        raise PermissionError("recreation_provider_rights_receipt_invalid")
+    return rights
 
 
 def _classification(reference: dict[str, Any], measurements: dict[str, Any]) -> str:

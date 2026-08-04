@@ -119,6 +119,62 @@ def test_reconciliation_report_is_read_only_and_finds_byte_drift(
         cf.close()
 
 
+def test_reconciliation_tracks_active_provider_identity_evidence(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.domains.models.upsert_model("stacey")
+        manifest = tmp_path / "provider-profile.json"
+        manifest.write_text('{"creatorKey":"stacey"}', encoding="utf-8")
+        manifest_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        evidence = tmp_path / "reviewed-provider-facts.json"
+        evidence.write_text('{"reviewedBy":"operator"}', encoding="utf-8")
+        evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        now = "2026-08-03T00:00:00Z"
+        cf.conn.execute(
+            """
+            INSERT INTO creator_identity_profiles
+            (id, model_id, provider, provider_identity_id, version, profile_json,
+             profile_fingerprint, identity_manifest_path, identity_manifest_sha256,
+             canonical_source_asset_id, canonical_evidence_type,
+             provider_identity_evidence_path, provider_identity_evidence_sha256,
+             status, activated_at, retired_at, operator, created_at)
+            VALUES ('identity_provider', ?, 'higgsfield', 'soul-stacey', 1, '{}',
+                    ?, ?, ?, NULL, 'provider_identity_attestation', ?, ?,
+                    'active', ?, NULL, 'test', ?)
+            """,
+            (
+                model["id"],
+                "f" * 64,
+                str(manifest),
+                manifest_sha,
+                str(evidence),
+                evidence_sha,
+                now,
+                now,
+            ),
+        )
+        cf.conn.commit()
+
+        report = reconciliation_report(cf.conn, cf.settings)
+        assert any(
+            item["findingClass"] == "external_identity_evidence_outside_backup_coverage"
+            and item["subjectType"] == "provider_identity_evidence"
+            for item in report["findings"]
+        )
+
+        evidence.write_text("tampered", encoding="utf-8")
+        drifted = reconciliation_report(cf.conn, cf.settings)
+        assert any(
+            item["findingClass"] == "path_containing_different_bytes_than_recorded"
+            and item["subjectType"] == "provider_identity_evidence"
+            for item in drifted["findings"]
+        )
+    finally:
+        cf.close()
+
+
 def test_immutable_audit_path_is_covered_by_exact_managed_copy(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:

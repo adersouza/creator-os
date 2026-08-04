@@ -5,12 +5,95 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from campaign_factory.recreation_lifecycle import (
+    _campaign_for_soul_identity,
+    _register_anchor_candidate,
     explain_recreation_job,
     record_recreation_review,
 )
-from campaign_test_support import make_factory
+from campaign_test_support import authorize_campaign_governance, make_factory
 from PIL import Image
+
+
+def test_soul_bound_anchor_candidate_has_no_creator_image_lineage(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        soul_id = "soul-stacey-verified"
+        governance = authorize_campaign_governance(
+            cf,
+            tmp_path,
+            creator="stacey",
+            campaign="stacey-recreation",
+            provider="higgsfield",
+            soul_id=soul_id,
+            reference_video_use=True,
+        )
+        active = dict(
+            cf.domains.creator_governance.active_identity_profile(
+                "stacey", provider="higgsfield"
+            )
+        )
+        binding_core = {
+            "schema": "campaign_factory.verified_soul_identity_binding.v1",
+            "creatorSlug": "stacey",
+            "provider": "higgsfield",
+            "soulId": soul_id,
+            "identityProfileId": active["id"],
+            "identityProfileVersion": active["version"],
+            "identityProfileFingerprint": active["profile_fingerprint"],
+        }
+        soul_identity = {
+            **binding_core,
+            "bindingFingerprint": hashlib.sha256(
+                json.dumps(binding_core, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+        }
+        campaign, model_id = _campaign_for_soul_identity(
+            cf,
+            creator="stacey",
+            campaign_id=governance["campaign"]["id"],
+            soul_id=soul_id,
+            soul_identity=soul_identity,
+        )
+        anchor = tmp_path / "soul-anchor.png"
+        Image.new("RGB", (360, 640), "gold").save(anchor)
+        anchor_sha = hashlib.sha256(anchor.read_bytes()).hexdigest()
+        lineage_path = tmp_path / "provider-lineage.json"
+        lineage_path.write_text("{}", encoding="utf-8")
+        registered = _register_anchor_candidate(
+            cf,
+            campaign=campaign,
+            source=None,
+            model_id=model_id,
+            anchor=anchor,
+            digest=anchor_sha,
+            attempt_id="soul-attempt-1",
+            generation_id="soul-generation-1",
+            prompt_pack={
+                "promptPackFingerprint": "a" * 64,
+                "soulIdentity": soul_identity,
+                "referenceVideo": {"sha256": "b" * 64},
+            },
+            execution_binding={
+                "referenceId": "reference-1",
+                "recreationPlanFingerprint": "c" * 64,
+                "selectedRecreationMode": "structural",
+                "referenceClassification": "simple_pose_motion",
+                "referenceProviderRights": {"eligible": True},
+            },
+            lineage_path=lineage_path,
+            spend_receipt=None,
+        )
+        lineage = json.loads(str(registered["source_prompt"]))
+        assert lineage["derivedFromSourceAssetId"] is None
+        assert lineage["creatorImageSha256"] is None
+        assert lineage["soulIdentity"] == soul_identity
+        assert lineage["referenceVideoSha256"] == "b" * 64
+    finally:
+        cf.close()
 
 
 def test_recreation_explain_and_retry_branches_keep_provider_success(
@@ -209,5 +292,37 @@ def test_recreation_explain_and_retry_branches_keep_provider_success(
             "SELECT review_state FROM rendered_assets WHERE id = ?", (asset_id,)
         ).fetchone()
         assert row["review_state"] == "rejected"
+
+        with pytest.raises(PermissionError, match="muted_watchability_review_required"):
+            record_recreation_review(
+                cf,
+                job_id=job["id"],
+                stage="final_video",
+                decision="approved",
+                reviewed_by="operator@test",
+            )
+        approved = record_recreation_review(
+            cf,
+            job_id=job["id"],
+            stage="final_video",
+            decision="approved",
+            reviewed_by="operator@test",
+            notes=json.dumps(
+                {
+                    "mutedWatchability": {
+                        "setupPayoff": True,
+                        "meaningfulSilentMotion": True,
+                        "anticipation": True,
+                        "shotContinuity": True,
+                    }
+                }
+            ),
+        )
+        muted = approved["mutedWatchabilityReview"]
+        assert approved["wouldPost"] is True
+        assert approved["publishability"] == "eligible_for_normal_approval_flow"
+        assert muted["status"] == "passed"
+        assert muted["finalSha256"] == final_sha
+        assert Path(muted["receiptPath"]).is_file()
     finally:
         cf.close()

@@ -61,6 +61,7 @@ def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(
                         "moodTags": ["fit_check"],
                         "bestContentTypes": ["v01_original"],
                         "trendStatus": "rising",
+                        "rightsStatus": "granted",
                         "safeUsageNotes": "native only",
                     }
                 ],
@@ -116,6 +117,7 @@ def test_threadsdash_audio_intent_uses_destination_account_fit(tmp_path: Path):
                         "bestContentTypes": ["v01_original"],
                         "accountFit": ["ig_a"],
                         "trendStatus": "rising",
+                        "rightsStatus": "granted",
                     },
                     {
                         "id": "aud_b",
@@ -127,6 +129,7 @@ def test_threadsdash_audio_intent_uses_destination_account_fit(tmp_path: Path):
                         "bestContentTypes": ["v01_original"],
                         "accountFit": ["ig_b"],
                         "trendStatus": "rising",
+                        "rightsStatus": "granted",
                     },
                 ],
             }

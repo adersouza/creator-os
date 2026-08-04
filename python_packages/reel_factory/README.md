@@ -56,9 +56,11 @@ scripts/creator-os create \
 scripts/creator-os create \
   --creator stacey --mode recreate_reel \
   --reference-video /path/to/reference.mp4 \
-  --creator-image /path/to/approved-creator.png \
   --recreate-mode auto --reference-authorized --audio auto
 ```
+
+Reference recreation uses the creator's verified active Higgsfield Soul binding
+as its sole identity source; Reel frames supply structure, not identity.
 
 Generation still stops at local review-ready assets. It does not schedule or
 publish.

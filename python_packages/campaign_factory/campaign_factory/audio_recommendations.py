@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .audio_policy import audio_preview_evidence, is_native_audio_url, is_reel_page_url
 from .config import Settings
 from .persistence import json_load, utc_now
 
@@ -31,8 +32,23 @@ OFM_AUDIO_CONTEXT_TAGS = {
     "soft_glam",
 }
 
+AUDIO_RIGHTS_ELIGIBLE_STATUSES = {
+    "cleared",
+    "granted",
+    "licensed",
+    "owned",
+    "platform_native_licensed",
+    "royalty_free",
+    "verified",
+}
+_UNRESOLVED_NATIVE_ID_PREFIXES = ("example_", "unresolved_sha256_")
+
 
 class AudioRecommendationRepository:
+    audio_preview_evidence = staticmethod(audio_preview_evidence)
+    is_native_audio_url = staticmethod(is_native_audio_url)
+    is_reel_page_url = staticmethod(is_reel_page_url)
+
     def __init__(
         self,
         conn: sqlite3.Connection,
@@ -70,17 +86,25 @@ class AudioRecommendationRepository:
         if not catalog_path.exists():
             raise FileNotFoundError(f"audio catalog not found: {catalog_path}")
         payload = json_load(catalog_path.read_text(encoding="utf-8"), {})
-        items = (
-            payload.get("items")
-            or payload.get("audio")
-            or payload.get("recommendations")
-        )
-        if not isinstance(items, list):
+        production_items = payload.get("items")
+        if production_items is None:
+            production_items = payload.get("audio")
+        if production_items is None:
+            production_items = payload.get("recommendations")
+        if not isinstance(production_items, list):
             raise ValueError("audio catalog export must contain an items array")
+        trend_evidence = payload.get("trendEvidence") or []
+        if not isinstance(trend_evidence, list):
+            raise ValueError("audio catalog trendEvidence must be an array")
+        items = [(item, False) for item in production_items] + [
+            (item, True) for item in trend_evidence
+        ]
         now = utc_now()
         imported = 0
+        production_imported = 0
+        trend_evidence_imported = 0
         snapshots_imported = 0
-        for item in items:
+        for item, forced_reference_only in items:
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title") or item.get("audioTitle") or "").strip()
@@ -113,8 +137,21 @@ class AudioRecommendationRepository:
                     source_audio_id = (
                         existing_audio["source_audio_id"] or source_audio_id
                     )
-            review_reasons = item.get("reviewReasons") or []
+            eligible, review_reasons = self.imported_audio_production_eligibility(
+                item,
+                forced_reference_only=forced_reference_only,
+            )
+            rights_status = self.audio_rights_status(item) or "unverified"
+            preview_evidence = self.audio_preview_evidence(item)
             raw = dict(item)
+            raw["productionEligible"] = eligible
+            raw["referenceOnly"] = not eligible
+            raw["rightsStatus"] = rights_status
+            raw["reviewReasons"] = review_reasons
+            if preview_evidence:
+                raw["previewEvidence"] = preview_evidence
+                raw.setdefault("localPreviewPath", preview_evidence.get("path"))
+                raw.setdefault("previewSha256", preview_evidence.get("sha256"))
             latest_snapshot = self.latest_audio_trend_snapshot_payload(item)
             trend_sources = item.get("trendSources") or item.get("sources") or []
             if isinstance(item.get("source"), str):
@@ -201,7 +238,7 @@ class AudioRecommendationRepository:
                         sorted({str(source) for source in trend_sources if source}),
                         ensure_ascii=False,
                     ),
-                    1 if item.get("resolved") is True or not review_reasons else 0,
+                    1 if eligible else 0,
                     json.dumps(review_reasons, ensure_ascii=False),
                     json.dumps(item.get("exampleReels") or [], ensure_ascii=False),
                     json.dumps(
@@ -217,6 +254,18 @@ class AudioRecommendationRepository:
                     now,
                 ),
             )
+            if not eligible:
+                self.conn.execute(
+                    """
+                    UPDATE audio_catalog
+                    SET active = 0,
+                        lifecycle_state = 'STALE',
+                        resolved = 0,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, row_id),
+                )
             audio_graph_id = self._ensure_graph_node(
                 "audio_memory",
                 local_table="audio_catalog",
@@ -285,6 +334,10 @@ class AudioRecommendationRepository:
                 )
                 snapshots_imported += 1
             imported += 1
+            if eligible:
+                production_imported += 1
+            else:
+                trend_evidence_imported += 1
         self.conn.commit()
         self._record_event(
             "audio_memory_imported",
@@ -293,6 +346,8 @@ class AudioRecommendationRepository:
             metadata={
                 "catalogPath": str(catalog_path),
                 "tracks": imported,
+                "productionTracks": production_imported,
+                "trendEvidenceTracks": trend_evidence_imported,
                 "trendSnapshots": snapshots_imported,
             },
         )
@@ -300,6 +355,8 @@ class AudioRecommendationRepository:
             "schema": "campaign_factory.audio_memory_import.v1",
             "catalogPath": str(catalog_path),
             "tracksImported": imported,
+            "productionTracksImported": production_imported,
+            "trendEvidenceImported": trend_evidence_imported,
             "trendSnapshotsImported": snapshots_imported,
         }
 
@@ -407,13 +464,25 @@ class AudioRecommendationRepository:
                     )
         platform_key = platform.strip().lower()
         if platform_key in {"instagram", "ig", "instagram_reels"}:
-            candidates = [
+            catalog_candidates = [
                 item
                 for item in self.audio_catalog(platform=None, limit=1000)["items"]
                 if item.get("platform") in {"instagram", "tiktok"}
             ]
         else:
-            candidates = self.audio_catalog(platform=platform, limit=1000)["items"]
+            catalog_candidates = self.audio_catalog(platform=platform, limit=1000)[
+                "items"
+            ]
+        candidates = [
+            item
+            for item in catalog_candidates
+            if self.audio_item_is_production_eligible(item)
+        ]
+        trend_evidence_candidates = [
+            item
+            for item in catalog_candidates
+            if not self.audio_item_is_production_eligible(item)
+        ]
         scored = []
         use_contentforge_fit = (
             bool(visual_signal) or os.environ.get("CAMPAIGN_FACTORY_AUDIO_FIT") == "1"
@@ -485,6 +554,17 @@ class AudioRecommendationRepository:
             "accountTags": sorted(accounts),
             "visualSignal": visual_signal if isinstance(visual_signal, dict) else None,
             "recommendations": recommendations,
+            "trendEvidence": [
+                self.audio_catalog_recommendation(
+                    {
+                        **item,
+                        "requestedPlatform": platform_key,
+                        "matchScore": 0,
+                        "audioMemoryScore": 0,
+                    }
+                )
+                for item in trend_evidence_candidates[: max(1, limit)]
+            ],
             "decision": self.decide_audio_from_recommendations(
                 recommendations,
                 requested_platform=platform_key,
@@ -586,9 +666,10 @@ class AudioRecommendationRepository:
             if float(item.get("decisionScore") or 0) < 45
             or "stale_trend" in (item.get("riskFlags") or [])
             or "high_fatigue" in (item.get("riskFlags") or [])
+            or "reference_only_audio" in (item.get("riskFlags") or [])
         ]
         usable = [item for item in candidates if item not in do_not_use]
-        primary = usable[0] if usable else (candidates[0] if candidates else None)
+        primary = usable[0] if usable else None
         backups = [item for item in usable if item is not primary][:2]
         confidence = self.audio_decision_confidence(primary)
         primary_risks = list((primary or {}).get("riskFlags") or [])
@@ -625,7 +706,20 @@ class AudioRecommendationRepository:
             or item.get("platformUrl")
             or item.get("nativeAudioUrl")
         )
-        if platform == "instagram" and (native_id or native_url):
+        production_eligible = self.audio_item_is_production_eligible(item)
+        if not production_eligible:
+            score -= 100
+            risks.append("reference_only_audio")
+            for review_reason in self.audio_review_reasons(item):
+                risks.append(f"review:{review_reason}")
+            rights_status = self.audio_rights_status(item)
+            if rights_status and rights_status not in AUDIO_RIGHTS_ELIGIBLE_STATUSES:
+                risks.append("audio_rights_unverified")
+        if (
+            production_eligible
+            and platform == "instagram"
+            and (native_id or native_url)
+        ):
             score += 18
             reasons.append("resolved_instagram_native_audio")
         elif (
@@ -635,7 +729,13 @@ class AudioRecommendationRepository:
             score -= 14
             risks.append("needs_ig_lookup")
             reasons.append("tiktok_cross_platform_trend_signal")
-        if not (native_id or native_url):
+        if not (native_id or native_url) or (
+            str(native_id or "")
+            .strip()
+            .lower()
+            .startswith(_UNRESOLVED_NATIVE_ID_PREFIXES)
+            and not self.is_native_audio_url(str(native_url or ""), platform)
+        ):
             score -= 22
             risks.append("missing_native_locator")
         if self.is_generic_audio_title(title, platform):
@@ -650,7 +750,10 @@ class AudioRecommendationRepository:
         elif trend in {"stale", "expired", "fading", "peaked"}:
             score -= 18
             risks.append("stale_trend")
-        fatigue = item.get("fatigue") if isinstance(item.get("fatigue"), dict) else {}
+        fatigue_value = item.get("fatigue")
+        fatigue: dict[str, Any] = (
+            fatigue_value if isinstance(fatigue_value, dict) else {}
+        )
         fatigue_level = self.norm_tag(fatigue.get("level") or "")
         if fatigue_level == "low":
             score += 6
@@ -677,7 +780,7 @@ class AudioRecommendationRepository:
         return (
             max(0, min(100, score)),
             reasons or ["highest_ranked_audio_memory_match"],
-            risks,
+            sorted(set(risks)),
         )
 
     def audio_decision_confidence(self, primary: dict[str, Any] | None) -> str:
@@ -689,7 +792,13 @@ class AudioRecommendationRepository:
             return "strong"
         if score >= 68 and not (
             risks
-            & {"missing_native_locator", "unresolved_or_generic_title", "high_fatigue"}
+            & {
+                "audio_rights_unverified",
+                "missing_native_locator",
+                "reference_only_audio",
+                "unresolved_or_generic_title",
+                "high_fatigue",
+            }
         ):
             return "usable"
         if score >= 50:
@@ -697,11 +806,15 @@ class AudioRecommendationRepository:
         return "weak"
 
     def audio_when_to_use(self, item: dict[str, Any], risks: list[str]) -> str:
+        if "reference_only_audio" in risks:
+            return "Use only as trend evidence after title, locator, review, and rights are resolved."
         if "needs_ig_lookup" in risks:
             return "Use when the operator can find the matching native Instagram audio manually."
         return "Use as the default native audio for this content when the operator can attach the exact platform audio."
 
     def audio_when_not_to_use(self, item: dict[str, Any], risks: list[str]) -> str:
+        if "reference_only_audio" in risks:
+            return "Do not attach or publish this reference-only audio."
         if "high_fatigue" in risks:
             return "Avoid unless the account needs repetition more than novelty."
         if "stale_trend" in risks:
@@ -713,6 +826,8 @@ class AudioRecommendationRepository:
     def audio_operator_instruction(self, primary: dict[str, Any] | None) -> str:
         if not primary:
             return "No audio decision available; operator must choose native audio manually."
+        if "reference_only_audio" in (primary.get("riskFlags") or []):
+            return "Trend evidence only; do not attach or publish this audio."
         if "needs_ig_lookup" in (primary.get("riskFlags") or []):
             return f"Use this as a trend signal and find the closest matching native Instagram audio: {primary.get('audioTitle') or primary.get('audio_title')}"
         return f"Attach this native {primary.get('platform') or 'platform'} audio manually before publish: {primary.get('audioTitle') or primary.get('audio_title')}"
@@ -722,25 +837,124 @@ class AudioRecommendationRepository:
         platform_norm = self.norm_tag(platform or "")
         if not normalized:
             return True
+        unresolved_suffix = r"(?:\s+\(title unresolved\))?"
         if platform_norm == "tiktok":
-            return bool(re.fullmatch(r"tiktok audio [0-9a-z_-]+", normalized))
+            return bool(
+                re.fullmatch(
+                    rf"tiktok audio [0-9a-z_-]+{unresolved_suffix}", normalized
+                )
+            )
         if platform_norm == "instagram":
-            return bool(re.fullmatch(r"instagram audio [0-9a-z_-]+", normalized))
-        return bool(re.fullmatch(r"(tiktok|instagram) audio [0-9a-z_-]+", normalized))
+            return bool(
+                re.fullmatch(
+                    rf"instagram audio [0-9a-z_-]+{unresolved_suffix}", normalized
+                )
+            )
+        return bool(
+            re.fullmatch(
+                rf"(tiktok|instagram) audio [0-9a-z_-]+{unresolved_suffix}",
+                normalized,
+            )
+        )
+
+    def audio_rights_status(self, item: dict[str, Any]) -> str:
+        raw_value = item.get("raw")
+        raw: dict[str, Any] = raw_value if isinstance(raw_value, dict) else {}
+        rights_value = item.get("rights")
+        rights: dict[str, Any] = rights_value if isinstance(rights_value, dict) else {}
+        raw_rights_value = raw.get("rights")
+        raw_rights: dict[str, Any] = (
+            raw_rights_value if isinstance(raw_rights_value, dict) else {}
+        )
+        value = (
+            item.get("rightsStatus")
+            or item.get("rights_status")
+            or rights.get("status")
+            or rights.get("usageRightsStatus")
+            or raw.get("rightsStatus")
+            or raw.get("rights_status")
+            or raw_rights.get("status")
+            or raw_rights.get("usageRightsStatus")
+        )
+        return self.norm_tag(value)
+
+    def imported_audio_production_eligibility(
+        self,
+        item: dict[str, Any],
+        *,
+        forced_reference_only: bool = False,
+    ) -> tuple[bool, list[str]]:
+        reasons = self.audio_review_reasons(item)
+        if forced_reference_only or item.get("referenceOnly") is True:
+            reasons.append("reference_only")
+        if item.get("productionEligible") is False:
+            reasons.append("production_ineligible")
+        if item.get("resolved") is False:
+            reasons.append("explicitly_unresolved")
+        rights_status = self.audio_rights_status(item) or "unverified"
+        if rights_status not in AUDIO_RIGHTS_ELIGIBLE_STATUSES:
+            reasons.append(f"rights_status:{rights_status}")
+        return not reasons, sorted(set(reasons))
+
+    def audio_item_is_production_eligible(self, item: dict[str, Any]) -> bool:
+        reasons = self.audio_review_reasons(item)
+        raw_value = item.get("raw")
+        raw: dict[str, Any] = raw_value if isinstance(raw_value, dict) else {}
+        if item.get("resolved") is False or raw.get("resolved") is False:
+            reasons.append("explicitly_unresolved")
+        if item.get("referenceOnly") is True or raw.get("referenceOnly") is True:
+            reasons.append("reference_only")
+        if (
+            item.get("productionEligible") is False
+            or raw.get("productionEligible") is False
+        ):
+            reasons.append("production_ineligible")
+        rights_status = self.audio_rights_status(item)
+        if rights_status and rights_status not in AUDIO_RIGHTS_ELIGIBLE_STATUSES:
+            reasons.append(f"rights_status:{rights_status}")
+        return not reasons
+
+    def audio_review_reasons(self, item: dict[str, Any]) -> list[str]:
+        raw_value = item.get("raw")
+        raw: dict[str, Any] = raw_value if isinstance(raw_value, dict) else {}
+        stored = item.get("reviewReasons") or raw.get("reviewReasons") or []
+        if isinstance(stored, str):
+            reasons = [part.strip() for part in stored.split(",") if part.strip()]
+        else:
+            reasons = [str(value).strip() for value in stored if str(value).strip()]
+        platform = str(item.get("platform") or "")
+        title = str(item.get("audioTitle") or item.get("title") or "")
+        native_id = (
+            str(
+                item.get("platform_audio_id")
+                or item.get("audioId")
+                or item.get("nativeAudioId")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
+        native_url = str(
+            item.get("platform_url")
+            or item.get("platformUrl")
+            or item.get("nativeAudioUrl")
+            or ""
+        ).strip()
+        if self.is_generic_audio_title(title, platform):
+            reasons.append("unresolved_or_generic_title")
+        if not native_id or native_id.startswith(_UNRESOLVED_NATIVE_ID_PREFIXES):
+            if not self.is_native_audio_url(native_url, platform):
+                reasons.append("missing_native_locator")
+        if self.is_reel_page_url(native_url, platform) and (
+            not native_id or native_id.startswith(_UNRESOLVED_NATIVE_ID_PREFIXES)
+        ):
+            reasons.append("reel_page_only_locator")
+        return sorted(set(reasons))
 
     def audio_catalog_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row["raw_json"], {})
-        graph_id = self._graph_id_for(
-            "audio_catalog",
-            row["id"],
-            entity_type="audio_memory",
-            payload={
-                "platform": row["platform"],
-                "nativeAudioId": row["native_audio_id"],
-                "title": row["title"],
-            },
-        )
-        return {
+        graph_id = self._graph_id_for("audio_catalog", row["id"])
+        payload = {
             "id": row["id"],
             "audioMemoryGraphId": graph_id,
             "sourceAudioId": row["source_audio_id"],
@@ -784,6 +998,15 @@ class AudioRecommendationRepository:
             "importedAt": row["imported_at"],
             "updatedAt": row["updated_at"],
         }
+        preview_evidence = self.audio_preview_evidence(payload)
+        payload["rightsStatus"] = self.audio_rights_status(payload) or "unverified"
+        payload["productionEligible"] = self.audio_item_is_production_eligible(payload)
+        payload["referenceOnly"] = not payload["productionEligible"]
+        if preview_evidence:
+            payload["previewEvidence"] = preview_evidence
+            payload["localPreviewPath"] = preview_evidence.get("path")
+            payload["previewSha256"] = preview_evidence.get("sha256")
+        return payload
 
     def audio_performance_summary(
         self,
@@ -1178,6 +1401,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         audio_fit = (
             item.get("audioFit") if isinstance(item.get("audioFit"), dict) else None
         )
+        production_eligible = self.audio_item_is_production_eligible(item)
+        review_reasons = self.audio_review_reasons(item)
         return {
             "source": "campaign_factory.audio_catalog",
             "catalogAudioId": item["id"],
@@ -1228,17 +1453,28 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if isinstance(item.get("performanceSummary"), dict)
             else item.get("performanceLift"),
             "exampleReels": item.get("exampleReels") or [],
-            "reviewReasons": item.get("reviewReasons") or [],
             "trendSources": item.get("trendSources") or [],
             "fatigue": item.get("fatigue") or {},
             "performanceSummary": item.get("performanceSummary") or {},
             "safeUsageNotes": item.get("safeUsageNotes"),
+            "resolved": production_eligible,
+            "productionEligible": production_eligible,
+            "referenceOnly": not production_eligible,
+            "rightsStatus": self.audio_rights_status(item) or "unverified",
+            "previewEvidence": self.audio_preview_evidence(item),
             "instruction": (
-                f"Find and attach matching native Instagram audio for TikTok trend signal: {item.get('title')}"
-                if item.get("requestedPlatform")
-                in {"instagram", "ig", "instagram_reels"}
-                and item.get("platform") == "tiktok"
-                else f"Attach native {item.get('platform')} audio: {item.get('title')}"
+                "Trend evidence only; do not attach or publish this audio."
+                if not production_eligible
+                else (
+                    f"Find and attach matching native Instagram audio for TikTok trend signal: {item.get('title')}"
+                    if item.get("requestedPlatform")
+                    in {"instagram", "ig", "instagram_reels"}
+                    and item.get("platform") == "tiktok"
+                    else f"Attach native {item.get('platform')} audio: {item.get('title')}"
+                )
+            ),
+            "reviewReasons": sorted(
+                set(list(item.get("reviewReasons") or []) + review_reasons)
             ),
         }
 

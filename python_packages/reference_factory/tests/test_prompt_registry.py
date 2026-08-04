@@ -64,7 +64,7 @@ def test_reference_prompt_regression_fixtures_execute_real_compilers() -> None:
         ),
     )
 
-    provider_job = {"reference_id": "fixture_ref"}
+    provider_job = {"reference_id": "fixture_ref", "content_hash": "a" * 64}
     analysis = {
         "summary": "calm room selfie",
         "contentFormat": "selfie_video",

@@ -20,9 +20,11 @@ from . import learning_consumption
 from . import production_higgsfield_authorization as higgsfield_auth
 from .adapters.contentforge import audit_final_asset
 from .audio_policy import (
-    AUDIO_POLICIES,
     build_embedded_trending_audio_intent,
     validate_production_intent_audio_policy,
+)
+from .audio_policy import (
+    resolve_production_audio_policy_alias as _audio_policy,
 )
 from .audio_radar import (
     AudioCache,
@@ -48,7 +50,10 @@ from .production_audio_library import (
     production_audio_candidates as _production_audio_candidates,
 )
 from .production_batch_identity import deterministic_seed as _deterministic_seed
-from .production_batch_results import _motion_stage_result, run_production_hard_qc
+from .production_batch_results import (
+    _motion_stage_result,
+    run_production_hard_qc,
+)
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
@@ -58,12 +63,12 @@ from .production_batch_results import (
 from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
-from .production_batch_results import probe_production_video as _probe_production_video
+from .production_batch_results import (
+    probe_production_video as _probe_production_video,
+)
 from .production_creative_evidence import (
     build_job_creative_evidence,
     persist_asset_creative_evidence,
-    prepare_source_creative_evidence,
-    source_approval_binding,
 )
 from .production_creative_evidence import (
     expand_production_job_prompt as _expand_production_job_prompt,
@@ -81,21 +86,19 @@ from .production_higgsfield_authorization import (
 from .production_motion_recipe import (
     RECREATE_INTENTS as _RECREATE_INTENTS,
 )
-from .production_motion_recipe import build_production_motion_recipe
+from .production_motion_recipe import (
+    bind_recreation_duration,
+    build_production_motion_recipe,
+)
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
 from .production_prompts import build_reel_creative_context
 from .production_source_selection import (
     active_production_identity,
-    bind_source_governance,
+    resolve_production_sources,
     resolve_reference_analysis_governance,
-    resolved_account_id,
-    select_requested_source_assets,
 )
 from .production_source_selection import (
     optional_safe_media as _optional_safe_media,
-)
-from .production_source_selection import (
-    source_image_resolution as _source_image_resolution,
 )
 from .provider_spend import (
     ProviderOverspendError,
@@ -106,6 +109,12 @@ from .recreate_reel import (
     build_recreation_prompt,
     fulfill_reference_audio,
     rank_character_references,
+)
+from .recreation_anchor_approval import (
+    recreation_anchor_bindings,
+    recreation_anchor_verification_kwargs,
+    recreation_recipe_bindings,
+    validate_recreation_execution_anchor,
 )
 from .recreation_prompting import compile_video_prompt
 
@@ -119,17 +128,6 @@ _SUPPORTED_PASSIVE_INTENTS: Final = frozenset(
         "animate_existing",
     }
 )
-_AUDIO_ALIASES: Final = {
-    "embedded_trending": "embedded_trending_required",
-    "reference_audio_required": "original_embedded",
-}
-
-
-def _audio_policy(value: str) -> str:
-    resolved = _AUDIO_ALIASES.get(value, value)
-    if resolved not in AUDIO_POLICIES:
-        raise ValueError(f"unsupported production audio policy: {value}")
-    return resolved
 
 
 def discover_production_audio_candidates(
@@ -498,6 +496,14 @@ def plan_production_batch(
         else None
     )
     if planned_anchor is not None:
+        validate_recreation_execution_anchor(
+            planned_anchor,
+            reference_video_sha256=str(
+                (reference_analysis or {}).get("originalLocalFile", {}).get("sha256")
+                or ""
+            ),
+        )
+    if planned_anchor is not None:
         assert reference_analysis is not None
         if (
             planned_anchor["creator"] != creator_slug
@@ -506,87 +512,18 @@ def plan_production_batch(
             != reference_analysis["originalLocalFile"]["sha256"]
         ):
             raise PermissionError("recreation_anchor_approval_binding_mismatch")
-    rows = factory.conn.execute(
-        """
-        SELECT s.*, c.slug AS campaign_slug, m.slug AS creator_slug
-        FROM source_assets s
-        JOIN campaigns c ON c.id = s.campaign_id
-        JOIN models m ON m.id = s.model_id
-        WHERE lower(m.slug) = ? AND s.media_type = 'image'
-          AND lower(COALESCE(s.status, 'imported')) = 'approved'
-          AND (? IS NULL OR lower(c.slug) = lower(?) OR c.id = ?)
-        ORDER BY c.updated_at DESC, s.created_at DESC, s.id
-        """,
-        (creator_slug, campaign, campaign, campaign),
-    ).fetchall()
-    sources: list[dict[str, Any]] = []
-    seen_source_hashes: set[str] = set()
-    substituted_sources = 0
-    incompatible_sources = 0
-    for row in rows:
-        source = dict(row)
-        raw_path = Path(str(source["stored_path"])).expanduser()
-        if raw_path.is_symlink():
-            substituted_sources += 1
-            continue
-        path = raw_path.resolve()
-        recorded_sha = str(source["content_hash"])
-        if (
-            planned_anchor is not None
-            and recorded_sha != planned_anchor["creatorImageSha256"]
-        ):
-            incompatible_sources += 1
-            continue
-        if not path.is_file() or _sha256_file(path) != recorded_sha:
-            substituted_sources += 1
-            continue
-        if recorded_sha in seen_source_hashes:
-            continue
-        if execution == "cloud":
-            resolution = _source_image_resolution(path)
-            if resolution is None:
-                substituted_sources += 1
-                continue
-            width, height = resolution
-            ratio = width / height
-            source["sourceResolution"] = {
-                "width": width,
-                "height": height,
-                "aspectRatio": round(ratio, 6),
-            }
-        prepare_source_creative_evidence(source)
-        source["sourceApproval"] = source_approval_binding(factory, source)
-        if source["compatibility"]["hardBlockers"]:
-            incompatible_sources += 1
-            continue
-        source["stored_path"] = str(path)
-        seen_source_hashes.add(recorded_sha)
-        sources.append(source)
-    if not sources:
-        if planned_anchor is not None:
-            raise ValueError(
-                "approved anchor creator image is not exact approved inventory"
-            )
-        if incompatible_sources:
-            raise ValueError(
-                f"no portrait-reel approved image inventory for creator {creator}"
-            )
-        if substituted_sources:
-            raise ValueError(
-                f"approved source SHA mismatch for creator {creator}; "
-                "refresh source inventory before generation"
-            )
-        raise ValueError(
-            f"no explicitly approved image inventory for creator {creator}; "
-            "review and approve sources with `creator-os sources`"
-        )
-    sources = select_requested_source_assets(sources, selected_source_asset_ids)
-    bind_source_governance(
+    soul_bound_anchor = planned_anchor is not None and isinstance(
+        planned_anchor.get("soulIdentity"), Mapping
+    )
+    sources = resolve_production_sources(
         factory,
-        sources,
         creator=creator_slug,
         soul_id=soul_id,
-        account_id=resolved_account_id(factory.conn, accounts),
+        campaign=campaign,
+        execution=execution,
+        planned_anchor=planned_anchor,
+        selected_source_asset_ids=selected_source_asset_ids,
+        accounts=accounts,
     )
     if reference_analysis is not None:
         sources = rank_character_references(sources, reference_analysis)
@@ -623,6 +560,7 @@ def plan_production_batch(
             intent=intent,
             execution=execution,
             source_sha256=source_sha,
+            **recreation_recipe_bindings(planned_anchor),
         )
         if intent in _RECREATE_INTENTS:
             assert recreation_prompt is not None
@@ -663,7 +601,6 @@ def plan_production_batch(
         if prompt_pack_provider is not None:
             prompt_pack = prompt_packs.get(source_sha) or prompt_pack_provider(
                 creator=creator_slug,
-                creator_image=Path(str(source["stored_path"])),
                 intent=intent,
                 reference_video=reference_video_path,
                 external_call_authorized=prompt_call_authorized,
@@ -674,6 +611,11 @@ def plan_production_batch(
                     f"{source_sha[:16]}:{seed}"
                 ),
                 governance_context=dict(source["creatorGovernance"]),
+                **(
+                    {"soul_identity": dict(planned_anchor["soulIdentity"])}
+                    if soul_bound_anchor
+                    else {"creator_image": Path(str(source["stored_path"]))}
+                ),
             )
             prompt_packs[source_sha] = prompt_pack
             prompt_card, compiled_prompt = compile_video_prompt(
@@ -689,19 +631,30 @@ def plan_production_batch(
                 recreation_anchor_approval_path,
                 expected_creator=creator_slug,
                 expected_soul_id=soul_id,
-                expected_creator_image_sha256=source_sha,
+                expected_creator_image_sha256=(
+                    str(planned_anchor["creatorImageSha256"])
+                    if planned_anchor.get("creatorImageSha256")
+                    else None
+                ),
                 expected_reference_video_sha256=reference_analysis["originalLocalFile"][
                     "sha256"
                 ],
                 expected_prompt_pack_fingerprint=str(
                     prompt_pack["promptPackFingerprint"]
                 ),
+                expected_soul_identity_fingerprint=(
+                    str(planned_anchor["soulIdentity"]["bindingFingerprint"])
+                    if isinstance(planned_anchor.get("soulIdentity"), Mapping)
+                    else None
+                ),
+                **recreation_anchor_verification_kwargs(planned_anchor),
             )
             recipe = build_production_motion_recipe(
                 creator=creator_slug,
                 intent=intent,
                 execution=execution,
                 source_sha256=str(anchor_approval["anchorFileSha256"]),
+                **recreation_recipe_bindings(anchor_approval),
             )
         prompt_planning = (
             {
@@ -745,6 +698,7 @@ def plan_production_batch(
                     if anchor_approval is not None
                     else None
                 ),
+                **recreation_anchor_bindings(anchor_approval),
                 "recreationAttemptId": (
                     str(recreation_attempt_id).strip()
                     if recreation_attempt_id
@@ -762,25 +716,7 @@ def plan_production_batch(
         )
         if intent in _RECREATE_INTENTS:
             assert reference_analysis is not None
-            recipe_stage = recipe["stages"][0]
-            recipe_stage["durationSeconds"] = min(
-                15,
-                max(
-                    4,
-                    int(
-                        math.floor(
-                            float(reference_analysis["media"]["durationSeconds"]) + 0.5
-                        )
-                    ),
-                ),
-            )
-            recipe["recipeFingerprint"] = _fingerprint(
-                {
-                    key: value
-                    for key, value in recipe.items()
-                    if key != "recipeFingerprint"
-                }
-            )
+            bind_recreation_duration(recipe, reference_analysis)
         jobs.append(
             {
                 "jobId": f"create_{identity[:20]}",
@@ -820,6 +756,7 @@ def plan_production_batch(
                     if anchor_approval is not None
                     else None
                 ),
+                **recreation_anchor_bindings(anchor_approval, include_rights=True),
                 "recreationAnchorPath": (
                     anchor_approval["anchorFilePath"]
                     if anchor_approval is not None
