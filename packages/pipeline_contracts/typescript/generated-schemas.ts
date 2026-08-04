@@ -15815,48 +15815,6 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
-	repurposingPlan: {
-	  "$schema": "https://json-schema.org/draft/2020-12/schema",
-	  "$id": "campaign_factory.repurposing_plan.v1",
-	  "type": "object",
-	  "additionalProperties": false,
-	  "required": [
-	    "schema",
-	    "master_asset_id",
-	    "preset_name",
-	    "target_count",
-	    "platform"
-	  ],
-	  "properties": {
-	    "schema": {
-	      "const": "campaign_factory.repurposing_plan.v1"
-	    },
-	    "master_asset_id": {
-	      "type": "string",
-	      "pattern": "^[A-Za-z0-9._:-]+$"
-	    },
-	    "preset_name": {
-	      "type": "string",
-	      "enum": [
-	        "tiktok_aggressive",
-	        "ig_subtle",
-	        "custom"
-	      ]
-	    },
-	    "target_count": {
-	      "type": "integer",
-	      "minimum": 1,
-	      "maximum": 500
-	    },
-	    "platform": {
-	      "type": "string"
-	    },
-	    "custom_config": {
-	      "type": "object",
-	      "description": "Overrides for the RepurposeConfig if preset_name is custom"
-	    }
-	  }
-	} as const,
 	runtimePromotionApproval: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "creator_os.runtime_promotion_approval.v1",
@@ -18050,7 +18008,6 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "rendererEquivalenceReceipt", filename: "renderer_equivalence_receipt.v1.schema.json", id: "creator_os.renderer_equivalence_receipt.v1" },
 	{ key: "rendererEquivalenceReceiptV2", filename: "renderer_equivalence_receipt.v2.schema.json", id: "creator_os.renderer_equivalence_receipt.v2" },
-	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
 	{ key: "runtimePromotionApproval", filename: "runtime_promotion_approval.v1.schema.json", id: "creator_os.runtime_promotion_approval.v1" },
 	{ key: "runtimePromotionReceipt", filename: "runtime_promotion_receipt.v1.schema.json", id: "creator_os.runtime_promotion_receipt.v1" },
 	{ key: "threadsdashHandshake", filename: "threadsdash_handshake.v1.schema.json", id: "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json" },

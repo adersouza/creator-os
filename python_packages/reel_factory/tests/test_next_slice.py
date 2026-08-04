@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reel_factory.hook_tools import find_near_duplicates, normalize_hook_text
 from reel_factory.placement_scorer import PlacementSummary, score_lanes
 from reel_factory.reel_pipeline import (
     CaptionSegmentPlan,
@@ -36,17 +35,6 @@ class NextSliceTests(unittest.TestCase):
         )
         self.assertEqual(summary.lane, "center")
         self.assertLess(summary.scores["center"], summary.scores["top"])
-
-    def test_fuzzy_duplicate_detection_catches_near_dupes(self):
-        hooks = [
-            "when he says he misses you",
-            "when he say he misses u",
-            "completely different hook",
-        ]
-        dupes = find_near_duplicates(hooks, threshold=88)
-        self.assertEqual(dupes[0]["first"], 0)
-        self.assertEqual(dupes[0]["duplicate"], 1)
-        self.assertEqual(normalize_hook_text(hooks[0]), "when he says he misses you")
 
     def test_segment_mode_keeps_single_segment_on_source_band(self):
         async def fake_probe(*args, **kwargs):

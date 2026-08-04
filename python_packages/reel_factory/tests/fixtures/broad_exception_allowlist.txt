@@ -13,12 +13,8 @@ reel_factory/audio_mux.py:mux_root:246
 reel_factory/caption_render.py:render_caption_png:330
 reel_factory/db_migrations.py:_apply_one:452
 reel_factory/discoverability_safety.py:audit_caption_sources:103
-reel_factory/embedding_provider.py:get_embedding_provider:95
-reel_factory/embedding_provider.py:get_embedding_provider:102
 reel_factory/generate_assets.py:single_image_layout_status:212
 reel_factory/generation_qc.py:generated_video_qc:122
-reel_factory/hook_tools.py:<module>:29
-reel_factory/hook_tools.py:read_hook_library:134
 reel_factory/identity_verification.py:get_identity_provider:166
 reel_factory/manifest.py:_import_json:63
 reel_factory/manifest.py:materialize_cached_job:137
@@ -63,6 +59,3 @@ reel_factory/reel_pipeline_render.py:process_one:808
 reel_factory/reel_pipeline_render.py:process_one:847
 reel_factory/reel_pipeline_render.py:process_one:893
 reel_factory/reel_pipeline_render.py:process_one:942
-reel_factory/thumbnail_gen.py:generate_thumbnails:70
-reel_factory/whisper_sync.py:transcribe_clip:52
-reel_factory/whisper_sync.py:_has_audio_stream:158

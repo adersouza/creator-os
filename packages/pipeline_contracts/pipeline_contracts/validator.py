@@ -49,7 +49,6 @@ GENERATION_EXECUTION_PLAN_SCHEMA = "generation_execution_plan.v1.schema.json"
 CREATIVE_PLAN_SCHEMA = "creative_plan.v1.schema.json"
 RECOMMENDATION_NEXT_BATCH_SCHEMA = "recommendation_next_batch.v1.schema.json"
 RECOMMENDATION_ACCURACY_REPORT_SCHEMA = "recommendation_accuracy_report.v1.schema.json"
-REPURPOSING_PLAN_SCHEMA = "repurposing_plan.v1.schema.json"
 VARIANT_ASSIGNMENT_SCHEMA = "variant_assignment.v1.schema.json"
 MOTION_EDIT_RENDER_SCHEMA = "motion_edit_render.v1.schema.json"
 FRONT_GENERATION_PLAN_SCHEMA = "front_generation_plan.v1.schema.json"
@@ -134,8 +133,6 @@ SCHEMA_NAMES = {
     "campaign_factory_recommendations_next_batch": RECOMMENDATION_NEXT_BATCH_SCHEMA,
     "recommendation_accuracy_report": RECOMMENDATION_ACCURACY_REPORT_SCHEMA,
     "campaign_factory_recommendation_accuracy_report": RECOMMENDATION_ACCURACY_REPORT_SCHEMA,
-    "repurposing_plan": REPURPOSING_PLAN_SCHEMA,
-    "campaign_factory_repurposing_plan": REPURPOSING_PLAN_SCHEMA,
     "variant_assignment": VARIANT_ASSIGNMENT_SCHEMA,
     "campaign_factory_variant_assignment": VARIANT_ASSIGNMENT_SCHEMA,
     "motion_edit_render": MOTION_EDIT_RENDER_SCHEMA,
@@ -635,10 +632,6 @@ def validate_recommendation_accuracy_report(value: Any) -> None:
     validate_contract(value, RECOMMENDATION_ACCURACY_REPORT_SCHEMA)
 
 
-def validate_repurposing_plan(value: Any) -> None:
-    validate_contract(value, REPURPOSING_PLAN_SCHEMA)
-
-
 def validate_variant_assignment(value: Any) -> None:
     validate_contract(value, VARIANT_ASSIGNMENT_SCHEMA)
 
@@ -749,7 +742,6 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "creative_plan.v1.example.json": validate_creative_plan,
         "recommendation_next_batch.v1.example.json": validate_recommendation_next_batch,
         "recommendation_accuracy_report.v1.example.json": validate_recommendation_accuracy_report,
-        "repurposing_plan.v1.example.json": validate_repurposing_plan,
         "variant_assignment.v1.example.json": validate_variant_assignment,
         "motion_edit_render.v1.example.json": validate_motion_edit_render,
         "front_generation_plan.v1.example.json": validate_front_generation_plan,

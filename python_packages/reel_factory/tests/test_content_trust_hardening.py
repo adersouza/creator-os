@@ -15,7 +15,6 @@ from reel_factory.generate_assets import (
     generated_video_qc,
     generated_video_qc_failure_reason,
 )
-from reel_factory.hook_ai import hook_similarity_mode
 from reel_factory.identity_verification import (
     build_reference_set,
     delete_reference_set,
@@ -817,10 +816,6 @@ def test_ai_visual_qc_status_marks_dependency_unavailable() -> None:
     assert record.visualQcStatus == "unavailable"
     assert record.visualQcDependencyStatus["opencv"] == "unavailable"
     assert "opencv_unavailable" in record.visualQcWarnings
-
-
-def test_hook_similarity_hash_mode_is_named_lexical_fallback() -> None:
-    assert hook_similarity_mode("hash-v1") == "lexical_fallback_similarity"
 
 
 class FakeBalanceProvider:
