@@ -45,12 +45,15 @@ def test_mypy_backlog_ceiling_allows_improvement_and_rejects_regression():
         minimum_source_files=79,
     )
 
-    assert gate.measurement_failures(
-        "reel_factory",
-        target,
-        errors=83,
-        checked=94,
-    ) == []
+    assert (
+        gate.measurement_failures(
+            "reel_factory",
+            target,
+            errors=83,
+            checked=94,
+        )
+        == []
+    )
     assert gate.measurement_failures(
         "reel_factory",
         target,

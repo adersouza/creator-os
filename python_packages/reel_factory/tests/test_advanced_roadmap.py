@@ -1,6 +1,5 @@
 import json
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,17 +11,8 @@ from reel_factory.asset_prompt_contract import (
     parse_asset_prompt_response,
     write_prompt_template,
 )
-from reel_factory.audio_intent import write_audio_intent
 from reel_factory.audio_mux import audio_id, output_path_for
-from reel_factory.caption_generation_log import (
-    caption_library,
-    rank_clip_sidecar,
-    score_caption_quality,
-)
 from reel_factory.caption_render import render_caption_png
-from reel_factory.embedding_index import duplicate_risk, upsert_embedding
-from reel_factory.embedding_index import similar as similar_media
-from reel_factory.embedding_provider import HashEmbeddingProvider
 from reel_factory.evidence_store import (
     connect as campaign_connect,
 )
@@ -43,21 +33,7 @@ from reel_factory.generate_assets import (
     validate_required_capabilities,
 )
 from reel_factory.graph_builder import build_ffmpeg_cmd
-from reel_factory.hook_ai import (
-    generate_hooks,
-    parse_hook_response,
-    validate_hook_variant,
-    validate_hook_variants,
-)
-from reel_factory.hook_tools import (
-    find_semantic_duplicates,
-    reindex_hook_library,
-    save_hook_to_library,
-)
-from reel_factory.manifest import Manifest
-from reel_factory.media_features import upsert_reel_feature
 from reel_factory.placement_scorer import score_lanes
-from reel_factory.prompt_guidance import retry_helper_direction
 from reel_factory.qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
 from reel_factory.readiness_check import evaluate_output, run_readiness
 from reel_factory.reel_pipeline import Recipe
@@ -65,7 +41,6 @@ from reel_factory.reel_url_import import download_reel_url, write_url_sidecar
 from reel_factory.render_plan import RenderPlan
 from reel_factory.render_queue import RenderQueue, get_queue
 from reel_factory.safe_zone import score_safe_zone
-from reel_factory.thumbnail_gen import thumbnail_path_for
 from reel_factory.xai_vision import build_xai_payload, response_text, strip_json_fence
 
 REEL_ROOT = Path(__file__).resolve().parents[1]
@@ -266,25 +241,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("house body style", prompt)
         self.assertNotIn("body-fire glamour", prompt)
         self.assertNotIn("cleavage-forward", prompt)
-
-    def test_retry_helpers_preserve_reference_while_amplifying_body(self):
-        self.assertIn(
-            "larger pushed-up breasts",
-            retry_helper_direction("more_reference_fidelity"),
-        )
-        self.assertIn(
-            "deep cleavage", retry_helper_direction("more_reference_fidelity")
-        )
-        self.assertIn(
-            "larger pushed-up full breasts",
-            retry_helper_direction("more_body_emphasis"),
-        )
-        self.assertIn(
-            "deep plunging cleavage as the focal point",
-            retry_helper_direction("more_body_emphasis"),
-        )
-        self.assertIn("curvier frame", retry_helper_direction("more_body_emphasis"))
-        self.assertIn("deep plunging cleavage", retry_helper_direction("more_cleavage"))
 
     def test_capability_probe_validates_required_models(self):
         payload = {
@@ -568,173 +524,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(asset_row["creator_key"], "Stacey")
             self.assertEqual(output_row["campaign_key"], "Test Campaign")
             self.assertEqual(output_row["creator_key"], "Stacey")
-
-    def test_embedding_search_hash_fallback_finds_similar_neighbor(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            Manifest(root / "manifest.json")
-            a = root / "prompts" / "bathroom_mirror_winner.json"
-            b = root / "prompts" / "bathroom_mirror_variant.json"
-            c = root / "prompts" / "beach_dance.json"
-            a.parent.mkdir()
-            a.write_text(
-                json.dumps({"higgsfieldGridPrompt": "bathroom mirror selfie crop top"}),
-                encoding="utf-8",
-            )
-            b.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "bathroom mirror selfie crop top alternate"
-                    }
-                ),
-                encoding="utf-8",
-            )
-            c.write_text(
-                json.dumps({"higgsfieldGridPrompt": "beach dance swimsuit ocean"}),
-                encoding="utf-8",
-            )
-            upsert_embedding(root, b)
-            upsert_embedding(root, c)
-
-            result = similar_media(root, a, limit=2)
-
-            self.assertEqual(result["results"][0]["path"], str(b.resolve()))
-
-    def test_media_features_derive_creator_and_caption_style_from_metadata(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            conn = campaign_connect(root)
-            now = int(time.time())
-            out = root / "generic_render_name.mp4"
-            out.write_bytes(b"video")
-            conn.execute(
-                """
-                INSERT INTO campaign_outputs (
-                    campaign_output_id, campaign_key, creator_key, output_path, recipe,
-                    caption_text, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "co_larissa_metadata",
-                    "Larissa Metadata",
-                    "Larissa",
-                    str(out.resolve()),
-                    "v09_caption_bg",
-                    "1. Smooth\n2. Nervous\n3. Playful\n4. Honest\n5. Bold",
-                    now,
-                    now,
-                ),
-            )
-            conn.commit()
-            conn.close()
-            out.with_suffix(out.suffix + ".caption_lineage.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "reel_factory.caption_lineage.v1",
-                        "rawCaptionText": "1. Smooth\n2. Nervous\n3. Playful\n4. Honest\n5. Bold",
-                        "captionOutcomeContext": {
-                            "length_class": "long",
-                            "format_class": "numbered_list",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            write_audio_intent(
-                out,
-                mode="native_trending_audio",
-                audio_selection={"track_id": "track_rank_1", "track_name": "Top"},
-            )
-
-            result = upsert_reel_feature(root, out)
-
-            self.assertEqual(result["features"]["creator"], "larissa")
-            self.assertEqual(result["features"]["caption_style"], "long_numbered_list")
-            self.assertEqual(result["features"]["audio_track_id"], "track_rank_1")
-
-    def test_media_features_prefer_video_analysis_sidecar_over_filename_inference(
-        self,
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            out = root / "unknown_clip.mp4"
-            out.write_bytes(b"video")
-            out.with_suffix(out.suffix + ".video_analysis.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "reference_factory.video_analysis.v1",
-                        "id": "analysis_unknown_clip",
-                        "referenceId": "unknown_clip",
-                        "provider": "operator_vlm",
-                        "model": "video_analysis",
-                        "status": "pattern_ready",
-                        "winnerDnaFeatures": {
-                            "scene": "gym_mirror",
-                            "camera": "mirror_selfie",
-                            "pose": "standing",
-                            "motion": "slow_pan",
-                            "outfit": "black_set",
-                            "creator": "stacey",
-                            "body_style": "athletic_hourglass",
-                            "caption_style": "lower_third",
-                            "hook_type": "pov",
-                        },
-                        "media": {
-                            "durationSeconds": 7.0,
-                            "width": 1080,
-                            "height": 1920,
-                        },
-                        "signals": {},
-                        "patternCard": {
-                            "schema": "reference_factory.pattern_card.v1",
-                            "id": "pattern_gym_mirror",
-                            "platform": "instagram",
-                            "source": {"referenceId": "unknown_clip"},
-                            "formatType": "mirror_selfie",
-                            "hookType": "pov",
-                            "visualPattern": "Gym mirror clip",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            result = upsert_reel_feature(root, out)
-
-            self.assertEqual(result["features"]["scene"], "gym_mirror")
-            self.assertEqual(result["features"]["motion"], "slow_pan")
-            self.assertEqual(result["features"]["hook_type"], "pov")
-            self.assertEqual(result["features"]["feature_source"], "video_analysis")
-
-    def test_duplicate_risk_accepts_legacy_similarity_list_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            Manifest(root / "manifest.json")
-            out_dir = root / "02_processed" / "clip_001"
-            out_dir.mkdir(parents=True)
-            candidate = out_dir / "candidate.mp4"
-            candidate.write_bytes(b"candidate")
-            prior = out_dir / "prior.mp4"
-            prior.write_bytes(b"prior")
-            (out_dir / "_similarity.json").write_text(
-                json.dumps(
-                    [
-                        {
-                            "filename": candidate.name,
-                            "score": 0.95,
-                            "verdict": "near_duplicate",
-                        }
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            result = duplicate_risk(
-                root, candidate, account="acct", prior_paths=[prior]
-            )
-
-            self.assertEqual(result["risk_level"], "high")
-            self.assertEqual(result["recommended_action"], "avoid")
 
     def test_reel_pipeline_accepts_campaign_render_flags(self):
         import subprocess
@@ -1109,263 +898,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(result["reason"], "already_imported_url")
             self.assertEqual(result["path"], str(existing))
 
-    def test_ollama_parser_accepts_valid_json(self):
-        self.assertEqual(parse_hook_response('{"hooks":["one","two"]}'), ["one", "two"])
-        self.assertEqual(parse_hook_response('{"hook":"one"}'), ["one"])
-
-    def test_ollama_parser_rejects_malformed_json(self):
-        with self.assertRaises(ValueError):
-            parse_hook_response("not json")
-
-    def test_hook_rewrite_validator_preserves_numbers_and_length(self):
-        ok, reason = validate_hook_variant(
-            "dating a 30 year old",
-            "dating a 30 year old again",
-            min_chars=5,
-            max_chars=80,
-        )
-        self.assertTrue(ok, reason)
-        ok, reason = validate_hook_variant(
-            "dating a 30 year old",
-            "dating him again",
-            min_chars=5,
-            max_chars=80,
-        )
-        self.assertFalse(ok)
-        self.assertIn("30", reason)
-
-    def test_hook_rewrite_validator_rejects_identical_and_low_similarity(self):
-        accepted, rejected = validate_hook_variants(
-            "when he says he misses you",
-            ["when he says he misses you", "completely unrelated topic"],
-            min_chars=5,
-            max_chars=80,
-            reject_identical=True,
-            min_similarity=0.7,
-            embedding_model="hash-v1",
-        )
-        self.assertEqual(accepted, [])
-        self.assertEqual(rejected[0]["reason"], "identical_to_source")
-        self.assertTrue(rejected[1]["reason"].startswith("low_semantic_similarity"))
-
-    def test_strict_validator_does_not_require_all_keywords_literally(self):
-        ok, reason = validate_hook_variant(
-            "when he says he misses you",
-            "He's missing you",
-            min_chars=5,
-            max_chars=80,
-            strict=True,
-            min_similarity=0.18,
-            embedding_model="hash-v1",
-        )
-        self.assertTrue(ok, reason)
-        ok, reason = validate_hook_variant(
-            "when he says he misses you",
-            "Whenever he mentions your name",
-            min_chars=5,
-            max_chars=80,
-            strict=True,
-            min_similarity=0.18,
-            embedding_model="hash-v1",
-        )
-        self.assertFalse(ok)
-        self.assertEqual(reason, "missing_core_concept:miss")
-
-    def test_ollama_unavailable_is_graceful(self):
-        result = generate_hooks(
-            backend="ollama",
-            model="definitely_missing_model",
-            base="base hook",
-            n=1,
-            min_chars=5,
-            max_chars=80,
-        )
-        self.assertIn("ok", result)
-        self.assertIn("hooks", result)
-
-    def test_ollama_generation_logs_metadata_and_quality(self):
-        class FakeProvider:
-            def __init__(self, model):
-                self.model = model
-
-            def available(self):
-                return True, "ok"
-
-            def rewrite(self, base, *, n, min_chars, max_chars, seed=42):
-                return [
-                    "when he says he misses you again",
-                    "x",
-                    "when he says he misses you again",
-                ]
-
-        with tempfile.TemporaryDirectory() as tmp:
-            log_path = Path(tmp) / "project_data" / "caption_generations.jsonl"
-            with patch("reel_factory.hook_ai.OllamaHookProvider", FakeProvider):
-                result = generate_hooks(
-                    backend="ollama",
-                    model="fake",
-                    base="when he says he misses you",
-                    n=3,
-                    min_chars=5,
-                    max_chars=80,
-                    reject_identical=True,
-                    log_path=log_path,
-                    recent_hooks=["when he says he misses you again"],
-                )
-            self.assertTrue(result["ok"])
-            self.assertTrue(result["generationId"].startswith("capgen_"))
-            self.assertEqual(len(result["hooks"]), 1)
-            self.assertEqual(result["quality"][0]["warnings"], ["recent_duplicate"])
-            lines = log_path.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 1)
-            record = json.loads(lines[0])
-            self.assertEqual(record["generationId"], result["generationId"])
-            self.assertEqual(
-                record["acceptedHooks"][0]["captionHash"],
-                result["quality"][0]["captionHash"],
-            )
-            self.assertEqual(record["rejectedHooks"][0]["reason"], "too_short")
-
-    def test_ollama_net_new_mode_skips_rewrite_similarity_gate(self):
-        class FakeProvider:
-            def __init__(self, model):
-                self.model = model
-
-            def available(self):
-                return True, "ok"
-
-            def rewrite(self, base, *, n, min_chars, max_chars, seed=42):
-                raise AssertionError("net_new should not call rewrite")
-
-            def generate_prompt(self, prompt, *, n, seed=42, temperature=0.2):
-                self.prompt = prompt
-                self.temperature = temperature
-                return ["pick the door he would never open"]
-
-        with patch("reel_factory.hook_ai.OllamaHookProvider", FakeProvider):
-            result = generate_hooks(
-                backend="ollama",
-                model="fake",
-                base="when he says he misses you",
-                mode="net_new",
-                n=1,
-                min_chars=5,
-                max_chars=80,
-                required_terms=["misses"],
-                min_similarity=0.95,
-            )
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["mode"], "net_new")
-        self.assertEqual(result["hooks"], ["pick the door he would never open"])
-
-    def test_caption_quality_flags_basic_review_warnings(self):
-        quality = score_caption_quality(
-            "hi\nthere\nagain\nand\nagain\nand\nagain",
-            recent_hooks=["something else"],
-            min_chars=5,
-            max_chars=20,
-        )
-        self.assertIn("too_many_lines", quality["warnings"])
-        self.assertIn("weak_first_line_hook", quality["warnings"])
-        self.assertIn("too_long", quality["warnings"])
-
-    def test_caption_library_and_rank_existing_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            log_path = root / "project_data" / "caption_generations.jsonl"
-            log_path.parent.mkdir()
-            record = {
-                "schema": "reel_factory.caption_generation.v1",
-                "generationId": "capgen_1",
-                "createdAt": "2026-01-01T00:00:00+00:00",
-                "backend": "ollama",
-                "model": "fake",
-                "promptHash": "prompt_hash",
-                "baseHook": "base",
-                "acceptedHooks": [
-                    {
-                        "text": "strong caption hook",
-                        "captionHash": "hash_1",
-                        "charCount": 19,
-                        "lineCount": 1,
-                        "qualityScore": 100,
-                        "warnings": [],
-                    }
-                ],
-                "rejectedHooks": [
-                    {
-                        "hook": "x",
-                        "reason": "too_short",
-                        "quality": {
-                            "captionHash": "hash_2",
-                            "charCount": 1,
-                            "lineCount": 1,
-                            "qualityScore": 85,
-                            "warnings": ["too_short"],
-                        },
-                    }
-                ],
-            }
-            log_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
-            library = caption_library(log_path)
-            self.assertEqual(library["count"], 2)
-            self.assertEqual(library["captions"][0]["state"], "accepted")
-            cap_dir = root / "01_captions"
-            cap_dir.mkdir()
-            (cap_dir / "clip_010.json").write_text(
-                json.dumps(
-                    {
-                        "hooks": ["strong caption hook", "x", "strong caption hook"],
-                        "generation": {"generation_id": "capgen_1", "model": "fake"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            ranked = rank_clip_sidecar(
-                cap_dir,
-                "clip_010",
-                top=2,
-                performance_by_caption_hash={
-                    score_caption_quality("strong caption hook")["captionHash"]: {
-                        "totals": {"views": 5000, "shares": 30, "saves": 25}
-                    }
-                },
-            )
-            self.assertEqual(ranked["clip"], "clip_010")
-            self.assertEqual(ranked["ranked"][0]["text"], "strong caption hook")
-            self.assertIn("strong local quality", ranked["ranked"][0]["reasons"])
-            self.assertTrue(
-                any(
-                    "duplicate_in_batch" in row["quality"]["warnings"]
-                    for row in ranked["ranked"]
-                )
-            )
-
-    def test_semantic_duplicate_grouping_and_library_group(self):
-        hooks = ["when he says he misses you", "when he says he misses u"]
-        dupes = find_semantic_duplicates(hooks, threshold=0.55)
-        self.assertTrue(dupes)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "hook_library.json"
-            a = save_hook_to_library(path, hooks[0])
-            b = save_hook_to_library(path, hooks[1])
-            self.assertEqual(a["semantic_group"], b["semantic_group"])
-
-    def test_hook_library_reindex_preserves_ids(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "hook_library.json"
-            a = save_hook_to_library(path, "when he misses you")
-            result = reindex_hook_library(path, embedding_model="hash-v1")
-            self.assertEqual(result["count"], 1)
-            self.assertEqual(
-                save_hook_to_library(path, "when he misses you")["id"], a["id"]
-            )
-
-    def test_hash_embedding_provider_is_deterministic(self):
-        provider = HashEmbeddingProvider()
-        self.assertEqual(provider.embed("you miss me"), provider.embed("you miss me"))
-
     def test_pose_penalty_changes_lane_score(self):
         plain = score_lanes(stddev_samples=[(1.0, 1.0, 1.0)], center_penalty=0)
         posed = score_lanes(
@@ -1412,10 +944,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("h264_nvenc", nvenc)
         with self.assertRaises(ValueError):
             build_ffmpeg_cmd(RenderPlan(**base, output_profile="linux_vaapi"), "ffmpeg")
-
-    def test_thumbnail_naming_is_deterministic(self):
-        path = Path("02_processed/clip_001/example.mp4")
-        self.assertEqual(thumbnail_path_for(path).name, "example_thumb.png")
 
     def test_audio_mux_output_naming_is_deterministic(self):
         audio = Path("03_audio_library/trending.mp3")

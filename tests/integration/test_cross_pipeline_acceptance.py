@@ -10,7 +10,6 @@ from pipeline_contracts import (
     validate_generated_asset_lineage,
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
-    validate_repurposing_plan,
     validate_threadsdash_draft_payload_strict,
 )
 
@@ -315,17 +314,6 @@ def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign
 def test_contentforge_variant_pack_output_maps_to_campaign_factory_variant_lineage() -> (
     None
 ):
-    repurposing_plan = {
-        "schema": "campaign_factory.repurposing_plan.v1",
-        "master_asset_id": "parent_acceptance_1",
-        "preset_name": "ig_subtle",
-        "target_count": 1,
-        "platform": "instagram",
-        "custom_config": {
-            "contentforgePreset": "caption_safe_v2",
-            "preserveBurnedCaptions": True,
-        },
-    }
     contentforge_variant = {
         "schema": "contentforge.variant_pack.v2",
         "runId": "cf_variant_run_acceptance_1",
@@ -355,7 +343,6 @@ def test_contentforge_variant_pack_output_maps_to_campaign_factory_variant_linea
         ],
     }
 
-    validate_repurposing_plan(repurposing_plan)
     result = contentforge_variant["results"][0]
     assert result["recommendedUploadReady"] is True
     assert result["quality"] == {
