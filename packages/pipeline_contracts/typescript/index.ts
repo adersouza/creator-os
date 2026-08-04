@@ -51,8 +51,6 @@ export const RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID =
 	generatedPipelineContractSchemas.recommendationAccuracyReport.$id;
 export const RECOMMENDATION_NEXT_BATCH_SCHEMA_ID =
 	generatedPipelineContractSchemas.recommendationNextBatch.$id;
-export const REPURPOSING_PLAN_SCHEMA_ID =
-	generatedPipelineContractSchemas.repurposingPlan.$id;
 export const VARIANT_ASSIGNMENT_SCHEMA_ID =
 	generatedPipelineContractSchemas.variantAssignment.$id;
 export const MOTION_EDIT_RENDER_SCHEMA_ID =
@@ -151,9 +149,6 @@ export const campaignDraftPayloadV2Schema =
 	generatedPipelineContractSchemas.campaignDraftPayloadV2;
 export const campaignDraftPayloadV3Schema =
 	generatedPipelineContractSchemas.campaignDraftPayloadV3;
-
-export const repurposingPlanSchema =
-	generatedPipelineContractSchemas.repurposingPlan;
 
 export const variantAssignmentSchema =
 	generatedPipelineContractSchemas.variantAssignment;
@@ -1011,27 +1006,6 @@ export function validateAudioCatalogExport(value: unknown): string[] {
 		if (typeof item.platform !== "string") {
 			errors.push(`items[${index}].platform must be string`);
 		}
-	}
-	return errors;
-}
-
-export function validateRepurposingPlan(value: unknown): string[] {
-	const errors = schemaErrors(generatedPipelineContractSchemas.repurposingPlan, value, "repurposing plan");
-	if (!isRecord(value)) return ["repurposing plan must be an object"];
-	if (value.schema !== REPURPOSING_PLAN_SCHEMA_ID) {
-		errors.push("repurposing plan schema mismatch");
-	}
-	if (typeof value.master_asset_id !== "string") {
-		errors.push("repurposing plan master_asset_id must be string");
-	}
-	if (!["tiktok_aggressive", "ig_subtle", "custom"].includes(String(value.preset_name))) {
-		errors.push("repurposing plan preset_name must be a known preset");
-	}
-	if (typeof value.target_count !== "number" || !Number.isInteger(value.target_count)) {
-		errors.push("repurposing plan target_count must be integer");
-	}
-	if (typeof value.platform !== "string") {
-		errors.push("repurposing plan platform must be string");
 	}
 	return errors;
 }
