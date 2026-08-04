@@ -19,6 +19,7 @@ from reel_factory.worker_api import (
     build_higgsfield_production_plan,
     discover_higgsfield_production_capabilities,
     execute_higgsfield_production,
+    gemini_motion_analysis_instruction,
     quote_higgsfield_production_plan,
 )
 
@@ -35,6 +36,18 @@ def test_worker_api_exports_higgsfield_production_boundary() -> None:
     assert callable(discover_higgsfield_production_capabilities)
     assert callable(execute_higgsfield_production)
     assert callable(quote_higgsfield_production_plan)
+
+
+def test_gemini_motion_analysis_instruction_requests_multishot_semantics() -> None:
+    instruction = gemini_motion_analysis_instruction("reference-1")
+
+    assert "4 to 15 second 9:16 video" in instruction
+    assert "one or more shots" in instruction
+    assert "structure.shots" in instruction
+    assert "structure.cutTimeline" in instruction
+    assert "recreationPolicy.fidelity to broad_structure_only" in instruction
+    assert "recreationPolicy.exactChoreographySupported to false" in instruction
+    assert "Exact choreography transfer is unsupported" in instruction
 
 
 def _parameter_material() -> dict:

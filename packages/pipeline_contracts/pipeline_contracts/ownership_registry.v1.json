@@ -345,7 +345,7 @@
     "schema": "creator_os.persistence_ownership_registry.v1",
     "inventoryCommand": "uv run python scripts/inventory-persistence.py",
     "directSqlWriterInventory": "record-and-table-level exact source file sets",
-    "directSqlWriterInventorySha256": "8c6bd13eb9dfc9db6e2485692f1014142f4773567692edf0f40e962d92634d9c",
+    "directSqlWriterInventorySha256": "efd535c3a978d42dd0b7c5b576dea42d71d0c59cc7065ebb633ba3288d6d7e98",
     "persistentJsonWriterInventory": "exact producer modules and literal JSON artifact families",
     "persistentJsonWriterInventorySha256": "7e5255c965f075aa5e401cd8073671277798fc5426db3d62b36101393ce354fc",
     "policyInheritance": [

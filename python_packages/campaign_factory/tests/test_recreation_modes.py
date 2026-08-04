@@ -91,6 +91,20 @@ def _quote(model: str, _params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _provider_rights() -> dict[str, Any]:
+    return {
+        "schema": "reference_factory.provider_rights_eligibility.v1",
+        "eligible": True,
+        "referenceId": "ref_url_example",
+        "provider": "higgsfield",
+        "operation": "recreation_generation",
+        "sourceSha256": "a" * 64,
+        "rightsEventId": "rights-event-1",
+        "rightsEvidenceFingerprint": "9" * 64,
+        "rightsExpiresAt": "2026-08-04T00:00:00Z",
+    }
+
+
 def _plan(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -99,6 +113,7 @@ def _plan(
     intake: dict[str, Any] | None = None,
     motion: float = 0.01,
     prompts: bool = True,
+    rights: bool = True,
 ) -> dict[str, Any]:
     monkeypatch.setattr(recreation_modes, "_coarse_motion_energy", lambda _: motion)
     provider_identity_id = f"registry-soul-{creator}"
@@ -124,6 +139,7 @@ def _plan(
             "governanceFingerprint": "g" * 64,
         },
         prompt_pack=_prompt_pack() if prompts else None,
+        provider_rights=_provider_rights() if rights else None,
         quote_provider=_quote,
     )
 
@@ -201,6 +217,15 @@ def test_missing_prompt_pack_fails_closed(monkeypatch: pytest.MonkeyPatch) -> No
     assert plan["productionReadiness"] == "BLOCKED_OPENAI_PROMPT_PACK_REQUIRED"
     assert plan["videoPlan"] is None
     assert plan["quote"]["providerGenerationCalls"] == 0
+
+
+def test_missing_provider_rights_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan(monkeypatch, rights=False)
+
+    assert plan["productionReadiness"] == "BLOCKED_PROVIDER_RIGHTS_REQUIRED"
+    assert plan["referenceProviderRights"] is None
 
 
 def test_plan_is_stable_and_never_generates_or_publishes(

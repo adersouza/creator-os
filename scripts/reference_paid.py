@@ -20,6 +20,9 @@ from campaign_factory.config import get_settings
 from campaign_factory.creator_governance import resolve_campaign_operation
 from campaign_factory.db import connect as connect_campaign
 from campaign_factory.db import init_db
+from campaign_factory.production_source_selection import (
+    require_creation_enabled_creator,
+)
 from creator_os_core.provider_spend import build_paid_action_quote
 from reference_factory.config import DEFAULT_DATA_ROOT, DEFAULT_DB_PATH
 from reference_factory.db import connect as connect_reference
@@ -55,7 +58,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference-media", type=Path)
     parser.add_argument("--source-asset-id", required=True)
     parser.add_argument("--platform", default="instagram")
-    parser.add_argument("--account-profile")
+    parser.add_argument(
+        "--account-profile",
+        help="Optional compatibility value; when set it must match --creator",
+    )
     parser.add_argument("--intake-profile", default="ig_ofm")
     parser.add_argument("--media-kinds")
     parser.add_argument("--limit", type=int, default=1)
@@ -76,6 +82,20 @@ def _resolve_identity(
     if row is None:
         raise LookupError(f"{label}_not_found:{value}")
     return str(row[0])
+
+
+def _creation_profile_for_creator(
+    conn: sqlite3.Connection, *, creator_id: str, requested_profile: str | None
+) -> str:
+    row = conn.execute("SELECT slug FROM models WHERE id = ?", (creator_id,)).fetchone()
+    if row is None:
+        raise LookupError(f"creator_not_found:{creator_id}")
+    creator_profile = require_creation_enabled_creator(str(row[0]))
+    if requested_profile is not None:
+        requested = require_creation_enabled_creator(requested_profile)
+        if requested != creator_profile:
+            raise PermissionError("reference_paid_account_profile_creator_mismatch")
+    return creator_profile
 
 
 def _paid_callbacks(
@@ -244,6 +264,11 @@ def main(argv: list[str] | None = None) -> int:
             value=args.creator,
             label="creator",
         )
+        creator_profile = _creation_profile_for_creator(
+            campaign_conn,
+            creator_id=creator_id,
+            requested_profile=args.account_profile,
+        )
         campaign_id = _resolve_identity(
             campaign_conn,
             table="campaigns",
@@ -302,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 "source_root": binding["referencePath"],
                 "data_root": data_root,
                 "platform": args.platform,
-                "account_profile": args.account_profile,
+                "account_profile": creator_profile,
                 "intake_profile": args.intake_profile,
                 "media_kinds": media_kinds,
                 "limit": args.limit,

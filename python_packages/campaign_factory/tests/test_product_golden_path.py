@@ -629,7 +629,7 @@ def test_normal_create_uses_one_openai_prompt_pack_per_source(tmp_path: Path) ->
     )
 
 
-@pytest.mark.parametrize("creator", ["stacey", "larissa", "lola"])
+@pytest.mark.parametrize("creator", ["stacey", "larissa"])
 @pytest.mark.parametrize(
     "intent",
     ["passive_selfie", "flirty_portrait", "outfit", "lifestyle", "animate_existing"],
@@ -657,8 +657,8 @@ def test_supported_cloud_intents_bind_each_creator_soul(
 
 def test_unknown_creator_fails_before_provider_planning(tmp_path: Path) -> None:
     with pytest.raises(
-        ValueError,
-        match="unknown creator",
+        PermissionError,
+        match="creator_creation_not_enabled:unknown",
     ):
         plan_production_batch(
             _production_factory(tmp_path),

@@ -72,6 +72,7 @@ def test_known_report_commands_are_read_only_without_signing_material(
         "multi-surface-inventory-audit",
         "operational-observability",
         "parent-factory-post-gate-fresh-batch-proof",
+        "recommend-audio",
     ):
         decision = authorize_cli_operation(Namespace(cmd=command))
         assert decision.effect_class == READ

@@ -21,6 +21,7 @@ from creator_os_core.sqlite import connect_sqlite
 from .config import DEFAULT_DATA_ROOT, DEFAULT_DB_PATH
 from .db import connect
 from .identity import content_hash, stable_id
+from .media import ffprobe_video
 from .ocr import run_selected_ocr
 from .reference_local_analysis import _detect_scene_cuts, _probe_media
 
@@ -56,16 +57,34 @@ def analyze_url_reference(
         f"ref_url_{hashlib.sha256(f'{platform}:{native_id}'.encode()).hexdigest()[:20]}"
     )
     canonical_dir = data_root / "url_intake" / platform / native_id
+    canonical_path = canonical_dir / f"reference{source.suffix.lower() or '.mp4'}"
     existing = _find_existing(db_path, platform, native_id, source_sha, writable=apply)
     if existing:
         receipt = _load_receipt(existing, apply=apply)
+        probe_repair: dict[str, Any] | None = None
+        if apply and not existing.get("video_probe_valid"):
+            conn = connect(db_path)
+            try:
+                probe_repair = repair_url_intake_video_probes(
+                    conn,
+                    apply=True,
+                    reference_ids=[str(existing["reference_id"])],
+                )
+            finally:
+                conn.close()
         return {
             **receipt,
             "ok": True,
             "apply": apply,
             "duplicateResult": existing["duplicateReason"],
+            "probeRepair": probe_repair,
             "proposedMutations": [],
         }
+    legacy_reference_id = _legacy_path_owner(
+        db_path, canonical_path, source_sha, writable=apply
+    )
+    if legacy_reference_id:
+        reference_id = legacy_reference_id
 
     probe = _probe_media(source, ffprobe=shutil.which("ffprobe") or "ffprobe")
     duration = float(probe.get("durationSeconds") or 0)
@@ -80,7 +99,8 @@ def analyze_url_reference(
     os.chmod(destination_root, 0o700)
     canonical_source = destination_root / f"reference{source.suffix.lower() or '.mp4'}"
     if apply:
-        shutil.copy2(source, canonical_source)
+        if source != canonical_source:
+            shutil.copy2(source, canonical_source)
         os.chmod(canonical_source, 0o600)
     else:
         canonical_source = source
@@ -104,7 +124,12 @@ def analyze_url_reference(
             if cut > 0
         ):
             candidate["hardBlockers"].append("transition_frame")
-    selected = select_anchor(candidates)
+    anchor_error: str | None = None
+    try:
+        selected = select_anchor(candidates)
+    except ValueError as exc:
+        selected = None
+        anchor_error = str(exc)
     role_map = _role_map(candidates, selected)
     derivatives = _materialize_roles(frames_dir, role_map)
     contact_sheet = _contact_sheet(
@@ -126,12 +151,21 @@ def analyze_url_reference(
         "sourceMediaSha256": source_sha,
         "candidateFrames": candidates,
         "overlayTextInventory": visual_evidence["overlayTextInventory"],
-        "selectedFrame": {
-            "timeSec": selected["timeSec"],
-            "sha256": selected["sha256"],
-            "score": selected["score"],
-            "path": str(derivatives["best_anchor"]),
+        "selection": {
+            "status": "selected" if selected else "unavailable",
+            "reviewEligibility": "eligible" if selected else "blocked",
+            "reason": anchor_error,
         },
+        "selectedFrame": (
+            {
+                "timeSec": selected["timeSec"],
+                "sha256": selected["sha256"],
+                "score": selected["score"],
+                "path": str(derivatives["best_anchor"]),
+            }
+            if selected
+            else None
+        ),
         "toolchain": toolchain,
         "implementationFingerprint": implementation_fingerprint,
         "createdAt": now,
@@ -181,13 +215,18 @@ def analyze_url_reference(
             "proposedPath": str(canonical_dir / "scene_contact_sheet.jpg"),
             "sha256": content_hash(contact_sheet) if contact_sheet else None,
         },
-        "selectedAnchor": {
-            **anchor_receipt["selectedFrame"],
-            "path": (anchor_receipt["selectedFrame"]["path"] if apply else None),
-            "proposedPath": str(
-                canonical_dir / "frames" / derivatives["best_anchor"].name
-            ),
-        },
+        "anchorSelection": anchor_receipt["selection"],
+        "selectedAnchor": (
+            {
+                **anchor_receipt["selectedFrame"],
+                "path": (anchor_receipt["selectedFrame"]["path"] if apply else None),
+                "proposedPath": str(
+                    canonical_dir / "frames" / derivatives["best_anchor"].name
+                ),
+            }
+            if anchor_receipt["selectedFrame"]
+            else None
+        ),
         "anchorCandidates": [
             {
                 "timeSec": candidate["timeSec"],
@@ -202,18 +241,33 @@ def analyze_url_reference(
         "overlayTextInventory": visual_evidence["overlayTextInventory"],
         "visualEvidence": visual_evidence,
         "anchorReceiptPath": str(receipt_path) if apply else None,
-        "duplicateResult": "created" if apply else "proposed",
+        "duplicateResult": (
+            "upgraded_legacy_path"
+            if legacy_reference_id and apply
+            else "proposed_legacy_path_upgrade"
+            if legacy_reference_id
+            else "created"
+            if apply
+            else "proposed"
+        ),
         "proposedMutations": (
             []
             if apply
             else [
                 "persist canonical Reference Factory source",
-                "persist eight receipt-linked frame derivatives",
+                "persist receipt-linked frame derivatives",
                 "persist immutable anchor-selection receipt",
+                "persist canonical valid video probe",
             ]
         ),
     }
     if apply:
+        canonical_probe = ffprobe_video(canonical_source)
+        if canonical_probe.get("valid") is not True:
+            raise RuntimeError(
+                "canonical reference video did not produce a valid ffprobe record: "
+                f"{canonical_probe.get('error') or 'unknown probe error'}"
+            )
         _persist(
             db_path=db_path,
             source=canonical_source,
@@ -225,6 +279,7 @@ def analyze_url_reference(
             receipt_path=receipt_path,
             implementation_fingerprint=implementation_fingerprint,
             now=now,
+            canonical_probe=canonical_probe,
         )
     else:
         shutil.rmtree(destination_root, ignore_errors=True)
@@ -603,8 +658,20 @@ def _mediapipe(manifest_path: Path) -> dict[str, Any]:
 
 
 def _role_map(
-    candidates: list[dict[str, Any]], selected: dict[str, Any]
+    candidates: list[dict[str, Any]], selected: dict[str, Any] | None
 ) -> dict[str, dict[str, Any]]:
+    if selected is None:
+        midpoint = min(
+            candidates,
+            key=lambda item: abs(
+                float(item["timeSec"]) - float(candidates[-1]["timeSec"]) / 2
+            ),
+        )
+        return {
+            "literal_first": candidates[0],
+            "literal_final": candidates[-1],
+            "representative_midpoint": midpoint,
+        }
     clean = [item for item in candidates if not item.get("hardBlockers")] or candidates
     first_clean = min(clean, key=lambda item: float(item["timeSec"]))
     last_clean = max(clean, key=lambda item: float(item["timeSec"]))
@@ -702,7 +769,15 @@ def _find_existing(
         reason = "reused_platform_media_id"
         if row is None:
             row = conn.execute(
-                "SELECT * FROM source_files WHERE content_hash = ? ORDER BY created_at LIMIT 1",
+                """
+                SELECT * FROM source_files
+                WHERE content_hash = ?
+                  AND source_platform IS NOT NULL
+                  AND native_media_id IS NOT NULL
+                  AND (intake_metadata_json IS NOT NULL OR intake_receipt_path IS NOT NULL)
+                ORDER BY created_at
+                LIMIT 1
+                """,
                 (source_sha,),
             ).fetchone()
             reason = "reused_downloaded_sha"
@@ -710,6 +785,10 @@ def _find_existing(
             return None
         receipt = conn.execute(
             "SELECT receipt_path FROM reference_anchor_receipts WHERE reference_id = ? ORDER BY created_at DESC LIMIT 1",
+            (row["reference_id"],),
+        ).fetchone()
+        video_probe = conn.execute(
+            "SELECT valid FROM video_probes WHERE reference_id = ?",
             (row["reference_id"],),
         ).fetchone()
         frame_samples = [
@@ -728,14 +807,46 @@ def _find_existing(
             **dict(row),
             "receipt_path": receipt["receipt_path"] if receipt else None,
             "frame_samples": frame_samples,
+            "video_probe_valid": bool(video_probe and video_probe["valid"] == 1),
             "duplicateReason": reason,
         }
     finally:
         conn.close()
 
 
+def _legacy_path_owner(
+    db_path: Path,
+    canonical_path: Path,
+    source_sha: str,
+    *,
+    writable: bool,
+) -> str | None:
+    """Return an older scanner row that already owns the canonical path."""
+    if not db_path.exists():
+        return None
+    conn = (
+        connect(db_path)
+        if writable
+        else connect_sqlite(db_path, readonly=True, wal=False)
+    )
+    try:
+        row = conn.execute(
+            "SELECT reference_id,content_hash FROM source_files WHERE path = ?",
+            (str(canonical_path),),
+        ).fetchone()
+        if row is None:
+            return None
+        if str(row["content_hash"] or "") != source_sha:
+            raise ValueError("canonical reference path is owned by different bytes")
+        return str(row["reference_id"])
+    finally:
+        conn.close()
+
+
 def _load_receipt(existing: dict[str, Any], *, apply: bool) -> dict[str, Any]:
-    receipt_path = Path(str(existing.get("receipt_path") or ""))
+    receipt_path = Path(
+        str(existing.get("receipt_path") or existing.get("intake_receipt_path") or "")
+    )
     payload: dict[str, Any] = {}
     if receipt_path.is_file():
         payload = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -746,6 +857,17 @@ def _load_receipt(existing: dict[str, Any], *, apply: bool) -> dict[str, Any]:
     )
     duration = float(media.get("durationSeconds") or 0)
     metadata = json.loads(str(existing.get("intake_metadata_json") or "{}"))
+    anchor_selection = payload.get("selection")
+    if not isinstance(anchor_selection, dict):
+        anchor_selection = metadata.get("anchorSelection")
+    if not isinstance(anchor_selection, dict):
+        anchor_selection = {
+            "status": "selected" if payload.get("selectedFrame") else "unknown",
+            "reviewEligibility": (
+                "eligible" if payload.get("selectedFrame") else "unknown"
+            ),
+            "reason": None,
+        }
     frame_derivatives = {}
     for sample in existing.get("frame_samples") or []:
         frame_path = Path(str(sample["frame_path"]))
@@ -795,6 +917,7 @@ def _load_receipt(existing: dict[str, Any], *, apply: bool) -> dict[str, Any]:
             duration=duration,
             ffmpeg=shutil.which("ffmpeg") or "ffmpeg",
         ),
+        "anchorSelection": anchor_selection,
         "selectedAnchor": payload.get("selectedFrame"),
         "overlayTextInventory": payload.get("overlayTextInventory")
         or {
@@ -829,10 +952,23 @@ def _persist(
     receipt_path: Path,
     implementation_fingerprint: str,
     now: str,
+    canonical_probe: dict[str, Any],
 ) -> None:
     conn = connect(db_path)
     reference_id = result["referenceId"]
     try:
+        intake_metadata = _metadata_allowlist(metadata)
+        intake_metadata["anchorSelection"] = result["anchorSelection"]
+        existing_source = conn.execute(
+            "SELECT path,content_hash FROM source_files WHERE reference_id = ?",
+            (reference_id,),
+        ).fetchone()
+        if existing_source is not None and (
+            str(existing_source["path"]) != str(source)
+            or str(existing_source["content_hash"] or "")
+            != str(result["source"]["sha256"])
+        ):
+            raise ValueError("legacy reference row does not match canonical bytes")
         conn.execute(
             """
             INSERT INTO source_files (
@@ -842,6 +978,29 @@ def _persist(
               canonical_url,extractor,extractor_version,intake_metadata_json,
               intake_receipt_path,created_at,updated_at
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(reference_id) DO UPDATE SET
+              path=excluded.path,
+              account=COALESCE(excluded.account,source_files.account),
+              file_name=excluded.file_name,
+              extension=excluded.extension,
+              kind=excluded.kind,
+              size_bytes=excluded.size_bytes,
+              mtime=excluded.mtime,
+              path_hash=excluded.path_hash,
+              content_hash=excluded.content_hash,
+              source_views=COALESCE(excluded.source_views,source_files.source_views),
+              source_likes=COALESCE(excluded.source_likes,source_files.source_likes),
+              source_comments=COALESCE(excluded.source_comments,source_files.source_comments),
+              source_posted_at=COALESCE(excluded.source_posted_at,source_files.source_posted_at),
+              source_platform=excluded.source_platform,
+              native_media_id=excluded.native_media_id,
+              original_url=excluded.original_url,
+              canonical_url=excluded.canonical_url,
+              extractor=excluded.extractor,
+              extractor_version=excluded.extractor_version,
+              intake_metadata_json=excluded.intake_metadata_json,
+              intake_receipt_path=excluded.intake_receipt_path,
+              updated_at=excluded.updated_at
             """,
             (
                 reference_id,
@@ -864,14 +1023,20 @@ def _persist(
                 metadata.get("canonicalUrl"),
                 metadata.get("extractor"),
                 metadata.get("extractorVersion"),
-                json.dumps(_metadata_allowlist(metadata), sort_keys=True),
+                json.dumps(intake_metadata, sort_keys=True),
                 str(receipt_path),
                 now,
                 now,
             ),
         )
+        _upsert_video_probe(
+            conn,
+            reference_id=reference_id,
+            probe=canonical_probe,
+            probed_at=now,
+        )
         selected_sample_id = ""
-        for role in FRAME_ROLES:
+        for role in role_map:
             candidate = role_map[role]
             sample_id = stable_id("frame_sample", reference_id, role)
             if role == "best_anchor":
@@ -881,6 +1046,11 @@ def _persist(
                 INSERT INTO frame_samples
                   (id,reference_id,time_sec,role,frame_path,width,height,created_at)
                 VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(reference_id,role) DO UPDATE SET
+                  time_sec=excluded.time_sec,
+                  frame_path=excluded.frame_path,
+                  width=excluded.width,
+                  height=excluded.height
                 """,
                 (
                     sample_id,
@@ -893,36 +1063,243 @@ def _persist(
                     now,
                 ),
             )
+            persisted_sample = conn.execute(
+                "SELECT id FROM frame_samples WHERE reference_id = ? AND role = ?",
+                (reference_id, role),
+            ).fetchone()
+            if role == "best_anchor" and persisted_sample is not None:
+                selected_sample_id = str(persisted_sample["id"])
         selected = result["selectedAnchor"]
-        conn.execute(
-            """
-            INSERT INTO reference_anchor_receipts
-              (id,reference_id,source_media_sha256,selected_frame_sample_id,
-               selected_frame_sha256,selected_time_sec,score,
-               candidate_measurements_json,toolchain_json,
-               implementation_fingerprint,receipt_path,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                stable_id("anchor_receipt", reference_id, implementation_fingerprint),
-                reference_id,
-                result["source"]["sha256"],
-                selected_sample_id,
-                selected["sha256"],
-                selected["timeSec"],
-                selected["score"],
-                json.dumps(candidates, sort_keys=True),
-                json.dumps(
-                    {"ffmpeg": _version("ffmpeg"), "ffprobe": _version("ffprobe")}
+        if selected is not None:
+            conn.execute(
+                """
+                INSERT INTO reference_anchor_receipts
+                  (id,reference_id,source_media_sha256,selected_frame_sample_id,
+                   selected_frame_sha256,selected_time_sec,score,
+                   candidate_measurements_json,toolchain_json,
+                   implementation_fingerprint,receipt_path,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    stable_id(
+                        "anchor_receipt", reference_id, implementation_fingerprint
+                    ),
+                    reference_id,
+                    result["source"]["sha256"],
+                    selected_sample_id,
+                    selected["sha256"],
+                    selected["timeSec"],
+                    selected["score"],
+                    json.dumps(candidates, sort_keys=True),
+                    json.dumps(
+                        {
+                            "ffmpeg": _version("ffmpeg"),
+                            "ffprobe": _version("ffprobe"),
+                        }
+                    ),
+                    implementation_fingerprint,
+                    str(receipt_path),
+                    now,
                 ),
-                implementation_fingerprint,
-                str(receipt_path),
-                now,
-            ),
-        )
+            )
         conn.commit()
     finally:
         conn.close()
+
+
+def repair_url_intake_video_probes(
+    conn: sqlite3.Connection,
+    *,
+    apply: bool = False,
+    reference_ids: list[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Repair the missing canonical probe edge for previously stored URL intakes."""
+    clauses = [
+        "sf.kind = 'video'",
+        "sf.reference_id LIKE 'ref_url_%'",
+        "(vp.reference_id IS NULL OR vp.valid <> 1)",
+    ]
+    params: list[Any] = []
+    if reference_ids:
+        placeholders = ",".join("?" for _ in reference_ids)
+        clauses.append(f"sf.reference_id IN ({placeholders})")
+        params.extend(reference_ids)
+    sql = f"""
+        SELECT sf.reference_id, sf.path, sf.content_hash
+        FROM source_files sf
+        LEFT JOIN video_probes vp ON vp.reference_id = sf.reference_id
+        WHERE {" AND ".join(clauses)}
+        ORDER BY sf.reference_id
+    """
+    rows = conn.execute(sql, tuple(params)).fetchall()
+    if limit is not None:
+        rows = rows[: max(0, limit)]
+    repaired = 0
+    invalid = 0
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        reference_id = str(row["reference_id"])
+        source_path = Path(str(row["path"]))
+        probe = ffprobe_video(source_path)
+        valid = probe.get("valid") is True
+        if valid and apply:
+            _upsert_video_probe(
+                conn,
+                reference_id=reference_id,
+                probe=probe,
+                probed_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            )
+            repaired += 1
+        elif not valid:
+            invalid += 1
+        items.append(
+            {
+                "referenceId": reference_id,
+                "sourcePath": str(source_path),
+                "sourceSha256": row["content_hash"],
+                "valid": valid,
+                "wouldRepair": bool(valid and not apply),
+                "error": probe.get("error"),
+            }
+        )
+    if apply:
+        conn.commit()
+    return {
+        "schema": "reference_factory.url_intake_probe_repair.v1",
+        "apply": apply,
+        "candidates": len(rows),
+        "repaired": repaired,
+        "wouldRepair": sum(item["wouldRepair"] for item in items),
+        "invalid": invalid,
+        "items": items,
+    }
+
+
+def resolve_url_intake_reference(
+    conn: sqlite3.Connection, reference_id: str
+) -> dict[str, Any]:
+    """Resolve one persisted URL intake by ID without re-intake or mutation."""
+    source = conn.execute(
+        "SELECT * FROM source_files WHERE reference_id = ?",
+        (reference_id,),
+    ).fetchone()
+    if source is None:
+        raise ValueError(f"unknown reference_id: {reference_id}")
+    source_row = dict(source)
+    if not source_row.get("source_platform") or not source_row.get("native_media_id"):
+        raise ValueError("reference_id is not a governed URL-intake reference")
+    source_path = Path(str(source_row.get("path") or "")).expanduser()
+    if source_path.is_symlink() or not source_path.is_file():
+        raise ValueError("stored URL-intake source is not a regular file")
+    expected_sha256 = str(source_row.get("content_hash") or "")
+    if content_hash(source_path) != expected_sha256:
+        raise ValueError("stored URL-intake source SHA-256 mismatch")
+    receipt = conn.execute(
+        """
+        SELECT receipt_path
+        FROM reference_anchor_receipts
+        WHERE reference_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (reference_id,),
+    ).fetchone()
+    frame_samples = [
+        dict(item)
+        for item in conn.execute(
+            """
+            SELECT role, frame_path, time_sec
+            FROM frame_samples
+            WHERE reference_id = ?
+            ORDER BY role
+            """,
+            (reference_id,),
+        ).fetchall()
+    ]
+    probe = conn.execute(
+        "SELECT * FROM video_probes WHERE reference_id = ?",
+        (reference_id,),
+    ).fetchone()
+    receipt_path = Path(
+        str(
+            (receipt["receipt_path"] if receipt else None)
+            or source_row.get("intake_receipt_path")
+            or ""
+        )
+    )
+    anchor_receipt: dict[str, Any] | None = None
+    if receipt_path.is_file():
+        try:
+            parsed = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                anchor_receipt = parsed
+        except (OSError, json.JSONDecodeError):
+            anchor_receipt = None
+    intake_metadata = json.loads(str(source_row.get("intake_metadata_json") or "{}"))
+    return {
+        "schema": "reference_factory.url_intake_resolution.v1",
+        "referenceId": reference_id,
+        "source": {
+            "path": str(source_path.resolve()),
+            "sha256": expected_sha256,
+            "bytes": source_path.stat().st_size,
+            "exactBytesVerified": True,
+            "platform": source_row.get("source_platform"),
+            "nativeMediaId": source_row.get("native_media_id"),
+            "originalUrl": source_row.get("original_url"),
+            "canonicalUrl": source_row.get("canonical_url"),
+        },
+        "intakeMetadata": intake_metadata,
+        "videoProbe": dict(probe) if probe else None,
+        "anchorReceiptPath": str(receipt_path) if receipt_path.is_file() else None,
+        "anchorReceipt": anchor_receipt,
+        "frameSamples": frame_samples,
+    }
+
+
+def _upsert_video_probe(
+    conn: sqlite3.Connection,
+    *,
+    reference_id: str,
+    probe: dict[str, Any],
+    probed_at: str,
+) -> None:
+    if probe.get("valid") is not True:
+        raise ValueError("only a valid canonical video probe can be persisted")
+    conn.execute(
+        """
+        INSERT INTO video_probes (
+          reference_id, valid, duration_seconds, width, height, fps,
+          codec, aspect_ratio, rotation, probe_json, error, probed_at
+        )
+        VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        ON CONFLICT(reference_id) DO UPDATE SET
+          valid = 1,
+          duration_seconds = excluded.duration_seconds,
+          width = excluded.width,
+          height = excluded.height,
+          fps = excluded.fps,
+          codec = excluded.codec,
+          aspect_ratio = excluded.aspect_ratio,
+          rotation = excluded.rotation,
+          probe_json = excluded.probe_json,
+          error = NULL,
+          probed_at = excluded.probed_at
+        """,
+        (
+            reference_id,
+            probe.get("duration_seconds"),
+            probe.get("width"),
+            probe.get("height"),
+            probe.get("fps"),
+            probe.get("codec"),
+            probe.get("aspect_ratio"),
+            probe.get("rotation"),
+            json.dumps(probe.get("probe_json") or {}, sort_keys=True),
+            probed_at,
+        ),
+    )
 
 
 def _metadata_allowlist(metadata: dict[str, Any]) -> dict[str, Any]:

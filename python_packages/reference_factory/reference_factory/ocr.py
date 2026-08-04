@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import re
 import subprocess
@@ -368,14 +369,17 @@ def upsert_caption_pattern(
     text: str,
     boxes: list[dict[str, Any]],
     avg_confidence: float | None,
-) -> None:
+    placement_metadata: dict[str, Any] | None = None,
+) -> str | None:
     normalized = normalize_text(text)
     if not normalized:
-        return
+        return None
     lines = [line.strip() for line in re.split(r"\s{2,}|\n", text) if line.strip()]
     if not lines:
         lines = [normalized]
     placement = summarize_placement(boxes)
+    if placement_metadata:
+        placement.update(placement_metadata)
     caption_hash = text_hash(normalized)
     conn.execute(
         """
@@ -403,6 +407,175 @@ def upsert_caption_pattern(
             now_iso(),
         ),
     )
+    return caption_hash
+
+
+def promote_url_overlay_candidate(
+    conn: Connection,
+    *,
+    reference_id: str,
+    observation_index: int,
+    operator: str,
+    human_semantic_approval: bool,
+    human_timing_approval: bool,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """Promote one observed URL overlay into the governed caption-pattern lane."""
+    operator_name = " ".join(operator.split())
+    if not operator_name:
+        raise ValueError("operator is required")
+    if not human_semantic_approval:
+        raise PermissionError("human semantic approval is required")
+    if not human_timing_approval:
+        raise PermissionError("human timing approval is required")
+    row = conn.execute(
+        """
+        SELECT sf.path, sf.content_hash, sf.intake_receipt_path,
+               rar.receipt_path AS anchor_receipt_path,
+               rar.source_media_sha256
+        FROM source_files sf
+        LEFT JOIN reference_anchor_receipts rar
+          ON rar.id = (
+            SELECT candidate.id
+            FROM reference_anchor_receipts candidate
+            WHERE candidate.reference_id = sf.reference_id
+            ORDER BY candidate.created_at DESC, candidate.id DESC
+            LIMIT 1
+          )
+        WHERE sf.reference_id = ?
+        """,
+        (reference_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown reference_id: {reference_id}")
+    receipt_path = Path(
+        str(row["anchor_receipt_path"] or row["intake_receipt_path"] or "")
+    )
+    if not receipt_path.is_file():
+        raise ValueError("reference has no readable URL-intake anchor receipt")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("URL-intake anchor receipt is unreadable") from exc
+    observations = (receipt.get("overlayTextInventory") or {}).get("observations") or []
+    if not isinstance(observations, list) or not (
+        0 <= observation_index < len(observations)
+    ):
+        raise ValueError("overlay observation index is out of range")
+    observation = observations[observation_index]
+    if not isinstance(observation, dict):
+        raise ValueError("overlay observation must be an object")
+    text = normalize_text(str(observation.get("text") or ""))
+    if not text:
+        raise ValueError("overlay observation contains no usable text")
+    try:
+        observed_time = float(observation.get("timeSec") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("overlay observation time is invalid") from exc
+    frame = conn.execute(
+        """
+        SELECT id, frame_path, time_sec
+        FROM frame_samples
+        WHERE reference_id = ?
+        ORDER BY ABS(time_sec - ?), time_sec, id
+        LIMIT 1
+        """,
+        (reference_id, observed_time),
+    ).fetchone()
+    if frame is None:
+        raise ValueError("reference has no persisted frame sample for this observation")
+    source_sha = str(row["source_media_sha256"] or row["content_hash"] or "")
+    observation_core = {
+        "referenceId": reference_id,
+        "sourceMediaSha256": source_sha,
+        "observationIndex": observation_index,
+        "observation": observation,
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            observation_core,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    requested_engine = f"operator_review:{fingerprint[:24]}"
+    ocr_id = stable_id("ocr", frame["id"], requested_engine)
+    confidence = observation.get("confidence")
+    confidence_value = (
+        float(confidence) if isinstance(confidence, (int, float)) else None
+    )
+    review = {
+        "schema": "reference_factory.overlay_candidate_review.v1",
+        "operator": operator_name,
+        "humanSemanticApproval": True,
+        "humanTimingApproval": True,
+        "timingScope": "source_observation_only",
+        "observedTimeSec": observed_time,
+        "sourceReferenceId": reference_id,
+        "sourceMediaSha256": source_sha,
+        "anchorReceiptPath": str(receipt_path),
+        "observationFingerprint": fingerprint,
+        "notes": " ".join(str(notes or "").split()) or None,
+    }
+    boxes = [
+        {
+            "ocrText": text,
+            "confidence": confidence_value,
+            "box": observation.get("box") or {},
+            "framePath": str(frame["frame_path"]),
+            "humanReview": review,
+        }
+    ]
+    conn.execute(
+        """
+        INSERT INTO ocr_results (
+          id, reference_id, frame_sample_id, engine, engine_version,
+          requested_engine, fallback_used, fallback_reason, ocr_text,
+          confidence, boxes_json, error, created_at
+        )
+        VALUES (?, ?, ?, 'operator_review', 'url_overlay_candidate_review.v1',
+                ?, 0, NULL, ?, ?, ?, NULL, ?)
+        ON CONFLICT(frame_sample_id, requested_engine) DO UPDATE SET
+          engine = excluded.engine,
+          engine_version = excluded.engine_version,
+          ocr_text = excluded.ocr_text,
+          confidence = excluded.confidence,
+          boxes_json = excluded.boxes_json,
+          error = NULL
+        """,
+        (
+            ocr_id,
+            reference_id,
+            frame["id"],
+            requested_engine,
+            text,
+            confidence_value,
+            json_dump(boxes),
+            now_iso(),
+        ),
+    )
+    caption_hash = upsert_caption_pattern(
+        conn,
+        reference_id,
+        ocr_id,
+        text,
+        boxes,
+        confidence_value,
+        placement_metadata={"candidateReview": review},
+    )
+    conn.commit()
+    return {
+        "schema": "reference_factory.promote_overlay_candidate.v1",
+        "referenceId": reference_id,
+        "observationIndex": observation_index,
+        "ocrResultId": ocr_id,
+        "captionHash": caption_hash,
+        "text": text,
+        "review": review,
+        "knowledgePackEligibility": "governed_by_gold_label_and_reference_lifecycle",
+        "publishOrRender": False,
+    }
 
 
 def ocr_cleanup(conn: Connection, min_confidence: float = 35.0) -> dict[str, object]:

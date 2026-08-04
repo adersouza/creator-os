@@ -25,6 +25,10 @@ from .reference_intake_contracts import (
     GEMINI_PROMPT_SCORING_RUBRIC,
     _closeness_controls,
     _norm,
+    intake_operator_direction,
+    normalize_reference_analysis_prompt,
+    reference_source_binding,
+    structural_reference_policy,
 )
 from .reference_local_analysis import _local_video_analysis
 from .reference_prompt_generation import (
@@ -109,6 +113,20 @@ def queue_reference_analysis(
             intake_profile=intake_profile,
             prompt_style=prompt_style,
         )
+        prompt_text = normalize_reference_analysis_prompt(prompt_text)
+        operator_direction = intake_operator_direction(source)
+        source_binding = reference_source_binding(source)
+        reference_policy = structural_reference_policy(source)
+        prompt_text = (
+            prompt_text.rstrip() + "\n\nOperator-confirmed intake direction "
+            "(preserve as source evidence; do not rewrite it):\n"
+            + json.dumps(operator_direction, ensure_ascii=False, sort_keys=True)
+            + "\n\nExact source binding (analyze only these exact bytes):\n"
+            + json.dumps(source_binding, ensure_ascii=False, sort_keys=True)
+            + "\n\nStructural-reference policy (source identity is never reusable):\n"
+            + json.dumps(reference_policy, ensure_ascii=False, sort_keys=True)
+            + "\n"
+        )
         existing = conn.execute(
             "SELECT id FROM reference_analysis_jobs WHERE id = ?", (job_id,)
         ).fetchone()
@@ -122,6 +140,16 @@ def queue_reference_analysis(
             ON CONFLICT(reference_id, provider_target, account_profile) DO UPDATE SET
               source_platform = excluded.source_platform,
               prompt_text = excluded.prompt_text,
+              status = CASE
+                WHEN reference_analysis_jobs.prompt_text <> excluded.prompt_text
+                THEN 'needs_analysis'
+                ELSE reference_analysis_jobs.status
+              END,
+              analysis_json = CASE
+                WHEN reference_analysis_jobs.prompt_text <> excluded.prompt_text
+                THEN '{}'
+                ELSE reference_analysis_jobs.analysis_json
+              END,
               updated_at = excluded.updated_at
             """,
             (
@@ -180,7 +208,8 @@ def export_analysis_queue(
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = conn.execute(
         """
-        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind
+        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind,
+               sf.content_hash, sf.intake_metadata_json
         FROM reference_analysis_jobs raj
         JOIN source_files sf ON sf.reference_id = raj.reference_id
         WHERE raj.provider_target = ?
@@ -269,7 +298,8 @@ def import_reference_analysis(
             continue
         row = conn.execute(
             """
-            SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind, sf.size_bytes
+            SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind, sf.size_bytes,
+                   sf.content_hash, sf.intake_metadata_json
             FROM reference_analysis_jobs raj
             JOIN source_files sf ON sf.reference_id = raj.reference_id
             WHERE raj.id = ?
@@ -280,7 +310,33 @@ def import_reference_analysis(
             errors.append({"index": index, "error": f"unknown analysis job: {job_id}"})
             continue
         analysis = _normalize_analysis(item)
-        pattern = _pattern_card_from_analysis(dict(row), analysis)
+        job = dict(row)
+        supplied_reference_id = str(analysis.get("referenceId") or "").strip()
+        if supplied_reference_id and supplied_reference_id != row["reference_id"]:
+            errors.append(
+                {
+                    "index": index,
+                    "error": "analysis referenceId does not match the queued job",
+                }
+            )
+            continue
+        source_binding = reference_source_binding(job)
+        supplied_binding = analysis.get("sourceBinding")
+        if isinstance(supplied_binding, dict) and any(
+            str(supplied_binding.get(key) or "") != str(source_binding[key])
+            for key in ("referenceId", "sourceSha256", "bindingFingerprint")
+        ):
+            errors.append(
+                {
+                    "index": index,
+                    "error": "analysis sourceBinding does not match the queued exact bytes",
+                }
+            )
+            continue
+        analysis["referenceId"] = row["reference_id"]
+        analysis["sourceBinding"] = source_binding
+        analysis["structuralReferencePolicy"] = structural_reference_policy(job)
+        pattern = _pattern_card_from_analysis(job, analysis)
         analysis["patternCard"] = pattern
         conn.execute(
             """
@@ -297,6 +353,7 @@ def import_reference_analysis(
             "id": _stable_id(
                 "reference_video_analysis",
                 row["reference_id"],
+                source_binding["sourceSha256"],
                 row["provider_target"],
                 "import",
             ),
@@ -310,7 +367,7 @@ def import_reference_analysis(
         }
         _store_pattern_and_analysis(
             conn,
-            job=dict(row),
+            job=job,
             analysis=stored_analysis,
             provider=row["provider_target"],
             timestamp=timestamp,
@@ -351,7 +408,8 @@ def analyze_reference_local(
     )
     rows = conn.execute(
         """
-        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind, sf.size_bytes
+        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind, sf.size_bytes,
+               sf.content_hash, sf.intake_metadata_json
         FROM reference_analysis_jobs raj
         JOIN source_files sf ON sf.reference_id = raj.reference_id
         WHERE raj.provider_target = 'local'
@@ -361,7 +419,17 @@ def analyze_reference_local(
         """,
         (
             str(Path(source_root).expanduser().resolve()) + "%",
-            max(1, limit or int(queued.get("queued") or 1)),
+            max(
+                1,
+                limit
+                or (
+                    int(queued_count)
+                    if isinstance(
+                        (queued_count := queued.get("queued")), (int, float, str)
+                    )
+                    else 1
+                ),
+            ),
         ),
     ).fetchall()
     timestamp = _now_iso()
@@ -417,7 +485,8 @@ def export_video_analyses(
     params: tuple[Any, ...] = ((provider_key,) if provider else ()) + (limit,)
     rows = conn.execute(
         f"""
-        SELECT rva.*, sf.path, sf.file_name, sf.account
+        SELECT rva.*, sf.path, sf.file_name, sf.account, sf.kind, sf.content_hash,
+               sf.intake_metadata_json
         FROM reference_video_analyses rva
         JOIN source_files sf ON sf.reference_id = rva.reference_id
         {where}
@@ -433,6 +502,9 @@ def export_video_analyses(
         analysis.setdefault("sourcePath", item.get("path"))
         analysis.setdefault("fileName", item.get("file_name"))
         analysis.setdefault("account", item.get("account"))
+        analysis["operatorDirection"] = intake_operator_direction(item)
+        analysis["sourceBinding"] = reference_source_binding(item)
+        analysis["structuralReferencePolicy"] = structural_reference_policy(item)
         analyses.append(analysis)
     payload = {
         "schema": "reference_factory.video_analysis_export.v1",
@@ -454,7 +526,8 @@ def export_video_analyses(
 def _job_payload(conn: Connection, job_id: str) -> dict[str, Any]:
     row = conn.execute(
         """
-        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind
+        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind,
+               sf.content_hash, sf.intake_metadata_json
         FROM reference_analysis_jobs raj
         JOIN source_files sf ON sf.reference_id = raj.reference_id
         WHERE raj.id = ?
@@ -476,6 +549,9 @@ def _job_row_to_export(row: dict[str, Any]) -> dict[str, Any]:
         "account": row.get("account"),
         "fileName": row.get("file_name"),
         "kind": row.get("kind"),
+        "sourceBinding": reference_source_binding(row),
+        "structuralReferencePolicy": structural_reference_policy(row),
+        "operatorDirection": intake_operator_direction(row),
         "promptText": row.get("prompt_text"),
         "analysis": _json_load(row.get("analysis_json"), {}),
     }

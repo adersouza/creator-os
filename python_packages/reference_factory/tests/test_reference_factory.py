@@ -751,14 +751,32 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
     account.mkdir(parents=True)
     create_video(account / "winning.mp4")
     conn = make_conn(tmp_path)
-
+    scan_source(conn, source)
+    reference_id = conn.execute(
+        "SELECT reference_id FROM source_files WHERE file_name = 'winning.mp4'"
+    ).fetchone()["reference_id"]
+    conn.execute(
+        "UPDATE source_files SET intake_metadata_json = ? WHERE reference_id = ?",
+        (
+            json.dumps(
+                {
+                    "description": "Low-angle selfie reveal with a delayed payoff.",
+                    "operatorClassification": "curiosity_reveal",
+                    "operatorWarnings": ["Preserve the delayed payoff timing."],
+                    "declaredNonTalking": True,
+                }
+            ),
+            reference_id,
+        ),
+    )
+    conn.commit()
     queued = queue_reference_analysis(
         conn,
         source,
         data_root=tmp_path / "data",
         platform="tiktok",
         provider_target="gemini",
-        account_profile="model_a",
+        account_profile="larissa",
     )
 
     assert queued["queued"] == 1
@@ -767,13 +785,20 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
     assert queued["jobs"][0]["status"] == "needs_analysis"
     assert "winningFormatCard" in queued["jobs"][0]["promptText"]
     assert "Output strict JSON only" in queued["jobs"][0]["promptText"]
+    assert (
+        "Low-angle selfie reveal with a delayed payoff."
+        in queued["jobs"][0]["promptText"]
+    )
+    assert queued["jobs"][0]["operatorDirection"]["classification"] == (
+        "curiosity_reveal"
+    )
     assert Path(queued["export"]["jsonPath"]).exists()
 
     generated = generate_video_prompts(
         conn,
         data_root=tmp_path / "data",
         target_tools=["higgsfield_soul", "kling_3"],
-        model_profile="model_a",
+        model_profile="larissa",
         limit=10,
         creative_plan_id="cplan_1",
     )
@@ -786,6 +811,16 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
     assert {item["status"] for item in generated["prompts"]} == {"prompt_ready"}
     assert all(
         item["prompt"]["promptGovernance"]["registryFingerprint"]
+        for item in generated["prompts"]
+    )
+    assert all(
+        item["prompt"]["operatorDirection"]["description"]
+        == "Low-angle selfie reveal with a delayed payoff."
+        for item in generated["prompts"]
+    )
+    assert all(
+        "Preserve the delayed payoff timing."
+        in item["prompt"]["operatorDirection"]["warnings"]
         for item in generated["prompts"]
     )
     assert (
@@ -862,9 +897,10 @@ def test_pattern_and_video_analysis_contract_validation_blocks_write(
         """
         INSERT INTO source_files (
           reference_id, path, file_name, extension, kind, size_bytes, mtime,
-          path_hash, created_at, updated_at
-        ) VALUES ('ref_1', '/ref_1.mp4', 'ref_1.mp4', 'mp4', 'video', 1, '', '', '', '')
-        """
+          path_hash, content_hash, created_at, updated_at
+        ) VALUES ('ref_1', '/ref_1.mp4', 'ref_1.mp4', 'mp4', 'video', 1, '', '', ?, '', '')
+        """,
+        ("a" * 64,),
     )
     conn.execute(
         """
@@ -905,6 +941,8 @@ def test_pattern_and_video_analysis_contract_validation_blocks_write(
         "id": "job_1",
         "reference_id": "ref_1",
         "source_platform": "instagram",
+        "content_hash": "a" * 64,
+        "kind": "video",
     }
 
     _store_pattern_and_analysis(
@@ -1041,7 +1079,7 @@ def test_reference_intake_imports_analysis_before_prompt_generation(
         conn,
         data_root=tmp_path / "data",
         target_tools=["kling_3"],
-        model_profile="model_b",
+        model_profile="larissa",
         include_pending=False,
     )
 
@@ -1076,6 +1114,7 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
         prompt_style="minimal",
     )
     prompt_text = queued["jobs"][0]["promptText"]
+    source_sha256 = hashlib.sha256((account / "selfie.mp4").read_bytes()).hexdigest()
     assert queued["promptStyle"] == "minimal"
     assert "recreation blueprint" in prompt_text
     assert "pose geometry" in prompt_text
@@ -1084,6 +1123,15 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
     assert "Example `image_prompt_json` style to imitate" in prompt_text
     assert '"promptMode": "structured_json"' in prompt_text
     assert "adult my Soul ID model" not in prompt_text
+    assert "young woman" not in prompt_text.lower()
+    assert "tattoo" not in prompt_text.lower()
+    assert "adult woman, age 19, with dark hair" in prompt_text
+    assert "fuller-chest and cleavage framing" in prompt_text
+    assert queued["jobs"][0]["sourceBinding"]["sourceSha256"] == source_sha256
+    assert (
+        queued["jobs"][0]["structuralReferencePolicy"]["sourceRole"]
+        == "reel_motion_composition_reference"
+    )
     assert Path(queued["export"]["outputSchemaPath"]).exists()
     assert Path(queued["export"]["scoringRubricMarkdownPath"]).exists()
 
@@ -1150,22 +1198,52 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
     )
 
     imported = import_reference_analysis(conn, analysis_path)
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:missing"):
+        generate_video_prompts(
+            conn,
+            data_root=tmp_path / "data",
+            target_tools=["higgsfield_soul", "kling_3"],
+            include_pending=False,
+        )
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:missing"):
+        generate_video_prompts(
+            conn,
+            data_root=tmp_path / "data",
+            target_tools=["higgsfield_soul", "kling_3"],
+            model_profile="   ",
+            include_pending=False,
+        )
     generated = generate_video_prompts(
         conn,
         data_root=tmp_path / "data",
         target_tools=["higgsfield_soul", "kling_3"],
+        model_profile=" Stacey ",
         include_pending=False,
     )
 
     assert imported["imported"] == 1
+    assert generated["modelProfile"] == "stacey"
+    assert {
+        row["model_profile"]
+        for row in conn.execute(
+            "SELECT model_profile FROM generated_video_prompts"
+        ).fetchall()
+    } == {"stacey"}
     prompts = {item["targetTool"]: item["prompt"] for item in generated["prompts"]}
+    assert {prompt["modelProfile"] for prompt in prompts.values()} == {"stacey"}
     image_main = prompts["higgsfield_soul_image"]["mainPrompt"]
     image_json = json.loads(image_main)
     assert image_json["prompt_schema_version"] == "imageat_higgsfield.v1"
-    assert (
-        image_json["prompt"]
-        == "Use my Soul ID model in a casual bedroom selfie first frame, soft lamp light, relaxed expression."
+    assert image_json["prompt"].endswith(
+        "Use my Soul ID model in a casual bedroom selfie first frame, soft lamp "
+        "light, relaxed expression."
     )
+    assert image_json["prompt"].count("Treat the source only") == 1
+    assert "adult woman, age 19, with dark hair" in image_json["subject"].lower()
+    assert image_json["hair"]["color"] == "dark"
+    assert image_json["constraints"]["identitySource"] == "selected Soul ID only"
+    assert image_json["constraints"]["sourceIdentityUse"] == "blocked"
+    assert "fuller-chest and cleavage framing" in image_json["body"]["visual_direction"]
     assert (
         image_json["composition"]["framing"] == "tight crop from chest to top of head"
     )
@@ -1182,7 +1260,18 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
         "cluttered background unless source has it",
     ]
     assert "hair identity" not in prompts["higgsfield_soul_image"]["mainPrompt"]
-    assert "tattoos" not in prompts["higgsfield_soul_image"]["mainPrompt"].lower()
+    assert "tattoo" not in prompts["higgsfield_soul_image"]["mainPrompt"].lower()
+    assert (
+        prompts["higgsfield_soul_image"]["sourceBinding"]["sourceSha256"]
+        == source_sha256
+    )
+    assert prompts["higgsfield_soul_image"]["firstFrameStructure"] == {
+        "schema": "reference_factory.first_frame_structure.v1",
+        "angle": "slight three-quarter angle",
+        "crop": "tight crop from chest to top of head",
+        "pose": "shoulders angled, relaxed face close to phone",
+        "complete": True,
+    }
     assert (
         prompts["higgsfield_soul_image"]["imagePromptJson"]["composition"]["framing"]
         == "tight crop from chest to top of head"
@@ -1216,6 +1305,188 @@ def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
         in prompts["kling_3_video"]["motion_directives"]["must_preserve"]
     )
     assert "negativePrompt" not in prompts["kling_3_video"]
+
+
+def test_prompt_generation_rejects_disabled_creator_before_reading_references(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:lola"):
+        generate_video_prompts(
+            conn,
+            data_root=tmp_path / "data",
+            model_profile="Lola",
+        )
+
+
+def test_generate_video_prompts_cli_requires_creator_profile() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["generate-video-prompts"])
+
+    args = parser.parse_args(["generate-video-prompts", "--model-profile", "Stacey"])
+    assert args.model_profile == "Stacey"
+
+
+def test_prompt_export_rejects_historical_ineligible_creator_rows(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, file_name, extension, kind, size_bytes, mtime,
+          path_hash, created_at, updated_at
+        ) VALUES ('ref_stale', '/ref_stale.mp4', 'ref_stale.mp4', '.mp4',
+                  'video', 1, 'now', 'hash_stale', 'now', 'now')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO generated_video_prompts (
+          id, reference_id, target_tool, model_profile, prompt_json, status,
+          created_at, updated_at
+        ) VALUES ('prompt_stale', 'ref_stale', 'higgsfield_soul_image',
+                  'model_a', ?, 'prompt_ready', 'now', 'now')
+        """,
+        (json.dumps({"modelProfile": "model_a"}),),
+    )
+    conn.commit()
+
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:model_a"):
+        export_video_prompts(conn, data_root=tmp_path / "exports")
+    assert not (
+        tmp_path / "exports" / "reference_intake" / "generated_video_prompts.json"
+    ).exists()
+
+
+def test_screenshot_reference_is_structure_only_and_exact_sha_bound(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "screenshots"
+    account = source / "creator_screenshot"
+    account.mkdir(parents=True)
+    screenshot = account / "pose.jpg"
+    screenshot.write_bytes(b"structural screenshot bytes")
+    conn = make_conn(tmp_path)
+
+    queued = queue_reference_analysis(
+        conn,
+        source,
+        data_root=tmp_path / "data",
+        platform="instagram",
+        provider_target="gemini_manual",
+        prompt_style="minimal",
+        media_kinds=["image"],
+    )
+    job = queued["jobs"][0]
+    binding = job["sourceBinding"]
+    policy = job["structuralReferencePolicy"]
+    assert (
+        binding["sourceSha256"] == hashlib.sha256(screenshot.read_bytes()).hexdigest()
+    )
+    assert policy["sourceRole"] == "screenshot_composition_pose_reference"
+    assert policy["sourceIdentityUse"] == "blocked"
+    assert policy["identitySource"] == "selected_soul_only"
+    assert policy["requiredFirstFrameFields"] == ["angle", "crop", "pose"]
+
+    wrong_path = tmp_path / "wrong_binding.json"
+    wrong_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "analysisJobId": job["id"],
+                        "referenceId": job["referenceId"],
+                        "sourceBinding": {
+                            **binding,
+                            "sourceSha256": "b" * 64,
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    rejected = import_reference_analysis(conn, wrong_path)
+    assert rejected["imported"] == 0
+    assert rejected["errors"][0]["error"].startswith("analysis sourceBinding")
+
+    analysis_path = tmp_path / "screenshot_analysis.json"
+    analysis_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "analysisJobId": job["id"],
+                        "referenceId": job["referenceId"],
+                        "sourceBinding": binding,
+                        "summary": "Low-angle seated selfie structure.",
+                        "contentFormat": "selfie_video",
+                        "recreation_blueprint": {
+                            "first_frame": {
+                                "body_angle": "low three-quarter angle",
+                                "crop": "tight crop from waist through top of head",
+                                "pose": "seated with torso turned toward camera",
+                            }
+                        },
+                        "image_prompt_json": {
+                            "promptMode": "structured_json",
+                            "prompt_schema_version": "imageat_higgsfield.v1",
+                            "subject": "same young woman with blonde hair and tattoos",
+                            "prompt": "Copy the source woman and her blonde hair.",
+                            "composition": {
+                                "angle": "low three-quarter angle",
+                                "framing": "tight crop from waist through top of head",
+                                "pose": "seated with torso turned toward camera",
+                            },
+                            "hair": {"color": "blonde", "style": "long waves"},
+                            "body": {
+                                "build": "copy the source woman's exact figure",
+                                "pose_details": "seated torso turn",
+                            },
+                            "skin": {"tone": "copy source skin tone"},
+                            "constraints": {"avoid": ["tattoos", "watermark"]},
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    imported = import_reference_analysis(conn, analysis_path)
+    generated = generate_video_prompts(
+        conn,
+        data_root=tmp_path / "data",
+        target_tools=["higgsfield_soul"],
+        model_profile="Stacey",
+        include_pending=False,
+    )
+
+    assert imported["imported"] == 1
+    prompt = generated["prompts"][0]["prompt"]
+    image_json = json.loads(prompt["mainPrompt"])
+    assert prompt["sourceBinding"] == binding
+    assert prompt["structuralReferencePolicy"]["sourceRole"] == (
+        "screenshot_composition_pose_reference"
+    )
+    assert prompt["firstFrameStructure"] == {
+        "schema": "reference_factory.first_frame_structure.v1",
+        "angle": "low three-quarter angle",
+        "crop": "tight crop from waist through top of head",
+        "pose": "seated with torso turned toward camera",
+        "complete": True,
+    }
+    assert image_json["subject"].startswith("Adult woman, age 19, with dark hair")
+    assert image_json["hair"]["color"] == "dark"
+    assert image_json["body"]["build"] == (
+        "use the selected Soul ID's adult body proportions"
+    )
+    assert image_json["constraints"]["sourceIdentityUse"] == "blocked"
+    assert "tattoo" not in prompt["mainPrompt"].lower()
+    assert "blonde" not in prompt["mainPrompt"].lower()
 
 
 def test_imageat_prompt_builders_lock_expected_json_shape() -> None:
@@ -1253,10 +1524,10 @@ def test_generate_video_prompts_uses_latest_analysis_per_reference(
           reference_id, path, account, file_name, extension, kind, size_bytes,
           mtime, path_hash, content_hash, created_at, updated_at
         ) VALUES ('ref_same', ?, 'creator', 'source.mp4', '.mp4', 'video', 120000,
-          '2026-05-26T00:00:00+00:00', 'hash', NULL,
+          '2026-05-26T00:00:00+00:00', 'hash', ?,
           '2026-05-26T00:00:00+00:00', '2026-05-26T00:00:00+00:00')
         """,
-        (str(video),),
+        (str(video), hashlib.sha256(video.read_bytes()).hexdigest()),
     )
     old_analysis = {
         "schema": "reference_factory.video_analysis.v1",
@@ -1316,7 +1587,9 @@ def test_generate_video_prompts_uses_latest_analysis_per_reference(
     assert generated["count"] == 2
     image_json = json.loads(prompts["higgsfield_soul_image"]["mainPrompt"])
     assert image_json["prompt_schema_version"] == "imageat_higgsfield.v1"
-    assert image_json["prompt"] == "NEW exact side-profile phone-covering-face prompt"
+    assert image_json["prompt"].endswith(
+        "NEW exact side-profile phone-covering-face prompt"
+    )
     assert "OLD generic" not in json.dumps(image_json)
     assert (
         image_json["must_keep"][0]
@@ -1758,7 +2031,7 @@ def test_reference_intake_imports_gemini_app_response_from_queue(
         queue_path=queue_path,
         response_path=response_path,
         data_root=tmp_path / "data",
-        model_profile="model_app",
+        model_profile="larissa",
     )
 
     assert imported["import"]["imported"] == 1
@@ -1803,6 +2076,25 @@ def test_reference_local_analysis_creates_pattern_card_and_export(
     account.mkdir(parents=True)
     create_video(account / "mirror_relationship.mp4")
     conn = make_conn(tmp_path)
+    scan_source(conn, source)
+    reference_id = conn.execute(
+        "SELECT reference_id FROM source_files WHERE file_name = 'mirror_relationship.mp4'"
+    ).fetchone()["reference_id"]
+    conn.execute(
+        "UPDATE source_files SET intake_metadata_json = ? WHERE reference_id = ?",
+        (
+            json.dumps(
+                {
+                    "description": "Handheld relationship hook with a visual payoff.",
+                    "operatorClassification": "relationship_payoff",
+                    "operatorWarnings": ["Do not lose the payoff beat."],
+                }
+            ),
+            reference_id,
+        ),
+    )
+    conn.commit()
+    label_reference(conn, reference_id, "maybe", notes="operator keeps this label")
 
     result = analyze_reference_local(
         conn,
@@ -1833,6 +2125,20 @@ def test_reference_local_analysis_creates_pattern_card_and_export(
         "confident selfie-style pose or subtle expression shift"
     )
     assert analysis["patternCard"]["pacing"]["sceneCuts"]
+    assert analysis["operatorDirection"]["classification"] == "relationship_payoff"
+    assert analysis["signals"]["operatorDirection"]["description"] == (
+        "Handheld relationship hook with a visual payoff."
+    )
+    assert analysis["patternCard"]["visualPattern"] == (
+        "Handheld relationship hook with a visual payoff."
+    )
+    assert "Do not lose the payoff beat." in analysis["patternCard"]["qualityWarnings"]
+    assert (
+        conn.execute(
+            "SELECT label FROM review_labels WHERE reference_id = ?", (reference_id,)
+        ).fetchone()["label"]
+        == "maybe"
+    )
 
 
 def test_public_prompt_card_handles_shared_choice_caption_archetype() -> None:
@@ -2074,11 +2380,28 @@ def test_reference_intake_api_queues_and_generates_prompt_exports(
             "limit": 1,
         },
     )
+    missing_creator = client.post(
+        "/api/video-prompts/generate",
+        json={
+            "tools": ["higgsfield_soul_image", "kling_3_video"],
+            "limit": 1,
+            "includePending": True,
+        },
+    )
+    blank_creator = client.post(
+        "/api/video-prompts/generate",
+        json={
+            "tools": ["higgsfield_soul_image", "kling_3_video"],
+            "modelProfile": "   ",
+            "limit": 1,
+            "includePending": True,
+        },
+    )
     generated = client.post(
         "/api/video-prompts/generate",
         json={
             "tools": ["higgsfield_soul_image", "kling_3_video"],
-            "modelProfile": "model_a",
+            "modelProfile": "larissa",
             "limit": 1,
             "includePending": True,
         },
@@ -2087,6 +2410,9 @@ def test_reference_intake_api_queues_and_generates_prompt_exports(
 
     assert queued.status_code == 200
     assert queued.json()["intakeProfile"] == "ig_ofm"
+    assert missing_creator.status_code == 422
+    assert blank_creator.status_code == 400
+    assert "creator_creation_not_enabled:missing" in blank_creator.json()["detail"]
     assert generated.status_code == 200
     assert generated.json()["count"] == 2
     assert prompts.status_code == 200
@@ -3688,9 +4014,9 @@ def test_audio_catalog_csv_import_list_export_and_recommend(tmp_path: Path) -> N
     csv_path.write_text(
         "\n".join(
             [
-                "title,artist,platform,native_audio_id,native_audio_url,mood_tags,best_content_types,account_fit,bpm,energy,trend_status,usage_count,safe_usage_notes,expires_at",
-                "Runway Pop,DJ A,instagram,ig_1,https://instagram.com/audio/1,glam|confident,fit_check|reel,model_a,124,8,rising,120000,attach natively,2099-01-01T00:00:00+00:00",
-                "Sleepy Song,DJ B,instagram,ig_2,https://instagram.com/audio/2,chill,tutorial,model_b,80,2,stale,500,old trend,2000-01-01T00:00:00+00:00",
+                "title,artist,platform,native_audio_id,native_audio_url,mood_tags,best_content_types,account_fit,bpm,energy,trend_status,usage_count,safe_usage_notes,expires_at,rights_status",
+                "Runway Pop,DJ A,instagram,ig_1,https://instagram.com/audio/1,glam|confident,fit_check|reel,model_a,124,8,rising,120000,attach natively,2099-01-01T00:00:00+00:00,granted",
+                "Sleepy Song,DJ B,instagram,ig_2,https://instagram.com/audio/2,chill,tutorial,model_b,80,2,stale,500,old trend,2000-01-01T00:00:00+00:00,granted",
             ]
         ),
         encoding="utf-8",
@@ -3712,11 +4038,11 @@ def test_audio_catalog_csv_import_list_export_and_recommend(tmp_path: Path) -> N
     assert listed["count"] == 1
     assert listed["items"][0]["title"] == "Runway Pop"
     assert recommended["recommendations"][0]["audioTitle"] == "Runway Pop"
-    assert (
-        recommended["recommendations"][0]["confidence"]
-        > recommended["recommendations"][1]["confidence"]
-    )
-    assert exported["count"] == 2
+    assert recommended["trendEvidence"][0]["audioTitle"] == "Sleepy Song"
+    assert "do not attach" in recommended["trendEvidence"][0]["instruction"].lower()
+    assert exported["count"] == 1
+    assert exported["totalCount"] == 2
+    assert exported["trendEvidenceCount"] == 1
     assert export_path.exists()
 
 
@@ -3741,6 +4067,7 @@ def test_import_example_reel_audio_creates_campaign_factory_ready_feed(
                         "views": 450000,
                         "likes": 38000,
                         "contentTags": "mirror,glam,ofm_reels",
+                        "rightsStatus": "granted",
                     },
                     {
                         "platform": "instagram",
@@ -3769,7 +4096,7 @@ def test_import_example_reel_audio_creates_campaign_factory_ready_feed(
     )
     unresolved = next(
         item
-        for item in exported["items"]
+        for item in exported["trendEvidence"]
         if item["nativeAudioId"].startswith("example_")
     )
     assert clean["trendScore"] == 84.0
@@ -3779,6 +4106,50 @@ def test_import_example_reel_audio_creates_campaign_factory_ready_feed(
     assert clean["exampleReels"][0]["url"] == "https://www.instagram.com/reel/CLEAN/"
     assert unresolved["resolved"] is False
     assert "missing_resolved_title" in unresolved["reviewReasons"]
+
+
+def test_audio_export_keeps_unresolved_reference_preview_evidence_out_of_production(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    preview_path = tmp_path / "reference-audio.m4a"
+    preview_sha = "b" * 64
+    upsert_audio_record(
+        conn,
+        {
+            "title": "Instagram audio DbFE-THoTqZ (title unresolved)",
+            "platform": "instagram",
+            "nativeAudioId": f"unresolved_sha256_{preview_sha}",
+            "nativeAudioUrl": "https://www.instagram.com/reel/DbFE-THoTqZ/",
+            "localPreviewPath": str(preview_path),
+            "moodTags": "reference",
+            "bestContentTypes": "reel",
+            "resolved": False,
+            "rightsStatus": "unverified",
+            "reviewReasons": ["missing_resolved_title"],
+            "previewSha256": preview_sha,
+        },
+    )
+
+    exported = export_audio_catalog(conn)
+    health = audio_catalog_health(conn, platform="instagram")
+
+    assert exported["items"] == []
+    assert exported["trendEvidenceCount"] == 1
+    evidence = exported["trendEvidence"][0]
+    assert evidence["referenceOnly"] is True
+    assert evidence["productionEligible"] is False
+    assert evidence["previewEvidence"] == {
+        "path": str(preview_path),
+        "sha256": preview_sha,
+        "sha256Format": "valid",
+    }
+    assert "missing_resolved_title" in evidence["reviewReasons"]
+    assert "missing_native_locator" in evidence["reviewReasons"]
+    assert "reel_page_only_locator" in evidence["reviewReasons"]
+    assert "rights_status:unverified" in evidence["reviewReasons"]
+    assert health["ready"] == 0
+    assert health["topRecommendations"] == []
 
 
 def test_scrape_instagram_audio_extracts_public_page_metadata(tmp_path: Path) -> None:
@@ -3801,7 +4172,8 @@ def test_scrape_instagram_audio_extracts_public_page_metadata(tmp_path: Path) ->
 
     assert result["requested"] == 1
     assert result["imported"] == 1
-    item = exported["items"][0]
+    assert exported["items"] == []
+    item = exported["trendEvidence"][0]
     assert item["title"] == "IG Winner Sound"
     assert item["nativeAudioId"] == "123456789"
     assert item["nativeAudioUrl"] == "https://www.instagram.com/reels/audio/123456789/"
@@ -4010,6 +4382,7 @@ def test_audio_snapshot_csv_import_matches_existing_catalog_record(
             "nativeAudioId": "ig_csv",
             "moodTags": "glam",
             "bestContentTypes": "reel",
+            "rightsStatus": "granted",
         },
     )
     csv_path = tmp_path / "snapshots.csv"
@@ -4066,6 +4439,7 @@ def test_audio_catalog_flags_generic_tiktok_titles_until_resolved(
             "bestContentTypes": "slideshow",
             "trendStatus": "rising",
             "safeUsageNotes": "Attach natively.",
+            "rightsStatus": "granted",
         },
     )
     review_after = review_audio_catalog(conn, platform="tiktok")
@@ -4204,6 +4578,7 @@ def test_audio_catalog_health_counts_ready_unresolved_and_stale(tmp_path: Path) 
             "moodTags": "glowup",
             "bestContentTypes": "slideshow",
             "trendStatus": "fading",
+            "rightsStatus": "granted",
         },
     )
 
@@ -4211,6 +4586,7 @@ def test_audio_catalog_health_counts_ready_unresolved_and_stale(tmp_path: Path) 
 
     assert health["total"] == 2
     assert health["unresolvedTitles"] == 1
+    assert health["referenceOnly"] == 2
     assert health["stale"] == 1
     assert health["fresh"] == 1
 

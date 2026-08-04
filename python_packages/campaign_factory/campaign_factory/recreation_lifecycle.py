@@ -13,6 +13,7 @@ from creator_os_core.fileops import atomic_write_text
 from .front_generation_stage import _invoke_generate_assets
 from .generation_execution_plan import build_generation_execution_plan
 from .production_source_selection import active_production_identity
+from .recreate_reel import build_muted_watchability_review
 from .recreation_prompting import validate_prompt_pack
 
 
@@ -23,6 +24,7 @@ def generate_recreation_anchor(
     prompt_pack_path: Path,
     attempt_id: str | None,
     max_credits: float,
+    recreation_plan: dict[str, Any],
 ) -> dict[str, Any]:
     """Run one explicitly authorized text-only Soul call and register its bytes."""
 
@@ -33,12 +35,33 @@ def generate_recreation_anchor(
     )
     if prompt_pack.get("creator") != creator_slug:
         raise PermissionError("recreation_anchor_prompt_pack_creator_mismatch")
-    creator_image = prompt_pack.get("creatorImage")
-    if not isinstance(creator_image, dict):
-        raise ValueError("recreation_anchor_creator_image_lineage_missing")
-    campaign, source = _campaign_source_for_sha(
-        factory, creator_slug, str(creator_image.get("sha256") or "")
+    execution_binding = _validated_recreation_execution_binding(
+        recreation_plan,
+        creator=creator_slug,
+        prompt_pack=prompt_pack,
     )
+    creator_image = prompt_pack.get("creatorImage")
+    soul_identity = prompt_pack.get("soulIdentity")
+    if isinstance(prompt_pack.get("referenceVideo"), dict) and isinstance(
+        soul_identity, dict
+    ):
+        campaign, model_id = _campaign_for_soul_identity(
+            factory,
+            creator=creator_slug,
+            campaign_id=str(
+                (recreation_plan.get("creatorGovernance") or {}).get("campaignId") or ""
+            ),
+            soul_id=soul_id,
+            soul_identity=soul_identity,
+        )
+        source = None
+    else:
+        if not isinstance(creator_image, dict):
+            raise ValueError("recreation_anchor_creator_image_lineage_missing")
+        campaign, source = _campaign_source_for_sha(
+            factory, creator_slug, str(creator_image.get("sha256") or "")
+        )
+        model_id = str(source["model_id"])
     attempt = _attempt_id(
         attempt_id or f"anchor_{prompt_pack['promptPackFingerprint'][:16]}_attempt_1"
     )
@@ -79,13 +102,17 @@ def generate_recreation_anchor(
         {
             "attemptId": attempt,
             "creator": creator_slug,
-            "sourceAssetId": source["id"],
-            "creatorImageSha256": source["content_hash"],
+            "sourceAssetId": source["id"] if source is not None else None,
+            "creatorImageSha256": (
+                source["content_hash"] if source is not None else None
+            ),
+            "soulIdentity": soul_identity if source is None else None,
             "referenceVideoSha256": (prompt_pack.get("referenceVideo") or {}).get(
                 "sha256"
             ),
             "promptPackPath": str(prompt_path),
             "promptPackFingerprint": prompt_pack["promptPackFingerprint"],
+            **execution_binding,
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
@@ -139,11 +166,13 @@ def generate_recreation_anchor(
             factory,
             campaign=campaign,
             source=source,
+            model_id=model_id,
             anchor=anchor,
             digest=digest,
             attempt_id=attempt,
             generation_id=generation_id,
             prompt_pack=prompt_pack,
+            execution_binding=execution_binding,
             lineage_path=Path(str(result["path"])).resolve(),
             spend_receipt=result.get("campaignSpendReceipt"),
         )
@@ -212,6 +241,54 @@ def record_recreation_review(
             "retain_anchor_new_seedance" if decision == "rejected" else "none"
         )
     reviewed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    reviewer = _required(reviewed_by, "reviewed by")
+    muted_review = None
+    if stage == "final_video" and decision == "approved":
+        try:
+            review_notes = json.loads(str(notes or ""))
+        except json.JSONDecodeError as exc:
+            raise PermissionError("muted_watchability_review_required") from exc
+        assessments = (
+            review_notes.get("mutedWatchability")
+            if isinstance(review_notes, dict)
+            else None
+        )
+        if not isinstance(assessments, dict):
+            raise PermissionError("muted_watchability_review_required")
+        try:
+            muted_receipt = build_muted_watchability_review(
+                final_sha256=subject_sha,
+                reference_video_sha256=str(evidence["reference"].get("sha256") or ""),
+                assessments=assessments,
+                reviewed_by=reviewer,
+                reviewed_at=reviewed_at,
+            )
+        except ValueError as exc:
+            raise PermissionError("muted_watchability_review_required") from exc
+        if muted_receipt["status"] != "passed":
+            raise PermissionError("muted_watchability_review_failed")
+        muted_root = (
+            factory.settings.reference_reels_root
+            / "recreation_reviews"
+            / "muted_watchability"
+        )
+        muted_root.mkdir(parents=True, exist_ok=True)
+        muted_path = muted_root / f"{muted_receipt['reviewFingerprint']}.json"
+        muted_serialized = json.dumps(muted_receipt, indent=2, sort_keys=True) + "\n"
+        try:
+            with muted_path.open("x", encoding="utf-8") as handle:
+                handle.write(muted_serialized)
+        except FileExistsError:
+            if (
+                muted_path.is_symlink()
+                or muted_path.read_text(encoding="utf-8") != muted_serialized
+            ):
+                raise PermissionError("muted_watchability_review_collision") from None
+        muted_review = {
+            **muted_receipt,
+            "receiptPath": str(muted_path),
+            "receiptSha256": _sha256(muted_path),
+        }
     core = {
         "schema": "campaign_factory.recreation_review_decision.v1",
         "pipelineJobId": job["id"],
@@ -219,9 +296,11 @@ def record_recreation_review(
         "stage": stage,
         "subjectSha256": subject_sha,
         "decision": decision,
-        "reviewedBy": _required(reviewed_by, "reviewed by"),
+        "reviewedBy": reviewer,
         "reviewedAt": reviewed_at,
         "notes": str(notes or "").strip() or None,
+        "wouldPost": (decision == "approved" if stage == "final_video" else None),
+        "mutedWatchabilityReview": muted_review,
         "providerExecutionStatus": evidence["providerExecutionStatus"],
         "technicalArtifactStatus": evidence["technicalArtifactStatus"],
         "publishability": (
@@ -347,16 +426,57 @@ def _campaign_source_for_sha(
     return campaign, source
 
 
+def _campaign_for_soul_identity(
+    factory: Any,
+    *,
+    creator: str,
+    campaign_id: str,
+    soul_id: str,
+    soul_identity: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    active = factory.domains.creator_governance.active_identity_profile(
+        creator, provider="higgsfield"
+    )
+    if (
+        soul_identity.get("schema")
+        != "campaign_factory.verified_soul_identity_binding.v1"
+        or soul_identity.get("creatorSlug") != creator
+        or soul_identity.get("provider") != "higgsfield"
+        or soul_identity.get("soulId") != soul_id
+        or soul_identity.get("soulId") != active.get("provider_identity_id")
+        or soul_identity.get("identityProfileId") != active.get("id")
+        or soul_identity.get("identityProfileVersion") != active.get("version")
+        or soul_identity.get("identityProfileFingerprint")
+        != active.get("profile_fingerprint")
+    ):
+        raise PermissionError("recreation_anchor_soul_identity_binding_mismatch")
+    row = factory.conn.execute(
+        """
+        SELECT c.slug, cg.model_id, m.slug AS creator_slug
+        FROM campaigns c
+        JOIN campaign_governance cg ON cg.campaign_id = c.id
+        JOIN models m ON m.id = cg.model_id
+        WHERE c.id = ?
+        """,
+        (campaign_id,),
+    ).fetchone()
+    if row is None or str(row["creator_slug"]).strip().lower() != creator:
+        raise PermissionError("recreation_anchor_campaign_identity_mismatch")
+    return factory.domains.campaign_by_slug(str(row["slug"])), str(row["model_id"])
+
+
 def _register_anchor_candidate(
     factory: Any,
     *,
     campaign: dict[str, Any],
-    source: dict[str, Any],
+    source: dict[str, Any] | None,
+    model_id: str,
     anchor: Path,
     digest: str,
     attempt_id: str,
     generation_id: str,
     prompt_pack: dict[str, Any],
+    execution_binding: dict[str, Any],
     lineage_path: Path,
     spend_receipt: Any,
 ) -> dict[str, Any]:
@@ -367,10 +487,12 @@ def _register_anchor_candidate(
     )
     lineage = {
         "schema": "campaign_factory.recreation_anchor_candidate.v1",
-        "derivedFromSourceAssetId": source["id"],
-        "creatorImageSha256": source["content_hash"],
+        "derivedFromSourceAssetId": source["id"] if source is not None else None,
+        "creatorImageSha256": source["content_hash"] if source is not None else None,
+        "soulIdentity": prompt_pack.get("soulIdentity") if source is None else None,
         "referenceVideoSha256": (prompt_pack.get("referenceVideo") or {}).get("sha256"),
         "promptPackFingerprint": prompt_pack["promptPackFingerprint"],
+        **execution_binding,
         "attemptId": attempt_id,
         "generationId": generation_id,
         "anchorSha256": digest,
@@ -391,7 +513,7 @@ def _register_anchor_candidate(
         (
             source_id,
             campaign["id"],
-            source["model_id"],
+            model_id,
             digest,
             str(anchor),
             str(anchor),
@@ -410,6 +532,47 @@ def _register_anchor_candidate(
     if row is None:
         raise RuntimeError("recreation_anchor_registration_failed")
     return dict(row)
+
+
+def _validated_recreation_execution_binding(
+    plan: dict[str, Any],
+    *,
+    creator: str,
+    prompt_pack: dict[str, Any],
+) -> dict[str, Any]:
+    core = {key: value for key, value in plan.items() if key != "planFingerprint"}
+    if (
+        plan.get("schema") != "campaign_factory.recreation_plan.v1"
+        or plan.get("planFingerprint") != _fingerprint(core)
+        or plan.get("creator") != creator
+        or plan.get("selectedMode") not in {"calm", "structural"}
+        or not str((plan.get("classification") or {}).get("label") or "").strip()
+        or (plan.get("promptPack") or {}).get("promptPackFingerprint")
+        != prompt_pack.get("promptPackFingerprint")
+        or plan.get("referenceVideoSha256")
+        != (prompt_pack.get("referenceVideo") or {}).get("sha256")
+    ):
+        raise PermissionError("recreation_anchor_execution_plan_invalid")
+    rights = plan.get("referenceProviderRights")
+    if (
+        not isinstance(rights, dict)
+        or rights.get("eligible") is not True
+        or rights.get("referenceId") != plan.get("referenceId")
+        or rights.get("provider") != "higgsfield"
+        or rights.get("operation") != "recreation_generation"
+        or rights.get("sourceSha256") != plan.get("referenceVideoSha256")
+        or not str(rights.get("rightsEventId") or "").strip()
+        or len(str(rights.get("rightsEvidenceFingerprint") or "")) != 64
+        or not str(rights.get("rightsExpiresAt") or "").strip()
+    ):
+        raise PermissionError("recreation_anchor_provider_rights_invalid")
+    return {
+        "referenceId": str(plan["referenceId"]),
+        "recreationPlanFingerprint": str(plan["planFingerprint"]),
+        "selectedRecreationMode": str(plan["selectedMode"]),
+        "referenceClassification": str(plan["classification"]["label"]),
+        "referenceProviderRights": dict(rights),
+    }
 
 
 def _find_job(factory: Any, job_id: str) -> dict[str, Any]:
@@ -471,12 +634,17 @@ def _recreation_evidence(factory: Any, job: dict[str, Any]) -> dict[str, Any]:
             "identityComparison": {
                 "required": True,
                 "approvedAnchorSha256": result.get("anchorSha256"),
-                "canonicalCreatorReferences": [
-                    {
-                        "sourceAssetId": input_payload.get("sourceAssetId"),
-                        "sha256": input_payload.get("creatorImageSha256"),
-                    }
-                ],
+                "canonicalCreatorReferences": (
+                    [
+                        {
+                            "sourceAssetId": input_payload.get("sourceAssetId"),
+                            "sha256": input_payload.get("creatorImageSha256"),
+                        }
+                    ]
+                    if input_payload.get("creatorImageSha256")
+                    else []
+                ),
+                "selectedSoulIdentity": input_payload.get("soulIdentity"),
                 "status": "operator_review_required",
             },
             "providerExecutionStatus": result.get("providerExecutionStatus")
@@ -503,6 +671,8 @@ def _recreation_evidence(factory: Any, job: dict[str, Any]) -> dict[str, Any]:
     if receipt_path.is_file() and not receipt_path.is_symlink():
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     canonical_sha = str(input_payload.get("sourceSha256") or "")
+    selected_soul_identity = approval.get("soulIdentity")
+    soul_bound = isinstance(selected_soul_identity, dict)
     anchor_row = factory.conn.execute(
         """
         SELECT source_prompt FROM source_assets
@@ -582,12 +752,17 @@ def _recreation_evidence(factory: Any, job: dict[str, Any]) -> dict[str, Any]:
         "identityComparison": {
             "required": True,
             "approvedAnchorSha256": approval.get("anchorFileSha256"),
-            "canonicalCreatorReferences": [
-                {
-                    "sourceAssetId": input_payload.get("sourceAssetId"),
-                    "sha256": canonical_sha,
-                }
-            ],
+            "canonicalCreatorReferences": (
+                []
+                if soul_bound
+                else [
+                    {
+                        "sourceAssetId": input_payload.get("sourceAssetId"),
+                        "sha256": canonical_sha,
+                    }
+                ]
+            ),
+            "selectedSoulIdentity": selected_soul_identity if soul_bound else None,
             "status": "operator_review_required",
         },
         "providerExecutionStatus": str(

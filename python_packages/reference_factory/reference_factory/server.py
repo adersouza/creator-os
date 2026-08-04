@@ -90,7 +90,7 @@ class ReferenceAnalysisImportPayload(BaseModel):
 
 class GenerateVideoPromptsPayload(BaseModel):
     tools: list[str] = ["higgsfield_soul_image", "kling_3_video"]
-    modelProfile: str | None = None
+    modelProfile: str
     limit: int = 50
     includePending: bool = True
 
@@ -456,7 +456,11 @@ REVIEW_HTML = """<!doctype html>
         </select>
         <input id="intakeProvider" value="gemini">
         <input id="intakeProfile" value="ig_ofm">
-        <input id="intakeAccountProfile" placeholder="model/account profile">
+        <select id="intakeAccountProfile">
+          <option value="">Analysis only — choose creator before prompt generation</option>
+          <option value="larissa">Larissa</option>
+          <option value="stacey">Stacey</option>
+        </select>
         <input id="intakeKinds" value="video">
         <input id="intakeLimit" type="number" min="1" max="500" value="10">
       </div>

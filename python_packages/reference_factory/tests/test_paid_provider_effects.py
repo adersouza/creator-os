@@ -13,6 +13,7 @@ from reference_factory.reference_grok import (
     _execute_paid_action,
     _sha256_file,
     _xai_chat_completion,
+    analyze_reference_with_grok_api,
 )
 
 
@@ -99,6 +100,48 @@ def _install_fake_genai(monkeypatch: pytest.MonkeyPatch, client: Any) -> None:
     google = ModuleType("google")
     google.genai = SimpleNamespace(Client=lambda **_kwargs: client)  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "google", google)
+
+
+def test_paid_analyzers_require_creator_before_queue_or_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queued = False
+
+    def queue(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal queued
+        queued = True
+        return {}
+
+    _install_fake_genai(monkeypatch, SimpleNamespace())
+    monkeypatch.setattr(
+        "reference_factory.reference_gemini.queue_reference_analysis", queue
+    )
+    monkeypatch.setattr(
+        "reference_factory.reference_grok.queue_reference_analysis", queue
+    )
+    callbacks = {
+        "paid_action_authorizer": lambda **_kwargs: {},
+        "paid_action_reconciler": lambda **_kwargs: {},
+    }
+
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:missing"):
+        analyze_reference_with_gemini_api(
+            connect(tmp_path / "gemini.sqlite"),
+            source_root=tmp_path,
+            data_root=tmp_path / "gemini-data",
+            api_key="gemini-secret",
+            **callbacks,
+        )
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:missing"):
+        analyze_reference_with_grok_api(
+            connect(tmp_path / "grok.sqlite"),
+            source_root=tmp_path,
+            data_root=tmp_path / "grok-data",
+            api_key="grok-secret",
+            **callbacks,
+        )
+
+    assert queued is False
 
 
 def test_gemini_requires_campaign_callbacks_before_queue_or_provider(
@@ -203,6 +246,7 @@ def test_gemini_authorizes_before_upload_and_reconciles_provider_evidence(
         connect(tmp_path / "reference.sqlite"),
         source_root=tmp_path,
         data_root=tmp_path / "data",
+        account_profile="Stacey",
         api_key="gemini-secret",
         paid_action_authorizer=authorize,
         paid_action_reconciler=reconcile,
@@ -268,6 +312,7 @@ def test_gemini_blocks_ineligible_reference_rights_before_authorization_or_uploa
         connect(tmp_path / "reference.sqlite"),
         source_root=tmp_path,
         data_root=tmp_path / "data",
+        account_profile="Stacey",
         api_key="gemini-secret",
         paid_action_authorizer=authorize,
         paid_action_reconciler=_reconcile,

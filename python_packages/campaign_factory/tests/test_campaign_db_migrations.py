@@ -10,6 +10,7 @@ from campaign_factory.campaign_schema_v5 import postcondition as v5_postconditio
 from campaign_factory.campaign_schema_v6 import postcondition as v6_postcondition
 from campaign_factory.campaign_schema_v7 import postcondition as v7_postcondition
 from campaign_factory.campaign_schema_v8 import postcondition as v8_postcondition
+from campaign_factory.campaign_schema_v9 import postcondition as v9_postcondition
 from campaign_factory.db import (
     _campaign_schema_checksum,
     _ensure_campaign_schema_ledger,
@@ -44,7 +45,7 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             ORDER BY migration_id
             """
         ).fetchall()
-        assert len(rows) == 8
+        assert len(rows) == 9
         assert {row["status"] for row in rows} == {"applied"}
         assert all(len(row["checksum"]) == 64 for row in rows)
         assert all(row["source_version"] for row in rows)
@@ -57,12 +58,13 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             6,
             7,
             8,
+            9,
         }
         assert (
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 8
+            == 9
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -87,6 +89,32 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             ).fetchall()
         ]
         assert after == before
+    finally:
+        conn.close()
+
+
+def test_v9_allows_only_proven_provider_identity_without_canonical_source(
+    tmp_path: Path,
+) -> None:
+    conn = _db(tmp_path)
+    try:
+        v9_postcondition(conn)
+        columns = {
+            row[1]: row[3]
+            for row in conn.execute(
+                "PRAGMA table_info(creator_identity_profiles)"
+            ).fetchall()
+        }
+        assert columns["canonical_source_asset_id"] == 0
+        assert "provider_identity_evidence_path" in columns
+        assert "provider_identity_evidence_sha256" in columns
+        table_sql = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'creator_identity_profiles'
+            """
+        ).fetchone()[0]
+        assert "provider_identity_attestation" in table_sql
     finally:
         conn.close()
 
@@ -164,7 +192,7 @@ def test_campaign_schema_blocks_newer_database(tmp_path: Path):
         )
         conn.commit()
         with pytest.raises(
-            RuntimeError, match="campaign_schema_newer_than_runtime:999>8"
+            RuntimeError, match="campaign_schema_newer_than_runtime:999>9"
         ):
             init_db(conn)
     finally:
@@ -222,7 +250,7 @@ def test_interrupted_campaign_migration_is_retried(tmp_path: Path):
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 8
+            == 9
         )
         assert (
             conn.execute(
@@ -281,7 +309,7 @@ def test_applied_v4_checksum_is_frozen_and_upgrades_forward_to_v8(
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 8
+            == 9
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -465,7 +493,7 @@ def test_v8_owns_learning_cohort_tables_and_upgrades_lazy_legacy_shape(
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 8
+            == 9
         )
     finally:
         conn.close()

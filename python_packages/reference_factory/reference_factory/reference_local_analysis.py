@@ -4,11 +4,18 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .identity import stable_id
-from .reference_analysis import _classify_reference_format
-from .reference_intake_contracts import ANALYSIS_SCHEMA, PATTERN_CARD_SCHEMA, _norm
+from .reference_analysis import _classify_reference_format, _first_frame_structure
+from .reference_intake_contracts import (
+    ANALYSIS_SCHEMA,
+    PATTERN_CARD_SCHEMA,
+    _norm,
+    intake_operator_direction,
+    reference_source_binding,
+    structural_reference_policy,
+)
 
 
 def _local_video_analysis(
@@ -23,8 +30,19 @@ def _local_video_analysis(
         duration=probe.get("durationSeconds"),
         ffmpeg=ffmpeg,
     )
+    operator_direction = intake_operator_direction(job)
+    source_binding = reference_source_binding(job)
+    reference_policy = structural_reference_policy(job)
     filename_text = " ".join(
-        str(value or "") for value in (job.get("file_name"), job.get("account"), source)
+        str(value or "")
+        for value in (
+            job.get("file_name"),
+            job.get("account"),
+            source,
+            operator_direction.get("description"),
+            operator_direction.get("classification"),
+            " ".join(operator_direction.get("warnings") or []),
+        )
     ).lower()
     format_type = _classify_reference_format(job, {"summary": filename_text})
     frame_analysis = _analyze_reference_frame_pixels(frames, probe)
@@ -44,22 +62,29 @@ def _local_video_analysis(
         ocr_text=ocr_text,
         frame_analysis=frame_analysis,
         scene_cuts=scene_cuts,
+        operator_direction=operator_direction,
     )
     analysis_id = stable_id(
         "reference_video_analysis",
         job["reference_id"],
+        source_binding["sourceSha256"],
         "local",
         probe.get("durationSeconds"),
         format_type,
     )
-    return {
+    analysis = {
         "schema": ANALYSIS_SCHEMA,
         "id": analysis_id,
         "referenceId": job["reference_id"],
         "provider": "local",
         "status": "pattern_ready",
+        "operatorDirection": operator_direction,
+        "sourceBinding": source_binding,
+        "structuralReferencePolicy": reference_policy,
         "media": probe,
         "signals": {
+            "operatorDirection": operator_direction,
+            "sourceBinding": source_binding,
             "frameSamples": frames,
             "framePixelAnalysis": frame_analysis,
             "sceneCuts": scene_cuts,
@@ -79,8 +104,16 @@ def _local_video_analysis(
             },
         },
         "patternCard": pattern,
-        "raw": {"probe": probe},
+        "raw": {
+            "probe": probe,
+            "operatorDirection": operator_direction,
+            "sourceBinding": source_binding,
+            "structuralReferencePolicy": reference_policy,
+        },
     }
+    analysis["firstFrameStructure"] = _first_frame_structure(analysis)
+    analysis["signals"]["firstFrameStructure"] = analysis["firstFrameStructure"]
+    return analysis
 
 
 def _probe_media(source: Path, *, ffprobe: str) -> dict[str, Any]:
@@ -98,8 +131,13 @@ def _probe_media(source: Path, *, ffprobe: str) -> dict[str, Any]:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "ffprobe failed")
     data = json.loads(result.stdout or "{}")
-    streams = data.get("streams") if isinstance(data.get("streams"), list) else []
-    video = next(
+    streams_value = data.get("streams")
+    streams: list[dict[str, Any]] = (
+        [stream for stream in streams_value if isinstance(stream, dict)]
+        if isinstance(streams_value, list)
+        else []
+    )
+    video: dict[str, Any] = next(
         (stream for stream in streams if stream.get("codec_type") == "video"), {}
     )
     duration = _float(video.get("duration")) or _float(
@@ -212,7 +250,10 @@ def _analyze_reference_frame_pixels(
                 small = rgb.resize((64, 64))
                 stat = ImageStat.Stat(small)
                 means = [value / 255.0 for value in stat.mean]
-                extrema = small.getextrema()
+                extrema = cast(
+                    tuple[tuple[int, int], tuple[int, int], tuple[int, int]],
+                    small.getextrema(),
+                )
                 luminance = 0.2126 * means[0] + 0.7152 * means[1] + 0.0722 * means[2]
                 contrast = sum((high - low) / 255.0 for low, high in extrema) / 3.0
                 max_channel = max(means)
@@ -326,8 +367,11 @@ def _pattern_card_from_local(
     ocr_text: str,
     frame_analysis: dict[str, Any],
     scene_cuts: list[float],
+    operator_direction: dict[str, Any],
 ) -> dict[str, Any]:
     reference_id = job["reference_id"]
+    source_binding = reference_source_binding(job)
+    reference_policy = structural_reference_policy(job)
     hook_type = "relationship" if _contains_relationship_terms(job, ocr_text) else "pov"
     local_analyzed = frame_analysis.get("status") == "analyzed"
     shot_sequence = frame_analysis.get("shotSequence") if local_analyzed else None
@@ -336,7 +380,13 @@ def _pattern_card_from_local(
     )
     return {
         "schema": PATTERN_CARD_SCHEMA,
-        "id": stable_id("viral_pattern_card", reference_id, format_type, hook_type),
+        "id": stable_id(
+            "viral_pattern_card",
+            reference_id,
+            source_binding["sourceSha256"],
+            format_type,
+            hook_type,
+        ),
         "platform": _norm(platform),
         "source": {
             "referenceId": reference_id,
@@ -344,10 +394,24 @@ def _pattern_card_from_local(
             "path": job.get("path"),
             "fileName": job.get("file_name"),
             "frameSamples": frame_samples,
+            "operatorDirection": operator_direction,
+            "sourceBinding": source_binding,
+            "structuralReferencePolicy": reference_policy,
+        },
+        "operatorDirection": operator_direction,
+        "sourceBinding": source_binding,
+        "structuralReferencePolicy": reference_policy,
+        "firstFrameStructure": {
+            "schema": "reference_factory.first_frame_structure.v1",
+            "angle": "pending_semantic_analysis",
+            "crop": frame_analysis.get("framing") or "pending_semantic_analysis",
+            "pose": "pending_semantic_analysis",
+            "complete": False,
         },
         "formatType": format_type,
         "hookType": hook_type,
-        "visualPattern": (
+        "visualPattern": operator_direction.get("description")
+        or (
             f"{format_type.replace('_', ' ')} reference measured from {len(frame_samples)} sampled frames; "
             f"{frame_analysis.get('lighting', 'unknown')} lighting, "
             f"{frame_analysis.get('colorPalette', 'unknown')} palette."
@@ -391,7 +455,8 @@ def _pattern_card_from_local(
         ],
         "viralityMetrics": {},
         "qualityWarnings": [
-            "Local pixel analysis does not identify exact wardrobe, identity, or subject count; use Gemini/VLM analysis for semantic details."
+            *list(operator_direction.get("warnings") or []),
+            "Local pixel analysis does not identify exact wardrobe, identity, or subject count; use Gemini/VLM analysis for semantic details.",
         ],
     }
 
@@ -431,6 +496,8 @@ def _contains_relationship_terms(job: dict[str, Any], ocr_text: str) -> bool:
             job.get("account"),
             job.get("path"),
             ocr_text,
+            intake_operator_direction(job).get("description"),
+            intake_operator_direction(job).get("classification"),
         )
     ).lower()
     return any(

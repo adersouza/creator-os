@@ -600,6 +600,10 @@ def _parser() -> argparse.ArgumentParser:
     reference_input = create.add_mutually_exclusive_group()
     reference_input.add_argument("--reference-video", type=Path)
     reference_input.add_argument("--reference-url")
+    reference_input.add_argument(
+        "--reference-id",
+        help="reuse one exact stored Reference Factory URL-intake record",
+    )
     create.add_argument("--creator-image", type=Path)
     create.add_argument("--recreation-anchor-approval", type=Path)
     create.add_argument("--recreation-attempt-id")
@@ -1248,26 +1252,29 @@ def main(argv: list[str] | None = None) -> int:
             args.creator = (
                 args.creator or input("Creator [stacey]: ").strip() or "stacey"
             )
-            if not args.reference_url and not args.reference_video:
+            if (
+                not args.reference_url
+                and not args.reference_video
+                and not args.reference_id
+            ):
                 source = input(
-                    "Reel URL or local video path (blank for a new Reel): "
+                    "Reel URL, stored reference ID, or local video path "
+                    "(blank for a new Reel): "
                 ).strip()
                 if source.startswith(("http://", "https://")):
                     args.reference_url = source
+                elif source.startswith("ref_url_"):
+                    args.reference_id = source
                 elif source:
                     args.reference_video = Path(source)
             args.mode = args.mode or (
                 "recreate_reel"
-                if args.reference_url or args.reference_video
+                if args.reference_url or args.reference_video or args.reference_id
                 else (
                     input("Mode [calm_animation/static_reel]: ").strip()
                     or "calm_animation"
                 )
             )
-            if args.mode == "recreate_reel" and args.creator_image is None:
-                value = input("Approved creator image path: ").strip()
-                if value:
-                    args.creator_image = Path(value)
             if args.max_credits is None:
                 value = input("Maximum credits [25]: ").strip()
                 args.max_credits = float(value or "25")
@@ -1310,6 +1317,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.reference_url:
             command.extend(["--reference-url", args.reference_url])
+        if args.reference_id:
+            command.extend(["--reference-id", args.reference_id])
         if args.creator_image:
             command.extend(
                 ["--creator-image", str(args.creator_image.expanduser().resolve())]

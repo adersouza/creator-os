@@ -70,7 +70,7 @@
     "pipeline_contracts/schemas/post_metric_history.read.v1.example.json": "4984cc54d50ed522641cd564b331db85bd80d5c726281713fa8096ebc950ec26",
     "pipeline_contracts/schemas/post_metric_history.read.v1.schema.json": "9898a201b739b147ae9150c2610589c3304cb9ab394d3dde2ddfad7b02496427",
     "pipeline_contracts/schemas/provider_spend_authorization.v1.example.json": "45bfc951b71fff50cb768892af719f12413ebb9d58956d874be13b0802ea1022",
-    "pipeline_contracts/schemas/provider_spend_authorization.v1.schema.json": "dde3eacb4c376fd17d1f1336dc51d918c2074429f07a0c499a82a4f8e04ac6dc",
+    "pipeline_contracts/schemas/provider_spend_authorization.v1.schema.json": "5d24f590b5c11742df8b20f0a4c08d580807407234dba04199e3edf6bbe6ae13",
     "pipeline_contracts/schemas/provider_spend_authorization.v2.example.json": "044525477625c28d09ac866d368e755d909183a67eebf02c293b074e5718def7",
     "pipeline_contracts/schemas/provider_spend_authorization.v2.schema.json": "b7b8cd19a53b17dcef8d51deb67262aeb01794bea2221ff828b05c924acd8f2a",
     "pipeline_contracts/schemas/recommendation_accuracy_report.v1.example.json": "9e0053d30d7573d3220f1ee9699fca5f236421a38785dbd56f4369f9d69e12f6",
@@ -81,8 +81,8 @@
     "pipeline_contracts/schemas/reddit_manual_handoff.v1.schema.json": "21321defe8a8a9266b8374788dd7b76ee2bdf87b0100cf9cf7dd06e198774ed9",
     "pipeline_contracts/schemas/reference_factory_knowledge_pack.v1.example.json": "336ba9c02f3ce35c59d8607c1e74754b5841d6b0a960d495d4b56106bec73776",
     "pipeline_contracts/schemas/reference_factory_knowledge_pack.v1.schema.json": "8f485b2a2879e109bcab228d110748a905100f77ec06990731f59e76be0e47cc",
-    "pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json": "f82dc773f62ac42d8f8476839bcfd3ced6bc9fe130be15e30127727f75ed551e",
-    "pipeline_contracts/schemas/reference_video_motion_analysis.v1.schema.json": "11769378d7d17790717f2c7e82fd38ca54559fda71eadd96620b17e927bcbc50",
+    "pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json": "7f496893551a421d5f8853b6fd65069ecb011a2e424413cfbef8642819200086",
+    "pipeline_contracts/schemas/reference_video_motion_analysis.v1.schema.json": "b8cd5db2eeb0fd4160b70f6e73ec356ee0d090e6bb8700f92dacfcba54e91ac6",
     "pipeline_contracts/schemas/reference_video_remix_plan.v1.example.json": "61ce352932e4ad2f93929d839cc5f80ec1db975eb93367012c161604f8dcd98f",
     "pipeline_contracts/schemas/reference_video_remix_plan.v1.schema.json": "ff70e684d4ce2c29be8e3f0187b7144953b7a1baa7feeedf1a5ef047feaf24fc",
     "pipeline_contracts/schemas/renderer_equivalence_receipt.v1.example.json": "b7862f0418aa983dbbf80e7e30f3ccc37fe19ecf0449433133270d9ce42ead03",
@@ -104,7 +104,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "d78cb830d65d892bfe7b2262f5fea603483780422f6a622815ad7b9ce0024e51",
+    "typescript/generated-schemas.ts": "7aaa564f4b9832c74370e996a279d2f781f29bcff81ac47c9f3f543a73d40fb7",
     "typescript/index.ts": "4ac6f9eed6a498a02572c17707e300f4fd0e56f4fc7e52d8daef205bf0d337bf"
   }
 }

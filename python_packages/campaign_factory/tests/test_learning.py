@@ -63,6 +63,7 @@ def test_audio_catalog_import_and_recommendation_flow(tmp_path: Path):
                         "bpm": 124,
                         "energy": 8,
                         "safeUsageNotes": "attach natively",
+                        "rightsStatus": "granted",
                     },
                     {
                         "id": "aud_2",
@@ -74,6 +75,7 @@ def test_audio_catalog_import_and_recommendation_flow(tmp_path: Path):
                         "bestContentTypes": ["tutorial"],
                         "trendStatus": "stale",
                         "usageCount": 500,
+                        "rightsStatus": "granted",
                     },
                 ],
             }
@@ -136,6 +138,7 @@ def test_audio_memory_import_selects_and_graphs_recommended_audio(tmp_path: Path
                         "fatigue": {"level": "low"},
                         "resolved": True,
                         "sourceConfidence": 0.9,
+                        "rightsStatus": "granted",
                     }
                 ],
             }
@@ -259,6 +262,7 @@ export function scoreAudioFit(input) {
                         "bestContentTypes": ["mirror_selfie"],
                         "trendStatus": "rising",
                         "bpm": 128,
+                        "rightsStatus": "granted",
                     },
                     {
                         "id": "aud_bad",
@@ -269,6 +273,7 @@ export function scoreAudioFit(input) {
                         "moodTags": ["stale"],
                         "bestContentTypes": ["tutorial"],
                         "trendStatus": "rising",
+                        "rightsStatus": "granted",
                     },
                 ],
             }
@@ -322,6 +327,7 @@ def test_pipeline_audio_smoke_helpers_build_recommended_intent(tmp_path: Path):
                         "trendStatus": "rising",
                         "usageCount": 120000,
                         "safeUsageNotes": "Attach natively only",
+                        "rightsStatus": "granted",
                     }
                 ],
             }
@@ -724,6 +730,7 @@ def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path
                         "usageCount": 9000,
                         "resolved": True,
                         "sourceConfidence": 0.9,
+                        "rightsStatus": "granted",
                     }
                 ],
             }

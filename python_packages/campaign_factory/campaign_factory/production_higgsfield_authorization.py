@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -93,7 +93,8 @@ def higgsfield_request(
         )
     )
     work_item_id = str(job["jobId"])
-    if stage["recipeId"] == "higgsfield_recreate_reel":
+    recreation_request = str(job.get("intent") or "") == "recreate_reel"
+    if recreation_request:
         anchor = _validated_recreation_anchor(job, creator=creator, soul_id=soul_id)
         source_approval = str(anchor["approvalFingerprint"])
         source_approval_id = (
@@ -115,11 +116,7 @@ def higgsfield_request(
         source_asset_id = str(job["sourceAssetId"])
         source_image_path = Path(str(job["sourcePath"]))
     return HiggsfieldProductionRequest(
-        recipe_id=(
-            "higgsfield_recreate_reel"
-            if stage["recipeId"] == "higgsfield_recreate_reel"
-            else "higgsfield_passive_selfie"
-        ),
+        recipe_id=str(stage["recipeId"]),
         creator=creator,
         soul_id=soul_id,
         source_approval=source_approval,
@@ -129,7 +126,8 @@ def higgsfield_request(
         source_image_path=source_image_path,
         driving_video_path=(
             Path(str(job["referenceVideoPath"]))
-            if job.get("referenceVideoPath")
+            if stage["recipeId"] == "higgsfield_recreate_reel"
+            and job.get("referenceVideoPath")
             else None
         ),
         output_path=Path(str(job["providerOutputPath"])),
@@ -146,11 +144,12 @@ def higgsfield_request(
             f"creator-os:{work_item_id}:{attempt_id}" if attempt_id else None
         ),
         recreation_anchor_approval=anchor,
-        public_mode=(
-            "recreate_reel"
-            if stage["recipeId"] == "higgsfield_recreate_reel"
-            else "calm_animation"
+        reference_video_sha256=(
+            str(job["referenceVideoSha256"])
+            if recreation_request and job.get("referenceVideoSha256")
+            else None
         ),
+        public_mode=("recreate_reel" if recreation_request else "calm_animation"),
         campaign=str(job["campaign"]),
         cohort_id=work_item_id,
         prompt_card_fingerprint=(
@@ -244,21 +243,73 @@ def _validated_recreation_anchor(
     )
     if not approval_path or not prompt_fingerprint:
         raise PermissionError("recreation_anchor_approval_required_before_quote")
+    approval_hint = (
+        job.get("recreationAnchorApproval")
+        if isinstance(job.get("recreationAnchorApproval"), Mapping)
+        else {}
+    )
     anchor = load_recreation_anchor_approval(
         Path(str(approval_path)),
         expected_creator=creator,
         expected_soul_id=soul_id,
-        expected_creator_image_sha256=str(job["sourceSha256"]),
+        expected_creator_image_sha256=(
+            str(approval_hint["creatorImageSha256"])
+            if approval_hint.get("creatorImageSha256")
+            else None
+        ),
         expected_reference_video_sha256=str(job["referenceVideoSha256"]),
         expected_prompt_pack_fingerprint=str(prompt_fingerprint),
+        expected_recreation_plan_fingerprint=str(
+            job.get("recreationPlanFingerprint") or ""
+        ),
+        expected_selected_recreation_mode=str(job.get("selectedRecreationMode") or ""),
+        expected_reference_classification=str(job.get("referenceClassification") or ""),
+        expected_reference_provider_rights_fingerprint=str(
+            (job.get("referenceProviderRights") or {}).get("rightsEvidenceFingerprint")
+            if isinstance(job.get("referenceProviderRights"), Mapping)
+            else ""
+        ),
+        expected_soul_identity_fingerprint=(
+            str(approval_hint["soulIdentity"]["bindingFingerprint"])
+            if isinstance(approval_hint.get("soulIdentity"), Mapping)
+            else None
+        ),
     )
+    _validate_recreation_soul_governance(anchor, job)
     if (
         job.get("recreationAnchorApprovalFingerprint") != anchor["approvalFingerprint"]
         or job.get("recreationAnchorSha256") != anchor["anchorFileSha256"]
         or job.get("recreationAnchorPath") != anchor["anchorFilePath"]
+        or job.get("recreationPlanFingerprint") != anchor["recreationPlanFingerprint"]
+        or job.get("selectedRecreationMode") != anchor["selectedRecreationMode"]
+        or job.get("referenceClassification") != anchor["referenceClassification"]
+        or job.get("referenceProviderRights") != anchor["referenceProviderRights"]
     ):
         raise PermissionError("recreation_anchor_job_binding_mismatch")
     return anchor
+
+
+def _validate_recreation_soul_governance(
+    anchor: Mapping[str, Any], job: Mapping[str, Any]
+) -> None:
+    soul_identity = anchor.get("soulIdentity")
+    if not isinstance(soul_identity, Mapping):
+        return
+    governance = job.get("_creatorGovernance")
+    if (
+        not isinstance(governance, Mapping)
+        or soul_identity.get("schema")
+        != "campaign_factory.verified_soul_identity_binding.v1"
+        or soul_identity.get("creatorSlug") != governance.get("creatorSlug")
+        or soul_identity.get("provider") != "higgsfield"
+        or soul_identity.get("soulId") != governance.get("providerIdentityId")
+        or soul_identity.get("identityProfileId") != governance.get("identityProfileId")
+        or soul_identity.get("identityProfileVersion")
+        != governance.get("identityProfileVersion")
+        or soul_identity.get("identityProfileFingerprint")
+        != governance.get("identityProfileFingerprint")
+    ):
+        raise PermissionError("recreation_anchor_soul_identity_governance_mismatch")
 
 
 def prepare_higgsfield_job_quotes(
@@ -426,7 +477,7 @@ def authorize_higgsfield_jobs(
 
 def _mark_unsubmitted_attempts_no_effect(
     factory: Any,
-    jobs: list[Mapping[str, Any]],
+    jobs: Sequence[Mapping[str, Any]],
     *,
     failure: str,
 ) -> None:

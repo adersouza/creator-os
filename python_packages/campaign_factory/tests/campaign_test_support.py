@@ -163,6 +163,7 @@ def authorize_campaign_governance(
                 evidence_sha256=evidence_sha,
                 actor="test",
                 reason="fixture authorization",
+                effective_at=now,
                 territories=territories,
                 account_scope=account_scope,
             )
@@ -175,6 +176,7 @@ def authorize_campaign_governance(
             evidence_sha256=evidence_sha,
             actor="test",
             reason="fixture reference authorization",
+            effective_at=now,
             reference_video_use=True,
         )
     for state in ("configured", "source_ready", "production_ready"):

@@ -62,7 +62,7 @@ GROK_PROMPT_COMPILATION_REGRESSION_FIXTURE = (
     "e7e080be1a782e13993210c1cc41066ff8babccd271285d3cdbe233ade6562db"
 )
 PROVIDER_COMPILE_REGRESSION_FIXTURE = (
-    "bf360188893fe5fa2e735c94e30df5b75a3bb0134b232b77ac3a19ccb5713099"
+    "6ccb01dc638dd36fc39a21d1df4ca8460c4c6294b0f50870432d1281060baca6"
 )
 GEMINI_ANALYSIS_REGRESSION_FIXTURE = (
     "d9b9df5b261d00e305f5ba628bc9835d31303de73369abc90846219d2ef490e1"
@@ -182,7 +182,7 @@ PROMPT_REGISTRY = prompt_registry(
             "reference_factory.generated_video_prompt.v1",
             "local_compile",
             PROVIDER_COMPILE_REGRESSION_FIXTURE,
-            "e25d42cba56720a6d48ad0ce5d18726af3d8cf857291f62b70fb058d95cf2ef6",
+            "062e2961029e4127e00da7ad4f8b68457491bdfc99394b6e8a43f4b3c8d143f4",
         ),
     )
 )

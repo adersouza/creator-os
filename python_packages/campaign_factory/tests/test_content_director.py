@@ -10,6 +10,7 @@ import pytest
 from campaign_factory.campaign_schema_v7 import (
     apply as apply_learning_governance_schema,
 )
+from campaign_factory.campaign_schema_v9 import apply as apply_identity_schema_v9
 from campaign_factory.content_director import (
     PlanningRequest,
     build_plan,
@@ -26,6 +27,7 @@ def _conn(tmp_path: Path, *, approved_sources: int = 3) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     apply_learning_governance_schema(conn)
+    apply_identity_schema_v9(conn)
     now = "2026-07-27T00:00:00Z"
     conn.execute(
         "INSERT INTO models VALUES ('model_1', 'stacey', 'Stacey', NULL, ?, ?)",
@@ -429,3 +431,44 @@ def test_plan_uses_versioned_registry_identity_and_revalidates_before_persist(
     )
     with pytest.raises(PermissionError, match="campaign_state_blocks_content_plan"):
         persist_plan(conn, plan)
+
+
+def test_provider_attested_soul_identity_does_not_require_canonical_image(
+    tmp_path: Path,
+) -> None:
+    conn = _conn(tmp_path)
+    evidence = tmp_path / "stacey_higgsfield_identity_attestation.json"
+    evidence.write_text('{"soulId":"verified-stacey-soul"}', encoding="utf-8")
+    evidence_sha = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    conn.execute(
+        """
+        UPDATE creator_identity_profiles
+        SET status = 'retired', retired_at = '2026-07-30T01:00:00Z'
+        WHERE id = 'identity_1'
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO creator_identity_profiles (
+          id, model_id, provider, provider_identity_id, version, profile_json,
+          profile_fingerprint, identity_manifest_path, identity_manifest_sha256,
+          canonical_source_asset_id, canonical_evidence_type,
+          provider_identity_evidence_path, provider_identity_evidence_sha256,
+          status, activated_at, retired_at, operator, created_at
+        )
+        SELECT 'identity_attested', model_id, provider, provider_identity_id, 2,
+               profile_json, ?, identity_manifest_path, identity_manifest_sha256,
+               NULL, 'provider_identity_attestation', ?, ?, 'active',
+               '2026-07-30T01:00:00Z', NULL, 'test', '2026-07-30T01:00:00Z'
+        FROM creator_identity_profiles WHERE id = 'identity_1'
+        """,
+        ("e" * 64, str(evidence), evidence_sha),
+    )
+
+    plan = build_plan(conn, _request())
+
+    assert plan["identityProfile"] == CREATOR_SOUL_IDS["stacey"]
+    assert len(plan["items"]) == 5
+    evidence.write_text('{"soulId":"changed"}', encoding="utf-8")
+    with pytest.raises(PermissionError, match="creator_identity_profile_stale"):
+        build_plan(conn, _request())

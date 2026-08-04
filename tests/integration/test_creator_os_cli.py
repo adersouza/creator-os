@@ -193,6 +193,46 @@ def test_recreation_explain_routes_to_campaign_lineage_command(
     ]
 
 
+def test_guided_reference_recreation_does_not_ask_for_creator_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _prompt: (_ for _ in ()).throw(
+            AssertionError("guided recreation has no missing interactive input")
+        ),
+    )
+
+    result = namespace["main"](
+        [
+            "create",
+            "--guided",
+            "--creator",
+            "stacey",
+            "--mode",
+            "recreate_reel",
+            "--reference-url",
+            "https://www.instagram.com/reel/example/",
+            "--through",
+            "analyze",
+            "--max-credits",
+            "25",
+        ]
+    )
+
+    assert result == 0
+    assert len(commands) == 1
+    assert "--creator-image" not in commands[0]
+
+
 def test_audio_refresh_routes_to_bounded_audio_radar_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -343,6 +383,41 @@ def test_create_routes_reference_url_analysis_without_provider_inputs(
     )
     assert "--apply" not in command
     assert "--soul-id" not in command
+
+
+def test_create_routes_stored_reference_id_without_provider_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    assert (
+        namespace["main"](
+            [
+                "create",
+                "--creator",
+                "stacey",
+                "--mode",
+                "recreate_reel",
+                "--reference-id",
+                "ref_url_7a3898623cdf6ca4205d",
+                "--through",
+                "analyze",
+            ]
+        )
+        == 0
+    )
+    command = commands[0]
+    assert command[command.index("--reference-id") + 1] == (
+        "ref_url_7a3898623cdf6ca4205d"
+    )
+    assert "--reference-url" not in command
+    assert "--reference-video" not in command
 
 
 def test_export_is_canonical_and_draft_export_remains_deprecated(

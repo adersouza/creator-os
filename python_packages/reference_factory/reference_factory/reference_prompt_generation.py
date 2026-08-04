@@ -26,6 +26,7 @@ from .reference_analysis import (
     _classify_reference_format,
     _clean_prompt_text,
     _compose_higgsfield_from_image_json,
+    _first_frame_structure,
     _kling_scenes,
     _pattern_card_from_analysis,
     _recreation_blueprint,
@@ -41,8 +42,26 @@ from .reference_intake_contracts import (
     _canonical_tool,
     _closeness_controls,
     _norm,
+    intake_operator_direction,
+    reference_source_binding,
+    structural_reference_policy,
 )
 from .timeutil import now_iso
+
+CREATION_ENABLED_MODEL_PROFILES = frozenset({"larissa", "stacey"})
+
+
+def require_creation_enabled_model_profile(model_profile: str | None) -> str:
+    """Return the canonical creator profile for a creation-facing prompt path."""
+
+    model_key = str(model_profile or "").strip().lower()
+    if model_key not in CREATION_ENABLED_MODEL_PROFILES:
+        allowed = ", ".join(sorted(CREATION_ENABLED_MODEL_PROFILES))
+        raise PermissionError(
+            f"creator_creation_not_enabled:{model_key or 'missing'}; "
+            f"allowed creators: {allowed}"
+        )
+    return model_key
 
 
 def generate_video_prompts(
@@ -59,7 +78,7 @@ def generate_video_prompts(
         _canonical_tool(tool)
         for tool in (target_tools or ["higgsfield_soul_image", "kling_3_video"])
     ]
-    model_key = model_profile or ""
+    model_key = require_creation_enabled_model_profile(model_profile)
     rows = conn.execute(
         """
         WITH eligible AS (
@@ -68,7 +87,8 @@ def generate_video_prompts(
           WHERE status IN ('analyzed', 'pattern_ready')
              OR (? = 1 AND status = 'needs_analysis')
         )
-        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind
+        SELECT raj.*, sf.path, sf.account, sf.file_name, sf.kind, sf.content_hash,
+               sf.intake_metadata_json
         FROM eligible raj
         JOIN source_files sf ON sf.reference_id = raj.reference_id
         WHERE NOT EXISTS (
@@ -92,17 +112,29 @@ def generate_video_prompts(
         analysis = json_load(job.get("analysis_json"), {})
         if not analysis:
             analysis = _heuristic_analysis(job)
+        analysis = dict(analysis)
+        source_binding = reference_source_binding(job)
+        reference_policy = structural_reference_policy(job)
+        analysis["sourceBinding"] = source_binding
+        analysis["structuralReferencePolicy"] = reference_policy
+        analysis["firstFrameStructure"] = _first_frame_structure(analysis)
         for target_tool in tools:
-            prompt_json = _prompt_for_tool(target_tool, job, analysis, model_profile)
+            prompt_json = _prompt_for_tool(target_tool, job, analysis, model_key)
+            prompt_json["operatorDirection"] = intake_operator_direction(job)
+            prompt_json["sourceBinding"] = source_binding
+            prompt_json["structuralReferencePolicy"] = reference_policy
+            prompt_json["firstFrameStructure"] = analysis["firstFrameStructure"]
             prompt_json["promptGovernance"] = bind_reference_prompt(
                 prompt_id="reference.provider_prompt_compile",
                 version="1",
                 provider="higgsfield",
-                model=model_profile or target_tool,
+                model=model_key,
                 compiled_prompt=prompt_json,
                 inputs={
                     "analysisJobId": job["id"],
                     "referenceId": job["reference_id"],
+                    "sourceSha256": source_binding["sourceSha256"],
+                    "sourceBindingFingerprint": source_binding["bindingFingerprint"],
                     "targetTool": target_tool,
                     "modelProfile": model_key,
                 },
@@ -182,7 +214,8 @@ def export_video_prompts(
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = conn.execute(
         """
-        SELECT gvp.*, sf.path, sf.account, sf.file_name
+        SELECT gvp.*, sf.path, sf.account, sf.file_name, sf.kind, sf.content_hash,
+               sf.intake_metadata_json
         FROM generated_video_prompts gvp
         JOIN source_files sf ON sf.reference_id = gvp.reference_id
         WHERE gvp.status = ?
@@ -195,6 +228,16 @@ def export_video_prompts(
     for row in rows:
         item = dict(row)
         prompt_json = json_load(item["prompt_json"], {})
+        model_key = require_creation_enabled_model_profile(item.get("model_profile"))
+        if item.get("model_profile") != model_key:
+            raise PermissionError(
+                "generated_prompt_creator_profile_noncanonical:"
+                f"{item.get('model_profile') or 'missing'}"
+            )
+        if prompt_json.get("modelProfile") != model_key:
+            raise PermissionError(
+                f"generated_prompt_creator_binding_mismatch:{item['id']}"
+            )
         if creative_plan_id:
             prompt_json["creativePlanId"] = creative_plan_id
         prompts.append(
@@ -203,7 +246,7 @@ def export_video_prompts(
                 "referenceId": item["reference_id"],
                 "analysisJobId": item["analysis_job_id"],
                 "targetTool": item["target_tool"],
-                "modelProfile": item.get("model_profile"),
+                "modelProfile": model_key,
                 "status": item["status"],
                 "sourcePath": item["path"],
                 "account": item.get("account"),
@@ -516,9 +559,17 @@ Return exactly this JSON-compatible shape:
 
 
 def _heuristic_analysis(job: dict[str, Any]) -> dict[str, Any]:
+    operator_direction = intake_operator_direction(job)
     text = " ".join(
         str(value or "")
-        for value in (job.get("file_name"), job.get("account"), job.get("path"))
+        for value in (
+            job.get("file_name"),
+            job.get("account"),
+            job.get("path"),
+            operator_direction.get("description"),
+            operator_direction.get("classification"),
+            " ".join(operator_direction.get("warnings") or []),
+        )
     ).lower()
     content_format = _classify_reference_format(job, {})
     hook_type = (
@@ -529,7 +580,8 @@ def _heuristic_analysis(job: dict[str, Any]) -> dict[str, Any]:
     analysis = {
         "schema": ANALYSIS_SCHEMA,
         "referenceId": job.get("reference_id"),
-        "summary": "Short-form creator reference needing Gemini review.",
+        "summary": operator_direction.get("description")
+        or "Short-form creator reference needing Gemini review.",
         "platformStyle": job.get("source_platform") or "unknown",
         "contentFormat": content_format,
         "hookType": hook_type,
@@ -572,8 +624,10 @@ def _heuristic_analysis(job: dict[str, Any]) -> dict[str, Any]:
             "change setting, styling, pose, caption, and audio while preserving only the format"
         ],
         "qualityWarnings": [
-            "needs manual Gemini analysis before high-confidence reuse"
+            *list(operator_direction.get("warnings") or []),
+            "needs manual Gemini analysis before high-confidence reuse",
         ],
+        "operatorDirection": operator_direction,
     }
     analysis["closenessControls"] = dict(IG_OFM_CLOSENESS_CONTROLS)
     analysis["winningFormatCard"] = _winning_format_card(analysis, job)

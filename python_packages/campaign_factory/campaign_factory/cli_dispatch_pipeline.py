@@ -81,7 +81,7 @@ from .reddit_weekly import (
     prepare_reddit_weekly_plan,
     run_reddit_generation_request,
 )
-from .reference_url_workflow import run_reference_analysis
+from .reference_url_workflow import resolve_stored_reference, run_reference_analysis
 from .state_ownership import explain_state, reconcile_bridge
 from .trial_reels import (
     graduate_trial_reel,
@@ -354,6 +354,23 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
             )
         return 0
     if args.cmd == "create":
+        if getattr(args, "reference_id", None):
+            stored = resolve_stored_reference(
+                db_path=settings.reference_factory_db,
+                reference_id=args.reference_id,
+            )
+            source = stored["source"]
+            metadata = stored.get("intakeMetadata") or {}
+            args.reference_video = Path(stored["resolvedPath"])
+            args.reference_platform = args.reference_platform or source.get("platform")
+            args.reference_classification = (
+                args.reference_classification or metadata.get("operatorClassification")
+            )
+            if not args.reference_warning:
+                args.reference_warning = list(metadata.get("operatorWarnings") or [])
+            if not args.reference_talking and not args.reference_non_talking:
+                args.reference_talking = bool(metadata.get("declaredTalking"))
+                args.reference_non_talking = bool(metadata.get("declaredNonTalking"))
         if args.recreation_anchor_approval and getattr(args, "reference_url", None):
             raise ValueError(
                 "approved-anchor recreate execution requires --reference-video"
@@ -451,7 +468,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 rendered_asset_id=args.rendered_asset_id,
                 user_id=args.user_id,
                 approved_by=args.approved_by,
-                review_decision=load_json_object(args.review_decision),
+                review_decision=load_json_object(args.review_decision) or {},
                 root=args.root or settings.creative_approvals_dir,
                 surface=args.surface,
                 publish_mode=args.publish_mode,

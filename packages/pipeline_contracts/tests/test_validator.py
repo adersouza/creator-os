@@ -180,11 +180,74 @@ def test_knowledge_pack_requires_measured_outcome_provenance():
         validate_reference_factory_knowledge_pack(payload)
 
 
-def test_reference_video_motion_analysis_rejects_multishot_source():
+def test_reference_video_motion_analysis_accepts_multishot_source():
+    payload = load_example("reference_video_motion_analysis")
+    payload["source"] = {
+        "durationSeconds": 14.0,
+        "shotCount": 2,
+        "hasCuts": True,
+        "aspectRatio": "9:16",
+    }
+    payload["structure"]["timeline"] = [
+        {
+            "startSeconds": 0.0,
+            "endSeconds": 6.0,
+            "action": "Introduce the setup action.",
+            "camera": "Hold a close handheld frame.",
+        },
+        {
+            "startSeconds": 6.0,
+            "endSeconds": 14.0,
+            "action": "Reveal the payoff action after the cut.",
+            "camera": "Settle into a wider handheld frame.",
+        },
+    ]
+    payload["structure"]["shots"] = [
+        {
+            "shotNumber": 1,
+            "startSeconds": 0.0,
+            "endSeconds": 6.0,
+            "semanticRole": "setup",
+            "framing": "Close handheld framing.",
+            "action": "Introduce the setup action.",
+            "camera": "Hold the close frame.",
+        },
+        {
+            "shotNumber": 2,
+            "startSeconds": 6.0,
+            "endSeconds": 14.0,
+            "semanticRole": "payoff",
+            "framing": "Wider handheld framing.",
+            "action": "Reveal the payoff action.",
+            "camera": "Settle after the cut.",
+        },
+    ]
+    payload["structure"]["cutTimeline"] = [
+        {
+            "atSeconds": 6.0,
+            "fromShotNumber": 1,
+            "toShotNumber": 2,
+            "transition": "Hard cut from setup to payoff.",
+        }
+    ]
+
+    validate_reference_video_motion_analysis(payload)
+
+
+def test_reference_video_motion_analysis_requires_multishot_timeline():
     payload = load_example("reference_video_motion_analysis")
     payload["source"]["shotCount"] = 2
+    payload["source"]["hasCuts"] = True
 
-    with pytest.raises(ContractValidationError, match="shotCount"):
+    with pytest.raises(ContractValidationError, match="cutTimeline"):
+        validate_reference_video_motion_analysis(payload)
+
+
+def test_reference_video_motion_analysis_rejects_exact_choreography_support():
+    payload = load_example("reference_video_motion_analysis")
+    payload["recreationPolicy"]["exactChoreographySupported"] = True
+
+    with pytest.raises(ContractValidationError, match="exactChoreographySupported"):
         validate_reference_video_motion_analysis(payload)
 
 

@@ -25,7 +25,9 @@ except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
 SAFE_STEM_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}")
-_INSTAGRAM_RE = re.compile(r"^/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)")
+_INSTAGRAM_RE = re.compile(
+    r"^/(?:[A-Za-z0-9._]+/)?(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)"
+)
 _TIKTOK_RE = re.compile(r"^/@[^/]+/video/(\d+)")
 _YOUTUBE_SHORTS_RE = re.compile(r"^/shorts/([A-Za-z0-9_-]+)")
 _METADATA_KEYS = (

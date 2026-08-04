@@ -8,7 +8,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pipeline_contracts import validate_creator_identity_profile
+from .creator_identity_evidence import (
+    canonical_sha256 as _canonical_sha256,
+)
+from .creator_identity_evidence import (
+    file_sha256 as _file_sha256,
+)
+from .creator_identity_evidence import (
+    regular_evidence_file,
+    validate_identity_manifest,
+    validate_profile_identity_binding,
+    validate_provider_identity_evidence,
+)
 
 CREATOR_TRANSITIONS = {
     "active": {"suspended", "departed", "revoked", "deletion_pending"},
@@ -165,20 +176,6 @@ def resolve_active_identity_profile(
     return repository.active_identity_profile(creator, provider=provider)
 
 
-def _canonical_sha256(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _parse_time(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
@@ -242,14 +239,38 @@ class CreatorGovernanceRepository:
             raise ValueError(f"unknown creator: {creator}")
         return row
 
-    def _validate_identity_profile_bytes(self, identity: sqlite3.Row) -> None:
-        manifest_path = Path(str(identity["identity_manifest_path"]))
-        if (
-            manifest_path.is_symlink()
-            or not manifest_path.is_file()
-            or _file_sha256(manifest_path) != identity["identity_manifest_sha256"]
-        ):
-            raise PermissionError("creator_identity_manifest_stale")
+    def _validate_identity_profile_bytes(
+        self, identity: sqlite3.Row, *, creator_slug: str
+    ) -> None:
+        stored_profile = validate_identity_manifest(identity)
+        validate_profile_identity_binding(
+            stored_profile,
+            creator_slug=creator_slug,
+            provider=str(identity["provider"]),
+            provider_identity_id=str(identity["provider_identity_id"]),
+        )
+        evidence_type = str(identity["canonical_evidence_type"])
+        if evidence_type == "provider_identity_attestation":
+            if identity["canonical_source_asset_id"] is not None:
+                raise PermissionError("provider_identity_evidence_mode_invalid")
+            evidence_path = regular_evidence_file(
+                Path(str(identity["provider_identity_evidence_path"] or "")),
+                "provider_identity_evidence",
+            )
+            evidence_sha = str(identity["provider_identity_evidence_sha256"] or "")
+            if _file_sha256(evidence_path) != evidence_sha:
+                raise PermissionError("provider_identity_evidence_stale")
+            validate_provider_identity_evidence(
+                stored_profile,
+                evidence_path=evidence_path,
+                evidence_sha256=evidence_sha,
+                creator_slug=creator_slug,
+                provider=str(identity["provider"]),
+                provider_identity_id=str(identity["provider_identity_id"]),
+            )
+            return
+        if evidence_type != "operator_approved_original":
+            raise PermissionError("creator_identity_evidence_type_invalid")
         source = self.conn.execute(
             "SELECT * FROM source_assets WHERE id = ?",
             (identity["canonical_source_asset_id"],),
@@ -272,9 +293,7 @@ class CreatorGovernanceRepository:
         ).fetchone()
         identities = self.conn.execute(
             """
-            SELECT id, provider, provider_identity_id, version, profile_fingerprint,
-                   identity_manifest_path, identity_manifest_sha256, status,
-                   canonical_source_asset_id, activated_at, retired_at
+            SELECT *
             FROM creator_identity_profiles
             WHERE model_id = ? ORDER BY provider, version
             """,
@@ -357,7 +376,7 @@ class CreatorGovernanceRepository:
             ).fetchone()
         if identity is None:
             raise PermissionError("creator_identity_profile_missing")
-        self._validate_identity_profile_bytes(identity)
+        self._validate_identity_profile_bytes(identity, creator_slug=str(model["slug"]))
         return {
             **dict(identity),
             "creator_id": model["id"],
@@ -543,10 +562,12 @@ class CreatorGovernanceRepository:
         provider: str,
         provider_identity_id: str,
         profile: dict[str, Any],
-        canonical_source_asset_id: str,
+        canonical_source_asset_id: str | None,
         identity_manifest_path: Path,
         identity_manifest_sha256: str,
         operator: str,
+        provider_identity_evidence_path: Path | None = None,
+        provider_identity_evidence_sha256: str | None = None,
         canonical_evidence_type: str = "operator_approved_original",
         validate_only: bool = False,
     ) -> dict[str, Any]:
@@ -554,100 +575,143 @@ class CreatorGovernanceRepository:
         provider = _required(provider, "provider").lower()
         provider_identity_id = _required(provider_identity_id, "provider_identity_id")
         operator = _required(operator, "operator")
-        if canonical_evidence_type != "operator_approved_original":
-            raise PermissionError("ai_derived_media_cannot_be_canonical_identity")
-        source = self.conn.execute(
-            "SELECT * FROM source_assets WHERE id = ?",
-            (_required(canonical_source_asset_id, "canonical_source_asset_id"),),
-        ).fetchone()
-        if source is None or str(source["model_id"]) != str(model["id"]):
-            raise PermissionError("canonical_identity_source_creator_mismatch")
-        source_path = self._managed_evidence_file(
-            Path(str(source["stored_path"])), "canonical_identity_source"
-        )
-        source_sha = _file_sha256(source_path)
-        if source["status"] != "approved" or source_sha != source["content_hash"]:
-            raise PermissionError("canonical_identity_source_not_exactly_approved")
-        try:
-            source_prompt = json.loads(source["source_prompt"] or "{}")
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise PermissionError("canonical_identity_source_lineage_invalid") from exc
-        if not isinstance(source_prompt, dict):
-            raise PermissionError("canonical_identity_source_lineage_invalid")
-        if (
-            source_prompt.get("generatedAssetLineage")
-            or source_prompt.get("derivedStillSource")
-            or source_prompt.get("provider")
-        ):
-            raise PermissionError("ai_derived_media_cannot_be_canonical_identity")
-        approval_rows = self.conn.execute(
-            """
-            SELECT metadata_json FROM activity_events
-            WHERE source_asset_id = ? AND event_type = 'source_approval_decided'
-            ORDER BY created_at DESC, id DESC
-            """,
-            (source["id"],),
-        ).fetchall()
-        exact_approval = False
-        for approval_row in approval_rows:
-            approval = json.loads(approval_row["metadata_json"] or "{}")
+        if canonical_evidence_type not in {
+            "operator_approved_original",
+            "provider_identity_attestation",
+        }:
+            raise PermissionError("creator_identity_evidence_type_invalid")
+        source = None
+        source_sha = None
+        provider_evidence_path = None
+        provider_evidence_sha = None
+        if canonical_evidence_type == "operator_approved_original":
             if (
-                approval.get("decision") == "approved"
-                and approval.get("sha256") == source_sha
+                not canonical_source_asset_id
+                or provider_identity_evidence_path is not None
+                or provider_identity_evidence_sha256 is not None
             ):
-                exact_approval = True
-                break
-        if not exact_approval:
-            raise PermissionError("canonical_identity_source_approval_missing")
-        origin_attestation = self.conn.execute(
-            """
-            SELECT metadata_json FROM activity_events
-            WHERE source_asset_id = ?
-              AND event_type = 'canonical_identity_origin_attested'
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-            """,
-            (source["id"],),
-        ).fetchone()
-        origin = (
-            json.loads(origin_attestation["metadata_json"] or "{}")
-            if origin_attestation is not None
-            else {}
-        )
-        if (
-            origin.get("sourceAssetId") != source["id"]
-            or origin.get("sha256") != source_sha
-            or origin.get("originClassification") != "human_original"
-            or origin.get("operatorApproved") is not True
-        ):
-            raise PermissionError("canonical_identity_origin_attestation_missing")
-        manifest_path = self._managed_evidence_file(
-            identity_manifest_path, "identity_manifest"
-        )
+                raise PermissionError("creator_identity_evidence_mode_invalid")
+            source = self.conn.execute(
+                "SELECT * FROM source_assets WHERE id = ?",
+                (_required(canonical_source_asset_id, "canonical_source_asset_id"),),
+            ).fetchone()
+            if source is None or str(source["model_id"]) != str(model["id"]):
+                raise PermissionError("canonical_identity_source_creator_mismatch")
+            source_path = self._managed_evidence_file(
+                Path(str(source["stored_path"])), "canonical_identity_source"
+            )
+            source_sha = _file_sha256(source_path)
+            if source["status"] != "approved" or source_sha != source["content_hash"]:
+                raise PermissionError("canonical_identity_source_not_exactly_approved")
+            try:
+                source_prompt = json.loads(source["source_prompt"] or "{}")
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise PermissionError(
+                    "canonical_identity_source_lineage_invalid"
+                ) from exc
+            if not isinstance(source_prompt, dict):
+                raise PermissionError("canonical_identity_source_lineage_invalid")
+            if (
+                source_prompt.get("generatedAssetLineage")
+                or source_prompt.get("derivedStillSource")
+                or source_prompt.get("provider")
+            ):
+                raise PermissionError("ai_derived_media_cannot_be_canonical_identity")
+            approval_rows = self.conn.execute(
+                """
+                SELECT metadata_json FROM activity_events
+                WHERE source_asset_id = ? AND event_type = 'source_approval_decided'
+                ORDER BY created_at DESC, id DESC
+                """,
+                (source["id"],),
+            ).fetchall()
+            exact_approval = any(
+                (approval := json.loads(row["metadata_json"] or "{}")).get("decision")
+                == "approved"
+                and approval.get("sha256") == source_sha
+                for row in approval_rows
+            )
+            if not exact_approval:
+                raise PermissionError("canonical_identity_source_approval_missing")
+            origin_attestation = self.conn.execute(
+                """
+                SELECT metadata_json FROM activity_events
+                WHERE source_asset_id = ?
+                  AND event_type = 'canonical_identity_origin_attested'
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (source["id"],),
+            ).fetchone()
+            origin = (
+                json.loads(origin_attestation["metadata_json"] or "{}")
+                if origin_attestation is not None
+                else {}
+            )
+            if (
+                origin.get("sourceAssetId") != source["id"]
+                or origin.get("sha256") != source_sha
+                or origin.get("originClassification") != "human_original"
+                or origin.get("operatorApproved") is not True
+            ):
+                raise PermissionError("canonical_identity_origin_attestation_missing")
+            manifest_path = self._managed_evidence_file(
+                identity_manifest_path, "identity_manifest"
+            )
+        else:
+            if (
+                canonical_source_asset_id is not None
+                or provider_identity_evidence_path is None
+                or not provider_identity_evidence_sha256
+            ):
+                raise PermissionError("creator_identity_evidence_mode_invalid")
+            provider_evidence_path = regular_evidence_file(
+                provider_identity_evidence_path, "provider_identity_evidence"
+            )
+            provider_evidence_sha = _required(
+                provider_identity_evidence_sha256,
+                "provider_identity_evidence_sha256",
+            ).lower()
+            if _file_sha256(provider_evidence_path) != provider_evidence_sha:
+                raise ValueError("provider_identity_evidence_sha256_mismatch")
+            manifest_path = regular_evidence_file(
+                identity_manifest_path, "identity_manifest"
+            )
         actual_sha = _file_sha256(manifest_path)
         if actual_sha != identity_manifest_sha256:
             raise ValueError("identity_manifest_sha256_mismatch")
-        if profile.get("schema") != "creator_os.creator_identity_profile.v1":
-            raise ValueError("creator_identity_profile_schema_invalid")
-        if str(profile.get("creatorKey") or "") != str(model["slug"]):
-            raise ValueError("creator_identity_profile_creator_mismatch")
-        validate_creator_identity_profile(profile)
+        try:
+            manifest_profile = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("creator_identity_manifest_invalid") from exc
+        if manifest_profile != profile:
+            raise ValueError("creator_identity_manifest_profile_mismatch")
+        validate_profile_identity_binding(
+            profile,
+            creator_slug=str(model["slug"]),
+            provider=provider,
+            provider_identity_id=provider_identity_id,
+        )
         provenance_sources = profile["provenance"]["sourceReferences"]
-        if not any(
-            str(item["recordId"]) == str(source["id"])
-            and str(item["fingerprint"]) == source_sha
-            for item in provenance_sources
-        ):
-            raise ValueError("creator_identity_profile_source_binding_mismatch")
-        provider_references = [
-            item
-            for item in profile["identityReferences"]
-            if provider in str(item["namespace"]).lower()
-        ]
-        if not provider_references or provider_identity_id not in {
-            str(item["externalId"]) for item in provider_references
-        }:
-            raise ValueError("provider_identity_profile_binding_mismatch")
+        if canonical_evidence_type == "operator_approved_original":
+            assert source is not None and source_sha is not None
+            if not any(
+                str(item["recordId"]) == str(source["id"])
+                and str(item["fingerprint"]) == source_sha
+                for item in provenance_sources
+            ):
+                raise ValueError("creator_identity_profile_source_binding_mismatch")
+        else:
+            assert provider_evidence_path is not None
+            assert provider_evidence_sha is not None
+            validate_provider_identity_evidence(
+                profile,
+                evidence_path=provider_evidence_path,
+                evidence_sha256=provider_evidence_sha,
+                creator_slug=str(model["slug"]),
+                provider=provider,
+                provider_identity_id=provider_identity_id,
+            )
         fingerprint = _canonical_sha256(profile)
         row = self.conn.execute(
             """
@@ -667,8 +731,15 @@ class CreatorGovernanceRepository:
                 "providerIdentityId": provider_identity_id,
                 "profileSha256": actual_sha,
                 "profileFingerprint": fingerprint,
-                "canonicalSourceAssetId": source["id"],
+                "canonicalEvidenceType": canonical_evidence_type,
+                "canonicalSourceAssetId": source["id"] if source is not None else None,
                 "canonicalSourceSha256": source_sha,
+                "providerIdentityEvidencePath": (
+                    str(provider_evidence_path)
+                    if provider_evidence_path is not None
+                    else None
+                ),
+                "providerIdentityEvidenceSha256": provider_evidence_sha,
                 "nextVersion": version,
                 "operator": operator,
             }
@@ -689,9 +760,10 @@ class CreatorGovernanceRepository:
                 (id, model_id, provider, provider_identity_id, version, profile_json,
                  profile_fingerprint, identity_manifest_path,
                  identity_manifest_sha256, canonical_source_asset_id,
-                 canonical_evidence_type, status,
+                 canonical_evidence_type, provider_identity_evidence_path,
+                 provider_identity_evidence_sha256, status,
                  activated_at, retired_at, operator, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?)
                 """,
                 (
                     profile_id,
@@ -703,8 +775,12 @@ class CreatorGovernanceRepository:
                     fingerprint,
                     str(manifest_path),
                     actual_sha,
-                    source["id"],
+                    source["id"] if source is not None else None,
                     canonical_evidence_type,
+                    str(provider_evidence_path)
+                    if provider_evidence_path is not None
+                    else None,
+                    provider_evidence_sha,
                     now,
                     operator,
                     now,
@@ -976,7 +1052,14 @@ class CreatorGovernanceRepository:
             ).fetchone()
             if identity is None:
                 raise PermissionError("creator_identity_profile_missing")
-            self._validate_identity_profile_bytes(identity)
+            identity_model = self.conn.execute(
+                "SELECT slug FROM models WHERE id = ?", (row["model_id"],)
+            ).fetchone()
+            if identity_model is None:
+                raise PermissionError("creator_identity_profile_creator_missing")
+            self._validate_identity_profile_bytes(
+                identity, creator_slug=str(identity_model["slug"])
+            )
             authorization_ids: list[str] = []
             for scope in _OPERATION_SCOPES["generation"]:
                 grant = self._active_authorization(
@@ -1277,7 +1360,7 @@ class CreatorGovernanceRepository:
         ).fetchone()
         if identity is None:
             raise PermissionError("creator_identity_profile_missing")
-        self._validate_identity_profile_bytes(identity)
+        self._validate_identity_profile_bytes(identity, creator_slug=str(model["slug"]))
         if source_asset_id:
             source = self.conn.execute(
                 "SELECT model_id, campaign_id FROM source_assets WHERE id = ?",

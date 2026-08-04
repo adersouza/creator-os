@@ -29,11 +29,21 @@ def label_reference(
     if label not in VALID_LABELS:
         raise ValueError(f"Unsupported label: {label}")
     exists = conn.execute(
-        "SELECT reference_id FROM source_files WHERE reference_id = ?",
+        "SELECT reference_id, intake_metadata_json FROM source_files WHERE reference_id = ?",
         (reference_id,),
     ).fetchone()
     if not exists:
         raise ValueError(f"Unknown reference_id: {reference_id}")
+    intake_metadata = json_load(exists["intake_metadata_json"], {})
+    anchor_selection = intake_metadata.get("anchorSelection") or {}
+    if (
+        label in {"gold", "maybe"}
+        and isinstance(anchor_selection, dict)
+        and anchor_selection.get("reviewEligibility") == "blocked"
+    ):
+        raise ValueError(
+            "reference cannot be promoted while anchor selection is review-blocked"
+        )
     timestamp = now_iso()
     label_id = stable_id("label", reference_id, label)
     conn.execute(
@@ -487,7 +497,7 @@ def _same_bucket(left: dict[str, object], right: dict[str, object]) -> bool:
 
 _REFERENCE_SQL = """
     SELECT
-      sf.reference_id, sf.path, sf.account, sf.file_name,
+      sf.reference_id, sf.path, sf.account, sf.file_name, sf.intake_metadata_json,
       vp.valid, vp.duration_seconds, vp.width, vp.height, vp.aspect_ratio,
       thumb.id AS thumbnail_frame_id,
       thumb.frame_path AS thumbnail_path,
@@ -520,6 +530,14 @@ _REFERENCE_SQL = """
 
 def _inflate_reference(row) -> dict[str, object]:
     item = dict(row)
+    intake_metadata = json_load(item.get("intake_metadata_json"), {})
+    anchor_selection = intake_metadata.get("anchorSelection")
+    if not isinstance(anchor_selection, dict):
+        anchor_selection = {
+            "status": "unknown",
+            "reviewEligibility": "eligible",
+            "reason": None,
+        }
     score_row = {
         "valid": item["valid"],
         "width": item["width"],
@@ -553,6 +571,8 @@ def _inflate_reference(row) -> dict[str, object]:
         "bestCaptionConfidence": item["best_caption_confidence"],
         "score": score,
         "scoreReasons": reasons,
+        "anchorSelection": anchor_selection,
+        "reviewEligible": anchor_selection.get("reviewEligibility") != "blocked",
     }
 
 

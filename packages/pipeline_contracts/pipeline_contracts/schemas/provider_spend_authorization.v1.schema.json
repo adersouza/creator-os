@@ -142,7 +142,7 @@
     "exactHiggsfieldVideoScope": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["publicMode", "provider", "campaign", "cohortId", "workItemId", "attemptId", "batchBalanceSnapshotFingerprint", "recipeId", "creator", "soulId", "source", "sourceApprovalFingerprint", "recreationAnchorApproval", "drivingVideo", "speechAudio", "referenceElement", "resolvedPromptSha256", "promptBuilderFingerprint", "providerModels", "providerCallCount", "seed", "parameters", "providerCommandFingerprint", "requestFingerprint"],
+      "required": ["publicMode", "provider", "campaign", "cohortId", "workItemId", "attemptId", "batchBalanceSnapshotFingerprint", "recipeId", "creator", "soulId", "source", "sourceApprovalFingerprint", "recreationAnchorApproval", "referenceVideoSha256", "referenceProviderRights", "drivingVideo", "speechAudio", "referenceElement", "resolvedPromptSha256", "promptBuilderFingerprint", "providerModels", "providerCallCount", "seed", "parameters", "providerCommandFingerprint", "requestFingerprint"],
       "properties": {
         "publicMode": {"enum": ["calm_animation", "recreate_reel"]},
         "provider": {"const": "higgsfield"},
@@ -157,6 +157,8 @@
         "source": {"type": "object"},
         "sourceApprovalFingerprint": {"type": "string", "minLength": 1},
         "recreationAnchorApproval": {"type": ["object", "null"]},
+        "referenceVideoSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "referenceProviderRights": {"type": ["object", "null"]},
         "drivingVideo": {"type": ["object", "null"]},
         "speechAudio": {"type": ["object", "null"]},
         "referenceElement": {"type": ["object", "null"]},
@@ -175,7 +177,7 @@
     "exactHiggsfieldVideoScopeV2": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["publicMode", "provider", "campaign", "cohortId", "workItemId", "attemptId", "batchBalanceSnapshotFingerprint", "recipeId", "providerJobType", "creator", "soulId", "campaignSourceAssetId", "source", "sourceApprovalFingerprint", "recreationAnchorApproval", "drivingVideo", "speechAudio", "referenceElement", "resolvedPromptSha256", "promptCardFingerprint", "promptBuilderFingerprint", "providerModels", "providerCallCount", "seed", "parameters", "providerCommandFingerprint", "requestFingerprint", "quoteFingerprint"],
+      "required": ["publicMode", "provider", "campaign", "cohortId", "workItemId", "attemptId", "batchBalanceSnapshotFingerprint", "recipeId", "providerJobType", "creator", "soulId", "campaignSourceAssetId", "source", "sourceApprovalFingerprint", "recreationAnchorApproval", "referenceVideoSha256", "referenceProviderRights", "drivingVideo", "speechAudio", "referenceElement", "resolvedPromptSha256", "promptCardFingerprint", "promptBuilderFingerprint", "providerModels", "providerCallCount", "seed", "parameters", "providerCommandFingerprint", "requestFingerprint", "quoteFingerprint"],
       "properties": {
         "publicMode": {"enum": ["calm_animation", "recreate_reel"]},
         "provider": {"const": "higgsfield"},
@@ -192,6 +194,8 @@
         "source": {"type": "object"},
         "sourceApprovalFingerprint": {"type": "string", "minLength": 1},
         "recreationAnchorApproval": {"type": ["object", "null"]},
+        "referenceVideoSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "referenceProviderRights": {"type": ["object", "null"]},
         "drivingVideo": {"type": ["object", "null"]},
         "speechAudio": {"type": ["object", "null"]},
         "referenceElement": {"type": ["object", "null"]},

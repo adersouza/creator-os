@@ -22,6 +22,17 @@ from .timeutil import now_iso
 
 FRESH_TREND_STATUSES = {"rising", "fresh", "current", "trending", "unknown"}
 STALE_TREND_STATUSES = {"peaked", "fading", "stale", "expired"}
+AUDIO_RIGHTS_ELIGIBLE_STATUSES = {
+    "cleared",
+    "granted",
+    "licensed",
+    "owned",
+    "platform_native_licensed",
+    "royalty_free",
+    "verified",
+}
+_UNRESOLVED_NATIVE_ID_PREFIXES = ("example_", "unresolved_sha256_")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def analyze_audio_patterns(
@@ -418,6 +429,12 @@ def resolve_audio_record(
     raw = existing.get("raw") or {}
     raw["manualResolved"] = True
     raw["manualResolvedAt"] = now
+    rights_status = _get(payload, "rights_status", "rightsStatus")
+    if rights_status:
+        raw["rightsStatus"] = _norm(rights_status)
+    rights_evidence = payload.get("rightsEvidence") or payload.get("rights_evidence")
+    if isinstance(rights_evidence, dict):
+        raw["rightsEvidence"] = rights_evidence
     title = _get(payload, "title") or existing["title"]
     artist = _get(payload, "artist", "artist_name", "artistName") or existing.get(
         "artistName"
@@ -630,7 +647,8 @@ def audio_resolution_shortlist(
 
 
 def audio_catalog_review_reasons(item: dict[str, Any]) -> list[str]:
-    reasons = []
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    reasons = _csv_tags(item.get("reviewReasons") or raw.get("reviewReasons"))
     if is_generic_audio_title(
         str(item.get("title") or ""), str(item.get("platform") or "")
     ):
@@ -643,7 +661,16 @@ def audio_catalog_review_reasons(item: dict[str, Any]) -> list[str]:
         parsed = _parse_date(expires)
         if parsed and parsed < datetime.now(UTC):
             reasons.append("expired")
-    if not (item.get("nativeAudioId") or item.get("nativeAudioUrl")):
+    native_id = str(item.get("nativeAudioId") or "").strip().lower()
+    native_url = str(item.get("nativeAudioUrl") or "").strip()
+    if not native_id or native_id.startswith(_UNRESOLVED_NATIVE_ID_PREFIXES):
+        if not _is_native_audio_url(native_url, str(item.get("platform") or "")):
+            reasons.append("missing_native_locator")
+    if _is_reel_page_url(native_url, str(item.get("platform") or "")) and (
+        not native_id or native_id.startswith(_UNRESOLVED_NATIVE_ID_PREFIXES)
+    ):
+        reasons.append("reel_page_only_locator")
+    if not (native_id or native_url):
         reasons.append("missing_native_locator")
     if not item.get("moodTags"):
         reasons.append("missing_mood_tags")
@@ -660,7 +687,7 @@ def audio_catalog_review_reasons(item: dict[str, Any]) -> list[str]:
         saturation = snapshot.get("saturationScore")
         if isinstance(saturation, (int, float)) and saturation >= 0.85:
             reasons.append("high_saturation")
-    return reasons
+    return sorted(set(reasons))
 
 
 def audio_catalog_health(
@@ -671,16 +698,13 @@ def audio_catalog_health(
     ]
     fresh = [row for row in rows if _is_fresh_catalog_record(row)]
     stale = [row for row in rows if not _is_fresh_catalog_record(row)]
-    unresolved = [
+    unresolved_titles = [
         row
         for row in rows
         if "missing_resolved_title" in audio_catalog_review_reasons(row)
     ]
-    ready = [
-        row
-        for row in fresh
-        if "missing_resolved_title" not in audio_catalog_review_reasons(row)
-    ]
+    reference_only = [row for row in rows if not audio_production_eligibility(row)[0]]
+    ready = [row for row in fresh if audio_production_eligibility(row)[0]]
     recommendations: list[dict[str, Any]] = []
     if platform:
         recommendations = [
@@ -691,9 +715,7 @@ def audio_catalog_health(
                 content_tags=["ai_ofm", "slideshow"],
                 limit=100,
             )["recommendations"]
-            if not is_generic_audio_title(
-                str(item.get("audioTitle") or ""), str(item.get("platform") or "")
-            )
+            if item.get("productionEligible") is True
         ][: max(1, limit)]
     return {
         "schema": "reference_factory.audio_catalog_health.v1",
@@ -701,7 +723,8 @@ def audio_catalog_health(
         "total": len(rows),
         "fresh": len(fresh),
         "stale": len(stale),
-        "unresolvedTitles": len(unresolved),
+        "unresolvedTitles": len(unresolved_titles),
+        "referenceOnly": len(reference_only),
         "ready": len(ready),
         "topRecommendations": recommendations[: max(1, limit)],
     }
@@ -854,7 +877,20 @@ def recommend_audio(
         "items"
     ]
     scored = []
+    trend_evidence = []
     for item in rows:
+        eligible, review_reasons = audio_production_eligibility(item)
+        if not eligible:
+            trend_evidence.append(
+                {
+                    **_catalog_to_recommendation(item),
+                    "referenceOnly": True,
+                    "productionEligible": False,
+                    "reviewReasons": review_reasons,
+                    "instruction": "Trend evidence only; do not attach or publish this audio.",
+                }
+            )
+            continue
         score, reasons = _score_audio_candidate(item, tags, accounts)
         if not _is_fresh_catalog_record(item):
             score -= 25
@@ -881,6 +917,7 @@ def recommend_audio(
         "recommendations": [
             _catalog_to_recommendation(item) for item in scored[: max(1, limit)]
         ],
+        "trendEvidence": trend_evidence[: max(1, limit)],
     }
 
 
@@ -927,8 +964,10 @@ def competitor_audio_leaderboard(
             continue
         if platform and signal["platform"] != _norm(platform):
             continue
-        plays = int(post.get("video_play_count") or post.get("video_view_count") or 0)
-        if plays < min_plays:
+        post_plays = int(
+            post.get("video_play_count") or post.get("video_view_count") or 0
+        )
+        if post_plays < min_plays:
             continue
         considered += 1
         groups[(signal["platform"], signal["audioId"])].append(
@@ -938,7 +977,7 @@ def competitor_audio_leaderboard(
                 "shortCode": post.get("short_code"),
                 "url": post.get("url"),
                 "caption": post.get("caption"),
-                "plays": plays,
+                "plays": post_plays,
                 "views": int(post.get("video_view_count") or 0),
                 "likes": int(post.get("likes_count") or 0),
                 "comments": int(post.get("comments_count") or 0),
@@ -950,7 +989,7 @@ def competitor_audio_leaderboard(
         if len(audio_posts) < max(1, min_posts):
             continue
         signal = audio_posts[0]["signal"]
-        plays = [int(post["plays"] or 0) for post in audio_posts]
+        play_counts = [int(post["plays"] or 0) for post in audio_posts]
         likes = [int(post["likes"] or 0) for post in audio_posts]
         accounts_used = sorted(
             {
@@ -967,8 +1006,8 @@ def competitor_audio_leaderboard(
             ),
         )[:8]
         score = (
-            sum(plays)
-            + (statistics.median(plays) if plays else 0)
+            sum(play_counts)
+            + (statistics.median(play_counts) if play_counts else 0)
             + (len(accounts_used) * 5000)
             + (len(audio_posts) * 2500)
         )
@@ -983,8 +1022,10 @@ def competitor_audio_leaderboard(
                 "postCount": len(audio_posts),
                 "accountCount": len(accounts_used),
                 "accounts": accounts_used[:12],
-                "totalPlays": sum(plays),
-                "medianPlays": int(statistics.median(plays)) if plays else 0,
+                "totalPlays": sum(play_counts),
+                "medianPlays": (
+                    int(statistics.median(play_counts)) if play_counts else 0
+                ),
                 "totalLikes": sum(likes),
                 "score": round(float(score), 3),
                 "instruction": _audio_instruction(
@@ -1040,9 +1081,14 @@ def competitor_audio_leaderboard(
 def export_audio_catalog(
     conn: Connection, output_path: Path | None = None
 ) -> dict[str, object]:
-    payload = list_audio_catalog(conn, limit=1000)
+    payload: dict[str, Any] = list_audio_catalog(conn, limit=1000)
     payload["schema"] = "reference_factory.audio_catalog_export.v1"
-    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    item_values = payload.get("items")
+    items: list[dict[str, Any]] = (
+        [dict(item) for item in item_values if isinstance(item, dict)]
+        if isinstance(item_values, list)
+        else []
+    )
     snapshots_by_audio = _latest_snapshots_for_catalog(
         conn,
         [
@@ -1051,9 +1097,9 @@ def export_audio_catalog(
             if isinstance(item, dict) and item.get("id")
         ],
     )
+    production_items: list[dict[str, Any]] = []
+    trend_evidence: list[dict[str, Any]] = []
     for item in items:
-        if not isinstance(item, dict):
-            continue
         review_reasons = audio_catalog_review_reasons(item)
         latest_snapshot = snapshots_by_audio.get(str(item.get("id")))
         trend_snapshots = [latest_snapshot] if latest_snapshot else []
@@ -1084,7 +1130,8 @@ def export_audio_catalog(
             "sourceConfidence",
             0.8 if item.get("nativeAudioId") or item.get("nativeAudioUrl") else 0.45,
         )
-        raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+        raw_value = item.get("raw")
+        raw: dict[str, Any] = dict(raw_value) if isinstance(raw_value, dict) else {}
         for raw_key, export_key in (
             ("trendScore", "trendScore"),
             ("velocityScore", "velocityScore"),
@@ -1105,6 +1152,28 @@ def export_audio_catalog(
             item["resolved"] = bool(raw["resolved"])
         if raw.get("reviewReasons") and not item.get("reviewReasons"):
             item["reviewReasons"] = raw["reviewReasons"]
+        rights_status = audio_rights_status(item)
+        preview_evidence = audio_preview_evidence(item)
+        if rights_status:
+            item["rightsStatus"] = rights_status
+        if preview_evidence:
+            item["previewEvidence"] = preview_evidence
+            item.setdefault("localPreviewPath", preview_evidence.get("path"))
+            item.setdefault("previewSha256", preview_evidence.get("sha256"))
+        eligible, review_reasons = audio_production_eligibility(item)
+        item["resolved"] = eligible
+        item["productionEligible"] = eligible
+        item["referenceOnly"] = not eligible
+        item["reviewReasons"] = review_reasons
+        if eligible:
+            production_items.append(item)
+        else:
+            trend_evidence.append(item)
+    payload["totalCount"] = len(items)
+    payload["items"] = production_items
+    payload["count"] = len(production_items)
+    payload["trendEvidence"] = trend_evidence
+    payload["trendEvidenceCount"] = len(trend_evidence)
     if output_path:
         output_path = Path(output_path).expanduser()
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1764,7 +1833,7 @@ def _catalog_record_from_example_reel(row: dict[str, Any], now: str) -> dict[str
         ),
         "usageCount": _int(_get(row, "usage_count", "usageCount", "uses")),
         "safeUsageNotes": (
-            "Use as an audio-discovery signal only. Attach the matching native audio manually in Instagram/TikTok."
+            "Reference-only audio-discovery signal until title, locator, review, and rights are verified."
         ),
         "dateDiscovered": _get(
             row, "date_discovered", "dateDiscovered", "discovered_at"
@@ -1858,6 +1927,12 @@ def _catalog_record_from_row(row: dict[str, Any], now: str) -> dict[str, Any]:
             "performanceSummary",
             "reviewReasons",
             "resolved",
+            "rightsStatus",
+            "rightsEvidence",
+            "previewSha256",
+            "previewEvidence",
+            "referenceOnly",
+            "productionEligible",
         ):
             if key in row and key not in raw:
                 raw[key] = row[key]
@@ -1908,7 +1983,8 @@ def _catalog_record_from_row(row: dict[str, Any], now: str) -> dict[str, Any]:
 
 
 def _catalog_payload(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    raw = json_load(row["raw_json"], {})
+    payload = {
         "id": row["id"],
         "title": row["title"],
         "artistName": row["artist_name"],
@@ -1931,10 +2007,18 @@ def _catalog_payload(row: dict[str, Any]) -> dict[str, Any]:
         "dateDiscovered": row["date_discovered"],
         "expiresAt": row["expires_at"],
         "exampleReels": json_load(row["example_reels_json"], []),
-        "raw": json_load(row["raw_json"], {}),
+        "raw": raw,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+    rights_status = audio_rights_status(payload)
+    preview_evidence = audio_preview_evidence(payload)
+    if rights_status:
+        payload["rightsStatus"] = rights_status
+    if preview_evidence:
+        payload["previewEvidence"] = preview_evidence
+        payload["previewSha256"] = preview_evidence.get("sha256")
+    return payload
 
 
 def _latest_snapshots_for_catalog(
@@ -1981,6 +2065,7 @@ def _snapshot_payload(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _catalog_to_recommendation(item: dict[str, Any]) -> dict[str, Any]:
+    eligible, review_reasons = audio_production_eligibility(item)
     return {
         "source": "reference_factory.audio_catalog",
         "catalogAudioId": item["id"],
@@ -2003,7 +2088,17 @@ def _catalog_to_recommendation(item: dict[str, Any]) -> dict[str, Any]:
         "confidence": min(1.0, float(item.get("matchScore") or 0) / 100.0),
         "rationale": item.get("rationale"),
         "safeUsageNotes": item.get("safeUsageNotes"),
-        "instruction": f"Attach native {item.get('platform')} audio: {item.get('title')}",
+        "resolved": eligible,
+        "productionEligible": eligible,
+        "referenceOnly": not eligible,
+        "reviewReasons": review_reasons,
+        "rightsStatus": audio_rights_status(item) or "unverified",
+        "previewEvidence": audio_preview_evidence(item),
+        "instruction": (
+            f"Attach native {item.get('platform')} audio: {item.get('title')}"
+            if eligible
+            else "Trend evidence only; do not attach or publish this audio."
+        ),
     }
 
 
@@ -2114,11 +2209,135 @@ def is_generic_audio_title(title: str, platform: str | None = None) -> bool:
     platform_norm = _norm(platform or "")
     if not normalized:
         return True
+    unresolved_suffix = r"(?:\s+\(title unresolved\))?"
     if platform_norm == "tiktok":
-        return bool(re.fullmatch(r"tiktok audio [0-9a-z_-]+", normalized))
+        return bool(
+            re.fullmatch(rf"tiktok audio [0-9a-z_-]+{unresolved_suffix}", normalized)
+        )
     if platform_norm == "instagram":
-        return bool(re.fullmatch(r"instagram audio [0-9a-z_-]+", normalized))
-    return bool(re.fullmatch(r"(tiktok|instagram) audio [0-9a-z_-]+", normalized))
+        return bool(
+            re.fullmatch(rf"instagram audio [0-9a-z_-]+{unresolved_suffix}", normalized)
+        )
+    return bool(
+        re.fullmatch(
+            rf"(tiktok|instagram) audio [0-9a-z_-]+{unresolved_suffix}",
+            normalized,
+        )
+    )
+
+
+def audio_rights_status(item: dict[str, Any]) -> str:
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    rights = item.get("rights") if isinstance(item.get("rights"), dict) else {}
+    raw_rights = raw.get("rights") if isinstance(raw.get("rights"), dict) else {}
+    value = (
+        item.get("rightsStatus")
+        or item.get("rights_status")
+        or rights.get("status")
+        or rights.get("usageRightsStatus")
+        or raw.get("rightsStatus")
+        or raw.get("rights_status")
+        or raw_rights.get("status")
+        or raw_rights.get("usageRightsStatus")
+    )
+    return _norm(str(value or ""))
+
+
+def audio_preview_evidence(item: dict[str, Any]) -> dict[str, str]:
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    nested = (
+        item.get("previewEvidence")
+        if isinstance(item.get("previewEvidence"), dict)
+        else {}
+    )
+    raw_nested = (
+        raw.get("previewEvidence")
+        if isinstance(raw.get("previewEvidence"), dict)
+        else {}
+    )
+    path = str(
+        item.get("localPreviewPath")
+        or item.get("local_preview_path")
+        or nested.get("path")
+        or raw_nested.get("path")
+        or ""
+    ).strip()
+    sha256 = (
+        str(
+            item.get("previewSha256")
+            or item.get("preview_sha256")
+            or nested.get("sha256")
+            or raw.get("previewSha256")
+            or raw.get("preview_sha256")
+            or raw_nested.get("sha256")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
+    evidence: dict[str, str] = {}
+    if path:
+        evidence["path"] = path
+    if sha256:
+        evidence["sha256"] = sha256
+        evidence["sha256Format"] = (
+            "valid" if _SHA256_RE.fullmatch(sha256) else "invalid"
+        )
+    return evidence
+
+
+def audio_production_eligibility(
+    item: dict[str, Any],
+) -> tuple[bool, list[str]]:
+    reasons = audio_catalog_review_reasons(item)
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    explicitly_resolved = item.get("resolved")
+    if explicitly_resolved is None:
+        explicitly_resolved = raw.get("resolved")
+    if explicitly_resolved is False:
+        reasons.append("explicitly_unresolved")
+    rights_status = audio_rights_status(item) or "unverified"
+    if rights_status not in AUDIO_RIGHTS_ELIGIBLE_STATUSES:
+        reasons.append(f"rights_status:{rights_status}")
+    return not reasons, sorted(set(reasons))
+
+
+def _is_native_audio_url(url: str, platform: str) -> bool:
+    try:
+        parsed = urlsplit(str(url or ""))
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path.lower().rstrip("/")
+    platform_norm = _norm(platform)
+    if platform_norm == "instagram":
+        return (host == "instagram.com" or host.endswith(".instagram.com")) and (
+            "/reels/audio/" in f"{path}/" or path.startswith("/audio/")
+        )
+    if platform_norm == "tiktok":
+        return (
+            host == "tiktok.com" or host.endswith(".tiktok.com")
+        ) and path.startswith("/music/")
+    return bool(url)
+
+
+def _is_reel_page_url(url: str, platform: str) -> bool:
+    try:
+        parsed = urlsplit(str(url or ""))
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path.lower().rstrip("/")
+    platform_norm = _norm(platform)
+    if platform_norm == "instagram":
+        return (host == "instagram.com" or host.endswith(".instagram.com")) and bool(
+            re.match(r"^/(?:reel|reels|p|tv)/[^/]+$", path)
+        )
+    if platform_norm == "tiktok":
+        return (
+            host == "tiktok.com" or host.endswith(".tiktok.com")
+        ) and "/video/" in path
+    return False
 
 
 def extract_audio_signal(

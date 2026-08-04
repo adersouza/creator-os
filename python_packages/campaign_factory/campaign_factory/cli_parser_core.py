@@ -94,6 +94,10 @@ def register_core_commands(sub) -> None:
     reference_input = create.add_mutually_exclusive_group()
     reference_input.add_argument("--reference-video", type=Path)
     reference_input.add_argument("--reference-url")
+    reference_input.add_argument(
+        "--reference-id",
+        help="reuse one exact stored Reference Factory URL-intake record",
+    )
     create.add_argument("--creator-image", type=Path)
     create.add_argument(
         "--recreation-anchor-approval",

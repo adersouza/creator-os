@@ -13,6 +13,9 @@ import campaign_factory.production_batch_results as production_batch_results
 import campaign_factory.production_higgsfield_authorization as authorization_subject
 import campaign_factory.production_lane as production_lane
 import pytest
+from campaign_factory.production_creative_evidence import (
+    persist_asset_creative_evidence,
+)
 from campaign_factory.production_higgsfield_authorization import (
     _authorize_batch_balance,
     _authorize_prepared_higgsfield_jobs,
@@ -90,6 +93,9 @@ def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
             "creator_slug": "stacey",
             "provider": provider,
             "provider_identity_id": CREATOR_SOUL_IDS["stacey"],
+            "id": "identity-1",
+            "version": 1,
+            "profile_fingerprint": "f" * 64,
         },
         resolve_operation=lambda **_kwargs: {
             "creatorId": "model-1",
@@ -99,7 +105,7 @@ def _factory(tmp_path: Path, *, status: str = "approved") -> SimpleNamespace:
             "campaignLifecycleVersion": 1,
             "identityProfileId": "identity-1",
             "identityProfileVersion": 1,
-            "identityProfileFingerprint": "i" * 64,
+            "identityProfileFingerprint": "f" * 64,
             "providerIdentityId": CREATOR_SOUL_IDS["stacey"],
             "authorizationEventIds": ["authorization-reference-1"],
             "governanceFingerprint": "g" * 64,
@@ -179,7 +185,11 @@ def _anchor_approval(
     source: Path,
     reference: Path,
     soul_id: str = "soul-stacey",
+    selected_mode: str = "structural",
+    classification: str = "simple_pose_motion",
 ) -> dict[str, Any]:
+    reference_sha = hashlib.sha256(reference.read_bytes()).hexdigest()
+    reference_id = "reference-1"
     return write_recreation_anchor_approval(
         output_dir=tmp_path / "anchor-approvals",
         creator="stacey",
@@ -190,9 +200,24 @@ def _anchor_approval(
         prompt_pack_fingerprint="a" * 64,
         anchor_prompt_fingerprint="b" * 64,
         creator_image_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-        reference_video_sha256=hashlib.sha256(reference.read_bytes()).hexdigest(),
+        reference_video_sha256=reference_sha,
         selected_composition_frame_sha256="c" * 64,
         approved_by="operator@test",
+        reference_id=reference_id,
+        recreation_plan_fingerprint="8" * 64,
+        selected_recreation_mode=selected_mode,
+        reference_classification=classification,
+        reference_provider_rights={
+            "schema": "reference_factory.provider_rights_eligibility.v1",
+            "eligible": True,
+            "referenceId": reference_id,
+            "provider": "higgsfield",
+            "operation": "recreation_generation",
+            "sourceSha256": reference_sha,
+            "rightsEventId": "rights-event-1",
+            "rightsEvidenceFingerprint": "9" * 64,
+            "rightsExpiresAt": "2026-08-04T00:00:00Z",
+        },
     )
 
 
@@ -208,6 +233,7 @@ def _capabilities() -> dict[str, Any]:
             }
         ],
         "models": [
+            {"job_type": "kling3_0_turbo"},
             {"job_type": "seedance_2_0_mini"},
             {"job_type": "seedance_2_0"},
         ],
@@ -334,6 +360,130 @@ def test_seedance_request_uses_verified_video_and_image_reference_roles(
     assert (
         plan["referenceElement"]["fileSha256"]
         == hashlib.sha256(_reference_elements(tmp_path).read_bytes()).hexdigest()
+    )
+
+
+def test_soul_bound_seedance_needs_no_creator_reference_element(
+    tmp_path: Path,
+) -> None:
+    anchor = tmp_path / "soul-v3-anchor.png"
+    Image.new("RGB", (360, 640), "gold").save(anchor)
+    reference = _reference(tmp_path)
+    soul_core = {
+        "schema": "campaign_factory.verified_soul_identity_binding.v1",
+        "creatorSlug": "stacey",
+        "provider": "higgsfield",
+        "soulId": "soul-stacey",
+        "identityProfileId": "identity-1",
+        "identityProfileVersion": 1,
+        "identityProfileFingerprint": "f" * 64,
+    }
+    soul = {
+        **soul_core,
+        "bindingFingerprint": hashlib.sha256(
+            json.dumps(soul_core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+    reference_sha = hashlib.sha256(reference.read_bytes()).hexdigest()
+    approval = write_recreation_anchor_approval(
+        output_dir=tmp_path / "v3-approvals",
+        creator="stacey",
+        soul_id="soul-stacey",
+        anchor_generation_id="anchor-generation-v3",
+        anchor_file=anchor,
+        prompt_pack_id="prompt-pack-v3",
+        prompt_pack_fingerprint="a" * 64,
+        anchor_prompt_fingerprint="b" * 64,
+        creator_image_sha256=None,
+        reference_video_sha256=reference_sha,
+        selected_composition_frame_sha256="c" * 64,
+        approved_by="operator@test",
+        reference_id="reference-1",
+        recreation_plan_fingerprint="8" * 64,
+        selected_recreation_mode="structural",
+        reference_classification="simple_pose_motion",
+        reference_provider_rights={
+            "schema": "reference_factory.provider_rights_eligibility.v1",
+            "eligible": True,
+            "referenceId": "reference-1",
+            "provider": "higgsfield",
+            "operation": "recreation_generation",
+            "sourceSha256": reference_sha,
+            "rightsEventId": "rights-event-1",
+            "rightsEvidenceFingerprint": "9" * 64,
+            "rightsExpiresAt": "2026-08-04T00:00:00Z",
+        },
+        soul_identity=soul,
+    )
+    request = HiggsfieldProductionRequest(
+        recipe_id="higgsfield_recreate_reel",
+        creator="stacey",
+        soul_id="soul-stacey",
+        source_approval=approval["approvalFingerprint"],
+        source_image_path=Path(approval["anchorFilePath"]),
+        driving_video_path=reference,
+        output_path=tmp_path / "output.mp4",
+        review_root=tmp_path / "review",
+        prompt="Follow the exact structural scene motion with stable framing.",
+        model="seedance_2_0",
+        duration_seconds=5,
+        max_credits=30,
+        recreation_anchor_approval=approval,
+    )
+
+    plan = build_higgsfield_production_plan(request, capabilities=_capabilities())
+
+    assert plan["referenceElement"] is None
+    assert "<<<" not in plan["prompt"]
+    assert plan["prompt"] == request.prompt
+    assert (
+        plan["command"][plan["command"].index("--image-references") + 1]
+        == (approval["anchorFilePath"])
+    )
+
+
+def test_passive_recreation_uses_planned_kling_and_binds_reference_rights(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (360, 640), "purple").save(source)
+    reference = _reference(tmp_path)
+    approval = _anchor_approval(
+        tmp_path,
+        source=source,
+        reference=reference,
+        selected_mode="calm",
+        classification="passive_single_shot",
+    )
+    request = HiggsfieldProductionRequest(
+        recipe_id="higgsfield_passive_selfie",
+        creator="stacey",
+        soul_id="soul-stacey",
+        source_approval=approval["approvalFingerprint"],
+        source_image_path=Path(approval["anchorFilePath"]),
+        output_path=tmp_path / "output.mp4",
+        review_root=tmp_path / "review",
+        prompt="Calm natural breathing, blinking, and a subtle head movement.",
+        model="kling3_0_turbo",
+        duration_seconds=5,
+        max_credits=30,
+        recreation_anchor_approval=approval,
+        reference_video_sha256=approval["referenceVideoSha256"],
+        public_mode="recreate_reel",
+    )
+
+    plan = build_higgsfield_production_plan(request, capabilities=_capabilities())
+
+    assert plan["command"][3] == "kling3_0_turbo"
+    assert "--video-references" not in plan["command"]
+    assert plan["source"]["kind"] == "approved_recreation_anchor"
+    assert (
+        plan["providerRequestIdentity"]["referenceVideoSha256"]
+        == approval["referenceVideoSha256"]
+    )
+    assert (
+        plan["providerRequestIdentity"]["referenceProviderRights"]
+        == approval["referenceProviderRights"]
     )
 
 
@@ -567,6 +717,21 @@ def test_paid_request_requires_and_uses_exact_approved_anchor(tmp_path: Path) ->
         reference_video_sha256=hashlib.sha256(reference.read_bytes()).hexdigest(),
         selected_composition_frame_sha256="c" * 64,
         approved_by="operator@test",
+        reference_id="reference-1",
+        recreation_plan_fingerprint="8" * 64,
+        selected_recreation_mode="structural",
+        reference_classification="simple_pose_motion",
+        reference_provider_rights={
+            "schema": "reference_factory.provider_rights_eligibility.v1",
+            "eligible": True,
+            "referenceId": "reference-1",
+            "provider": "higgsfield",
+            "operation": "recreation_generation",
+            "sourceSha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
+            "rightsEventId": "rights-event-1",
+            "rightsEvidenceFingerprint": "9" * 64,
+            "rightsExpiresAt": "2026-08-04T00:00:00Z",
+        },
     )
     batch = _plan(
         tmp_path,
@@ -592,6 +757,158 @@ def test_paid_request_requires_and_uses_exact_approved_anchor(tmp_path: Path) ->
     retained_anchor.write_bytes(b"changed after approval")
     with pytest.raises(PermissionError, match="sha_mismatch"):
         higgsfield_request(_governed(job), max_credits=20)
+
+
+def test_soul_bound_plan_uses_approved_anchor_without_creator_image(
+    tmp_path: Path,
+) -> None:
+    factory = _factory(tmp_path)
+    reference = _reference(tmp_path)
+    anchor = tmp_path / "soul-bound-anchor.png"
+    Image.new("RGB", (360, 640), "gold").save(anchor)
+    soul_core = {
+        "schema": "campaign_factory.verified_soul_identity_binding.v1",
+        "creatorSlug": "stacey",
+        "provider": "higgsfield",
+        "soulId": CREATOR_SOUL_IDS["stacey"],
+        "identityProfileId": "identity-1",
+        "identityProfileVersion": 1,
+        "identityProfileFingerprint": "f" * 64,
+    }
+    soul = {
+        **soul_core,
+        "bindingFingerprint": hashlib.sha256(
+            json.dumps(soul_core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+    reference_sha = hashlib.sha256(reference.read_bytes()).hexdigest()
+    prompt_pack = {
+        "promptPackFingerprint": "a" * 64,
+        "seedancePrompt": "Adult woman, age 19, with dark hair follows the scene motion.",
+        "klingPrompt": "Adult woman, age 19, with dark hair holds the scene pose.",
+        "promptPlanning": {},
+        "cache": {"providerCallMade": False},
+    }
+    approval = write_recreation_anchor_approval(
+        output_dir=tmp_path / "soul-bound-approvals",
+        creator="stacey",
+        soul_id=CREATOR_SOUL_IDS["stacey"],
+        anchor_generation_id="soul-anchor-generation-1",
+        anchor_file=anchor,
+        prompt_pack_id="prompt-pack-soul",
+        prompt_pack_fingerprint=prompt_pack["promptPackFingerprint"],
+        anchor_prompt_fingerprint="b" * 64,
+        creator_image_sha256=None,
+        reference_video_sha256=reference_sha,
+        selected_composition_frame_sha256="c" * 64,
+        approved_by="operator@test",
+        reference_id="reference-1",
+        recreation_plan_fingerprint="8" * 64,
+        selected_recreation_mode="structural",
+        reference_classification="simple_pose_motion",
+        reference_provider_rights={
+            "schema": "reference_factory.provider_rights_eligibility.v1",
+            "eligible": True,
+            "referenceId": "reference-1",
+            "provider": "higgsfield",
+            "operation": "recreation_generation",
+            "sourceSha256": reference_sha,
+            "rightsEventId": "rights-event-1",
+            "rightsEvidenceFingerprint": "9" * 64,
+            "rightsExpiresAt": "2026-08-04T00:00:00Z",
+        },
+        soul_identity=soul,
+    )
+    factory.conn.execute(
+        "UPDATE source_assets SET status = 'imported' WHERE id = 'source-stacey'"
+    )
+    factory.conn.execute(
+        "INSERT INTO source_assets VALUES "
+        "('source-soul-anchor','campaign-1','model-1',?,?,'image',"
+        "'approved_recreation_anchor','2026','{}')",
+        (approval["anchorFileSha256"], approval["anchorFilePath"]),
+    )
+    observed: dict[str, Any] = {}
+
+    def prompt_provider(**kwargs: Any) -> dict[str, Any]:
+        observed.update(kwargs)
+        return prompt_pack
+
+    batch = _plan(
+        tmp_path,
+        factory=factory,
+        reference_video_path=reference,
+        prompt_pack_provider=prompt_provider,
+        recreation_anchor_approval_path=Path(approval["receiptPath"]),
+    )
+
+    job = batch["jobs"][0]
+    assert job["sourceAssetId"] == "source-soul-anchor"
+    assert job["sourceSha256"] == approval["anchorFileSha256"]
+    assert job["sourcePath"] == approval["anchorFilePath"]
+    assert "creator_image" not in observed
+    assert observed["soul_identity"] == soul
+    job["providerOutputPath"] = str(tmp_path / "provider-output.mp4")
+    job["providerReviewRoot"] = str(tmp_path / "provider-review")
+    changed_governance = {
+        **job["_creatorGovernance"],
+        "identityProfileVersion": 2,
+    }
+    with pytest.raises(
+        PermissionError, match="recreation_anchor_soul_identity_governance_mismatch"
+    ):
+        higgsfield_request(
+            {**job, "_creatorGovernance": changed_governance}, max_credits=20
+        )
+
+
+def test_soul_bound_final_review_evidence_has_no_canonical_image() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE rendered_assets (id TEXT, metadata_json TEXT)")
+    conn.execute("INSERT INTO rendered_assets VALUES ('asset-1', '{}')")
+    soul = {
+        "schema": "campaign_factory.verified_soul_identity_binding.v1",
+        "creatorSlug": "stacey",
+        "provider": "higgsfield",
+        "soulId": "soul-stacey",
+        "identityProfileId": "identity-1",
+        "identityProfileVersion": 1,
+        "identityProfileFingerprint": "f" * 64,
+        "bindingFingerprint": "a" * 64,
+    }
+    registered = {
+        "id": "asset-1",
+        "content_hash": "d" * 64,
+        "metadata_json": "{}",
+    }
+    persist_asset_creative_evidence(
+        conn,
+        registered=registered,
+        job={
+            "intent": "recreate_reel",
+            "promptCard": {},
+            "compiledPrompt": {},
+            "compatibility": {},
+            "referenceVideo": {"referenceVideoId": "reference-1"},
+            "referenceVideoSha256": "b" * 64,
+            "sourceAssetId": "source-soul-anchor",
+            "sourceSha256": "c" * 64,
+            "recreationAnchorApproval": {
+                "anchorFileSha256": "c" * 64,
+                "soulIdentity": soul,
+            },
+        },
+    )
+
+    review = json.loads(registered["metadata_json"])["recreationReview"]
+    assert review["canonicalCreatorReferences"] == []
+    assert review["selectedSoulIdentity"] == soul
+    assert review["identityComparisonRequired"] == {
+        "approvedAnchor": True,
+        "canonicalCreatorReferences": False,
+        "selectedSoulIdentity": True,
+    }
 
 
 def test_paid_request_without_anchor_approval_fails_before_quote(
@@ -896,12 +1213,31 @@ def test_spend_scope_binds_approved_anchor_and_reference_bytes(tmp_path: Path) -
         reference_video_sha256=job["referenceVideoSha256"],
         selected_composition_frame_sha256="c" * 64,
         approved_by="operator@test",
+        reference_id="reference-1",
+        recreation_plan_fingerprint="8" * 64,
+        selected_recreation_mode="structural",
+        reference_classification="simple_pose_motion",
+        reference_provider_rights={
+            "schema": "reference_factory.provider_rights_eligibility.v1",
+            "eligible": True,
+            "referenceId": "reference-1",
+            "provider": "higgsfield",
+            "operation": "recreation_generation",
+            "sourceSha256": job["referenceVideoSha256"],
+            "rightsEventId": "rights-event-1",
+            "rightsEvidenceFingerprint": "9" * 64,
+            "rightsExpiresAt": "2026-08-04T00:00:00Z",
+        },
     )
     job["promptCard"]["openaiPromptPackFingerprint"] = "a" * 64
     job["recreationAnchorApprovalPath"] = approval["receiptPath"]
     job["recreationAnchorApprovalFingerprint"] = approval["approvalFingerprint"]
     job["recreationAnchorPath"] = approval["anchorFilePath"]
     job["recreationAnchorSha256"] = approval["anchorFileSha256"]
+    job["recreationPlanFingerprint"] = approval["recreationPlanFingerprint"]
+    job["selectedRecreationMode"] = approval["selectedRecreationMode"]
+    job["referenceClassification"] = approval["referenceClassification"]
+    job["referenceProviderRights"] = approval["referenceProviderRights"]
     stage = job["productionRecipe"]["stages"][0]
     reference_elements = _reference_elements(tmp_path)
     request = HiggsfieldProductionRequest(

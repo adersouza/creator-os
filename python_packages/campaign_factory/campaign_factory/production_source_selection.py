@@ -2,8 +2,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
+
+from creator_os_core.fileops import sha256_file
+
+from .production_creative_evidence import (
+    prepare_source_creative_evidence,
+    source_approval_binding,
+)
+
+CREATION_ENABLED_CREATORS: Final = frozenset({"larissa", "stacey"})
+
+
+def require_creation_enabled_creator(creator: str) -> str:
+    """Fail closed before planning any new Creator OS content."""
+
+    creator_slug = str(creator or "").strip().lower()
+    if creator_slug not in CREATION_ENABLED_CREATORS:
+        allowed = ", ".join(sorted(CREATION_ENABLED_CREATORS))
+        raise PermissionError(
+            f"creator_creation_not_enabled:{creator_slug or 'missing'}; "
+            f"allowed creators: {allowed}"
+        )
+    return creator_slug
 
 
 def optional_safe_media(path: Path | None, label: str) -> Path | None:
@@ -32,6 +55,7 @@ def source_image_resolution(path: Path) -> tuple[int, int] | None:
 
 
 def active_production_identity(factory: Any, creator: str) -> tuple[str, str]:
+    creator = require_creation_enabled_creator(creator)
     identity = factory.domains.creator_governance.active_identity_profile(
         creator, provider="higgsfield"
     )
@@ -41,6 +65,7 @@ def active_production_identity(factory: Any, creator: str) -> tuple[str, str]:
 def resolve_reference_analysis_governance(factory: Any, creator: str) -> dict[str, Any]:
     """Resolve reference-use authority before reading or analyzing reference media."""
 
+    creator = require_creation_enabled_creator(creator)
     identity = factory.domains.creator_governance.active_identity_profile(
         creator, provider="internal"
     )
@@ -139,3 +164,200 @@ def select_requested_source_assets(
             + ", ".join(missing)
         )
     return [available[source_id] for source_id in requested]
+
+
+def resolve_production_sources(
+    factory: Any,
+    *,
+    creator: str,
+    soul_id: str,
+    campaign: str | None,
+    execution: str,
+    planned_anchor: Mapping[str, Any] | None,
+    selected_source_asset_ids: tuple[str, ...] | None,
+    accounts: str | None,
+) -> list[dict[str, Any]]:
+    """Resolve exact eligible inventory, including a Soul-bound recreation anchor."""
+
+    soul_bound_anchor = planned_anchor is not None and isinstance(
+        planned_anchor.get("soulIdentity"), Mapping
+    )
+    if soul_bound_anchor:
+        _validate_current_soul_identity(
+            factory,
+            creator=creator,
+            soul_id=soul_id,
+            soul_identity=dict(planned_anchor["soulIdentity"]),
+        )
+        rows = []
+        sources = [
+            _approved_soul_anchor_source(
+                factory,
+                approval=planned_anchor,
+                creator=creator,
+                campaign=campaign,
+            )
+        ]
+    else:
+        rows = factory.conn.execute(
+            """
+            SELECT s.*, c.slug AS campaign_slug, m.slug AS creator_slug
+            FROM source_assets s
+            JOIN campaigns c ON c.id = s.campaign_id
+            JOIN models m ON m.id = s.model_id
+            WHERE lower(m.slug) = ? AND s.media_type = 'image'
+              AND lower(COALESCE(s.status, 'imported')) = 'approved'
+              AND (? IS NULL OR lower(c.slug) = lower(?) OR c.id = ?)
+            ORDER BY c.updated_at DESC, s.created_at DESC, s.id
+            """,
+            (creator, campaign, campaign, campaign),
+        ).fetchall()
+        sources = []
+    seen_source_hashes: set[str] = set()
+    substituted_sources = 0
+    incompatible_sources = 0
+    for row in rows:
+        source = dict(row)
+        raw_path = Path(str(source["stored_path"])).expanduser()
+        if raw_path.is_symlink():
+            substituted_sources += 1
+            continue
+        path = raw_path.resolve()
+        recorded_sha = str(source["content_hash"])
+        if (
+            planned_anchor is not None
+            and recorded_sha != planned_anchor["creatorImageSha256"]
+        ):
+            incompatible_sources += 1
+            continue
+        if not path.is_file() or sha256_file(path) != recorded_sha:
+            substituted_sources += 1
+            continue
+        if recorded_sha in seen_source_hashes:
+            continue
+        if execution == "cloud":
+            resolution = source_image_resolution(path)
+            if resolution is None:
+                substituted_sources += 1
+                continue
+            width, height = resolution
+            ratio = width / height
+            source["sourceResolution"] = {
+                "width": width,
+                "height": height,
+                "aspectRatio": round(ratio, 6),
+            }
+        prepare_source_creative_evidence(source)
+        source["sourceApproval"] = source_approval_binding(factory, source)
+        if source["compatibility"]["hardBlockers"]:
+            incompatible_sources += 1
+            continue
+        source["stored_path"] = str(path)
+        seen_source_hashes.add(recorded_sha)
+        sources.append(source)
+    if not sources:
+        if planned_anchor is not None:
+            raise ValueError(
+                "approved anchor creator image is not exact approved inventory"
+            )
+        if incompatible_sources:
+            raise ValueError(
+                f"no portrait-reel approved image inventory for creator {creator}"
+            )
+        if substituted_sources:
+            raise ValueError(
+                f"approved source SHA mismatch for creator {creator}; "
+                "refresh source inventory before generation"
+            )
+        raise ValueError(
+            f"no explicitly approved image inventory for creator {creator}; "
+            "review and approve sources with `creator-os sources`"
+        )
+    sources = select_requested_source_assets(sources, selected_source_asset_ids)
+    bind_source_governance(
+        factory,
+        sources,
+        creator=creator,
+        soul_id=soul_id,
+        account_id=resolved_account_id(factory.conn, accounts),
+    )
+    return sources
+
+
+def _validate_current_soul_identity(
+    factory: Any,
+    *,
+    creator: str,
+    soul_id: str,
+    soul_identity: Mapping[str, Any],
+) -> None:
+    active = factory.domains.creator_governance.active_identity_profile(
+        creator, provider="higgsfield"
+    )
+    if (
+        soul_identity.get("schema")
+        != "campaign_factory.verified_soul_identity_binding.v1"
+        or soul_identity.get("creatorSlug") != creator
+        or soul_identity.get("provider") != "higgsfield"
+        or soul_identity.get("soulId") != soul_id
+        or soul_identity.get("soulId") != active.get("provider_identity_id")
+        or soul_identity.get("identityProfileId") != active.get("id")
+        or soul_identity.get("identityProfileVersion") != active.get("version")
+        or soul_identity.get("identityProfileFingerprint")
+        != active.get("profile_fingerprint")
+    ):
+        raise PermissionError("recreation_anchor_soul_identity_binding_mismatch")
+
+
+def _approved_soul_anchor_source(
+    factory: Any,
+    *,
+    approval: Mapping[str, Any],
+    creator: str,
+    campaign: str | None,
+) -> dict[str, Any]:
+    row = factory.conn.execute(
+        """
+        SELECT s.*, c.slug AS campaign_slug, m.slug AS creator_slug
+        FROM source_assets s
+        JOIN campaigns c ON c.id = s.campaign_id
+        JOIN models m ON m.id = s.model_id
+        WHERE lower(m.slug) = ? AND s.media_type = 'image'
+          AND s.content_hash = ?
+          AND lower(COALESCE(s.status, 'imported')) = 'approved_recreation_anchor'
+          AND (? IS NULL OR lower(c.slug) = lower(?) OR c.id = ?)
+        ORDER BY c.updated_at DESC, s.created_at DESC, s.id
+        LIMIT 1
+        """,
+        (creator, approval["anchorFileSha256"], campaign, campaign, campaign),
+    ).fetchone()
+    if row is None:
+        raise PermissionError("approved_recreation_anchor_registration_missing")
+    anchor = Path(str(approval["anchorFilePath"])).expanduser()
+    if (
+        anchor.is_symlink()
+        or not anchor.is_file()
+        or sha256_file(anchor.resolve()) != approval["anchorFileSha256"]
+    ):
+        raise PermissionError("approved_recreation_anchor_sha_mismatch")
+    resolution = source_image_resolution(anchor.resolve())
+    if resolution is None:
+        raise ValueError("approved_recreation_anchor_is_not_an_image")
+    width, height = resolution
+    source = {
+        **dict(row),
+        "stored_path": str(anchor.resolve()),
+        "original_path": str(anchor.resolve()),
+        "filename": anchor.name,
+        "content_hash": str(approval["anchorFileSha256"]),
+        "sourceResolution": {
+            "width": width,
+            "height": height,
+            "aspectRatio": round(width / height, 6),
+        },
+        "sourceApproval": None,
+    }
+    prepare_source_creative_evidence(source)
+    if source["compatibility"]["hardBlockers"]:
+        raise PermissionError("approved_recreation_anchor_incompatible")
+    return source

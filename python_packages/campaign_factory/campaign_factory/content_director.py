@@ -158,7 +158,9 @@ def _creator_planning_context(
         """
         SELECT id, provider_identity_id, version, profile_fingerprint,
                identity_manifest_path, identity_manifest_sha256,
-               canonical_source_asset_id
+               canonical_source_asset_id, canonical_evidence_type,
+               provider_identity_evidence_path,
+               provider_identity_evidence_sha256
         FROM creator_identity_profiles
         WHERE model_id = ? AND provider = 'higgsfield' AND status = 'active'
           AND activated_at >= ?
@@ -172,20 +174,32 @@ def _creator_planning_context(
     manifest = _safe_file(
         identity["identity_manifest_path"], identity["identity_manifest_sha256"]
     )
-    source = conn.execute(
-        """
-        SELECT model_id, status, stored_path, content_hash
-        FROM source_assets WHERE id = ?
-        """,
-        (identity["canonical_source_asset_id"],),
-    ).fetchone()
-    if (
-        manifest is None
-        or source is None
-        or source["model_id"] != model["id"]
-        or str(source["status"]).lower() != "approved"
-        or _safe_file(source["stored_path"], source["content_hash"]) is None
-    ):
+    evidence_type = str(identity["canonical_evidence_type"] or "")
+    evidence_valid = False
+    if evidence_type == "operator_approved_original":
+        source = conn.execute(
+            """
+            SELECT model_id, status, stored_path, content_hash
+            FROM source_assets WHERE id = ?
+            """,
+            (identity["canonical_source_asset_id"],),
+        ).fetchone()
+        evidence_valid = bool(
+            source is not None
+            and source["model_id"] == model["id"]
+            and str(source["status"]).lower() == "approved"
+            and _safe_file(source["stored_path"], source["content_hash"]) is not None
+        )
+    elif evidence_type == "provider_identity_attestation":
+        evidence_valid = (
+            identity["canonical_source_asset_id"] is None
+            and _safe_file(
+                identity["provider_identity_evidence_path"],
+                str(identity["provider_identity_evidence_sha256"] or ""),
+            )
+            is not None
+        )
+    if manifest is None or not evidence_valid:
         raise PermissionError("creator_identity_profile_stale")
     campaigns = conn.execute(
         """
