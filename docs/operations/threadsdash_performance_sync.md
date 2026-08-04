@@ -111,6 +111,10 @@ Example `launchd` job, saved outside the repo as
 </plist>
 ```
 
+The launchd runner resets its stdout and stderr files at the start of each run,
+so those files describe only the current attempt. Durable success and failure
+history remains in `~/.creator-os/ops.log`.
+
 Keep `~/.creator-os/performance-sync.env` local-only and mode `0600`.
 
 The launcher deliberately clears inherited Python virtual-environment state,

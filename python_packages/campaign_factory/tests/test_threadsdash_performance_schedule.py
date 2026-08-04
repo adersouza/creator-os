@@ -9,6 +9,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "sync_threadsdash_performance.py"
+LAUNCHD_RUNNER_PATH = REPO_ROOT / "scripts" / "run_threadsdash_performance_sync.sh"
 OPERATIONS_DOC_PATH = (
     REPO_ROOT / "docs" / "operations" / "threadsdash_performance_sync.md"
 )
@@ -40,6 +41,16 @@ def test_sync_threadsdash_performance_requires_configured_env():
     module = load_sync_module()
 
     assert module.main(env={}) == 2
+
+
+def test_launchd_runner_resets_stale_logs_safely():
+    runner = LAUNCHD_RUNNER_PATH.read_text(encoding="utf-8")
+
+    assert "XPC_SERVICE_NAME:-" in runner
+    assert "performance-sync.out.log" in runner
+    assert "performance-sync.err.log" in runner
+    assert '[ -L "$LOG" ]' in runner
+    assert ': > "$LOG"' in runner
 
 
 def test_sync_threadsdash_performance_defaults_to_ten_thousand_posts():
