@@ -108,9 +108,10 @@ def test_reel_creative_context_consumes_active_operator_preferences(
 
     preference = context["operatorPreferenceProfile"]
     assert preference["sourceFingerprint"] == profile["sourceFingerprint"]
-    assert preference["examples"][0]["operatorNotes"] == (
+    assert preference["selectedReference"]["operatorNote"] == (
         "Keep the casual framing and slipped strap."
     )
+    assert preference["selectedReference"]["itemId"] == "selfie:one"
     assert preference["houseDirection"] == {}
     assert "Keep the casual framing and slipped strap." in (
         _operator_preference_instruction(preference)
