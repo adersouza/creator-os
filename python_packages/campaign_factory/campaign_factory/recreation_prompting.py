@@ -38,6 +38,7 @@ from .production_prompts import (
     LOW_EFFORT_REEL_VISUAL_DIRECTION,
     build_reel_creative_context,
 )
+from .production_source_selection import require_creation_enabled_creator
 from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
@@ -101,6 +102,7 @@ def build_openai_prompt_pack(
 ) -> dict[str, Any]:
     """Ask one vision model for a Soul anchor and exact provider prompts."""
 
+    creator = require_creation_enabled_creator(creator)
     video = (
         _regular_file(reference_video, "reference video")
         if reference_video is not None

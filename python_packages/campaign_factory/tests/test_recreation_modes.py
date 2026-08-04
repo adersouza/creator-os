@@ -144,7 +144,7 @@ def _plan(
     )
 
 
-@pytest.mark.parametrize("creator", ["stacey", "larissa", "lola"])
+@pytest.mark.parametrize("creator", ["stacey", "larissa"])
 def test_calm_uses_openai_kling_turbo_prompt(
     monkeypatch: pytest.MonkeyPatch, creator: str
 ) -> None:
@@ -160,6 +160,32 @@ def test_calm_uses_openai_kling_turbo_prompt(
     assert plan["videoPlan"]["referenceEvidence"]["sentToProvider"] is False
     assert f"registry-soul-{creator}" not in str(plan)
     assert plan["creatorGovernance"]["identityProfileFingerprint"] == "f" * 64
+
+
+def test_disabled_creator_is_blocked_before_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def quote(_model: str, _params: dict[str, Any]) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(recreation_modes, "_coarse_motion_energy", lambda _: 0.01)
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:lola"):
+        recreation_modes.plan_recreation(
+            creator="lola",
+            source_video=Path("/private/reference.mp4"),
+            intake=_intake(),
+            requested_mode="auto",
+            audio_policy="auto",
+            through=None,
+            max_credits=100,
+            creator_governance={"creatorSlug": "lola"},
+            quote_provider=quote,
+        )
+    assert called is False
 
 
 def test_reel_motion_uses_prompt_only_seedance_fast(

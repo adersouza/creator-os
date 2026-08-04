@@ -300,6 +300,27 @@ def test_openai_prompt_pack_cache_miss_requires_external_call_authorization(
         )
 
 
+def test_openai_prompt_pack_blocks_disabled_creator_before_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider_called = False
+
+    def provider_call(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal provider_called
+        provider_called = True
+        return {}
+
+    monkeypatch.setattr(recreation_prompting, "_post_responses", provider_call)
+    with pytest.raises(PermissionError, match="creator_creation_not_enabled:lola"):
+        recreation_prompting.build_openai_prompt_pack(
+            creator="lola",
+            creator_image=tmp_path / "missing.png",
+            intent="passive_selfie",
+            external_call_authorized=True,
+        )
+    assert provider_called is False
+
+
 def test_anchor_prompt_rejects_invented_identity_details(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

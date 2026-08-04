@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Final
 
+from .production_source_selection import require_creation_enabled_creator
 from .recreation_prompting import validate_prompt_pack
 
 SCHEMA: Final = "campaign_factory.recreation_plan.v1"
@@ -63,12 +64,9 @@ def plan_recreation(
 ) -> dict[str, Any]:
     """Build one stable public plan without exposing private Soul identifiers."""
 
-    creator_key = str(creator or "").strip().lower()
+    creator_key = require_creation_enabled_creator(creator)
     governance = dict(creator_governance)
-    if (
-        not creator_key
-        or str(governance.get("creatorSlug") or "").strip().lower() != creator_key
-    ):
+    if str(governance.get("creatorSlug") or "").strip().lower() != creator_key:
         raise PermissionError("recreation_creator_governance_mismatch")
     identity_fingerprint = str(
         governance.get("identityProfileFingerprint") or ""

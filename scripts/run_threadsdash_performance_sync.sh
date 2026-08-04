@@ -9,6 +9,17 @@ fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${CREATOR_OS_PERFORMANCE_SYNC_ENV:-$HOME/.creator-os/performance-sync.env}"
 
+if [ "${XPC_SERVICE_NAME:-}" = "com.creator-os.threadsdash-performance-sync" ]; then
+  for LOG in "$HOME/.creator-os/performance-sync.out.log" "$HOME/.creator-os/performance-sync.err.log"; do
+    if [ -L "$LOG" ] || { [ -e "$LOG" ] && [ ! -f "$LOG" ]; }; then
+      echo "unsafe performance-sync log path: $LOG" >&2
+      exit 65
+    fi
+    : > "$LOG"
+    chmod 600 "$LOG"
+  done
+fi
+
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
 
