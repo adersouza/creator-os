@@ -84,6 +84,7 @@ def run_front_generation_stage(
         dirs["reel_inputs"] / f"{stem}.front_generation_prompt.json",
         scene_type=scene_type,
         reference_pattern=reference_pattern,
+        creator=creator,
     )
     execution_plan_path = _write_execution_plan_pack(
         dirs["reel_inputs"] / f"{stem}.generation_execution_plan.json",
@@ -1053,7 +1054,11 @@ def _stage_result(stages: list[dict[str, Any]], name: str) -> dict[str, Any]:
 
 
 def _write_prompt_pack(
-    path: Path, *, scene_type: str, reference_pattern: dict[str, Any] | None = None
+    path: Path,
+    *,
+    scene_type: str,
+    reference_pattern: dict[str, Any] | None = None,
+    creator: str = "",
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     scene = scene_type.strip().replace("_", " ") or "room selfie"
@@ -1063,6 +1068,7 @@ def _write_prompt_pack(
         "creativeContext": build_reel_creative_context(
             mode="static_reel",
             intent="passive_selfie",
+            creator=creator,
         ),
         "higgsfieldGridPrompt": (
             "Create one realistic vertical social photo. "

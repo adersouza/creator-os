@@ -440,6 +440,7 @@ def plan_production_batch(
     creative_context = build_reel_creative_context(
         mode=resolved_creation_mode,
         intent=intent,
+        creator=creator,
     )
     if recreation_attempt_id is not None and (
         not recreation_attempt_id.strip() or len(recreation_attempt_id.strip()) > 100

@@ -24,6 +24,16 @@ def _conn() -> sqlite3.Connection:
         )
         """
     )
+    # Real schema: prompts are keyed by the internal ref_url_<hash> id, while the
+    # platform shortcode used by preference itemIds lives in native_media_id.
+    conn.execute("CREATE TABLE source_files (reference_id TEXT, native_media_id TEXT)")
+    conn.executemany(
+        "INSERT INTO source_files VALUES (?, ?)",
+        [
+            ("ref_url_aaaa1111", "winner"),
+            ("ref_url_bbbb2222", "loser"),
+        ],
+    )
     return conn
 
 
@@ -43,7 +53,7 @@ def test_weights_rank_measured_references_and_ignore_untested_ones():
     conn = _conn()
     conn.executemany(
         "INSERT INTO generated_video_prompts VALUES (?, ?, ?)",
-        [("winner", 0.9, 5), ("loser", 0.1, 5)],
+        [("ref_url_aaaa1111", 0.9, 5), ("ref_url_bbbb2222", 0.1, 5)],
     )
 
     weights = preference_outcome_weights(conn, _profile())
@@ -57,7 +67,7 @@ def test_thin_evidence_earns_no_weight():
     conn = _conn()
     conn.executemany(
         "INSERT INTO generated_video_prompts VALUES (?, ?, ?)",
-        [("winner", 0.9, 1), ("loser", 0.1, 1)],
+        [("ref_url_aaaa1111", 0.9, 1), ("ref_url_bbbb2222", 0.1, 1)],
     )
 
     assert preference_outcome_weights(conn, _profile()) == {}
@@ -67,7 +77,7 @@ def test_refresh_persists_weights_without_touching_operator_truth(tmp_path: Path
     conn = _conn()
     conn.executemany(
         "INSERT INTO generated_video_prompts VALUES (?, ?, ?)",
-        [("winner", 0.9, 5), ("loser", 0.1, 5)],
+        [("ref_url_aaaa1111", 0.9, 5), ("ref_url_bbbb2222", 0.1, 5)],
     )
     path = tmp_path / "profile.json"
     original = _profile()

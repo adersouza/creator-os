@@ -22,9 +22,11 @@ from campaign_factory.learning_consumption import (
 )
 from campaign_factory.persistence import json_load
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.runtime_paths import resolve_runtime_paths
 from reference_factory.config import DEFAULT_DB_PATH as REFERENCE_DB_PATH
 from reference_factory.db import connect as connect_reference
 from reference_factory.knowledge_pack import export_knowledge_pack
+from reference_factory.preference_outcomes import refresh_preference_outcome_weights
 
 
 def _state_root() -> Path:
@@ -64,6 +66,39 @@ def _load_or_build_pack(*, apply: bool) -> tuple[dict[str, Any], Path | None, bo
     return preview, path, True
 
 
+def _preference_profile_path() -> Path:
+    configured = os.environ.get("CREATOR_OS_OPERATOR_PREFERENCE_PROFILE")
+    if configured:
+        return Path(configured).expanduser()
+    return (
+        resolve_runtime_paths().reference_data_root
+        / "learning"
+        / "operator_preference_profile.json"
+    )
+
+
+def _refresh_preference_weights(*, apply: bool) -> dict[str, Any]:
+    """Push measured post outcomes into the operator preference profile.
+
+    This is the production caller that closes the preference loop: published
+    outcomes become `outcomeWeights`, which Campaign Factory's reference
+    selection reads on the next creation.
+    """
+
+    path = _preference_profile_path()
+    if not path.exists():
+        return {"status": "no_profile", "path": str(path)}
+    if not apply:
+        return {"status": "would_refresh", "path": str(path)}
+    conn = sqlite3.connect(f"file:{REFERENCE_DB_PATH}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        summary = refresh_preference_outcome_weights(conn, path)
+    finally:
+        conn.close()
+    return {"status": "refreshed", "path": str(path), **summary}
+
+
 def refresh(*, apply: bool) -> dict[str, Any]:
     pack, pack_path, pack_written = _load_or_build_pack(apply=apply)
     recommendations = build_measured_recommendations(pack)
@@ -80,6 +115,7 @@ def refresh(*, apply: bool) -> dict[str, Any]:
     result: dict[str, Any] = {
         "schema": "creator_os.learning_refresh.v1",
         "apply": apply,
+        "operatorPreferenceWeights": _refresh_preference_weights(apply=apply),
         "knowledgePack": {
             "id": pack["packId"],
             "sourceFingerprint": pack["sourceFingerprint"],
