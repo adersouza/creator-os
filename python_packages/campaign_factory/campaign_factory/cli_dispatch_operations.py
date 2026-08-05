@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .adapters.contentforge import audit_campaign
 from .adapters.threadsdash_account_projection import summarize_threadsdash_usage
-from .adapters.threadsdash_client import SupabaseRestClient
 from .adapters.threadsdash_draft_delivery import export_threadsdash
 from .adapters.threadsdash_draft_readiness import evaluate_export_readiness
 from .assignment_eligibility import (
@@ -20,10 +19,6 @@ from .cli_support import (
     load_hooks,
     load_json_object,
     print_json,
-)
-from .closed_loop_proof import (
-    build_account_routing_audit,
-    run_stacey_closed_loop_proof,
 )
 from .learning_governance import (
     authorize_learning_policy,
@@ -531,57 +526,6 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
         return 0
     if args.cmd == "variant-metrics-rollup":
         print_json(cf.domains.variant_lineage.variant_metrics_rollup(args.campaign))
-        return 0
-    if args.cmd == "account-routing-audit":
-        if not args.supabase_url or not args.supabase_service_role_key:
-            print_json(
-                {
-                    "schema": "campaign_factory.account_routing_audit.v1",
-                    "mode": "preview",
-                    "mutatesSupabase": False,
-                    "creator": args.creator,
-                    "userId": args.user_id,
-                    "status": "blocked",
-                    "blockingReasons": ["missing_supabase_credentials"],
-                    "hasSupabaseUrl": bool(args.supabase_url),
-                    "hasSupabaseServiceRoleKey": bool(args.supabase_service_role_key),
-                    "recommendations": [
-                        "load ThreadsDashboard Supabase credentials before running the routing audit"
-                    ],
-                }
-            )
-            return 1
-        client = SupabaseRestClient(
-            args.supabase_url.rstrip("/"), args.supabase_service_role_key
-        )
-        print_json(
-            build_account_routing_audit(
-                client, user_id=args.user_id, creator=args.creator
-            )
-        )
-        return 0
-    if args.cmd == "closed-loop-proof":
-        result = run_stacey_closed_loop_proof(
-            campaign_slug=args.campaign,
-            user_id=args.user_id,
-            output_dir=args.output_dir,
-            supabase_url=args.supabase_url,
-            supabase_service_role_key=args.supabase_service_role_key,
-            supabase_storage_bucket=args.supabase_storage_bucket,
-            operator=args.operator,
-            approval_reason=args.approval_reason,
-            approved_rendered_asset_id=args.approved_rendered_asset_id,
-            prompt_path=args.prompt_path,
-            schedule_mode=args.schedule_mode,
-            allow_warnings=args.allow_warnings,
-            allow_live_export=args.allow_live_export,
-            read_only_verification=args.read_only_verification,
-            existing_threadsdash_post_id=args.existing_threadsdash_post_id,
-            limit=args.limit,
-        )
-        print_json(result)
-        if result.get("result") == "failed":
-            return 1
         return 0
     if args.cmd == "closed-loop-learning-status":
         print_json(

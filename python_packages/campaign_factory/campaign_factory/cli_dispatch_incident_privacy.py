@@ -65,13 +65,6 @@ def dispatch_incident_privacy_commands(args, cf) -> int | None:
             }
         )
         return 0
-    if args.cmd == "operational-observability":
-        print_json(
-            cf.domains.operational_observability.report(
-                stale_after_minutes=args.stale_after_minutes
-            )
-        )
-        return 0
     if args.cmd == "creator-privacy-report":
         print_json(cf.domains.creator_privacy.privacy_report(args.creator))
         return 0

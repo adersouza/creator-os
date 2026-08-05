@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .closed_loop_proof import DEFAULT_STACEY_PROMPT_PATH
-
 
 def register_core_commands(sub) -> None:
     sub.add_parser("init")
@@ -430,13 +428,6 @@ def register_core_commands(sub) -> None:
     )
     mass_ready.add_argument("--limit", type=int, default=1000)
     mass_ready.add_argument("--format", choices=["json", "markdown"], default="json")
-    production_ready = sub.add_parser(
-        "production-readiness-proof",
-        help="read-only exact-evidence gate for a supervised production canary",
-    )
-    production_ready.add_argument("--runtime-promotion-receipt", type=Path)
-    production_ready.add_argument("--expected-runtime-sha")
-    production_ready.add_argument("--threadsdash-deployment-receipt", type=Path)
     caption_outcome = sub.add_parser("caption-outcome-report")
     caption_outcome.add_argument("--campaign", required=True)
     reference_outcome = sub.add_parser("reference-outcome-report")
@@ -483,40 +474,6 @@ def register_core_commands(sub) -> None:
     cohort_publish.add_argument("--published-at", required=True)
     learning_cohort_sub.add_parser("status")
     learning_cohort_sub.add_parser("audit")
-    routing_audit = sub.add_parser("account-routing-audit")
-    routing_audit.add_argument("--creator", required=True)
-    routing_audit.add_argument("--user-id", required=True)
-    routing_audit.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    routing_audit.add_argument(
-        "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        or os.environ.get("SUPABASE_SERVICE_KEY"),
-    )
-    closed_loop = sub.add_parser("closed-loop-proof")
-    closed_loop.add_argument("--campaign", default="stacey_closed_loop")
-    closed_loop.add_argument("--user-id", default=os.environ.get("THREADSDASH_USER_ID"))
-    closed_loop.add_argument(
-        "--output-dir", default=str(Path(__file__).resolve().parents[1])
-    )
-    closed_loop.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    closed_loop.add_argument(
-        "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-    )
-    closed_loop.add_argument(
-        "--supabase-storage-bucket",
-        default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
-    )
-    closed_loop.add_argument("--operator", default=os.environ.get("USER"))
-    closed_loop.add_argument("--approval-reason")
-    closed_loop.add_argument("--approved-rendered-asset-id")
-    closed_loop.add_argument("--prompt-path", default=str(DEFAULT_STACEY_PROMPT_PATH))
-    closed_loop.add_argument("--schedule-mode", choices=["live"], default="live")
-    closed_loop.add_argument("--allow-warnings", action="store_true")
-    closed_loop.add_argument("--allow-live-export", action="store_true")
-    closed_loop.add_argument("--read-only-verification", action="store_true")
-    closed_loop.add_argument("--existing-threadsdash-post-id")
-    closed_loop.add_argument("--limit", type=int, default=1000)
     graduate_trial = sub.add_parser("graduate-trial-reel")
     graduate_trial.add_argument("--trial-post-id", required=True)
     graduate_trial.add_argument("--distribution-plan-id", required=True)

@@ -13,9 +13,6 @@ from campaign_factory.incident_privacy import (
     CreatorPrivacyRepository,
     IncidentRepository,
 )
-from campaign_factory.operational_observability import (
-    OperationalObservabilityRepository,
-)
 from campaign_factory.operator_authority import MUTATE, READ, classify_cli_operation
 from campaign_factory.provider_spend import (
     ProviderOverspendError,
@@ -275,55 +272,6 @@ def test_legal_hold_and_protected_evidence_block_deletion_truth(
         assert [item["id"] for item in final_plan["protectedEvidence"]] == [
             protected["id"]
         ]
-    finally:
-        conn.close()
-
-
-def test_observability_never_equates_loaded_with_executing_and_marks_stale(
-    tmp_path: Path,
-) -> None:
-    conn = _db(tmp_path)
-    try:
-        conn.execute(
-            """
-            INSERT INTO activity_events
-            (id, event_type, status, message, metadata_json, created_at)
-            VALUES ('loaded_1', 'launch_agent_loaded', 'info',
-                    'launch agent configuration loaded', '{}',
-                    '2026-07-30T11:59:00.000000Z')
-            """
-        )
-        conn.execute(
-            """
-            INSERT INTO pipeline_jobs
-            (id, job_type, campaign_id, status, effect_state, recovery_policy,
-             input_json, result_json, attempt_count, created_at, updated_at)
-            VALUES ('job_stale', 'fixture', 'campaign_1', 'queued',
-                    'PRE_EFFECT', 'NEVER_AUTOMATIC', '{}', '{}', 0,
-                    '2026-07-30T09:00:00.000000Z',
-                    '2026-07-30T09:00:00.000000Z')
-            """
-        )
-        conn.execute(
-            """
-            UPDATE pipeline_jobs
-            SET status = 'running', started_at = created_at, attempt_count = 1
-            WHERE id = 'job_stale'
-            """
-        )
-        conn.commit()
-        report = OperationalObservabilityRepository(conn, utc_now=lambda: NOW).report(
-            stale_after_minutes=30
-        )
-        assert report["runtime"]["loaded"] is True
-        assert report["runtime"]["executing"] is False
-        assert report["runtime"]["warning"]
-        assert report["health"] == "degraded"
-        stale_job = next(
-            item for item in report["observations"] if item["sourceId"] == "job_stale"
-        )
-        assert stale_job["stale"] is True
-        assert stale_job["fresh"] is False
     finally:
         conn.close()
 
