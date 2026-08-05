@@ -122,7 +122,8 @@ def refresh_preference_outcome_weights(
     # nowhere else. Take the lock before reading so a concurrent refresh cannot
     # interleave, and replace the file atomically so an interrupted write cannot
     # leave it truncated.
-    with file_lock(path.with_suffix(path.suffix + ".lock")):
+    # file_lock appends ".lock" itself; pass the profile path directly.
+    with file_lock(path):
         profile = json.loads(path.read_text(encoding="utf-8"))
         weights = preference_outcome_weights(conn, profile)
         if weights:
