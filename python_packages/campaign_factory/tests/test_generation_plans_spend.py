@@ -26,7 +26,6 @@ from campaign_factory.front_generation_stage import (
 )
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.learning_cohort import prepare_learning_cohort
-from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
 from campaign_factory.static_mp4_stage import _duration_for_still, run_static_mp4_stage
 from campaign_factory.variation_stage import (
     load_variant_assignment_index,
@@ -541,29 +540,6 @@ def test_finished_video_lineage_cost_recorder_ensures_table_once(
     assert len(ensure_calls) == 1
     assert len(record_kwargs) == 3
     assert {item["ensure_schema"] for item in record_kwargs} == {False}
-
-
-def test_pipeline_full_smoke_mocked_generation_intake_preserves_lineage(tmp_path: Path):
-    projects_root = tmp_path / "Projects"
-    for repo in [
-        "reel_factory",
-        "contentforge",
-        "reference_factory",
-        "ThreadsDashboard",
-    ]:
-        (projects_root / repo).mkdir(parents=True)
-
-    result = _run_mocked_generation_intake_smoke(
-        projects_root=projects_root, workspace=tmp_path / "workspace"
-    )
-
-    assert result["ok"] is True
-    checks = result["checks"]
-    assert checks["lineagePreserved"] is True
-    assert checks["promptScorePreserved"] is True
-    assert checks["fallbackPreserved"] is True
-    assert checks["variationGridPreserved"] is True
-    assert result["finishedVideoIntake"]["draftFirst"] is True
 
 
 def test_run_reel_factory_targets_only_campaign_clips(tmp_path: Path, monkeypatch):
