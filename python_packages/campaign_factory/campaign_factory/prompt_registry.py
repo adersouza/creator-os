@@ -35,32 +35,38 @@ _PASSIVE_COMPILED_FIXTURE = (
 _OPENAI_RECREATION_FIXTURE = (
     "The image is the approved creator identity for a calm short animation. "
     "Invent one attractive, realistic scene and pose that will animate well "
-    "with calm eye, head, breathing, hair, and small hand movements. Default visual "
-    "direction: Favor a deliberately casual, believable handheld selfie aesthetic "
-    "for Reel stills: close arm-length framing or a mirror self-portrait in an "
-    "ordinary bedroom, bathroom, car seat, couch, living room, or simple outdoor "
-    "setting. Use cute fitted everyday clothing, playful, coy, pouty, warm, or "
-    "teasing expressions, attractive flirtatious posing within the approved wardrobe "
-    "and exposure policy, natural household lighting, slight off-center composition, "
-    "and ordinary lived-in background detail. Selected static mirror compositions "
-    "may hold the camera in front of part of the face while preserving enough visible "
-    "identity evidence. Use casual amateur realism and reserve polished "
-    "editorial lighting or cinematic staging for an explicit request. Return an "
-    "anchorPrompt for Higgsfield Soul 2, a detailed Seedance 2 Fast prompt, a "
-    "Kling 3 Turbo prompt with a 2500-character maximum, and a chronological "
-    "timeline. The anchor prompt describes adult-coded "
-    "pose, wardrobe, setting, lighting, framing, and composition using affirmative "
-    "desired-result language. The approved creator image exclusively supplies "
-    "identity, face, skin tone, hair, tattoos, beauty marks, and permanent body "
-    "details, so the anchor prompt stays focused on the scene and composition. "
-    "Video prompts explicitly use the approved anchor as the exact person, "
-    "preserve every visible identity and permanent feature, and describe only "
-    "desired visuals, movement, timing, and camera behavior in affirmative "
-    "language. Provider settings control audio separately. Every generated prompt "
-    "contains only affirmative desired-result language. Source writing, overlay, "
-    "caption, app, UI, interface, screen-chrome, watermark, logo, and device language "
-    "stay outside the anchor, Seedance, Kling, and timeline descriptions. Source "
-    "writing stays outside the generated prompts."
+    "with calm eye, head, breathing, hair, and small hand movements. "
+    "Default visual direction: Favor a deliberately casual, believable "
+    "handheld selfie aesthetic for Reel stills: close arm-length framing or "
+    "a mirror self-portrait in an ordinary bedroom, bathroom, car seat, "
+    "couch, living room, or simple outdoor setting. Use cute fitted "
+    "everyday clothing, playful, coy, pouty, warm, or teasing expressions, "
+    "attractive flirtatious posing within the approved wardrobe and "
+    "exposure policy, natural household lighting, slight off-center "
+    "composition, and ordinary lived-in background detail. Selected static "
+    "mirror compositions may hold the camera in front of part of the face "
+    "while preserving enough visible identity evidence. Use casual amateur "
+    "realism and reserve polished editorial lighting or cinematic staging "
+    "for an explicit request. Return an anchorPrompt for Higgsfield Soul 2, "
+    "a detailed Seedance 2 Fast prompt, a Kling 3 Turbo prompt with a "
+    "2500-character maximum, and a chronological timeline. The anchor "
+    "prompt describes adult-coded pose, wardrobe, setting, lighting, "
+    "framing, and composition using affirmative desired-result language. "
+    "The approved creator image exclusively supplies identity, face, skin "
+    "tone, hair, tattoos, beauty marks, and permanent body details, so the "
+    "anchor prompt stays focused on the scene and composition. Video "
+    "prompts explicitly use the approved anchor as the exact person, "
+    "preserve every visible identity and permanent feature, and describe "
+    "only desired visuals, movement, timing, and camera behavior in "
+    "affirmative language. Video prompts describe physical motion "
+    "concretely: natural soft-tissue movement of chest and hips through "
+    "each step, turn, bounce or lean, how fitted fabric shifts, stretches "
+    "and settles against the body, and hair movement and settling. Provider "
+    "settings control audio separately. Every generated prompt contains "
+    "only affirmative desired-result language. Source writing, overlay, "
+    "caption, app, UI, interface, screen-chrome, watermark, logo, and "
+    "device language stay outside the anchor, Seedance, Kling, and timeline "
+    "descriptions. Source writing stays outside the generated prompts."
 )
 _DERIVED_STILL_FIXTURE = (
     "Change only the existing garment color, using these colors in order: black, "
@@ -273,7 +279,7 @@ PROMPT_REGISTRY = prompt_registry(
                     compiled_prompt=_OPENAI_RECREATION_FIXTURE,
                 ),
             ),
-            approved_material_fingerprint="48367b75bdc7e454ac9913faeaabcb2b36dc3c77bfe3587a1dce5e22e077e435",
+            approved_material_fingerprint="0baacc7be17a36acf92743960efd28722c44389acd5b0e26032e83db0ad56677",
             approved_at="2026-08-04T00:00:00-04:00",
             approval_evidence="operator_approved_structural_image_prompting_and_positive_only_outputs",
             effective_at="2026-08-04T00:00:00-04:00",
@@ -304,7 +310,7 @@ PROMPT_REGISTRY = prompt_registry(
                     compiled_prompt="Calm provider-specific recreation motion.",
                 ),
             ),
-            approved_material_fingerprint="49d94926624e2e6ead44d6cc15b237061b644eede27383dc35da700d6bd6bbbb",
+            approved_material_fingerprint="c4cafc1be65a776c1949f386e39a1b99721da4fdbd5bfa5244873f30e7dc4566",
             approved_at="2026-08-04T00:00:00-04:00",
             approval_evidence="operator_approved_structural_image_prompting_and_positive_only_outputs",
             effective_at="2026-08-04T00:00:00-04:00",
