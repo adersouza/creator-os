@@ -39,22 +39,31 @@ def preference_outcome_weights(
     weight; anything thinner stays at the operator's prior alone.
     """
 
+    # Preference itemIds carry the platform shortcode (``reel:DbV65c5sn2b``),
+    # but generated_video_prompts is keyed by the internal reference_id
+    # (``ref_url_<hash>``). The shortcode lives in source_files.native_media_id,
+    # so the join has to go through source_files or it can never match.
     rows = conn.execute(
         """
-        SELECT reference_id,
-               AVG(outcome_reward_score) AS reward,
-               SUM(outcome_sample_count) AS samples
-          FROM generated_video_prompts
-         WHERE outcome_reward_score IS NOT NULL
-         GROUP BY reference_id
+        SELECT gvp.reference_id,
+               sf.native_media_id,
+               AVG(gvp.outcome_reward_score) AS reward,
+               SUM(gvp.outcome_sample_count) AS samples
+          FROM generated_video_prompts AS gvp
+          LEFT JOIN source_files AS sf
+                 ON sf.reference_id = gvp.reference_id
+         WHERE gvp.outcome_reward_score IS NOT NULL
+         GROUP BY gvp.reference_id, sf.native_media_id
         """
     ).fetchall()
     measured: dict[str, tuple[float, int]] = {}
     for row in rows:
-        reference_id = str(row[0] or "")
-        if not reference_id:
-            continue
-        measured[reference_id] = (float(row[1] or 0.0), int(row[2] or 0))
+        reward, samples = float(row[2] or 0.0), int(row[3] or 0)
+        # Index under both keys so items keyed by shortcode and items keyed by
+        # the internal reference id both resolve.
+        for key in (str(row[0] or ""), str(row[1] or "")):
+            if key:
+                measured[key] = (reward, samples)
     if not measured:
         return {}
     rewards = [

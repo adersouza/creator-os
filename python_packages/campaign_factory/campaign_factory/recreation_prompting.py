@@ -140,6 +140,7 @@ def build_openai_prompt_pack(
     creative_context = build_reel_creative_context(
         mode="recreate_reel" if video else "calm_animation",
         intent=intent,
+        creator=creator,
     )
     image_sha256 = _sha256(image) if image is not None else None
     video_sha256 = _sha256(video) if video else None

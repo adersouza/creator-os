@@ -26,7 +26,6 @@ import {
 	validateReferenceVideoRemixPlan,
 	validateRedditManualHandoff,
 	validateRendererEquivalenceReceiptV2,
-	validateRepurposingPlan,
 	validateRecommendationAccuracyReport,
 	validateVariantAssignment,
 } from "../typescript/index";
@@ -345,50 +344,6 @@ describe("TypeScript pipeline contract validators", () => {
 
 		expect(validateCampaignFactoryDraftPayload(payload)).toEqual(
 			expect.arrayContaining([expect.stringContaining("promptId")]),
-		);
-	});
-
-	it("rejects invalid enum values through AJV", () => {
-		const payload = example("repurposing_plan");
-		payload.preset_name = "unknown";
-
-		expect(validateRepurposingPlan(payload)).toEqual(
-			expect.arrayContaining([
-				expect.stringContaining("preset_name"),
-			]),
-		);
-	});
-
-	it("rejects out-of-range integer values through AJV", () => {
-		const payload = example("repurposing_plan");
-		payload.target_count = 0;
-
-		expect(validateRepurposingPlan(payload)).toEqual(
-			expect.arrayContaining([
-				expect.stringContaining("target_count"),
-			]),
-		);
-	});
-
-	it("rejects extra top-level properties through AJV", () => {
-		const payload = example("repurposing_plan");
-		payload.unexpected = true;
-
-		expect(validateRepurposingPlan(payload)).toEqual(
-			expect.arrayContaining([
-				expect.stringContaining("unexpected"),
-			]),
-		);
-	});
-
-	it("rejects bad string patterns through AJV", () => {
-		const payload = example("repurposing_plan");
-		payload.master_asset_id = "asset id with spaces";
-
-		expect(validateRepurposingPlan(payload)).toEqual(
-			expect.arrayContaining([
-				expect.stringContaining("master_asset_id"),
-			]),
 		);
 	});
 

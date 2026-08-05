@@ -142,6 +142,7 @@ def select_preference_reference(
     *,
     mode: str,
     intent: str,
+    creator: str = "",
     outcomes: dict[str, float] | None = None,
 ) -> dict[str, Any] | None:
     """Choose ONE operator-rated reference to drive this creation.
@@ -161,11 +162,12 @@ def select_preference_reference(
     ]
     if not candidates:
         return None
-    # Deterministic per (collection, mode, intent) so the same creation request is
-    # reproducible, while different intents genuinely draw different references.
+    # Deterministic per (collection, mode, intent, creator) so the same creation
+    # request is reproducible, while different intents AND different creators
+    # genuinely draw different references instead of reusing one master.
     rotation = int(
         hashlib.sha256(
-            f"{profile['sourceFingerprint']}:{mode}:{intent}".encode()
+            f"{profile['sourceFingerprint']}:{mode}:{intent}:{creator}".encode()
         ).hexdigest(),
         16,
     )
@@ -218,6 +220,7 @@ def _operator_preference_context(
     mode: str,
     *,
     intent: str = "",
+    creator: str = "",
     outcomes: dict[str, float] | None = None,
 ) -> dict[str, Any] | None:
     configured = str(os.environ.get("CREATOR_OS_OPERATOR_PREFERENCE_PROFILE") or "")
@@ -248,7 +251,11 @@ def _operator_preference_context(
     }
     resolved_outcomes.update(outcomes or {})
     selected = select_preference_reference(
-        profile, mode=mode, intent=intent, outcomes=resolved_outcomes
+        profile,
+        mode=mode,
+        intent=intent,
+        creator=creator,
+        outcomes=resolved_outcomes,
     )
     if selected is None:
         return None
@@ -282,6 +289,7 @@ def build_reel_creative_context(
     *,
     mode: str,
     intent: str,
+    creator: str = "",
     preference_outcomes: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Return the operator-owned creative purpose carried by every Reel mode."""
@@ -290,7 +298,7 @@ def build_reel_creative_context(
         raise ValueError(f"unsupported Creator OS mode: {mode}")
     reference_driven = mode == "recreate_reel"
     operator_preferences = _operator_preference_context(
-        mode, intent=intent, outcomes=preference_outcomes
+        mode, intent=intent, creator=creator, outcomes=preference_outcomes
     )
     core: dict[str, Any] = {
         "schema": REEL_CREATIVE_CONTEXT_SCHEMA,

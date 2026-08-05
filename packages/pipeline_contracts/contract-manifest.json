@@ -104,6 +104,6 @@
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
     "typescript/generated-schemas.ts": "9d077f068f9490be0878f4a3b62d308fc1025e8e42d1ece1b06f02d187f42288",
-    "typescript/index.ts": "4ac6f9eed6a498a02572c17707e300f4fd0e56f4fc7e52d8daef205bf0d337bf"
+    "typescript/index.ts": "b5b3d0fbfc9d3855f6eb87cd32936148231f07b0b14b96073cb5d384f3dfb0f0"
   }
 }
