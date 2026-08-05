@@ -19,7 +19,7 @@ class BacklogTarget:
 
 TARGETS = {
     "campaign_factory": BacklogTarget(
-        "python_packages/campaign_factory/campaign_factory", 840, 237
+        "python_packages/campaign_factory/campaign_factory", 839, 234
     ),
     "reference_factory": BacklogTarget(
         "python_packages/reference_factory/reference_factory", 168, 35
