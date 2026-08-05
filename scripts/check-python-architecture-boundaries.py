@@ -39,12 +39,10 @@ BOUNDARIES: tuple[
         ROOT / "python_packages/campaign_factory/campaign_factory",
         "campaign_factory",
         ("reference_factory", "repurposer"),
-        {
-            "repurposer": (
-                ROOT
-                / "python_packages/campaign_factory/campaign_factory/variation_stage.py",
-            ),
-        },
+        # No allowlist: variation_stage.py no longer imports repurposer, so the
+        # carve-out is removed. `repurposer` stays in the forbidden list so the
+        # boundary still holds if the package ever returns.
+        {},
     ),
 )
 
