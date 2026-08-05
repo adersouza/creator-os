@@ -395,6 +395,17 @@ def build_openai_prompt_pack(
     )
 
     value = _response_json(response)
+    # Persist what the provider actually authored BEFORE validating it. The
+    # call is already paid for at this point, so a validator rejection that
+    # discards the text charges the operator for output nobody ever sees and
+    # leaves nothing to diagnose the rejection against. Keeping it turns a
+    # rejected prompt into evidence about the instruction that produced it.
+    _record_authored_response(
+        value,
+        cache_path=cache_path,
+        request_fingerprint=request_fingerprint,
+        response_id=str(response.get("id") or ""),
+    )
     anchor_prompt = _validated_creator_presentation(
         _validated_anchor_prompt(str(value["anchorPrompt"])), "anchor"
     )
@@ -667,8 +678,13 @@ def _instruction(
         "shape, waist-to-hip proportions, butt size and roundness, and every other "
         "visible detail that makes the composition sexy; expression, gaze, setting, "
         "lighting, focus, grain, motion blur and casual photographic imperfections. "
-        "Ground every detail in the visible reference. Treat on-screen interface "
-        "elements, drawn marks, and writing as reference artifacts outside the scene. "
+        "Ground every detail in the visible reference. Some references carry app "
+        "interface elements, drawn marks, or writing sitting on top of the "
+        "photograph; those belong to the reference rather than to the scene, so "
+        "leave them out silently and write nothing at all about them. Every "
+        "sentence must state something that is present in the scene: a sentence "
+        "saying anything is absent, removed, hidden or excluded degrades the "
+        "generated image, so write only what is there. "
         "The phone itself is a real prop: when the subject holds one, describe the "
         "phone exactly as it appears, including how it covers part of the face and "
         "how it is gripped, because that is the intended look. Use affirmative "
@@ -1088,6 +1104,47 @@ def _json_record(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     return json.loads(json.dumps(value))
+
+
+def _record_authored_response(
+    value: dict[str, Any],
+    *,
+    cache_path: Path,
+    request_fingerprint: str,
+    response_id: str,
+) -> Path:
+    """Write the provider's authored text to disk before it is validated.
+
+    Written next to the prompt cache under ``authored/`` so a rejected prompt
+    remains readable. Best effort: failing to record must never mask the
+    validation error the operator actually needs to see.
+    """
+
+    root = cache_path.parent / "authored"
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(root, 0o700)
+        path = root / f"{request_fingerprint}.json"
+        atomic_write_text(
+            path,
+            json.dumps(
+                {
+                    "schema": "campaign_factory.openai_authored_response.v1",
+                    "requestFingerprint": request_fingerprint,
+                    "responseId": response_id,
+                    "validated": False,
+                    "authored": value,
+                },
+                indent=1,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(path, 0o600)
+        return path
+    except OSError:
+        return root
 
 
 def _prompt_run_cap_usd(quote_usd: float) -> float:

@@ -234,7 +234,13 @@ def test_openai_structural_image_prompt_preserves_visible_attraction_details() -
     assert "visible detail that makes the composition sexy" in instruction
     assert "Ground every detail in the visible reference" in instruction
     assert "invented mood" in instruction
-    assert "reference artifacts outside the scene" in instruction
+    # Overlay artifacts must be dropped SILENTLY. Telling the model to treat
+    # them as "outside the scene" made it write a sentence saying so -- "No
+    # visible UI or text" -- which is both a negative and uses the very words
+    # the surface guard rejects. The instruction induced the violation the
+    # validator then punished, burning a paid call each time.
+    assert "leave them out silently and write nothing at all about them" in instruction
+    assert "absent, removed, hidden or excluded" in instruction
     # The phone is a real prop in the operator's top-rated references ("phone
     # slightly covering face"), so the instruction must ask for it as-seen rather
     # than renaming it to a camera, which produced the wrong object entirely.
