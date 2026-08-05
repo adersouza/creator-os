@@ -34,5 +34,5 @@ requires = ["setuptools>=83"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["campaign_factory*", "repurposer*"]
+include = ["campaign_factory*"]
 exclude = ["campaigns*", "docs*", "schemas*", "scripts*", "tests*"]

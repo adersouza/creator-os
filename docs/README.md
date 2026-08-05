@@ -76,8 +76,6 @@ the durable system map, dated pipeline state, and active operating policy.
   active normal provider recipes.
 - [`providers/HIGGSFIELD_CAPABILITY_AUDIT_2026-07-27.md`](providers/HIGGSFIELD_CAPABILITY_AUDIT_2026-07-27.md)
   — authenticated capability snapshot from that date.
-- [`providers/wan_wavespeed.md`](providers/wan_wavespeed.md) — historical
-  WaveSpeed implementation evidence; not an active production guide.
 
 ## Research And Historical Evidence
 
