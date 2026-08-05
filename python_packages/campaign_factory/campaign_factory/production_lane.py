@@ -70,9 +70,6 @@ from .production_creative_evidence import (
     build_job_creative_evidence,
     persist_asset_creative_evidence,
 )
-from .production_creative_evidence import (
-    expand_production_job_prompt as _expand_production_job_prompt,
-)
 from .production_higgsfield_authorization import (
     _fingerprint,
     _sha256_file,
@@ -901,34 +898,10 @@ def run_production_batch(
             "recreate_reel apply requires explicit --reference-authorized"
         )
 
-    prepared: list[dict[str, Any]] = []
-    for job in plan["jobs"]:
-        try:
-            prepared.append(
-                _expand_production_job_prompt(job)
-                if execution == "cloud" and intent not in _RECREATE_INTENTS
-                else dict(job)
-            )
-        except Exception as exc:
-            results.append(
-                {
-                    "jobId": job["jobId"],
-                    "index": job["index"],
-                    "status": "failed",
-                    "error": str(exc),
-                }
-            )
-    plan["jobs"] = [
-        next(
-            (
-                prepared_job
-                for prepared_job in prepared
-                if prepared_job["jobId"] == job["jobId"]
-            ),
-            job,
-        )
-        for job in plan["jobs"]
-    ]
+    # The prompt reaching the provider is the one already authored upstream and
+    # approved by the operator. The retired local Qwen-VL expander used to rewrite
+    # it here; nothing rewrites an approved prompt now.
+    prepared: list[dict[str, Any]] = [dict(job) for job in plan["jobs"]]
     prepared = _authorize_higgsfield_jobs(
         factory,
         prepared,
@@ -1145,7 +1118,7 @@ def _execute_higgsfield_provider_job(
         execute_higgsfield_production,
     )
 
-    from .motion_generation_stage import _register_review_asset
+    from .motion_review_asset import register_review_asset
 
     recovery_value = job.get("_higgsfieldRecovery")
     recovery = recovery_value if isinstance(recovery_value, dict) else None
@@ -1354,7 +1327,7 @@ def _execute_higgsfield_provider_job(
                 "audio": {"mode": "none"},
             },
         }
-        registered = _register_review_asset(
+        registered = register_review_asset(
             factory,
             campaign=campaign,
             source_asset_id=str(job["sourceAssetId"]),

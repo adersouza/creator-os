@@ -24,7 +24,7 @@ TARGETS = {
     "reference_factory": BacklogTarget(
         "python_packages/reference_factory/reference_factory", 168, 35
     ),
-    "reel_factory": BacklogTarget("python_packages/reel_factory/reel_factory", 85, 79),
+    "reel_factory": BacklogTarget("python_packages/reel_factory/reel_factory", 82, 70),
 }
 
 ERROR_SUMMARY = re.compile(

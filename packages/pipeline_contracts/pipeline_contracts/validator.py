@@ -64,21 +64,6 @@ PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA = "provider_spend_authorization.v2.schema
 CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA = (
     "contentforge_campaign_audit_response.v1.schema.json"
 )
-LOCAL_MODEL_ARENA_PLAN_SCHEMA = "local_model_arena_plan.v1.schema.json"
-LOCAL_MODEL_ARENA_SUMMARY_SCHEMA = "local_model_arena_summary.v1.schema.json"
-LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA = (
-    "local_model_arena_review_packet.v1.schema.json"
-)
-LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA = (
-    "local_model_arena_unblinding_receipt.v1.schema.json"
-)
-LOCAL_MODEL_ROUTER_DECISION_SCHEMA = "local_model_router_decision.v1.schema.json"
-LOCAL_MODEL_ROLLOUT_GATE_RECEIPT_SCHEMA = (
-    "local_model_rollout_gate_receipt.v1.schema.json"
-)
-LOCAL_MODEL_ROLLOUT_EXTERNAL_ACTIVITY_OBSERVATION_SCHEMA = (
-    "local_model_rollout_external_activity_observation.v1.schema.json"
-)
 TRUSTED_MEDIA_ANALYSIS_SCHEMA = "trusted_media_analysis.v1.schema.json"
 HUMAN_MEDIA_REVIEW_SCHEMA = "human_media_review.v1.schema.json"
 MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA = "motion_specific_qc_receipt.v2.schema.json"
@@ -152,15 +137,6 @@ SCHEMA_NAMES = {
     "provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
     "campaign_factory_provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
     "contentforge_campaign_audit_response": CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA,
-    "local_model_arena_plan": LOCAL_MODEL_ARENA_PLAN_SCHEMA,
-    "local_model_arena_summary": LOCAL_MODEL_ARENA_SUMMARY_SCHEMA,
-    "local_model_arena_review_packet": LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA,
-    "local_model_arena_unblinding_receipt": LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA,
-    "local_model_router_decision": LOCAL_MODEL_ROUTER_DECISION_SCHEMA,
-    "local_model_rollout_gate_receipt": LOCAL_MODEL_ROLLOUT_GATE_RECEIPT_SCHEMA,
-    "local_model_rollout_external_activity_observation": (
-        LOCAL_MODEL_ROLLOUT_EXTERNAL_ACTIVITY_OBSERVATION_SCHEMA
-    ),
     "trusted_media_analysis": TRUSTED_MEDIA_ANALYSIS_SCHEMA,
     "human_media_review": HUMAN_MEDIA_REVIEW_SCHEMA,
     "motion_specific_qc_receipt_v2": MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA,
@@ -211,59 +187,6 @@ def validate_creator_identity_profile(value: Any) -> None:
     validate_contract(value, CREATOR_IDENTITY_PROFILE_SCHEMA)
 
 
-def validate_local_model_arena_plan(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ARENA_PLAN_SCHEMA)
-
-
-def validate_local_model_arena_summary(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ARENA_SUMMARY_SCHEMA)
-
-
-def validate_local_model_rollout_external_activity_observation(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ROLLOUT_EXTERNAL_ACTIVITY_OBSERVATION_SCHEMA)
-
-
-def validate_local_model_arena_review_packet(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA)
-    candidates = value["candidates"]
-    _validate_declared_record_count(
-        value,
-        count_field="expectedCandidateCount",
-        records_field="candidates",
-    )
-    _validate_unique_record_fields(
-        candidates,
-        collection_path="$.candidates",
-        fields=("reviewOrdinal", "blindedCandidateId", "subjectSha256"),
-    )
-    ordinals = sorted(candidate["reviewOrdinal"] for candidate in candidates)
-    expected_ordinals = list(range(1, len(candidates) + 1))
-    if ordinals != expected_ordinals:
-        raise ContractValidationError(
-            "$.candidates.reviewOrdinal: values must be contiguous from 1 through "
-            "expectedCandidateCount"
-        )
-
-
-def validate_local_model_arena_unblinding_receipt(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA)
-    _validate_declared_record_count(
-        value,
-        count_field="expectedReviewCount",
-        records_field="bindings",
-    )
-    _validate_unique_record_fields(
-        value["bindings"],
-        collection_path="$.bindings",
-        fields=(
-            "blindedCandidateId",
-            "subjectSha256",
-            "humanReviewId",
-            "sampleId",
-        ),
-    )
-
-
 def _validate_declared_record_count(
     value: dict[str, Any], *, count_field: str, records_field: str
 ) -> None:
@@ -289,14 +212,6 @@ def _validate_unique_record_fields(
                     f"{collection_path}[{seen[item]}].{field}"
                 )
             seen[item] = index
-
-
-def validate_local_model_router_decision(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ROUTER_DECISION_SCHEMA)
-
-
-def validate_local_model_rollout_gate_receipt(value: Any) -> None:
-    validate_contract(value, LOCAL_MODEL_ROLLOUT_GATE_RECEIPT_SCHEMA)
 
 
 def validate_trusted_media_analysis(value: Any) -> None:

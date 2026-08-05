@@ -15,7 +15,6 @@ from pipeline_contracts import validate_generation_execution_plan
 def test_generation_execution_plans_cover_only_internal_workers() -> None:
     assert generation_execution_mode_ids() == (
         "soul_static",
-        "local_wan",
         "best_motion",
     )
 
@@ -27,7 +26,6 @@ def test_generation_execution_plans_cover_only_internal_workers() -> None:
         validate_generation_execution_plan(plan.to_contract())
         assert plan.allowed_output_surface == "campaign_review"
 
-    assert plans["local_wan"].provider_authorization == "forbidden"
     assert plans["soul_static"].motion_strategy == "static_mp4_only"
     assert plans["best_motion"].motion_strategy == "best_paid_motion"
     assert plans["best_motion"].providers == ("higgsfield",)
@@ -36,7 +34,6 @@ def test_generation_execution_plans_cover_only_internal_workers() -> None:
         "higgsfield_seedance2_i2v",
         "static_mp4",
     )
-    assert "creative_approval_v2" in plans["local_wan"].required_approvals
     assert "creative_approval_v2" in plans["best_motion"].required_approvals
     assert all(plan.static_fallback_required for plan in plans.values())
 

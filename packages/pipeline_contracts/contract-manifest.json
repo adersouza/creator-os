@@ -51,13 +51,6 @@
     "pipeline_contracts/schemas/kling_3_video_prompt.v1.example.json": "740dedc2882809b8e0c299b27a579008ec2c6e03156650278b11c664617392ad",
     "pipeline_contracts/schemas/kling_3_video_prompt.v1.schema.json": "093b7f43ee4e32b3d9fd7cb3dc181ba845e26af89b687d69457dd2405b2c537b",
     "pipeline_contracts/schemas/learning_cohort.v1.schema.json": "12c7864a7c4bec41dba11cad5f9461adc3381e8da38b5f5f5dca86c3caa513f6",
-    "pipeline_contracts/schemas/local_model_arena_plan.v1.schema.json": "cdbb7d8b1e4e302fe3debba16e8fbf5e6c80deb066635e6be8064f4930b16f36",
-    "pipeline_contracts/schemas/local_model_arena_review_packet.v1.schema.json": "55b33e7b62122bce7f64ebe07225de1eba5192becfb79a363e176f198b3ffe5f",
-    "pipeline_contracts/schemas/local_model_arena_summary.v1.schema.json": "06dfc88aa954b803645e321c36217aa3348353b37759a704a09b5093a2ae65f3",
-    "pipeline_contracts/schemas/local_model_arena_unblinding_receipt.v1.schema.json": "0b88a97cd99bf88bd647fa9d65f69c421be8d91415aca5da87a2c5ed599a7373",
-    "pipeline_contracts/schemas/local_model_rollout_external_activity_observation.v1.schema.json": "0c7b352f214406d4a8603343fa6b8a30defc67c51a21939cc82ae4bf99345516",
-    "pipeline_contracts/schemas/local_model_rollout_gate_receipt.v1.schema.json": "9d72c4b08e9f509d9d77960d29dbcd42616a1b04481609c236202e8324f38156",
-    "pipeline_contracts/schemas/local_model_router_decision.v1.schema.json": "7746dbc15d8bd5c83da7962a0dde66454dff74d049a440a0da0ec4dbdc4c1520",
     "pipeline_contracts/schemas/motion_edit_render.v1.example.json": "6cb05a01ca512f9a65c526993be108a5b8cd2b626b6e399aaca17546dc76512f",
     "pipeline_contracts/schemas/motion_edit_render.v1.schema.json": "e7f0d58dbb92675130cc30a0e240608f64ba412edc5c144936640c3760ceb59a",
     "pipeline_contracts/schemas/motion_specific_qc_receipt.v2.schema.json": "2682e830e9ab8f16699d2e1eda9923c2abeb185a74281d98d014bea7ac1f1d54",
@@ -103,7 +96,7 @@
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.example.json": "4214473c02e1ee20bf10f824511ef8884201ce82b26b2b187ce3d245598bed41",
     "pipeline_contracts/schemas/visual_derivative_receipt.v1.schema.json": "89d07106146740937cfe409ccfd8f2337513f7fda2362c4eb4a211ac14c40a3d",
-    "typescript/generated-schemas.ts": "9d077f068f9490be0878f4a3b62d308fc1025e8e42d1ece1b06f02d187f42288",
+    "typescript/generated-schemas.ts": "a5529d6184856256f4ae7a1b3c0c15d02f00c72f542d98ef1fbcfc0dc9a80c80",
     "typescript/index.ts": "b5b3d0fbfc9d3855f6eb87cd32936148231f07b0b14b96073cb5d384f3dfb0f0"
   }
 }

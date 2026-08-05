@@ -49,8 +49,8 @@ def _fixture_root(tmp_path: Path) -> Path:
     generated = tmp_path / "packages/pipeline_contracts/typescript/generated-schemas.ts"
     generated.parent.mkdir(parents=True)
     generated.write_text("export {};\n", encoding="utf-8")
-    model = (
-        tmp_path / "python_packages/reel_factory/reel_factory/video_provider_models.py"
+    model = tmp_path / (
+        "python_packages/campaign_factory/campaign_factory/production_motion_recipe.py"
     )
     model.parent.mkdir(parents=True)
     model.write_text(

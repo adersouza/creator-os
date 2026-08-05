@@ -38,9 +38,7 @@ REQUIRED_TOOLS: Final = (
 OPTIONAL_TOOLS: Final = ("fpcalc", "swift", "strings")
 BREW_FORMULAE: Final = ("ffmpeg", "tesseract", "chromaprint")
 MODEL_CATALOG_PATHS: Final = (
-    "python_packages/reel_factory/reel_factory/video_provider_models.py",
-    "python_packages/reel_factory/reel_factory/local_video_models.py",
-    "python_packages/reel_factory/reel_factory/local_model_manager.py",
+    "python_packages/campaign_factory/campaign_factory/production_motion_recipe.py",
 )
 ENVIRONMENT_KEYS: Final = (
     "CREATOR_OS_ROOT",

@@ -9,7 +9,6 @@ SCHEMA = "campaign_factory.generation_execution_plan.v1"
 
 CreativeMode = Literal[
     "soul_static",
-    "local_wan",
     "best_motion",
 ]
 
@@ -103,38 +102,6 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
         static_fallback_behavior="required_for_every_accepted_still",
         allowed_output_surface="campaign_review",
         paid_image_generation=True,
-        paid_video_generation=False,
-    ),
-    "local_wan": GenerationExecutionPlan(
-        creative_mode="local_wan",
-        still_strategy="accepted_still",
-        motion_strategy="local_mlx_video",
-        cost_classification="free",
-        providers=("local",),
-        models=(
-            "local_wan22_ti2v_5b_mlx",
-            "local_wan22_i2v_a14b_q4_mlx",
-            "local_ltx23_distilled_mlx",
-            "local_ltx23_dev_hq_mlx",
-            "local_longcat_avatar15_q4_mlx",
-            "static_mp4",
-        ),
-        required_approvals=("human_still_approval", "creative_approval_v2"),
-        provider_authorization="forbidden",
-        required_lineage=(
-            "reel_factory.local_video_generation.v1",
-            "reel_factory.local_model_router_decision.v1",
-            "campaign_factory.local_motion_admission.v1",
-            "campaign_factory.motion_generation_asset.v1",
-        ),
-        qc_requirements=(
-            "arena_promotion_evidence",
-            "contentforge_quality",
-            "human_final_review",
-        ),
-        static_fallback_behavior="required_before_motion",
-        allowed_output_surface="campaign_review",
-        paid_image_generation=False,
         paid_video_generation=False,
     ),
     "best_motion": GenerationExecutionPlan(
@@ -239,4 +206,4 @@ def authorize_paid_generation(
 
 
 def generation_execution_mode_ids() -> tuple[str, ...]:
-    return ("soul_static", "local_wan", "best_motion")
+    return ("soul_static", "best_motion")
