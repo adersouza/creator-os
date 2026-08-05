@@ -23,7 +23,7 @@ except ImportError:  # script mode: package dir itself is on sys.path
 log = logging.getLogger("reel")
 
 if TYPE_CHECKING:
-    from .reel_pipeline import Recipe
+    from .reel_pipeline_support import Recipe
 
 
 def sha256_file(p: Path, chunk: int = 1 << 20) -> str:
