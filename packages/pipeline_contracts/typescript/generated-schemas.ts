@@ -5723,7 +5723,6 @@ export const generatedPipelineContractSchemas = {
 	    "creativeMode": {
 	      "enum": [
 	        "soul_static",
-	        "local_wan",
 	        "best_motion"
 	      ]
 	    },
@@ -5850,40 +5849,6 @@ export const generatedPipelineContractSchemas = {
 	          },
 	          "paidImageGeneration": {
 	            "const": true
-	          },
-	          "paidVideoGeneration": {
-	            "const": false
-	          }
-	        }
-	      }
-	    },
-	    {
-	      "if": {
-	        "properties": {
-	          "creativeMode": {
-	            "const": "local_wan"
-	          }
-	        }
-	      },
-	      "then": {
-	        "properties": {
-	          "stillStrategy": {
-	            "const": "accepted_still"
-	          },
-	          "motionStrategy": {
-	            "const": "local_mlx_video"
-	          },
-	          "costClassification": {
-	            "const": "free"
-	          },
-	          "providerAuthorization": {
-	            "const": "forbidden"
-	          },
-	          "staticFallbackBehavior": {
-	            "const": "required_before_motion"
-	          },
-	          "paidImageGeneration": {
-	            "const": false
 	          },
 	          "paidVideoGeneration": {
 	            "const": false
