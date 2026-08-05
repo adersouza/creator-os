@@ -682,13 +682,13 @@ def _instruction(
         "interface elements, drawn marks, or writing sitting on top of the "
         "photograph; those belong to the reference rather than to the scene, so "
         "leave them out silently and write nothing at all about them. Every "
-        "sentence must state something that is present in the scene: a sentence "
-        "saying anything is absent, removed, hidden or excluded degrades the "
-        "generated image, so write only what is there. "
+        "phrase must name something present: describe each quality by what it "
+        "is rather than by what it lacks, writing crisp and smooth rather than "
+        "free of blur or grain, because a phrase about anything being absent "
+        "degrades the generated image. "
         "The phone itself is a real prop: when the subject holds one, describe the "
         "phone exactly as it appears, including how it covers part of the face and "
-        "how it is gripped, because that is the intended look. Use affirmative "
-        "desired-result language only. Limit the "
+        "how it is gripped, because that is the intended look. Limit the "
         "anchorPrompt to visible scene details; platform, use case, identity details, "
         "story, and invented mood remain outside it."
         if structural_reference_image
@@ -717,16 +717,19 @@ def _instruction(
         "prompt stays focused on the scene and composition. Video prompts explicitly "
         "use the approved anchor as the exact person, preserve every visible identity "
         "and permanent feature, and describe only desired visuals, movement, timing, "
-        "and camera behavior in affirmative language. Video prompts describe physical "
-        "motion concretely: natural soft-tissue movement of chest and hips through "
-        "each step, turn, bounce or lean, how fitted fabric shifts, stretches and "
-        "settles against the body, and hair movement and settling. Provider settings "
-        "control "
-        "audio separately. Every generated prompt contains only affirmative "
-        "desired-result language. Source writing, overlay, caption, app, UI, "
-        "interface, screen-chrome, watermark, logo, and device language stay outside "
-        "the anchor, Seedance, Kling, and timeline descriptions. "
-        "Source writing stays outside the generated prompts."
+        "and camera behavior. Provider settings control audio separately. "
+        # Overlay artifacts are dropped SILENTLY. Listing the words to avoid
+        # raises their salience and invites a sentence announcing their absence,
+        # which is itself a negative and gets the whole pack rejected. Note the
+        # phone is a real prop and stays describable -- an earlier version of
+        # this sentence excluded "device language", which suppressed the exact
+        # mirror-selfie look the references are built on.
+        "Some samples carry app interface elements, drawn marks, or writing "
+        "sitting on top of the footage; those belong to the reference rather "
+        "than to the scene, so leave them out silently and write nothing at all "
+        "about them. Write every prompt as things that are present, naming the "
+        "positive quality rather than the lack of one, because a phrase about "
+        "anything being absent or removed degrades the generated result."
     )
 
 
@@ -795,7 +798,7 @@ def _directed_instruction(
     identity_direction = (
         " The verified selected Higgsfield Soul binding is the sole "
         "identity source; use the Reel frames only for structure, pose, framing, "
-        "body angle, scene, wardrobe category, movement, and camera behavior. "
+        "body angle, scene, exact observed wardrobe, movement, and camera behavior. "
         "Keep returned prompts scene and composition focused."
         if soul_identity is not None
         else ""
@@ -827,7 +830,8 @@ def _directed_instruction(
             "The verified selected Higgsfield Soul binding exclusively supplies "
             "identity, face, skin tone, hair, and permanent identity details. The "
             "reference Reel frames supply only structure, pose, framing, scene, "
-            "wardrobe category, movement, timing, and camera behavior, so the anchor "
+            "exact observed wardrobe, movement, timing, and camera behavior, so the "
+            "anchor "
             "prompt stays focused on the scene and composition.",
         )
     elif structural_reference_image:

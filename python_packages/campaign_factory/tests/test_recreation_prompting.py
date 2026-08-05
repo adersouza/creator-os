@@ -240,13 +240,20 @@ def test_openai_structural_image_prompt_preserves_visible_attraction_details() -
     # the surface guard rejects. The instruction induced the violation the
     # validator then punished, burning a paid call each time.
     assert "leave them out silently and write nothing at all about them" in instruction
-    assert "absent, removed, hidden or excluded" in instruction
+    assert "describe each quality by what it is rather than by what it lacks" in (
+        instruction
+    )
     # The phone is a real prop in the operator's top-rated references ("phone
     # slightly covering face"), so the instruction must ask for it as-seen rather
     # than renaming it to a camera, which produced the wrong object entirely.
     assert "phone itself is a real prop" in instruction
     assert "covers part of the face" in instruction
-    assert "affirmative desired-result language only" in instruction
+    # The positive-phrasing requirement is asserted above; a second sentence
+    # repeating it was removed. Guard against the instruction growing back into
+    # mostly rules: the creative direction is what earns the shot, and every
+    # extra prohibition both crowds it out and raises the salience of the words
+    # it names. This ceiling is generous -- it only trips on real bloat.
+    assert len(instruction) < 2000, f"instruction bloated to {len(instruction)} chars"
     assert "aspect ratio" not in instruction
     assert "Intent:" not in instruction
     assert "canvas dimensions in provider settings" in instruction
