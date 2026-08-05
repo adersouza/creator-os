@@ -44,18 +44,23 @@ from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
 PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v17"
 _API_URL: Final = "https://api.openai.com/v1/responses"
+# Shared by the request and by the incomplete-response error, so the reported
+# ceiling can never drift from the one actually sent.
+_MAX_OUTPUT_TOKENS: Final = 16000
+_REASONING_EFFORT: Final = "low"
+# Attempts one image's run budget must be able to hold. One is not enough:
+# it makes any single failure permanent for that reference.
+_DEFAULT_RUN_CAP_ATTEMPTS: Final = 4
+# Terms that make a generator DRAW an interface, watermark, or on-image text.
+# Deliberately scoped to rendered artifacts. Physical props the operator's house
+# style depends on -- a phone held in a mirror selfie -- and aesthetic shorthand
+# like "snapchat selfie" are NOT here: the operator's own top-rated references
+# are described as "phone slightly covering face" and "looks like a snapchat
+# selfie", so forbidding that vocabulary blocked the look it was meant to protect.
 _GENERATED_SURFACE_FORBIDDEN: Final = (
-    "phone",
-    "iphone",
-    "smartphone",
     "app",
     "ui",
-    "screen",
-    "chrome",
-    "device",
-    "story",
     "screenshot",
-    "social media",
     "interface",
     "icon",
     "watermark",
@@ -64,11 +69,14 @@ _GENERATED_SURFACE_FORBIDDEN: Final = (
     "text",
     "lettering",
     "logo",
-    "snapchat",
-    "snapshot",
-    "private-message",
-    "private message",
 )
+# "screen" and "chrome" were here for browser chrome and display surfaces, but
+# both are ordinary scene words first. Authored prompts were rejected for
+# "gaze directed into the screen" (where she is looking) and would have been
+# for "a chrome faucet at the sink front edge" (what the tap is made of).
+# Neither makes a generator draw an interface -- the terms above do, and they
+# stay. Per operator direction: relax first, and restore a term only if a
+# rendered interface actually shows up in a generation.
 _ANCHOR_FORBIDDEN: Final = (
     *_GENERATED_SURFACE_FORBIDDEN,
     "tattoo",
@@ -214,6 +222,15 @@ def build_openai_prompt_pack(
         "frameSamplingPolicy": _FRAME_SAMPLING_POLICY,
         "responseSchema": _response_schema(image_only=structural_reference_image),
         "promptGovernance": prompt_governance,
+        # Part of the request identity, not incidental transport settings. The
+        # token ceiling and the reasoning effort change what the provider is
+        # able to return and what the call costs, so a pack authored under one
+        # pair is not interchangeable with a pack authored under another. They
+        # belong in the cache key for the same reason the instruction does.
+        "providerRequestLimits": {
+            "maxOutputTokens": _MAX_OUTPUT_TOKENS,
+            "reasoningEffort": _REASONING_EFFORT,
+        },
     }
     request_fingerprint = _fingerprint(request_core)
     cache_path = _prompt_cache_path(request_fingerprint, cache_root=cache_root)
@@ -321,7 +338,15 @@ def build_openai_prompt_pack(
                 {
                     "model": selected_model,
                     "store": False,
-                    "max_output_tokens": 4000,
+                    # max_output_tokens is a budget for reasoning tokens AND the
+                    # visible answer. On a reasoning model, reasoning is billed
+                    # against this same ceiling, so a limit sized for the JSON
+                    # alone gets consumed by reasoning and the pack comes back
+                    # truncated mid-string -- paid for, unusable. Describing a
+                    # reference is perceptual rather than deductive, so ask for
+                    # low reasoning effort and leave the answer real headroom.
+                    "max_output_tokens": _MAX_OUTPUT_TOKENS,
+                    "reasoning": {"effort": _REASONING_EFFORT},
                     "input": [{"role": "user", "content": content}],
                     "text": {
                         "format": {
@@ -357,13 +382,35 @@ def build_openai_prompt_pack(
         ),
         provider_reference=str(response.get("id") or "") or None,
         unknown_reason=(
-            "provider_cost_not_exposed"
+            # Name which of the two situations actually happened. "Provider
+            # reported tokens but not dollars" is a missing price table, which
+            # the operator can fix; "provider exposed nothing" is a different
+            # problem entirely, and collapsing them hides that.
+            (
+                "provider_reports_tokens_not_usd:"
+                f"in={response_cost.get('inputTokens')}:"
+                f"out={response_cost.get('outputTokens')}:"
+                f"reasoning={response_cost.get('reasoningTokens')}"
+                if response_cost.get("status") == "tokens_only"
+                else "provider_cost_not_exposed"
+            )
             if response_cost.get("status") != "reported"
             else None
         ),
     )
 
     value = _response_json(response)
+    # Persist what the provider actually authored BEFORE validating it. The
+    # call is already paid for at this point, so a validator rejection that
+    # discards the text charges the operator for output nobody ever sees and
+    # leaves nothing to diagnose the rejection against. Keeping it turns a
+    # rejected prompt into evidence about the instruction that produced it.
+    _record_authored_response(
+        value,
+        cache_path=cache_path,
+        request_fingerprint=request_fingerprint,
+        response_id=str(response.get("id") or ""),
+    )
     anchor_prompt = _validated_creator_presentation(
         _validated_anchor_prompt(str(value["anchorPrompt"])), "anchor"
     )
@@ -636,10 +683,17 @@ def _instruction(
         "shape, waist-to-hip proportions, butt size and roundness, and every other "
         "visible detail that makes the composition sexy; expression, gaze, setting, "
         "lighting, focus, grain, motion blur and casual photographic imperfections. "
-        "Ground every detail in the visible reference. Treat visible interface elements, "
-        "drawn marks, writing, and device details as reference artifacts outside the "
-        "scene. Describe a face-covering camera only as the handheld camera held in "
-        "front of the face. Use affirmative desired-result language only. Limit the "
+        "Ground every detail in the visible reference. Some references carry app "
+        "interface elements, drawn marks, or writing sitting on top of the "
+        "photograph; those belong to the reference rather than to the scene, so "
+        "leave them out silently and write nothing at all about them. Every "
+        "phrase must name something present: describe each quality by what it "
+        "is rather than by what it lacks, writing crisp and smooth rather than "
+        "free of blur or grain, because a phrase about anything being absent "
+        "degrades the generated image. "
+        "The phone itself is a real prop: when the subject holds one, describe the "
+        "phone exactly as it appears, including how it covers part of the face and "
+        "how it is gripped, because that is the intended look. Limit the "
         "anchorPrompt to visible scene details; platform, use case, identity details, "
         "story, and invented mood remain outside it."
         if structural_reference_image
@@ -668,16 +722,19 @@ def _instruction(
         "prompt stays focused on the scene and composition. Video prompts explicitly "
         "use the approved anchor as the exact person, preserve every visible identity "
         "and permanent feature, and describe only desired visuals, movement, timing, "
-        "and camera behavior in affirmative language. Video prompts describe physical "
-        "motion concretely: natural soft-tissue movement of chest and hips through "
-        "each step, turn, bounce or lean, how fitted fabric shifts, stretches and "
-        "settles against the body, and hair movement and settling. Provider settings "
-        "control "
-        "audio separately. Every generated prompt contains only affirmative "
-        "desired-result language. Source writing, overlay, caption, app, UI, "
-        "interface, screen-chrome, watermark, logo, and device language stay outside "
-        "the anchor, Seedance, Kling, and timeline descriptions. "
-        "Source writing stays outside the generated prompts."
+        "and camera behavior. Provider settings control audio separately. "
+        # Overlay artifacts are dropped SILENTLY. Listing the words to avoid
+        # raises their salience and invites a sentence announcing their absence,
+        # which is itself a negative and gets the whole pack rejected. Note the
+        # phone is a real prop and stays describable -- an earlier version of
+        # this sentence excluded "device language", which suppressed the exact
+        # mirror-selfie look the references are built on.
+        "Some samples carry app interface elements, drawn marks, or writing "
+        "sitting on top of the footage; those belong to the reference rather "
+        "than to the scene, so leave them out silently and write nothing at all "
+        "about them. Write every prompt as things that are present, naming the "
+        "positive quality rather than the lack of one, because a phrase about "
+        "anything being absent or removed degrades the generated result."
     )
 
 
@@ -746,7 +803,7 @@ def _directed_instruction(
     identity_direction = (
         " The verified selected Higgsfield Soul binding is the sole "
         "identity source; use the Reel frames only for structure, pose, framing, "
-        "body angle, scene, wardrobe category, movement, and camera behavior. "
+        "body angle, scene, exact observed wardrobe, movement, and camera behavior. "
         "Keep returned prompts scene and composition focused."
         if soul_identity is not None
         else ""
@@ -778,7 +835,8 @@ def _directed_instruction(
             "The verified selected Higgsfield Soul binding exclusively supplies "
             "identity, face, skin tone, hair, and permanent identity details. The "
             "reference Reel frames supply only structure, pose, framing, scene, "
-            "wardrobe category, movement, timing, and camera behavior, so the anchor "
+            "exact observed wardrobe, movement, timing, and camera behavior, so the "
+            "anchor "
             "prompt stays focused on the scene and composition.",
         )
     elif structural_reference_image:
@@ -853,6 +911,24 @@ def _post_responses(payload: dict[str, Any], *, api_key: str) -> dict[str, Any]:
 
 
 def _response_json(response: dict[str, Any]) -> dict[str, Any]:
+    # A response that ran out of budget still carries an `output_text` holding
+    # however much of the JSON was written before the cut. Parsing it raises a
+    # bare JSONDecodeError that reads like malformed provider output, which
+    # sends the reader looking in the wrong place. Name the real cause, and
+    # report the reasoning spend so the ceiling can be sized from evidence.
+    if str(response.get("status") or "") == "incomplete":
+        reason = str((response.get("incomplete_details") or {}).get("reason") or "")
+        usage = response.get("usage") or {}
+        reasoning_tokens = (usage.get("output_tokens_details") or {}).get(
+            "reasoning_tokens"
+        )
+        raise RuntimeError(
+            "openai_prompt_generation_incomplete:"
+            f"{reason or 'unknown'}:"
+            f"limit={_MAX_OUTPUT_TOKENS}:"
+            f"output_tokens={usage.get('output_tokens')}:"
+            f"reasoning_tokens={reasoning_tokens}"
+        )
     for item in response.get("output") or []:
         if not isinstance(item, dict) or item.get("type") != "message":
             continue
@@ -980,7 +1056,9 @@ def _authorize_openai_prompt_call(
         scope=scope,
         quote=quote,
         secret=secret,
-        limits=budget_limits_from_env(provider="openai", run_cap_usd=quote_usd),
+        limits=budget_limits_from_env(
+            provider="openai", run_cap_usd=_prompt_run_cap_usd(quote_usd)
+        ),
         governance_context=governance_context,
         current_prompt_registry=PROMPT_REGISTRY,
         compiled_prompt=request_core["instruction"],
@@ -1037,6 +1115,72 @@ def _json_record(value: Any) -> dict[str, Any]:
     return json.loads(json.dumps(value))
 
 
+def _record_authored_response(
+    value: dict[str, Any],
+    *,
+    cache_path: Path,
+    request_fingerprint: str,
+    response_id: str,
+) -> Path:
+    """Write the provider's authored text to disk before it is validated.
+
+    Written next to the prompt cache under ``authored/`` so a rejected prompt
+    remains readable. Best effort: failing to record must never mask the
+    validation error the operator actually needs to see.
+    """
+
+    root = cache_path.parent / "authored"
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(root, 0o700)
+        path = root / f"{request_fingerprint}.json"
+        atomic_write_text(
+            path,
+            json.dumps(
+                {
+                    "schema": "campaign_factory.openai_authored_response.v1",
+                    "requestFingerprint": request_fingerprint,
+                    "responseId": response_id,
+                    "validated": False,
+                    "authored": value,
+                },
+                indent=1,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(path, 0o600)
+        return path
+    except OSError:
+        return root
+
+
+def _prompt_run_cap_usd(quote_usd: float) -> float:
+    """Per-run ceiling for prompt authoring, independent of the single-call quote.
+
+    The run cap used to be the quote itself. One reservation therefore filled
+    the run budget exactly, so a call that failed for any reason -- a truncated
+    response, a timeout, a validator rejection -- left that image permanently
+    unauthorizable: the retry died on ``provider_budget_exceeded:run`` with no
+    operator-reachable way forward. A ceiling that cannot survive one retry is
+    not protecting a budget, it is spending the operator's references.
+
+    The cap stays real and stays configurable; it is just sized to hold a few
+    attempts rather than exactly one.
+    """
+
+    configured = os.environ.get("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD")
+    if configured:
+        cap = float(configured)
+        if cap <= 0:
+            raise ValueError("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD must be positive")
+        if cap < quote_usd:
+            raise ValueError("openai_prompt_run_cap_below_single_call_quote")
+        return cap
+    return quote_usd * _DEFAULT_RUN_CAP_ATTEMPTS
+
+
 def _response_cost(response: dict[str, Any]) -> dict[str, Any]:
     raw = response.get("cost")
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
@@ -1045,6 +1189,24 @@ def _response_cost(response: dict[str, Any]) -> dict[str, Any]:
         usd = raw.get("usd")
         if isinstance(usd, (int, float)) and not isinstance(usd, bool):
             return {"status": "reported", "usd": float(usd)}
+    # OpenAI does not return a `cost` field at all -- it reports `usage` token
+    # counts and leaves the pricing to the caller. Reading only `cost` meant
+    # every call reconciled as "unknown", so the ledger held a reservation it
+    # could never settle and could not answer what a run actually cost.
+    # Tokens are the billable quantity the provider does report, so record them
+    # even when no price table is configured to convert them to dollars.
+    usage = response.get("usage")
+    if isinstance(usage, dict):
+        details = usage.get("output_tokens_details")
+        return {
+            "status": "tokens_only",
+            "usd": None,
+            "inputTokens": usage.get("input_tokens"),
+            "outputTokens": usage.get("output_tokens"),
+            "reasoningTokens": (
+                details.get("reasoning_tokens") if isinstance(details, dict) else None
+            ),
+        }
     return {"status": "not_exposed", "usd": None}
 
 
@@ -1194,10 +1356,20 @@ def _validated_positive_prompt(value: str, label: str) -> str:
 
 
 def _normalize_provider_trigger_language(value: str) -> str:
+    # A phone held in a mirror selfie is a physical prop central to the operator's
+    # house style, so "phone screen" normalises to "phone" the same way "TV screen"
+    # normalises to "television". The screen guard still blocks bare display
+    # surfaces, which are what actually make a generator render an interface.
+    prompt = re.sub(
+        r"\b(?:phone|phone's|iphone|smartphone)\s+screen\b",
+        "phone",
+        str(value),
+        flags=re.IGNORECASE,
+    )
     prompt = re.sub(
         r"\b(?:tv|television)\s+screen\b",
         "television",
-        str(value),
+        prompt,
         flags=re.IGNORECASE,
     )
     prompt = re.sub(

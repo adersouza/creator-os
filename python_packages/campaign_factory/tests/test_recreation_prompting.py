@@ -134,7 +134,17 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
         "output_tokens": 123,
         "total_tokens": 444,
     }
-    assert planning["cost"] == {"status": "not_exposed", "usd": None}
+    # The provider reported usage tokens here, so the ledger must carry them.
+    # This previously asserted "not_exposed" even though the very same response
+    # contained the token counts -- pinning the bug that left every paid call
+    # reconciled as unknown and made run spend unanswerable.
+    assert planning["cost"] == {
+        "status": "tokens_only",
+        "usd": None,
+        "inputTokens": 321,
+        "outputTokens": 123,
+        "reasoningTokens": None,
+    }
     authorization = planning["authorization"]
     assert authorization["status"] == "authorized"
     assert authorization["maximumCalls"] == 1
@@ -150,7 +160,12 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     }
     assert len(authorization["quote"]["pricingFingerprint"]) == 64
     assert planning["costLedger"]["reconciliationState"] == "unknown"
-    assert planning["costLedger"]["unknownReason"] == "provider_cost_not_exposed"
+    # Distinguishes "no price table for the tokens we were told about" from
+    # "the provider told us nothing" -- only the first is operator-fixable.
+    assert (
+        planning["costLedger"]["unknownReason"]
+        == "provider_reports_tokens_not_usd:in=321:out=123:reasoning=None"
+    )
     assert planning["promptGovernance"]["registryFingerprint"]
     receipt_path = Path(authorization["receiptPath"])
     assert receipt_path.is_file()
@@ -219,9 +234,26 @@ def test_openai_structural_image_prompt_preserves_visible_attraction_details() -
     assert "visible detail that makes the composition sexy" in instruction
     assert "Ground every detail in the visible reference" in instruction
     assert "invented mood" in instruction
-    assert "reference artifacts outside the scene" in instruction
-    assert "handheld camera held in front of the face" in instruction
-    assert "affirmative desired-result language only" in instruction
+    # Overlay artifacts must be dropped SILENTLY. Telling the model to treat
+    # them as "outside the scene" made it write a sentence saying so -- "No
+    # visible UI or text" -- which is both a negative and uses the very words
+    # the surface guard rejects. The instruction induced the violation the
+    # validator then punished, burning a paid call each time.
+    assert "leave them out silently and write nothing at all about them" in instruction
+    assert "describe each quality by what it is rather than by what it lacks" in (
+        instruction
+    )
+    # The phone is a real prop in the operator's top-rated references ("phone
+    # slightly covering face"), so the instruction must ask for it as-seen rather
+    # than renaming it to a camera, which produced the wrong object entirely.
+    assert "phone itself is a real prop" in instruction
+    assert "covers part of the face" in instruction
+    # The positive-phrasing requirement is asserted above; a second sentence
+    # repeating it was removed. Guard against the instruction growing back into
+    # mostly rules: the creative direction is what earns the shot, and every
+    # extra prohibition both crowds it out and raises the salience of the words
+    # it names. This ceiling is generous -- it only trips on real bloat.
+    assert len(instruction) < 2000, f"instruction bloated to {len(instruction)} chars"
     assert "aspect ratio" not in instruction
     assert "Intent:" not in instruction
     assert "canvas dimensions in provider settings" in instruction
@@ -685,9 +717,6 @@ def test_reference_prompt_input_is_exact_sha_bound_and_visually_directed(
         "screenshot",
         "watermark",
         "logo",
-        "Snapchat",
-        "snapshot",
-        "private-message",
     ],
 )
 def test_generated_prompt_language_rejects_forbidden_terms(word: str) -> None:
@@ -705,14 +734,39 @@ def test_anchor_prompt_rejects_provider_aspect_ratio() -> None:
         )
 
 
-def test_television_screen_normalizes_without_weakening_screen_guard() -> None:
+def test_television_screen_still_normalizes_to_the_object() -> None:
     assert recreation_prompting._validated_anchor_prompt(
         "Adult woman, age 19, with dark hair near a TV screen emitting cool light."
     ).endswith("near a television emitting cool light.")
-    with pytest.raises(ValueError, match="contains_forbidden_language"):
+    assert recreation_prompting._validated_anchor_prompt(
+        "Adult woman, age 19, with dark hair holding her phone screen up."
+    ).endswith("holding her phone up.")
+
+
+def test_ordinary_scene_words_are_not_treated_as_rendered_interfaces() -> None:
+    """`screen` and `chrome` are scene words before they are interface words.
+
+    Authored prompts were rejected for "gaze directed into the screen" (where
+    the subject is looking) and would have been for "a chrome faucet at the sink
+    front edge" (what the tap is made of). Neither makes a generator draw an
+    interface. Operator direction is to relax first and restore a term only if a
+    rendered interface actually appears in a generation.
+    """
+
+    for phrase in (
+        "gaze directed into the screen, eyes partially hidden",
+        "a chrome faucet and tap set at the sink front edge",
+        "near a projection screen",
+    ):
         recreation_prompting._validated_anchor_prompt(
-            "Adult woman, age 19, with dark hair near a projection screen."
+            f"Adult woman, age 19, with dark hair, {phrase}."
         )
+    # The terms that actually produce a drawn interface still fail closed.
+    for word in ("app", "ui", "interface", "watermark", "overlay", "logo"):
+        with pytest.raises(ValueError, match="contains_forbidden_language"):
+            recreation_prompting._validated_anchor_prompt(
+                f"Adult woman, age 19, with dark hair and {word} styling."
+            )
 
 
 def test_adult_age_format_normalizes_without_changing_presentation() -> None:
@@ -736,3 +790,101 @@ def test_creator_presentation_requires_explicit_adult_age_and_dark_hair() -> Non
         recreation_prompting._validated_creator_presentation(
             "Young woman with brunette hair in a casual selfie.", "anchor"
         )
+
+
+def test_incomplete_response_names_the_token_ceiling_not_a_json_error() -> None:
+    """A truncated pack must not surface as malformed provider output.
+
+    The provider bills reasoning tokens against ``max_output_tokens``, so an
+    undersized ceiling returns a partial JSON body. Parsing it raised a bare
+    JSONDecodeError, which reads like the provider sent garbage and sends the
+    reader to the wrong place entirely.
+    """
+
+    response = {
+        "status": "incomplete",
+        "incomplete_details": {"reason": "max_output_tokens"},
+        "usage": {
+            "output_tokens": 4000,
+            "output_tokens_details": {"reasoning_tokens": 3904},
+        },
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": '{"anchorPrompt": "A ph'}],
+            }
+        ],
+    }
+    with pytest.raises(RuntimeError) as excinfo:
+        recreation_prompting._response_json(response)
+    message = str(excinfo.value)
+    assert "openai_prompt_generation_incomplete" in message
+    assert "max_output_tokens" in message
+    # The reported ceiling has to be the one actually sent, and the reasoning
+    # spend has to be visible, or the limit cannot be sized from evidence.
+    assert f"limit={recreation_prompting._MAX_OUTPUT_TOKENS}" in message
+    assert "reasoning_tokens=3904" in message
+
+
+def test_complete_response_still_parses() -> None:
+    response = {
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": '{"anchorPrompt": "ok"}'}],
+            }
+        ],
+    }
+    assert recreation_prompting._response_json(response) == {"anchorPrompt": "ok"}
+
+
+def test_run_cap_survives_more_than_one_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single failed call must not permanently brick that reference.
+
+    The run cap used to be the single-call quote, so one reservation filled the
+    run budget exactly and every retry died on provider_budget_exceeded:run.
+    """
+
+    monkeypatch.delenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", raising=False)
+    assert recreation_prompting._prompt_run_cap_usd(0.5) > 0.5
+
+
+def test_run_cap_is_still_configurable_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", "3.00")
+    assert recreation_prompting._prompt_run_cap_usd(0.5) == 3.00
+    # A cap under one call's quote could never authorize anything; say so
+    # rather than failing later with an exhausted-budget error.
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", "0.10")
+    with pytest.raises(ValueError, match="run_cap_below_single_call_quote"):
+        recreation_prompting._prompt_run_cap_usd(0.5)
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", "0")
+    with pytest.raises(ValueError, match="must be positive"):
+        recreation_prompting._prompt_run_cap_usd(0.5)
+
+
+def test_usage_tokens_are_recorded_when_provider_reports_no_dollars() -> None:
+    """OpenAI reports `usage`, never `cost`; reading only `cost` lost the spend."""
+
+    parsed = recreation_prompting._response_cost(
+        {
+            "usage": {
+                "input_tokens": 1500,
+                "output_tokens": 900,
+                "output_tokens_details": {"reasoning_tokens": 640},
+            }
+        }
+    )
+    assert parsed["status"] == "tokens_only"
+    assert parsed["inputTokens"] == 1500
+    assert parsed["outputTokens"] == 900
+    assert parsed["reasoningTokens"] == 640
+    # An explicitly reported dollar amount still wins when one is present.
+    assert recreation_prompting._response_cost({"cost": {"usd": 0.02}}) == {
+        "status": "reported",
+        "usd": 0.02,
+    }

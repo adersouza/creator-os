@@ -45,7 +45,7 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             ORDER BY migration_id
             """
         ).fetchall()
-        assert len(rows) == 9
+        assert len(rows) == 10
         assert {row["status"] for row in rows} == {"applied"}
         assert all(len(row["checksum"]) == 64 for row in rows)
         assert all(row["source_version"] for row in rows)
@@ -59,12 +59,13 @@ def test_campaign_schema_migrations_are_versioned_and_replay_safe(tmp_path: Path
             7,
             8,
             9,
+            10,
         }
         assert (
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 9
+            == 10
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -192,7 +193,7 @@ def test_campaign_schema_blocks_newer_database(tmp_path: Path):
         )
         conn.commit()
         with pytest.raises(
-            RuntimeError, match="campaign_schema_newer_than_runtime:999>9"
+            RuntimeError, match="campaign_schema_newer_than_runtime:999>10"
         ):
             init_db(conn)
     finally:
@@ -250,7 +251,7 @@ def test_interrupted_campaign_migration_is_retried(tmp_path: Path):
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 9
+            == 10
         )
         assert (
             conn.execute(
@@ -309,7 +310,7 @@ def test_applied_v4_checksum_is_frozen_and_upgrades_forward_to_v8(
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 9
+            == 10
         )
         assert conn.execute(
             "SELECT 1 FROM sqlite_master "
@@ -493,7 +494,7 @@ def test_v8_owns_learning_cohort_tables_and_upgrades_lazy_legacy_shape(
             conn.execute(
                 "SELECT version FROM campaign_schema_state WHERE singleton = 1"
             ).fetchone()["version"]
-            == 9
+            == 10
         )
     finally:
         conn.close()
