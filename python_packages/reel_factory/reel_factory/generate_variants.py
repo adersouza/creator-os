@@ -15,8 +15,8 @@ half that used to be done by hand and got done wrong:
                        exactly one additional sexy generation (TEXT-ONLY so the
                        edit sticks).
 
-The agent runs only the sexy `generate_image` call from the spec, then ranks the
-existing original and the sexy result with `virality_select.select_best`.
+The agent runs only the sexy `generate_image` call from the spec, then presents
+the existing original and the sexy result to the operator for selection.
 Nothing here spends money or posts.
 """
 
@@ -278,7 +278,7 @@ def build_spec(
             "text_only": True,
         },
         "provider_generation_count": 1,
-        "next": "run only the sexy generate_image call, then rank the existing original and sexy result with virality_select.select_best",
+        "next": "run only the sexy generate_image call, then present the existing original and sexy result to the operator for selection",
     }
 
 
