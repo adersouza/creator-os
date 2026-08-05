@@ -19,12 +19,12 @@ class BacklogTarget:
 
 TARGETS = {
     "campaign_factory": BacklogTarget(
-        "python_packages/campaign_factory/campaign_factory", 852, 134
+        "python_packages/campaign_factory/campaign_factory", 840, 237
     ),
     "reference_factory": BacklogTarget(
         "python_packages/reference_factory/reference_factory", 168, 35
     ),
-    "reel_factory": BacklogTarget("python_packages/reel_factory/reel_factory", 82, 70),
+    "reel_factory": BacklogTarget("python_packages/reel_factory/reel_factory", 74, 71),
 }
 
 ERROR_SUMMARY = re.compile(
