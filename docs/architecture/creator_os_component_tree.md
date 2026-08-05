@@ -142,8 +142,8 @@ same asset family and exact bytes.
 | Inventory/reuse/reservations | `asset_inventory.py`, `existing_media.py`, `inventory_reservations.py`, `assignment_eligibility.py` | approved assets, SHA, usage, cooldowns, accounts | atomic reservations and reuse decisions | export and scheduling reconciliation | Campaign Factory | active production |
 | Content Director/daily plan | `content_director.py`, `daily_plan.py`, `daily_orchestrator.py`, `daily_library_production.py` | readiness, inventory, account demand, policies, learning | plan/run/item decisions and bounded jobs | production lane and operator | Campaign Factory | active production; current launchd is preview-only |
 | Product modes | `creation_modes.py`, `production_lane.py` | approved source, content intent, mode, account, audio policy | reuse or generation plan | Reel Factory and finalizer | Campaign Factory | active production |
-| Generation execution | `generation_execution_plan.py`, `reel_execution.py`, `motion_worker_process.py`, `front_generation_stage.py`, `motion_generation_stage.py` | authorized plan and spend receipt | provider/local subprocess effect and attempt state | Reel Factory receipt; reconciliation | Campaign/Reel Factory | active production for three modes |
-| Provider spend | `provider_spend.py`, `provider_spend_v2.py`, `all_provider_cost.py`, Core `provider_spend.py` | quote, budget, credential readiness | authorization, reservation, attempt, actual/unknown cost | ledger and reconciliation | Campaign Factory | active production |
+| Generation execution | `generation_execution_plan.py`, `reel_execution.py`, `front_generation_stage.py`, `production_lane.py`, `motion_review_asset.py` | authorized plan and spend receipt | Higgsfield provider effect and attempt state | Reel Factory receipt; reconciliation | Campaign/Reel Factory | active production for three modes |
+| Provider spend | `provider_spend.py`, `all_provider_cost.py`, `production_higgsfield_authorization.py`, Core `provider_spend.py` | quote, budget, credential readiness | authorization, reservation, attempt, actual/unknown cost | ledger and reconciliation | Campaign Factory | active production |
 | Recreation | `reference_url_workflow.py`, `recreation_*`, `recreate_reel.py` | authorized reference evidence and approved identity anchor | recreation plan, prompt, anchor approval | Reel Factory generation | Campaign/Reference Factory | active production within `recreate_reel` |
 | Final media assembly | `production_lane.py`, `audio_operations.py`, `production_creative_evidence.py` | visual bytes, audio choice, caption decision | exact final MP4 and lineage | ContentForge then review | Campaign/Reel/Audio domains | active production |
 | QC and approval | `contentforge_cli.py`, `motion_qc_publishability.py`, `creative_approval*.py`, `operator_review.py` | exact final bytes and analyzer registry | audit rows, review decision, exact-SHA approval/rejection | draft export | ContentForge/Campaign Factory | active production |
@@ -161,7 +161,6 @@ same asset family and exact bytes.
 | Reel derivative engine | `generate_variants.py`, `variation_engine.py`, `observed_profiles.py` | eligible clean parent and deterministic seed | visual derivative and receipt | Campaign experiments/QC | Reel Factory | active supervised experiment |
 | Reel identity/media QC | `identity_verification.py`, `anatomy_qc.py`, `ai_visual_qc.py`, `virality_qc.py`, `post_render_acceptance.py` | media and approved identity evidence | blocking QC/inspection results | Campaign review | Reel Factory | active bounded evidence |
 | Reel queue/evidence | `render_queue.py`, `worker.py`, `evidence_store.py`, `generation_lineage.py` | explicitly enqueued authorized job | job events, attempt/receipt, lineage | Campaign reconciliation | Reel Factory | direct operator/research tooling; no installed worker daemon |
-| Reel local-model research | `local_model_*`, `local_wan*`, `local_video.py`, `longcat_mlx_generate.py`, `intent_video_bakeoff.py` | explicit operator research plan | benchmark/bakeoff evidence | operator only | Reel Factory | research/experimental; not normal production |
 | Audio discovery | `audio_radar/providers.py`, `normalization.py`, `refresh.py` | authorized public/provider observations | trend snapshots and normalized catalog | ranking | Audio Radar | active operator/scheduled tooling |
 | Audio cache | `audio_radar/acquisition.py`, `audio_cache_schema.py` | track locator and credentials | private bytes, SHA, probe, cache receipt | ranking/embedding | Audio Radar | active production support |
 | Audio ranking | `audio_radar/ranking.py`, `audio_learning_policy.py`, `audio_recommendations.py` | eligibility, rights labels, cooldowns, history, rollups | deterministic selection and explanation | segment/embedding | Audio Radar/Campaign Factory | active, but real learned rollups are empty |
@@ -307,7 +306,7 @@ production-ready or safe to delete.
    external operator usage and retained evidence have not been completely
    inventoried.
 3. **Four statically unreferenced modules remain intentionally retained:**
-   `campaign_factory.adapters.threadsdash` and `reel_factory.local_wan` are
+   `campaign_factory.adapters.threadsdash` is
    compatibility surfaces; `reel_factory.media_features` and
    `reel_factory.prompt_guidance` are experimental research utilities. Uvicorn
    string entrypoints and implicit package initializers are now represented in
