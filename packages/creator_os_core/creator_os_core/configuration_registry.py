@@ -748,6 +748,23 @@ for name in (
         )
     )
 
+# Per-run ceiling for prompt authoring, distinct from the single-call quote so a
+# failed call cannot exhaust a reference's budget for good. Optional on purpose:
+# the code derives a sane multiple of the quote, so requiring it in production
+# would fail-close the runtime over a value it can already compute.
+_SPECS.append(
+    _spec(
+        "CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD",
+        "campaign_factory",
+        "Per-run paid prompt-authoring ceiling; defaults to a multiple of the "
+        "single-call quote.",
+        ConfigType.POSITIVE_FLOAT,
+        validation="finite number greater than zero, at least the single-call quote",
+        fail=FailBehavior.CLOSED,
+        impact="changes how many authoring attempts one reference may fund",
+    )
+)
+
 for name, purpose in (
     ("CREATOR_OS_SOUL_ID_STACEY", "Stacey canonical Soul identity."),
     ("CREATOR_OS_SOUL_ID_STACEY1", "Stacey1 canonical Soul identity."),
