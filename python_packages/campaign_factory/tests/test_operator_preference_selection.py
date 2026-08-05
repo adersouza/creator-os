@@ -8,11 +8,15 @@ selected, or if measured outcomes stop reordering selection.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from campaign_factory.production_prompts import (
+    _selected_reference_payload,
     build_reel_creative_context,
     select_preference_reference,
 )
@@ -226,3 +230,54 @@ def test_outcomes_cannot_promote_a_reference_the_operator_rejected():
     assert selected is not None
     assert selected["itemId"] != "profile:badexample"
     assert selected["score"] >= 4
+
+
+def test_selfie_reference_attaches_its_authorized_media(tmp_path: Path) -> None:
+    """Selfie modes send the real image so OpenAI can describe what it shows."""
+
+    collection = tmp_path / "operator_collections" / "c1"
+    (collection / "selfies").mkdir(parents=True)
+    (collection / "manifest.json").write_text("{}", encoding="utf-8")
+    image = collection / "selfies" / "selfie_reference_01.png"
+    image.write_bytes(b"png-bytes")
+
+    item = {
+        "itemId": "selfie:selfie_reference_01",
+        "kind": "selfie",
+        "title": "selfie_reference_01",
+        "score": 5,
+        "operatorNotes": "super sexy pose",
+        "recommendation": "keep the pose",
+    }
+    with mock.patch.dict(
+        os.environ, {"CREATOR_OS_OPERATOR_PREFERENCE_COLLECTION": str(collection)}
+    ):
+        payload = _selected_reference_payload(item)
+
+    media = payload["media"]
+    assert media["path"] == str(image.resolve())
+    assert media["sha256"] == hashlib.sha256(b"png-bytes").hexdigest()
+    assert media["role"] == "structural_style_reference"
+    # The job's own reference and the Soul binding still outrank it.
+    assert "subordinate" in media["authority"]
+
+
+def test_reel_and_profile_references_never_attach_media() -> None:
+    """recreate_reel keeps its own Reel as the sole structural media reference.
+
+    ``profile`` items are keyed by an opaque hash with no recoverable file, so
+    they stay text-only rather than guessing at a path.
+    """
+
+    for kind, item_id in (("reel", "reel:Dbjps06N5c2"), ("profile", "profile:abc123")):
+        payload = _selected_reference_payload(
+            {
+                "itemId": item_id,
+                "kind": kind,
+                "title": item_id,
+                "score": 5,
+                "operatorNotes": "note",
+                "recommendation": "rec",
+            }
+        )
+        assert "media" not in payload, kind

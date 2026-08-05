@@ -76,7 +76,6 @@ _READ_ONLY_COMMANDS: Final = {
     "lifecycle-dashboard",
     "multi-surface-inventory-audit",
     "operator-review-minimum-certification-path",
-    "operational-observability",
     "parent-factory-53-parent-trial",
     "parent-factory-discoverability-loss-analysis",
     "parent-factory-post-gate-fresh-batch-proof",

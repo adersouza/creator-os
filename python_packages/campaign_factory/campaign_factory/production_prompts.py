@@ -189,6 +189,32 @@ def select_preference_reference(
     return top_tier[rotation % len(top_tier)]
 
 
+def _preference_collection_root() -> Path | None:
+    """Directory of the operator collection whose manifest owns the rated media."""
+
+    configured = str(os.environ.get("CREATOR_OS_OPERATOR_PREFERENCE_COLLECTION") or "")
+    if configured:
+        root = Path(configured).expanduser()
+        return root if root.is_dir() else None
+    base = resolve_runtime_paths().reference_data_root / "operator_collections"
+    if not base.is_dir():
+        return None
+    manifests = sorted(
+        candidate
+        for candidate in base.iterdir()
+        if (candidate / "manifest.json").is_file()
+    )
+    return manifests[-1] if manifests else None
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _selected_reference_payload(item: dict[str, Any]) -> dict[str, Any]:
     """Emit one selected reference under the operator's stated authority order.
 
@@ -197,7 +223,7 @@ def _selected_reference_payload(item: dict[str, Any]) -> dict[str, Any]:
     subordinate so prompt authoring cannot silently prefer it.
     """
 
-    return {
+    payload: dict[str, Any] = {
         "itemId": item["itemId"],
         "kind": item["kind"],
         "title": item["title"],
@@ -212,6 +238,47 @@ def _selected_reference_payload(item: dict[str, Any]) -> dict[str, Any]:
             "Reproduce this reference's pose, framing, clothing, expression, "
             "lighting, and setting. Identity comes only from the approved Soul "
             "binding, never from the reference."
+        ),
+    }
+    media = _selected_reference_media(item)
+    if media is not None:
+        payload["media"] = media
+    return payload
+
+
+def _selected_reference_media(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve one rated item to its authorized collection media, if deterministic.
+
+    Only ``selfie`` items resolve: their itemId is the file stem inside the
+    collection's ``selfies`` directory. ``profile`` items are keyed by an opaque
+    hash with no recoverable mapping, and ``reel`` items are never attached —
+    a recreate job's own Reel stays the sole structural media reference.
+
+    The media is structural input for prompt authoring only. It is never sent to
+    Soul or any generation provider; only the authored text prompt is.
+    """
+
+    kind = str(item.get("kind") or "")
+    if kind != "selfie":
+        return None
+    stem = str(item.get("itemId") or "").partition(":")[2]
+    if not stem or "/" in stem or stem.startswith("."):
+        return None
+    root = _preference_collection_root()
+    if root is None:
+        return None
+    path = (root / "selfies" / f"{stem}.png").resolve()
+    if not path.is_file() or path.is_symlink():
+        return None
+    if root.resolve() not in path.parents:
+        return None
+    return {
+        "path": str(path),
+        "sha256": _sha256_file(path),
+        "role": "structural_style_reference",
+        "authority": (
+            "subordinate to the job's own authorized reference and to the "
+            "verified Soul identity binding"
         ),
     }
 

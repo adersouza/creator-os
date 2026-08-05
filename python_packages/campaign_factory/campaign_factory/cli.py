@@ -131,7 +131,6 @@ def main() -> int:
         "incident-report",
         "incident-create",
         "incident-transition",
-        "operational-observability",
         "creator-privacy-report",
         "creator-privacy-request",
         "creator-privacy-transition",

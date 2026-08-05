@@ -818,9 +818,6 @@ def register_operations_commands(sub) -> None:
     incident_transition.add_argument("--verification-evidence-json")
     incident_transition.add_argument("--closure-receipt-json")
     incident_transition.add_argument("--apply", action="store_true")
-    observability = sub.add_parser("operational-observability")
-    observability.add_argument("--stale-after-minutes", type=int, default=60)
-
     privacy_report = sub.add_parser("creator-privacy-report")
     privacy_report.add_argument("--creator", required=True)
     privacy_request = sub.add_parser("creator-privacy-request")

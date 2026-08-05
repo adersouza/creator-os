@@ -226,8 +226,9 @@ Stacey/Stacey1 stills. Do NOT re-derive this each session.
    the edit sticks and no UI leaks; composition is preserved by the detailed
    captured text. Regenerating WITH the reference image re-enhances and wipes the
    edit — that is why this step must be text-only.
-6. Both variants → `reel_factory/virality_select.py` predict-and-select → post
-   the winner (per-post approval required; never auto-publish).
+6. Both variants → present the original and the sexy result to the operator for
+   selection → post the chosen one (per-post approval required; never
+   auto-publish).
 
 **Body-emphasis ceiling (house style):** spicy/implied — bikini/lingerie, more
 skin, teasing, NO explicit nudity. Amp EXACTLY two things and nothing else:

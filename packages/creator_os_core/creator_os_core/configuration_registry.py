@@ -685,6 +685,11 @@ for name, owner, purpose in (
         "Exact operator preference profile consumed by creative prompting.",
     ),
     (
+        "CREATOR_OS_OPERATOR_PREFERENCE_COLLECTION",
+        "campaign_factory",
+        "Operator collection directory owning the rated reference media.",
+    ),
+    (
         "CREATOR_OS_ACCEPTANCE_DRIVER",
         "campaign_factory",
         "Explicit real-provider acceptance driver command.",

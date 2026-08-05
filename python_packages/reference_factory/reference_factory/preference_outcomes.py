@@ -20,6 +20,8 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text, file_lock
+
 WEIGHT_LIMIT = 0.9
 MINIMUM_SAMPLES = 3
 # Operator rule: never learn from bad performing posts. A reference is only
@@ -116,15 +118,19 @@ def refresh_preference_outcome_weights(
     """
 
     path = Path(profile_path).expanduser()
-    profile = json.loads(path.read_text(encoding="utf-8"))
-    weights = preference_outcome_weights(conn, profile)
-    if weights:
-        profile["outcomeWeights"] = weights
-    else:
-        profile.pop("outcomeWeights", None)
-    path.write_text(
-        json.dumps(profile, indent=1, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    # The profile holds the operator's hand-written ratings and notes, which exist
+    # nowhere else. Take the lock before reading so a concurrent refresh cannot
+    # interleave, and replace the file atomically so an interrupted write cannot
+    # leave it truncated.
+    # file_lock appends ".lock" itself; pass the profile path directly.
+    with file_lock(path):
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        weights = preference_outcome_weights(conn, profile)
+        if weights:
+            profile["outcomeWeights"] = weights
+        else:
+            profile.pop("outcomeWeights", None)
+        atomic_write_text(path, json.dumps(profile, indent=1, sort_keys=True) + "\n")
     return {
         "collectionId": profile.get("collectionId"),
         "sourceFingerprint": profile.get("sourceFingerprint"),
