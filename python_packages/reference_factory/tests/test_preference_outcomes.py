@@ -49,6 +49,24 @@ def _profile() -> dict:
     }
 
 
+def test_bad_performers_are_excluded_never_used_to_demote():
+    """Operator rule: do not learn from bad performing posts."""
+
+    conn = _conn()
+    conn.executemany(
+        "INSERT INTO generated_video_prompts VALUES (?, ?, ?)",
+        [("ref_url_aaaa1111", 0.9, 5), ("ref_url_bbbb2222", 0.1, 5)],
+    )
+
+    weights = preference_outcome_weights(conn, _profile())
+
+    # The strong performer earns a boost; the weak one earns nothing at all -
+    # not a negative weight, which would be learning from a flop.
+    assert weights["reel:winner"] > 0
+    assert "reel:loser" not in weights
+    assert all(value >= 0 for value in weights.values())
+
+
 def test_weights_rank_measured_references_and_ignore_untested_ones():
     conn = _conn()
     conn.executemany(
@@ -58,9 +76,9 @@ def test_weights_rank_measured_references_and_ignore_untested_ones():
 
     weights = preference_outcome_weights(conn, _profile())
 
-    assert weights["reel:winner"] > weights["reel:loser"]
+    assert weights["reel:winner"] > 0
     assert "reel:untested" not in weights
-    assert all(abs(value) <= WEIGHT_LIMIT for value in weights.values())
+    assert all(0 <= value <= WEIGHT_LIMIT for value in weights.values())
 
 
 def test_thin_evidence_earns_no_weight():
@@ -86,7 +104,7 @@ def test_refresh_persists_weights_without_touching_operator_truth(tmp_path: Path
     result = refresh_preference_outcome_weights(conn, path)
 
     written = json.loads(path.read_text(encoding="utf-8"))
-    assert result["weightedItems"] == 2
+    assert result["weightedItems"] == 1
     assert written["outcomeWeights"]["reel:winner"] > 0
     # The operator's ratings and the fingerprint binding them are untouched.
     assert written["items"] == original["items"]

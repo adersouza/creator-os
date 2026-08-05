@@ -43,10 +43,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+      - uses: github/codeql-action/init@ea14db8afdef5d462e69d78c4ca45002d4522418 # v4
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+      - uses: github/codeql-action/analyze@ea14db8afdef5d462e69d78c4ca45002d4522418 # v4
         with:
           category: "/language:${{ matrix.language }}"
 
@@ -122,7 +122,7 @@ jobs:
           version: v0.72.0
       - name: Upload Trivy SARIF
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+        uses: github/codeql-action/upload-sarif@ea14db8afdef5d462e69d78c4ca45002d4522418 # v4
         with:
           sarif_file: trivy-results.sarif
       - name: Gate Trivy HIGH/CRITICAL findings
