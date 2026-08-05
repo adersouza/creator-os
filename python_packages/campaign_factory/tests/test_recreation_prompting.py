@@ -134,7 +134,17 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
         "output_tokens": 123,
         "total_tokens": 444,
     }
-    assert planning["cost"] == {"status": "not_exposed", "usd": None}
+    # The provider reported usage tokens here, so the ledger must carry them.
+    # This previously asserted "not_exposed" even though the very same response
+    # contained the token counts -- pinning the bug that left every paid call
+    # reconciled as unknown and made run spend unanswerable.
+    assert planning["cost"] == {
+        "status": "tokens_only",
+        "usd": None,
+        "inputTokens": 321,
+        "outputTokens": 123,
+        "reasoningTokens": None,
+    }
     authorization = planning["authorization"]
     assert authorization["status"] == "authorized"
     assert authorization["maximumCalls"] == 1
@@ -150,7 +160,12 @@ def test_openai_prompt_pack_binds_identity_and_provider_contracts(
     }
     assert len(authorization["quote"]["pricingFingerprint"]) == 64
     assert planning["costLedger"]["reconciliationState"] == "unknown"
-    assert planning["costLedger"]["unknownReason"] == "provider_cost_not_exposed"
+    # Distinguishes "no price table for the tokens we were told about" from
+    # "the provider told us nothing" -- only the first is operator-fixable.
+    assert (
+        planning["costLedger"]["unknownReason"]
+        == "provider_reports_tokens_not_usd:in=321:out=123:reasoning=None"
+    )
     assert planning["promptGovernance"]["registryFingerprint"]
     receipt_path = Path(authorization["receiptPath"])
     assert receipt_path.is_file()
@@ -737,3 +752,101 @@ def test_creator_presentation_requires_explicit_adult_age_and_dark_hair() -> Non
         recreation_prompting._validated_creator_presentation(
             "Young woman with brunette hair in a casual selfie.", "anchor"
         )
+
+
+def test_incomplete_response_names_the_token_ceiling_not_a_json_error() -> None:
+    """A truncated pack must not surface as malformed provider output.
+
+    The provider bills reasoning tokens against ``max_output_tokens``, so an
+    undersized ceiling returns a partial JSON body. Parsing it raised a bare
+    JSONDecodeError, which reads like the provider sent garbage and sends the
+    reader to the wrong place entirely.
+    """
+
+    response = {
+        "status": "incomplete",
+        "incomplete_details": {"reason": "max_output_tokens"},
+        "usage": {
+            "output_tokens": 4000,
+            "output_tokens_details": {"reasoning_tokens": 3904},
+        },
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": '{"anchorPrompt": "A ph'}],
+            }
+        ],
+    }
+    with pytest.raises(RuntimeError) as excinfo:
+        recreation_prompting._response_json(response)
+    message = str(excinfo.value)
+    assert "openai_prompt_generation_incomplete" in message
+    assert "max_output_tokens" in message
+    # The reported ceiling has to be the one actually sent, and the reasoning
+    # spend has to be visible, or the limit cannot be sized from evidence.
+    assert f"limit={recreation_prompting._MAX_OUTPUT_TOKENS}" in message
+    assert "reasoning_tokens=3904" in message
+
+
+def test_complete_response_still_parses() -> None:
+    response = {
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": '{"anchorPrompt": "ok"}'}],
+            }
+        ],
+    }
+    assert recreation_prompting._response_json(response) == {"anchorPrompt": "ok"}
+
+
+def test_run_cap_survives_more_than_one_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single failed call must not permanently brick that reference.
+
+    The run cap used to be the single-call quote, so one reservation filled the
+    run budget exactly and every retry died on provider_budget_exceeded:run.
+    """
+
+    monkeypatch.delenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", raising=False)
+    assert recreation_prompting._prompt_run_cap_usd(0.5) > 0.5
+
+
+def test_run_cap_is_still_configurable_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", "3.00")
+    assert recreation_prompting._prompt_run_cap_usd(0.5) == 3.00
+    # A cap under one call's quote could never authorize anything; say so
+    # rather than failing later with an exhausted-budget error.
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", "0.10")
+    with pytest.raises(ValueError, match="run_cap_below_single_call_quote"):
+        recreation_prompting._prompt_run_cap_usd(0.5)
+    monkeypatch.setenv("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD", "0")
+    with pytest.raises(ValueError, match="must be positive"):
+        recreation_prompting._prompt_run_cap_usd(0.5)
+
+
+def test_usage_tokens_are_recorded_when_provider_reports_no_dollars() -> None:
+    """OpenAI reports `usage`, never `cost`; reading only `cost` lost the spend."""
+
+    parsed = recreation_prompting._response_cost(
+        {
+            "usage": {
+                "input_tokens": 1500,
+                "output_tokens": 900,
+                "output_tokens_details": {"reasoning_tokens": 640},
+            }
+        }
+    )
+    assert parsed["status"] == "tokens_only"
+    assert parsed["inputTokens"] == 1500
+    assert parsed["outputTokens"] == 900
+    assert parsed["reasoningTokens"] == 640
+    # An explicitly reported dollar amount still wins when one is present.
+    assert recreation_prompting._response_cost({"cost": {"usd": 0.02}}) == {
+        "status": "reported",
+        "usd": 0.02,
+    }

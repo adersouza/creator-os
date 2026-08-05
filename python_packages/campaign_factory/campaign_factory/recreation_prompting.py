@@ -44,6 +44,13 @@ from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
 PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v17"
 _API_URL: Final = "https://api.openai.com/v1/responses"
+# Shared by the request and by the incomplete-response error, so the reported
+# ceiling can never drift from the one actually sent.
+_MAX_OUTPUT_TOKENS: Final = 16000
+_REASONING_EFFORT: Final = "low"
+# Attempts one image's run budget must be able to hold. One is not enough:
+# it makes any single failure permanent for that reference.
+_DEFAULT_RUN_CAP_ATTEMPTS: Final = 4
 # Terms that make a generator DRAW an interface, watermark, or on-image text.
 # Deliberately scoped to rendered artifacts. Physical props the operator's house
 # style depends on -- a phone held in a mirror selfie -- and aesthetic shorthand
@@ -210,6 +217,15 @@ def build_openai_prompt_pack(
         "frameSamplingPolicy": _FRAME_SAMPLING_POLICY,
         "responseSchema": _response_schema(image_only=structural_reference_image),
         "promptGovernance": prompt_governance,
+        # Part of the request identity, not incidental transport settings. The
+        # token ceiling and the reasoning effort change what the provider is
+        # able to return and what the call costs, so a pack authored under one
+        # pair is not interchangeable with a pack authored under another. They
+        # belong in the cache key for the same reason the instruction does.
+        "providerRequestLimits": {
+            "maxOutputTokens": _MAX_OUTPUT_TOKENS,
+            "reasoningEffort": _REASONING_EFFORT,
+        },
     }
     request_fingerprint = _fingerprint(request_core)
     cache_path = _prompt_cache_path(request_fingerprint, cache_root=cache_root)
@@ -317,7 +333,15 @@ def build_openai_prompt_pack(
                 {
                     "model": selected_model,
                     "store": False,
-                    "max_output_tokens": 4000,
+                    # max_output_tokens is a budget for reasoning tokens AND the
+                    # visible answer. On a reasoning model, reasoning is billed
+                    # against this same ceiling, so a limit sized for the JSON
+                    # alone gets consumed by reasoning and the pack comes back
+                    # truncated mid-string -- paid for, unusable. Describing a
+                    # reference is perceptual rather than deductive, so ask for
+                    # low reasoning effort and leave the answer real headroom.
+                    "max_output_tokens": _MAX_OUTPUT_TOKENS,
+                    "reasoning": {"effort": _REASONING_EFFORT},
                     "input": [{"role": "user", "content": content}],
                     "text": {
                         "format": {
@@ -353,7 +377,18 @@ def build_openai_prompt_pack(
         ),
         provider_reference=str(response.get("id") or "") or None,
         unknown_reason=(
-            "provider_cost_not_exposed"
+            # Name which of the two situations actually happened. "Provider
+            # reported tokens but not dollars" is a missing price table, which
+            # the operator can fix; "provider exposed nothing" is a different
+            # problem entirely, and collapsing them hides that.
+            (
+                "provider_reports_tokens_not_usd:"
+                f"in={response_cost.get('inputTokens')}:"
+                f"out={response_cost.get('outputTokens')}:"
+                f"reasoning={response_cost.get('reasoningTokens')}"
+                if response_cost.get("status") == "tokens_only"
+                else "provider_cost_not_exposed"
+            )
             if response_cost.get("status") != "reported"
             else None
         ),
@@ -851,6 +886,24 @@ def _post_responses(payload: dict[str, Any], *, api_key: str) -> dict[str, Any]:
 
 
 def _response_json(response: dict[str, Any]) -> dict[str, Any]:
+    # A response that ran out of budget still carries an `output_text` holding
+    # however much of the JSON was written before the cut. Parsing it raises a
+    # bare JSONDecodeError that reads like malformed provider output, which
+    # sends the reader looking in the wrong place. Name the real cause, and
+    # report the reasoning spend so the ceiling can be sized from evidence.
+    if str(response.get("status") or "") == "incomplete":
+        reason = str((response.get("incomplete_details") or {}).get("reason") or "")
+        usage = response.get("usage") or {}
+        reasoning_tokens = (usage.get("output_tokens_details") or {}).get(
+            "reasoning_tokens"
+        )
+        raise RuntimeError(
+            "openai_prompt_generation_incomplete:"
+            f"{reason or 'unknown'}:"
+            f"limit={_MAX_OUTPUT_TOKENS}:"
+            f"output_tokens={usage.get('output_tokens')}:"
+            f"reasoning_tokens={reasoning_tokens}"
+        )
     for item in response.get("output") or []:
         if not isinstance(item, dict) or item.get("type") != "message":
             continue
@@ -978,7 +1031,9 @@ def _authorize_openai_prompt_call(
         scope=scope,
         quote=quote,
         secret=secret,
-        limits=budget_limits_from_env(provider="openai", run_cap_usd=quote_usd),
+        limits=budget_limits_from_env(
+            provider="openai", run_cap_usd=_prompt_run_cap_usd(quote_usd)
+        ),
         governance_context=governance_context,
         current_prompt_registry=PROMPT_REGISTRY,
         compiled_prompt=request_core["instruction"],
@@ -1035,6 +1090,31 @@ def _json_record(value: Any) -> dict[str, Any]:
     return json.loads(json.dumps(value))
 
 
+def _prompt_run_cap_usd(quote_usd: float) -> float:
+    """Per-run ceiling for prompt authoring, independent of the single-call quote.
+
+    The run cap used to be the quote itself. One reservation therefore filled
+    the run budget exactly, so a call that failed for any reason -- a truncated
+    response, a timeout, a validator rejection -- left that image permanently
+    unauthorizable: the retry died on ``provider_budget_exceeded:run`` with no
+    operator-reachable way forward. A ceiling that cannot survive one retry is
+    not protecting a budget, it is spending the operator's references.
+
+    The cap stays real and stays configurable; it is just sized to hold a few
+    attempts rather than exactly one.
+    """
+
+    configured = os.environ.get("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD")
+    if configured:
+        cap = float(configured)
+        if cap <= 0:
+            raise ValueError("CREATOR_OS_OPENAI_PROMPT_RUN_CAP_USD must be positive")
+        if cap < quote_usd:
+            raise ValueError("openai_prompt_run_cap_below_single_call_quote")
+        return cap
+    return quote_usd * _DEFAULT_RUN_CAP_ATTEMPTS
+
+
 def _response_cost(response: dict[str, Any]) -> dict[str, Any]:
     raw = response.get("cost")
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
@@ -1043,6 +1123,24 @@ def _response_cost(response: dict[str, Any]) -> dict[str, Any]:
         usd = raw.get("usd")
         if isinstance(usd, (int, float)) and not isinstance(usd, bool):
             return {"status": "reported", "usd": float(usd)}
+    # OpenAI does not return a `cost` field at all -- it reports `usage` token
+    # counts and leaves the pricing to the caller. Reading only `cost` meant
+    # every call reconciled as "unknown", so the ledger held a reservation it
+    # could never settle and could not answer what a run actually cost.
+    # Tokens are the billable quantity the provider does report, so record them
+    # even when no price table is configured to convert them to dollars.
+    usage = response.get("usage")
+    if isinstance(usage, dict):
+        details = usage.get("output_tokens_details")
+        return {
+            "status": "tokens_only",
+            "usd": None,
+            "inputTokens": usage.get("input_tokens"),
+            "outputTokens": usage.get("output_tokens"),
+            "reasoningTokens": (
+                details.get("reasoning_tokens") if isinstance(details, dict) else None
+            ),
+        }
     return {"status": "not_exposed", "usd": None}
 
 
