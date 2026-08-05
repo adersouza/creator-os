@@ -220,7 +220,11 @@ def test_openai_structural_image_prompt_preserves_visible_attraction_details() -
     assert "Ground every detail in the visible reference" in instruction
     assert "invented mood" in instruction
     assert "reference artifacts outside the scene" in instruction
-    assert "handheld camera held in front of the face" in instruction
+    # The phone is a real prop in the operator's top-rated references ("phone
+    # slightly covering face"), so the instruction must ask for it as-seen rather
+    # than renaming it to a camera, which produced the wrong object entirely.
+    assert "phone itself is a real prop" in instruction
+    assert "covers part of the face" in instruction
     assert "affirmative desired-result language only" in instruction
     assert "aspect ratio" not in instruction
     assert "Intent:" not in instruction
@@ -685,9 +689,6 @@ def test_reference_prompt_input_is_exact_sha_bound_and_visually_directed(
         "screenshot",
         "watermark",
         "logo",
-        "Snapchat",
-        "snapshot",
-        "private-message",
     ],
 )
 def test_generated_prompt_language_rejects_forbidden_terms(word: str) -> None:

@@ -44,18 +44,18 @@ from .prompt_registry import PROMPT_REGISTRY, bind_campaign_prompt
 SCHEMA: Final = "campaign_factory.recreation_prompt_pack.v1"
 PROMPT_BUILDER_VERSION: Final = "creator_os_openai_prompt_builder.v17"
 _API_URL: Final = "https://api.openai.com/v1/responses"
+# Terms that make a generator DRAW an interface, watermark, or on-image text.
+# Deliberately scoped to rendered artifacts. Physical props the operator's house
+# style depends on -- a phone held in a mirror selfie -- and aesthetic shorthand
+# like "snapchat selfie" are NOT here: the operator's own top-rated references
+# are described as "phone slightly covering face" and "looks like a snapchat
+# selfie", so forbidding that vocabulary blocked the look it was meant to protect.
 _GENERATED_SURFACE_FORBIDDEN: Final = (
-    "phone",
-    "iphone",
-    "smartphone",
     "app",
     "ui",
     "screen",
     "chrome",
-    "device",
-    "story",
     "screenshot",
-    "social media",
     "interface",
     "icon",
     "watermark",
@@ -64,10 +64,6 @@ _GENERATED_SURFACE_FORBIDDEN: Final = (
     "text",
     "lettering",
     "logo",
-    "snapchat",
-    "snapshot",
-    "private-message",
-    "private message",
 )
 _ANCHOR_FORBIDDEN: Final = (
     *_GENERATED_SURFACE_FORBIDDEN,
@@ -636,10 +632,12 @@ def _instruction(
         "shape, waist-to-hip proportions, butt size and roundness, and every other "
         "visible detail that makes the composition sexy; expression, gaze, setting, "
         "lighting, focus, grain, motion blur and casual photographic imperfections. "
-        "Ground every detail in the visible reference. Treat visible interface elements, "
-        "drawn marks, writing, and device details as reference artifacts outside the "
-        "scene. Describe a face-covering camera only as the handheld camera held in "
-        "front of the face. Use affirmative desired-result language only. Limit the "
+        "Ground every detail in the visible reference. Treat on-screen interface "
+        "elements, drawn marks, and writing as reference artifacts outside the scene. "
+        "The phone itself is a real prop: when the subject holds one, describe the "
+        "phone exactly as it appears, including how it covers part of the face and "
+        "how it is gripped, because that is the intended look. Use affirmative "
+        "desired-result language only. Limit the "
         "anchorPrompt to visible scene details; platform, use case, identity details, "
         "story, and invented mood remain outside it."
         if structural_reference_image
@@ -1194,10 +1192,20 @@ def _validated_positive_prompt(value: str, label: str) -> str:
 
 
 def _normalize_provider_trigger_language(value: str) -> str:
+    # A phone held in a mirror selfie is a physical prop central to the operator's
+    # house style, so "phone screen" normalises to "phone" the same way "TV screen"
+    # normalises to "television". The screen guard still blocks bare display
+    # surfaces, which are what actually make a generator render an interface.
+    prompt = re.sub(
+        r"\b(?:phone|phone's|iphone|smartphone)\s+screen\b",
+        "phone",
+        str(value),
+        flags=re.IGNORECASE,
+    )
     prompt = re.sub(
         r"\b(?:tv|television)\s+screen\b",
         "television",
-        str(value),
+        prompt,
         flags=re.IGNORECASE,
     )
     prompt = re.sub(
