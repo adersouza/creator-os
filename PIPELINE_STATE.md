@@ -143,11 +143,15 @@ videos, not still images; they were not bulk-approved.
 - exact motion copy and dance transfer; prompt-authored dancing remains available;
 - exact supplied-voice talking motion copy.
 
+### Deleted
+
+- WaveSpeed execution, local Wan/LTX/LongCat, Arena and Router: code removed.
+  Historical receipts stay readable; there is no local generation backend.
+- the local Qwen-VL prompt expander; the operator-approved prompt now reaches
+  the provider unmodified.
+
 ### Historical or advanced only
 
-- WaveSpeed normal execution;
-- local Wan/LTX/LongCat;
-- Arena and Router;
 - retired Kling-only and motion-edit modes.
 
 Historical receipts, rows, media, hashes, and lineage remain readable.

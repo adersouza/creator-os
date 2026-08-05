@@ -41,9 +41,9 @@ from campaign_factory.config import Settings
 from campaign_factory.contentforge_cli import run_contentforge
 from campaign_factory.core import CampaignFactory
 from creator_os_core.fileops import atomic_write_json
+from creator_os_core.hardware import hardware_identity
 from creator_os_core.media_probe import probe_video_stream
 from creator_os_core.sqlite import connect_sqlite
-from reel_factory.local_generation_queue import hardware_identity
 from reel_factory.render_queue import RenderQueue
 
 SCHEMA = "creator_os.capacity_envelope.v1"

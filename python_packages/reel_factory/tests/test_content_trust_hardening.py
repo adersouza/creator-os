@@ -20,10 +20,8 @@ from reel_factory.identity_verification import (
     delete_reference_set,
     identity_health,
     identity_model_root,
-    identity_qc_receipt,
     verify_identity,
 )
-from reel_factory.local_model_benchmark import _validate_identity_receipt
 from reel_factory.media_metadata import normalize_media_metadata
 
 
@@ -214,67 +212,6 @@ def test_download_result_timeout_leaves_no_asset_file(
         raise AssertionError("timeout was accepted")
 
     assert not out.exists()
-
-
-def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None:
-    image = tmp_path / "still.png"
-    _write_image(image)
-    profile, profile_fingerprint = _write_reference_set(
-        tmp_path, "Stacey", [[1.0, 0.0]]
-    )
-
-    passed = verify_identity(
-        image,
-        creator="Stacey",
-        root=tmp_path,
-        provider=FakeIdentityProvider([1.0, 0.0]),
-        creator_identity_profile=profile,
-        identity_profile_id=str(profile["profileId"]),
-        identity_profile_fingerprint=profile_fingerprint,
-    )
-    failed = verify_identity(
-        image,
-        creator="Stacey",
-        root=tmp_path,
-        provider=FakeIdentityProvider([0.0, 1.0]),
-        identity_profile_id=str(profile["profileId"]),
-        identity_profile_fingerprint=profile_fingerprint,
-    )
-    unavailable = verify_identity(
-        image,
-        creator="Stacey",
-        root=tmp_path,
-        provider=FakeIdentityProvider(available=False),
-    )
-
-    assert passed["status"] == "passed"
-    assert failed["status"] == "failed"
-    assert failed["failureReason"] == "identity_similarity_below_threshold"
-    assert unavailable["status"] == "unavailable"
-    assert unavailable["failureReason"] == "fake_unavailable"
-    assert unavailable["score"] is None
-    assert passed["frameCount"] == 1
-    assert passed["subjectSha256"]
-    assert passed["referenceSetFingerprint"]
-    assert passed["analyzer"]["analyzerId"] == "reel_factory.identity_preservation"
-    assert passed["analyzer"]["analyzerVersion"] == "2.0.0"
-    assert passed["observations"]["frames"][0]["frameSha256"]
-    receipt = identity_qc_receipt(passed)
-    assert receipt["passed"] is True
-    assert receipt["subjectSha256"] == passed["subjectSha256"]
-    assert receipt["producerAttestation"]["issuer"] == (
-        "reel_factory.identity_verification"
-    )
-    assert receipt["producerAttestation"]["issuedAt"] == passed["observedAt"]
-    _validate_identity_receipt(receipt, expected_subject_sha256=passed["subjectSha256"])
-    forged_receipt = dict(receipt)
-    forged_receipt["passed"] = False
-    with pytest.raises(RuntimeError, match="identity_attestation_invalid"):
-        _validate_identity_receipt(
-            forged_receipt, expected_subject_sha256=passed["subjectSha256"]
-        )
-    blocked = identity_qc_receipt(failed)
-    assert blocked["passed"] is False
 
 
 @pytest.mark.parametrize(

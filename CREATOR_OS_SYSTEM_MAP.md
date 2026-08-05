@@ -226,8 +226,8 @@ scripts/creator-os create \
 The operator names the product mode, optional style, account scope, count,
 audio policy, and spend ceiling. The system resolves approved sources, the
 creator Soul ID, the pinned Higgsfield recipe, prompts, seeds, and job
-identities. Create does not accept a provider or model choice and cannot choose
-WaveSpeed or a local model.
+identities. Create does not accept a provider or model choice. Higgsfield is the
+only generation provider that exists in the codebase.
 
 Stacey, Larissa, and Lola each have a pinned completed Soul 2 identity. Their
 approved creator images are supplied to OpenAI for model-specific prompt
@@ -296,9 +296,9 @@ The operator's real would-post review is the model-selection authority:
 | Motion copy / exact dance transfer | **UNRESOLVED** | tested Kling Motion Control outputs were rejected; no approved exact-transfer recipe |
 | Exact supplied-voice talking selfie | **UNRESOLVED** | no authenticated, operator-approved exact supplied-voice path |
 | Talking motion copy | **UNRESOLVED** | neither the transfer base nor exact supplied-audio lip-sync path is approved |
-| WaveSpeed O3/Vidu/InfiniteTalk | **REJECTED FOR NORMAL PRODUCTION** | historical receipts remain readable; no active route or fallback |
-| Local Wan/LTX/LongCat | **ADVANCED RESEARCH ONLY** | not a normal production default or fallback |
-| Arena/Router | **RESEARCH ONLY** | cannot choose normal production models or override product configuration |
+| WaveSpeed O3/Vidu/InfiniteTalk | **DELETED** | code removed; historical receipts remain readable |
+| Local Wan/LTX/LongCat | **DELETED** | code removed; no local generation backend exists |
+| Arena/Router | **DELETED** | code removed; there is nothing left to route between |
 
 Higgsfield is the only active normal visual-generation provider. There is no
 silent paid fallback.
@@ -1236,7 +1236,8 @@ tree; Git history remains their archive.
 
 ### Removed product weight
 
-- active WaveSpeed normal-production routing;
+- the entire WaveSpeed provider and local-MLX generation stack (code deleted);
+- the local Qwen-VL prompt expander that rewrote approved prompts;
 - Grok/grid/cropped-panel generation as a normal path;
 - duplicate schema mirrors and root shim;
 - duplicate package-local GitHub workflows;

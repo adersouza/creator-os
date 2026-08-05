@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 from .production_compatibility import assess_source_compatibility
@@ -170,63 +169,3 @@ def _fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-
-
-def bind_production_prompt_expansion(
-    recipe: Mapping[str, Any],
-    *,
-    original_prompt: str,
-    expansion: Mapping[str, Any],
-) -> dict[str, Any]:
-    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
-    if len(expanded_prompt) < 20:
-        raise ValueError("Qwen Wan prompt expansion did not return a usable prompt")
-    core = {
-        key: value for key, value in dict(recipe).items() if key != "recipeFingerprint"
-    }
-    core.update(
-        {
-            "originalPromptSha256": hashlib.sha256(
-                " ".join(original_prompt.split()).encode()
-            ).hexdigest(),
-            "expandedPromptSha256": hashlib.sha256(
-                expanded_prompt.encode()
-            ).hexdigest(),
-            "promptExpansion": dict(expansion),
-        }
-    )
-    return {**core, "recipeFingerprint": _fingerprint(core)}
-
-
-def expand_production_job_prompt(job: Mapping[str, Any]) -> dict[str, Any]:
-    from reel_factory.worker_api import expand_local_wan_i2v_prompt
-
-    source = Path(str(job["sourcePath"])).expanduser().resolve()
-    compiled_text = str(
-        dict(job.get("compiledPrompt") or {}).get("text") or job["prompt"]
-    )
-    expansion = expand_local_wan_i2v_prompt(
-        image_path=source,
-        original_prompt=compiled_text,
-    )
-    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
-    recipe = bind_production_prompt_expansion(
-        job["productionRecipe"],
-        original_prompt=compiled_text,
-        expansion=expansion,
-    )
-    return {
-        **dict(job),
-        "originalPrompt": compiled_text,
-        "prompt": expanded_prompt,
-        "promptExpansion": expansion,
-        "productionRecipe": recipe,
-        "requestFingerprint": _fingerprint(
-            {
-                "source": job["sourceSha256"],
-                "seed": job["seed"],
-                "prompt": expanded_prompt,
-                "model": recipe["modelId"],
-            }
-        ),
-    }
