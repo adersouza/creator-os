@@ -734,14 +734,39 @@ def test_anchor_prompt_rejects_provider_aspect_ratio() -> None:
         )
 
 
-def test_television_screen_normalizes_without_weakening_screen_guard() -> None:
+def test_television_screen_still_normalizes_to_the_object() -> None:
     assert recreation_prompting._validated_anchor_prompt(
         "Adult woman, age 19, with dark hair near a TV screen emitting cool light."
     ).endswith("near a television emitting cool light.")
-    with pytest.raises(ValueError, match="contains_forbidden_language"):
+    assert recreation_prompting._validated_anchor_prompt(
+        "Adult woman, age 19, with dark hair holding her phone screen up."
+    ).endswith("holding her phone up.")
+
+
+def test_ordinary_scene_words_are_not_treated_as_rendered_interfaces() -> None:
+    """`screen` and `chrome` are scene words before they are interface words.
+
+    Authored prompts were rejected for "gaze directed into the screen" (where
+    the subject is looking) and would have been for "a chrome faucet at the sink
+    front edge" (what the tap is made of). Neither makes a generator draw an
+    interface. Operator direction is to relax first and restore a term only if a
+    rendered interface actually appears in a generation.
+    """
+
+    for phrase in (
+        "gaze directed into the screen, eyes partially hidden",
+        "a chrome faucet and tap set at the sink front edge",
+        "near a projection screen",
+    ):
         recreation_prompting._validated_anchor_prompt(
-            "Adult woman, age 19, with dark hair near a projection screen."
+            f"Adult woman, age 19, with dark hair, {phrase}."
         )
+    # The terms that actually produce a drawn interface still fail closed.
+    for word in ("app", "ui", "interface", "watermark", "overlay", "logo"):
+        with pytest.raises(ValueError, match="contains_forbidden_language"):
+            recreation_prompting._validated_anchor_prompt(
+                f"Adult woman, age 19, with dark hair and {word} styling."
+            )
 
 
 def test_adult_age_format_normalizes_without_changing_presentation() -> None:

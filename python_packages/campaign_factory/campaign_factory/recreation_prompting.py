@@ -60,8 +60,6 @@ _DEFAULT_RUN_CAP_ATTEMPTS: Final = 4
 _GENERATED_SURFACE_FORBIDDEN: Final = (
     "app",
     "ui",
-    "screen",
-    "chrome",
     "screenshot",
     "interface",
     "icon",
@@ -72,6 +70,13 @@ _GENERATED_SURFACE_FORBIDDEN: Final = (
     "lettering",
     "logo",
 )
+# "screen" and "chrome" were here for browser chrome and display surfaces, but
+# both are ordinary scene words first. Authored prompts were rejected for
+# "gaze directed into the screen" (where she is looking) and would have been
+# for "a chrome faucet at the sink front edge" (what the tap is made of).
+# Neither makes a generator draw an interface -- the terms above do, and they
+# stay. Per operator direction: relax first, and restore a term only if a
+# rendered interface actually shows up in a generation.
 _ANCHOR_FORBIDDEN: Final = (
     *_GENERATED_SURFACE_FORBIDDEN,
     "tattoo",
