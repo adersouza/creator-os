@@ -5,9 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
-import campaign_factory.app as app_module
 import pytest
 from campaign_asset_test_support import add_audit_report, add_surface_asset_fixture
 from campaign_factory.adapters import contentforge as contentforge_adapter
@@ -31,10 +29,8 @@ from campaign_learning_test_support import (
     _insert_creative_kb_snapshot,
     _manager_report_fixture,
     add_account_requirement_fixture,
-    threadsdash_campaign_factory_metadata,
 )
 from campaign_test_support import add_rendered_asset, make_factory
-from fastapi.testclient import TestClient
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,51 +81,6 @@ def test_export_threadsdash_cli_allows_explicit_v2_rollback():
     assert args.draft_payload_schema == "v2"
 
 
-def test_export_threadsdash_api_defaults_to_regular_reel_surface(monkeypatch):
-    captured: dict[str, object] = {}
-
-    class FakeFactory:
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(app_module, "factory", FakeFactory)
-
-    def fake_export(_factory, **kwargs):
-        captured.update(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(app_module, "export_threadsdash", fake_export)
-
-    assert app_module.export_td({"campaign": "may", "userId": "user_1"}) == {"ok": True}
-    assert captured["surface"] == "regular_reel"
-    assert captured["draft_payload_schema"] == "v3"
-
-
-def test_export_threadsdash_api_allows_explicit_v2_rollback(monkeypatch):
-    captured: dict[str, object] = {}
-
-    class FakeFactory:
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(app_module, "factory", FakeFactory)
-
-    def fake_export(_factory, **kwargs):
-        captured.update(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(app_module, "export_threadsdash", fake_export)
-
-    assert app_module.export_td(
-        {
-            "campaign": "may",
-            "userId": "user_1",
-            "draftPayloadSchema": "v2",
-        }
-    ) == {"ok": True}
-    assert captured["draft_payload_schema"] == "v2"
-
-
 def test_cli_json_output_redacts_nested_secrets(capsys, monkeypatch):
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "embedded-service-secret")
     print_json(
@@ -150,69 +101,6 @@ def test_cli_json_output_redacts_nested_secrets(capsys, monkeypatch):
     assert payload["nested"]["access_token"] == "[REDACTED]"
     assert payload["nested"]["captionKey"] == "non-secret-identifier"
     assert payload["nested"]["error"] == "provider echoed [REDACTED] in its response"
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        {"exportPath": "/tmp/untrusted.json"},
-        {"exportResult": "/tmp/disguised-as-result.json"},
-    ],
-)
-def test_verify_export_api_rejects_caller_supplied_manifest_paths(monkeypatch, body):
-    called = False
-
-    class FakeEvents:
-        def create_pipeline_job(self, *_args, **_kwargs):
-            return {"id": "job_1"}
-
-        def start_pipeline_job(self, *_args, **_kwargs):
-            return None
-
-        def record_event(self, *_args, **_kwargs):
-            return None
-
-        def fail_pipeline_job(self, *_args, **_kwargs):
-            return None
-
-    class FakeFactory:
-        domains = SimpleNamespace(events=FakeEvents())
-
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(app_module, "factory", FakeFactory)
-
-    def unexpected_verify(**_kwargs):
-        nonlocal called
-        called = True
-
-    monkeypatch.setattr(app_module, "verify_threadsdash_export", unexpected_verify)
-
-    with pytest.raises(app_module.HTTPException) as exc_info:
-        app_module.verify_td_export(body)
-
-    assert exc_info.value.detail["code"] == "threadsdash_export_verification_failed"
-    assert called is False
-
-
-def test_sensitive_api_failure_does_not_echo_provider_error(monkeypatch):
-    class FakeFactory:
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(app_module, "factory", FakeFactory)
-
-    def fail_export(*_args, **_kwargs):
-        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY=must-not-leak")
-
-    monkeypatch.setattr(app_module, "evaluate_export_readiness", fail_export)
-
-    with pytest.raises(app_module.HTTPException) as exc_info:
-        app_module.export_readiness({"campaign": "may", "userId": "user_1"})
-
-    assert exc_info.value.detail["code"] == "export_readiness_failed"
-    assert "must-not-leak" not in json.dumps(exc_info.value.detail)
 
 
 def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
@@ -258,9 +146,6 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
     assert "create --creator" in result["commands"]["makeBatch"]
     assert result["commands"]["checkContentForge"].endswith(" build")
-    assert result["commands"]["startCampaignFactory"].startswith(
-        "uv run --package campaign-factory campaign-factory serve"
-    )
     assert result["commands"]["exportReferencePatterns"].startswith(
         "uv run --package reference-factory python -m reference_factory.cli"
     )
@@ -539,15 +424,6 @@ def test_dashboard_defaults_to_campaign_with_rendered_assets(tmp_path: Path):
         assert len(dashboard["rendered"]) == 1
     finally:
         cf.close()
-
-
-def test_media_route_refuses_unknown_asset(tmp_path: Path, monkeypatch):
-    cf = make_factory(tmp_path)
-    cf.close()
-    monkeypatch.setattr(app_module, "settings", cf.settings)
-    client = TestClient(app_module.app)
-    response = client.get("/api/rendered/missing/media")
-    assert response.status_code == 404
 
 
 def test_publishability_maps_unbounded_trust_statuses_to_contract_blockers(
@@ -1126,146 +1002,8 @@ def test_dashboard_returns_performance_fields(tmp_path: Path):
         cf.close()
 
 
-def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatch):
+def test_account_plan_warns_on_batch_volume(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
-    settings = cf.settings
-    rows = []
-    history_rows = []
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def select(self, table, params):
-            if table == "post_metric_history":
-                offset = int(params.get("offset", 0))
-                limit = int(params.get("limit", len(history_rows)))
-                return history_rows[offset : offset + limit]
-            assert table == "posts"
-            offset = int(params.get("offset", 0))
-            limit = int(params.get("limit", len(rows)))
-            return rows[offset : offset + limit]
-
-    monkeypatch.setattr(app_module, "settings", settings)
-    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        source, _ = add_rendered_asset(cf, tmp_path)
-        rows.append(
-            {
-                "id": "post_api_1",
-                "status": "published",
-                "platform": "instagram",
-                "instagram_account_id": "ig_1",
-                "created_at": "2026-01-02T00:00:00+00:00",
-                "published_at": "2026-01-02T01:00:00+00:00",
-                "instagram_post_id": "ig_post_api_1",
-                "permalink": "https://www.instagram.com/reel/ig_post_api_1/",
-                "views_count": 111,
-                "ig_impressions": 444,
-                "ig_reach": 200,
-                "metadata": {
-                    "campaign_factory": threadsdash_campaign_factory_metadata(source),
-                    "insights": {"likes": 5, "shares": 1, "saves": 2},
-                },
-            }
-        )
-        history_rows.append(
-            {
-                "id": "hist_api_1",
-                "post_id": "post_api_1",
-                "account_id": "acct_1",
-                "platform": "instagram",
-                "snapshot_at": "2026-01-03T01:00:00+00:00",
-                "hours_since_publish": 24,
-                "views_count": 333,
-                "likes_count": 21,
-                "replies_count": 3,
-                "reposts_count": 0,
-                "quotes_count": 0,
-                "shares_count": 4,
-                "saves_count": 6,
-                "reach": 400,
-                "engagement_rate": 0.113,
-                "created_at": "2026-01-03T01:00:00+00:00",
-            }
-        )
-    finally:
-        cf.close()
-
-    client = TestClient(app_module.app)
-    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "performance-api-test-token")
-    sync = client.post(
-        "/api/sync-performance",
-        json={
-            "campaign": "may",
-            "userId": "user_1",
-            "supabaseUrl": "https://example.supabase.co",
-            "supabaseServiceRoleKey": "service-role",
-        },
-        headers={
-            "Authorization": "Bearer performance-api-test-token",
-            "Idempotency-Key": "performance-api:sync",
-        },
-    )
-    assert sync.status_code == 200
-    assert sync.json()["inserted"] == 1
-    summary = client.get(
-        "/api/performance-summary",
-        params={"campaign": "may"},
-        headers={"Authorization": "Bearer performance-api-test-token"},
-    )
-    assert summary.status_code == 200
-    data = summary.json()
-    assert data["renderedAssets"]["asset_1"]["totals"]["views"] == 333
-    assert data["renderedAssets"]["asset_1"]["totals"]["impressions"] == 444
-    assert data["renderedAssets"]["asset_1"]["totals"]["reach"] == 400
-    assert data["captionHashes"]["caption_hash_1"]["totals"]["likes"] == 21
-
-
-def test_activity_and_jobs_api_return_newest_first(tmp_path: Path, monkeypatch):
-    cf = make_factory(tmp_path)
-    settings = cf.settings
-    try:
-        campaign = cf.domains.models.upsert_campaign("may", "model")
-        older = cf.domains.events.create_pipeline_job(
-            "import_folder", campaign["id"], {}
-        )
-        newer = cf.domains.events.create_pipeline_job(
-            "prepare_reel", campaign["id"], {}
-        )
-        cf.domains.events.record_event(
-            "source_imported",
-            campaign_id=campaign["id"],
-            pipeline_job_id=older["id"],
-            message="older",
-        )
-        cf.domains.events.record_event(
-            "reel_inputs_prepared",
-            campaign_id=campaign["id"],
-            pipeline_job_id=newer["id"],
-            message="newer",
-        )
-    finally:
-        cf.close()
-
-    monkeypatch.setattr(app_module, "settings", settings)
-    client = TestClient(app_module.app)
-    activity = client.get("/api/activity-log", params={"campaign": "may", "limit": 10})
-    assert activity.status_code == 200
-    assert activity.json()["events"][0]["message"] == "newer"
-    jobs = client.get("/api/jobs", params={"campaign": "may", "limit": 10})
-    assert jobs.status_code == 200
-    assert jobs.json()["jobs"][0]["id"] == newer["id"]
-    job = client.get(f"/api/jobs/{newer['id']}")
-    assert job.status_code == 200
-    assert job.json()["jobType"] == "prepare_reel"
-
-
-def test_account_plan_warns_on_batch_volume_and_api_assigns(
-    tmp_path: Path, monkeypatch
-):
-    cf = make_factory(tmp_path)
-    settings = cf.settings
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -1304,32 +1042,6 @@ def test_account_plan_warns_on_batch_volume_and_api_assigns(
         assert "account_batch_volume_review" in plan["warnings"]
     finally:
         cf.close()
-
-    monkeypatch.setattr(app_module, "settings", settings)
-    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "account-plan-test-token")
-    client = TestClient(app_module.app)
-    response = client.post(
-        "/api/asset-account-assignment",
-        json={
-            "renderedAssetId": "asset_1",
-            "instagramAccountId": "ig_extra",
-        },
-        headers={
-            "Authorization": "Bearer account-plan-test-token",
-            "Idempotency-Key": "account-plan:assign",
-        },
-    )
-    assert response.status_code == 400
-    assert "reuse_window" in response.json()["detail"]
-    account_plan = client.get(
-        "/api/account-plan",
-        params={"campaign": "may", "userId": "user_1"},
-        headers={"Authorization": "Bearer account-plan-test-token"},
-    )
-    assert account_plan.status_code == 200
-    assert not any(
-        row["instagramAccountId"] == "ig_extra" for row in account_plan.json()["rows"]
-    )
 
 
 def test_creator_os_daily_plan_cli_outputs_json(tmp_path: Path):

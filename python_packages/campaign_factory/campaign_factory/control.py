@@ -121,10 +121,6 @@ def operator_control_check(
         "warningCount": len(warnings),
         "commands": {
             "checkContentForge": (f"pnpm --dir {settings.contentforge_root} build"),
-            "startCampaignFactory": (
-                "uv run --package campaign-factory campaign-factory "
-                "serve --host 127.0.0.1 --port 8877"
-            ),
             "exportReferencePatterns": (
                 "uv run --package reference-factory python -m reference_factory.cli "
                 "export-patterns --limit 300 --for-campaign-factory"

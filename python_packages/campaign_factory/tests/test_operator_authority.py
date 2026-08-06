@@ -1,33 +1,22 @@
 from __future__ import annotations
 
-import json
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
-from campaign_factory import app as app_module
 from campaign_factory import operator_authority as authority_module
 from campaign_factory.cli_parser import build_cli_parser
-from campaign_factory.config import Settings
 from campaign_factory.db import connect, init_db
 from campaign_factory.operator_authority import (
     DESTRUCTIVE,
     PAID,
     READ,
     authorize_cli_operation,
-    build_api_authority_registry,
     build_cli_authority_registry,
     claim_cli_authority_event,
     classify_cli_operation,
     complete_cli_authority_event,
 )
-from campaign_factory.operator_authority_http import (
-    MAX_REPLAY_BODY_BYTES,
-    _build_authority_outcome,
-    _response_from_authority_outcome,
-)
-from fastapi.responses import Response
-from fastapi.testclient import TestClient
 
 
 def test_cli_preview_is_read_only_and_apply_uses_key_identity(monkeypatch) -> None:
@@ -94,57 +83,6 @@ def test_mutating_command_without_signing_material_fails_closed(
         authorize_cli_operation(
             Namespace(cmd="capture-publishability-rejection-evidence")
         )
-
-
-def test_insecure_loopback_cannot_mutate_but_token_operator_can(
-    monkeypatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(
-        app_module,
-        "settings",
-        Settings(
-            root=tmp_path,
-            db_path=tmp_path / "campaign_factory.sqlite",
-            reel_factory_root=tmp_path / "reel",
-            reference_reels_root=tmp_path / "reference",
-        ),
-    )
-    monkeypatch.setenv("ALLOW_INSECURE_LOCAL", "1")
-    monkeypatch.delenv("CREATOR_OS_API_TOKEN", raising=False)
-    insecure = TestClient(app_module.app, client=("127.0.0.1", 50000))
-    assert insecure.post("/api/model-account-profile", json={}).status_code == 403
-
-    monkeypatch.delenv("ALLOW_INSECURE_LOCAL", raising=False)
-    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "authority-test-token")
-    operator = TestClient(app_module.app, client=("127.0.0.1", 50000))
-    response = operator.post(
-        "/api/model-account-profile",
-        json={},
-        headers={
-            "Authorization": "Bearer authority-test-token",
-            "Idempotency-Key": "authority-test-request",
-        },
-    )
-    assert response.status_code != 403
-    replay = operator.post(
-        "/api/model-account-profile",
-        json={},
-        headers={
-            "Authorization": "Bearer authority-test-token",
-            "Idempotency-Key": "authority-test-request",
-        },
-    )
-    assert replay.status_code == response.status_code
-    assert replay.json() == response.json()
-    conflict = operator.post(
-        "/api/model-account-profile",
-        json={"model": "different"},
-        headers={
-            "Authorization": "Bearer authority-test-token",
-            "Idempotency-Key": "authority-test-request",
-        },
-    )
-    assert conflict.status_code == 409
 
 
 def test_failed_retryable_claim_can_retry_and_success_replays(
@@ -248,83 +186,6 @@ def test_stale_claim_requires_reconciliation_without_retrying(
         conn.close()
 
 
-def test_http_authority_replay_persists_only_allowlisted_headers() -> None:
-    body = b'{"ok":true}'
-    response = Response(
-        body,
-        status_code=201,
-        media_type="application/json",
-        headers={
-            "Set-Cookie": "session=never-persist",
-            "Authorization": "Bearer never-persist",
-            "Content-Language": "en",
-        },
-    )
-
-    outcome = _build_authority_outcome(response, body)
-    serialized = json.dumps(outcome, sort_keys=True)
-
-    assert outcome["replayable"] is True
-    assert "set-cookie" not in serialized.lower()
-    assert "authorization" not in serialized.lower()
-    assert "never-persist" not in serialized
-    replay = _response_from_authority_outcome(outcome)
-    assert replay.status_code == 201
-    assert replay.body == body
-    assert replay.headers["content-type"].startswith("application/json")
-    assert replay.headers["content-language"] == "en"
-    assert replay.headers.get("set-cookie") is None
-    assert replay.headers.get("authorization") is None
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"accessToken": "top-secret-token"},
-        {
-            "downloadUrl": (
-                "https://example.invalid/file?X-Amz-Signature=top-secret-signature"
-            )
-        },
-        {"detail": "Bearer top-secret-credential"},
-    ],
-)
-def test_http_authority_sensitive_bodies_require_reconciliation(
-    payload: dict[str, str],
-) -> None:
-    body = json.dumps(payload).encode()
-    response = Response(body, media_type="application/json")
-
-    outcome = _build_authority_outcome(response, body)
-
-    assert outcome["replayable"] is False
-    assert outcome["reconciliationRequired"] is True
-    assert outcome["nonReplayableReason"] == (
-        "response_body_contains_sensitive_material"
-    )
-    assert "bodyBase64" not in outcome
-    serialized = json.dumps(outcome, sort_keys=True)
-    assert "top-secret" not in serialized
-    replay = _response_from_authority_outcome(outcome)
-    assert replay.status_code == 409
-    assert json.loads(replay.body)["status"] == ("operation_reconciliation_required")
-
-
-def test_http_authority_oversize_body_is_not_truncated_or_replayed() -> None:
-    body = json.dumps({"data": "x" * MAX_REPLAY_BODY_BYTES}).encode()
-    assert len(body) > MAX_REPLAY_BODY_BYTES
-    response = Response(body, media_type="application/json")
-
-    outcome = _build_authority_outcome(response, body)
-
-    assert outcome["replayable"] is False
-    assert outcome["nonReplayableReason"] == "response_body_exceeds_replay_limit"
-    assert outcome["bodyBytes"] == len(body)
-    assert "bodyBase64" not in outcome
-    replay = _response_from_authority_outcome(outcome)
-    assert replay.status_code == 409
-
-
 def test_destructive_cancel_never_downgrades_to_preview(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -367,24 +228,13 @@ def test_runtime_default_idempotency_key_is_per_invocation(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", "x" * 48)
-    first = authorize_cli_operation(Namespace(cmd="serve"))
-    second = authorize_cli_operation(Namespace(cmd="serve"))
+    first = authorize_cli_operation(Namespace(cmd="runtime-promotion"))
+    second = authorize_cli_operation(Namespace(cmd="runtime-promotion"))
     assert first.idempotency_key != second.idempotency_key
 
 
-def test_authority_registries_cover_every_cli_leaf_and_api_route() -> None:
+def test_authority_registry_covers_every_cli_leaf() -> None:
     cli = build_cli_authority_registry(build_cli_parser())
-    api = build_api_authority_registry(app_module.app)
     assert len(cli) > 100
-    assert len(api) >= 70
     assert len({item["operationId"] for item in cli}) == len(cli)
-    assert len({item["operationId"] for item in api}) == len(api)
-    assert all(item["effectClass"] for item in [*cli, *api])
-    assert (
-        next(
-            item
-            for item in api
-            if item["operationId"] == "api:POST:/api/export-threadsdash"
-        )["effectClass"]
-        == "external_handoff"
-    )
+    assert all(item["effectClass"] for item in cli)
