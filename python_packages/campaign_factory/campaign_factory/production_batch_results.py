@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import sha256_file as _sha256_file
+
 
 def _fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
@@ -268,14 +270,6 @@ def _hard_qc_receipt(
         "status": "blocked" if unique_blockers else "passed",
     }
     return {**receipt, "receiptFingerprint": _fingerprint(receipt)}
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def block_duplicate_provider_outputs(results: list[dict[str, Any]]) -> None:

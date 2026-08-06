@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.fileops import sha256_file as _sha256
 
 ACCEPTANCE_COHORT_ID = "stacey_learning_cohort_v1"
 
@@ -292,11 +292,3 @@ def _safe_ingest_summary(ingest: dict[str, Any]) -> dict[str, Any]:
         for key in ("statusCode", "postIds", "attempts", "draftKey")
         if ingest.get(key) is not None
     }
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

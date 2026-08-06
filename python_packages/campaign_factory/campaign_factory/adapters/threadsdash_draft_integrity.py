@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 from typing import Any
+
+from creator_os_core.fileops import sha256_file
 
 from pipeline_contracts import (
     evaluate_overlay_semantic_completeness,
@@ -195,11 +196,3 @@ def learning_cohort_metadata(asset: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(candidate, dict) and candidate.get("cohort_id"):
             return dict(candidate)
     return None
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

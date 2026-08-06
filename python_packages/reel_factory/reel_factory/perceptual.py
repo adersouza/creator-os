@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import imagehash
+from creator_os_core.fileops import sha256_file as _sha256_file
 from PIL import Image
 
 ALGORITHM = "frame_sampled_phash_v1"
@@ -130,14 +130,6 @@ def _source_family_id(value: Any) -> str:
                 return text
         stack.extend(item for item in current.values() if isinstance(item, dict))
     return ""
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def load_json(path: Path | None) -> dict[str, Any]:

@@ -33,6 +33,7 @@ from creator_os_core.evidence_attestation import (
     sign_evidence_attestation,
     verify_evidence_attestation,
 )
+from creator_os_core.fileops import sha256_file as _sha256_file
 
 from pipeline_contracts import CreatorIdentityProfileV1
 
@@ -205,14 +206,6 @@ def _identity_reference_failure_reason(error: str, creator: str) -> str:
     if error == "reference_set_missing":
         return f"no identity reference set for {creator} - run identity-reference-build"
     return error
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _valid_sha256(value: Any) -> bool:

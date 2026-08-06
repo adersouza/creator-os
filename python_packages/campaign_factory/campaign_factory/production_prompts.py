@@ -9,6 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Final
 
+from creator_os_core.fileops import sha256_file as _sha256_file
 from creator_os_core.runtime_paths import resolve_runtime_paths
 
 from pipeline_contracts import validate_operator_preference_profile
@@ -205,14 +206,6 @@ def _preference_collection_root() -> Path | None:
         if (candidate / "manifest.json").is_file()
     )
     return manifests[-1] if manifests else None
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _selected_reference_payload(item: dict[str, Any]) -> dict[str, Any]:

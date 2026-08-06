@@ -69,14 +69,6 @@ class JournalRead:
     issues: tuple[JournalIssue, ...]
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 class AppendOnlyJournal:
     """Fsync'd, hash-chained JSONL journal with explicit corruption recovery."""
 

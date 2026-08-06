@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import sha256_file as _sha256
 from creator_os_core.sqlite import connect_sqlite
 
 from .config import get_settings
@@ -135,14 +136,6 @@ def _json(value: object) -> str:
 
 def _fingerprint(value: object) -> str:
     return hashlib.sha256(_json(value).encode()).hexdigest()
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _load_json(path: Path) -> dict[str, Any]:

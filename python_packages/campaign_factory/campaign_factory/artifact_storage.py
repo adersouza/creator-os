@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import stat
@@ -10,6 +9,8 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from creator_os_core.fileops import sha256_file
 
 CAMPAIGN_DIRECTORY_NAMES = {
     "sources": "00_sources",
@@ -240,11 +241,3 @@ def _configured_byte_limit(name: str, default: int | None) -> int | None:
     if value < 0:
         raise ValueError(f"{name} must be a nonnegative integer")
     return value
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

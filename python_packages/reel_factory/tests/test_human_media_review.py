@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from creator_os_core.evidence_attestation import payload_fingerprint
+from creator_os_core.fileops import sha256_file
 from reel_factory.human_media_review import (
     UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
     HumanMediaReview,
@@ -14,7 +15,7 @@ from reel_factory.human_media_review import (
     HumanReviewRatings,
     HumanReviewSamplingEvidence,
 )
-from reel_factory.local_generation_queue import LocalQueueError, sha256_file
+from reel_factory.local_generation_queue import LocalQueueError
 
 
 @pytest.fixture(autouse=True)

@@ -15,6 +15,7 @@ from sqlite3 import Connection
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.fileops import sha256_file as _sha256_file
 
 from pipeline_contracts.llm_resilience import urlopen_json_with_retry
 
@@ -685,14 +686,6 @@ def _xai_chat_completion(
         "usage": dict(usage) if isinstance(usage, Mapping) else None,
         "actualUsd": actual_usd,
     }
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _grok_prompt_compiler_response_format() -> dict[str, Any]:

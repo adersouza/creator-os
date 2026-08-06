@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import sha256_file as _sha256_path
+
 from ..contentforge_cli import run_contentforge
 from ..core import CampaignFactory, new_id, utc_now
 
@@ -874,14 +876,6 @@ def _contentforge_analyzer_evidence(
             json.dumps(core, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest(),
     }
-
-
-def _sha256_path(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _tool_version(tool: str) -> str | None:

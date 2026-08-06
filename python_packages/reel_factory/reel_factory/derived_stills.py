@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import io
 import json
 import math
@@ -16,6 +15,7 @@ from typing import Any, Protocol
 
 import imagehash
 import requests
+from creator_os_core.fileops import sha256_file as _sha256_file
 from PIL import Image, ImageFilter, ImageStat
 
 DERIVED_STILL_SCHEMA = "campaign_factory.derived_still_source.v1"
@@ -848,14 +848,6 @@ def _lte(value: Any, maximum: float) -> bool:
 
 def _rounded(value: float | None) -> float | None:
     return round(value, 6) if value is not None and math.isfinite(value) else None
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _mime(path: Path) -> str:

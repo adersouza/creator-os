@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.evidence_attestation import payload_fingerprint
-from creator_os_core.fileops import atomic_write_text, file_lock
+from creator_os_core.fileops import atomic_write_text, file_lock, sha256_file
 
 LEGACY_INVENTORY_SCHEMA = "campaign_factory.creative_approval_legacy_inventory.v1"
 
@@ -18,14 +18,6 @@ class CreativeApprovalError(RuntimeError):
 
 def fingerprint(payload: dict[str, Any]) -> str:
     return payload_fingerprint(payload)
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def required_text(value: Any, field: str) -> str:
