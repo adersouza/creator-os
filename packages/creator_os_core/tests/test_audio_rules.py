@@ -42,7 +42,9 @@ def test_both_factories_use_the_shared_rule_objects() -> None:
         ("TIKTOK AUDIO xyz-1", None, True),
     ],
 )
-def test_is_generic_audio_title(title: str, platform: str | None, expected: bool) -> None:
+def test_is_generic_audio_title(
+    title: str, platform: str | None, expected: bool
+) -> None:
     assert audio_rules.is_generic_audio_title(title, platform) is expected
 
 
