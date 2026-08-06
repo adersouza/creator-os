@@ -28,7 +28,6 @@ DESTRUCTIVE = "destructive_mutation"
 _HANDOFF_COMMANDS: Final = {
     "export-threadsdash",
     "bridge",
-    "closed-loop-proof",
     "reddit-handoff",
 }
 _PAID_COMMANDS: Final = {
@@ -37,6 +36,9 @@ _PAID_COMMANDS: Final = {
     "orchestrate-daily",
     "reddit-weekly-generate",
 }
+# Kept as a fail-closed guard: promotion itself lives in
+# creator_os_core.runtime_promotion, so a command added here later is
+# classified RUNTIME rather than falling through to the mutation default.
 _RUNTIME_COMMANDS: Final = {"runtime-promotion"}
 _DESTRUCTIVE_WORDS: Final = {"delete", "remove", "purge", "revoke", "cancel"}
 _LEGACY_MUTATIONS: Final = {
@@ -85,7 +87,6 @@ _READ_ONLY_COMMANDS: Final = {
     "export-readiness",
     "performance-summary",
     "recommend-audio",
-    "operator-status",
 }
 _READ_ONLY_MARKERS: Final = (
     "report",
