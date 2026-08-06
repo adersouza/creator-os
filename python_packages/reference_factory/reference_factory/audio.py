@@ -14,6 +14,14 @@ from sqlite3 import Connection
 from typing import Any
 from urllib.parse import urlsplit
 
+# Shared with Campaign Factory so both packages classify audio identically.
+from creator_os_core.audio_rules import (
+    audio_preview_evidence,
+    audio_rights_status,
+    is_generic_audio_title,
+)
+from creator_os_core.audio_rules import is_native_audio_url as _is_native_audio_url
+from creator_os_core.audio_rules import is_reel_page_url as _is_reel_page_url
 from creator_os_core.fileops import atomic_write_text
 
 from .db import json_dump, json_load
@@ -2204,88 +2212,6 @@ def _norm(value: str) -> str:
     return " ".join(str(value or "").strip().lower().replace("-", "_").split())
 
 
-def is_generic_audio_title(title: str, platform: str | None = None) -> bool:
-    normalized = str(title or "").strip().lower()
-    platform_norm = _norm(platform or "")
-    if not normalized:
-        return True
-    unresolved_suffix = r"(?:\s+\(title unresolved\))?"
-    if platform_norm == "tiktok":
-        return bool(
-            re.fullmatch(rf"tiktok audio [0-9a-z_-]+{unresolved_suffix}", normalized)
-        )
-    if platform_norm == "instagram":
-        return bool(
-            re.fullmatch(rf"instagram audio [0-9a-z_-]+{unresolved_suffix}", normalized)
-        )
-    return bool(
-        re.fullmatch(
-            rf"(tiktok|instagram) audio [0-9a-z_-]+{unresolved_suffix}",
-            normalized,
-        )
-    )
-
-
-def audio_rights_status(item: dict[str, Any]) -> str:
-    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
-    rights = item.get("rights") if isinstance(item.get("rights"), dict) else {}
-    raw_rights = raw.get("rights") if isinstance(raw.get("rights"), dict) else {}
-    value = (
-        item.get("rightsStatus")
-        or item.get("rights_status")
-        or rights.get("status")
-        or rights.get("usageRightsStatus")
-        or raw.get("rightsStatus")
-        or raw.get("rights_status")
-        or raw_rights.get("status")
-        or raw_rights.get("usageRightsStatus")
-    )
-    return _norm(str(value or ""))
-
-
-def audio_preview_evidence(item: dict[str, Any]) -> dict[str, str]:
-    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
-    nested = (
-        item.get("previewEvidence")
-        if isinstance(item.get("previewEvidence"), dict)
-        else {}
-    )
-    raw_nested = (
-        raw.get("previewEvidence")
-        if isinstance(raw.get("previewEvidence"), dict)
-        else {}
-    )
-    path = str(
-        item.get("localPreviewPath")
-        or item.get("local_preview_path")
-        or nested.get("path")
-        or raw_nested.get("path")
-        or ""
-    ).strip()
-    sha256 = (
-        str(
-            item.get("previewSha256")
-            or item.get("preview_sha256")
-            or nested.get("sha256")
-            or raw.get("previewSha256")
-            or raw.get("preview_sha256")
-            or raw_nested.get("sha256")
-            or ""
-        )
-        .strip()
-        .lower()
-    )
-    evidence: dict[str, str] = {}
-    if path:
-        evidence["path"] = path
-    if sha256:
-        evidence["sha256"] = sha256
-        evidence["sha256Format"] = (
-            "valid" if _SHA256_RE.fullmatch(sha256) else "invalid"
-        )
-    return evidence
-
-
 def audio_production_eligibility(
     item: dict[str, Any],
 ) -> tuple[bool, list[str]]:
@@ -2300,44 +2226,6 @@ def audio_production_eligibility(
     if rights_status not in AUDIO_RIGHTS_ELIGIBLE_STATUSES:
         reasons.append(f"rights_status:{rights_status}")
     return not reasons, sorted(set(reasons))
-
-
-def _is_native_audio_url(url: str, platform: str) -> bool:
-    try:
-        parsed = urlsplit(str(url or ""))
-    except ValueError:
-        return False
-    host = (parsed.hostname or "").lower().rstrip(".")
-    path = parsed.path.lower().rstrip("/")
-    platform_norm = _norm(platform)
-    if platform_norm == "instagram":
-        return (host == "instagram.com" or host.endswith(".instagram.com")) and (
-            "/reels/audio/" in f"{path}/" or path.startswith("/audio/")
-        )
-    if platform_norm == "tiktok":
-        return (
-            host == "tiktok.com" or host.endswith(".tiktok.com")
-        ) and path.startswith("/music/")
-    return bool(url)
-
-
-def _is_reel_page_url(url: str, platform: str) -> bool:
-    try:
-        parsed = urlsplit(str(url or ""))
-    except ValueError:
-        return False
-    host = (parsed.hostname or "").lower().rstrip(".")
-    path = parsed.path.lower().rstrip("/")
-    platform_norm = _norm(platform)
-    if platform_norm == "instagram":
-        return (host == "instagram.com" or host.endswith(".instagram.com")) and bool(
-            re.match(r"^/(?:reel|reels|p|tv)/[^/]+$", path)
-        )
-    if platform_norm == "tiktok":
-        return (
-            host == "tiktok.com" or host.endswith(".tiktok.com")
-        ) and "/video/" in path
-    return False
 
 
 def extract_audio_signal(
