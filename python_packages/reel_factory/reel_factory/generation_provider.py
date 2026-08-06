@@ -33,6 +33,11 @@ try:
 except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
+try:
+    from .media_metadata import normalize_media_metadata
+except ImportError:  # script mode: package dir itself is on sys.path
+    from media_metadata import normalize_media_metadata
+
 
 class HiggsfieldCommandError(RuntimeError):
     """Raised when the local Higgsfield CLI rejects or fails a command."""
@@ -623,6 +628,36 @@ def _download_min_bytes(out_path: Path, content_type: str | None) -> int:
     return MIN_IMAGE_RESULT_BYTES
 
 
+def normalize_downloaded_media_metadata(path: Path) -> dict[str, Any]:
+    """Strip provider provenance metadata before the file acquires a governed SHA.
+
+    Provider results carry embedded provenance that identifies the generator and
+    the job: signed C2PA/JUMBF manifests (Nano Banana, Kling, FLUX, Grok), IPTC
+    ``trainedAlgorithmicMedia`` declarations, and a Higgsfield ``Hf-job-id`` PNG
+    chunk present on every result. None of it is read back by Creator OS — the
+    provider job id is taken from the CLI response, not from the file.
+
+    This runs inside ``download_result``'s staging window, before the result is
+    moved to its final path and therefore before anything hashes it, so the
+    governed SHA-256 is the SHA of the normalized bytes and the exact-SHA chain
+    stays consistent. Stripping later, after approval, would invalidate every
+    stored hash.
+
+    Pixel-domain watermarks (for example SynthID) are unaffected; this removes
+    the container metadata only. Consistent with ``media_metadata``, no device,
+    session, or platform metadata is ever added.
+    """
+
+    result = normalize_media_metadata(path, dry_run=False)
+    if not result.get("metadataNormalized"):
+        warnings = result.get("metadataWarnings") or ["metadata_not_normalized"]
+        raise RuntimeError(
+            "provider_result_metadata_normalization_failed:"
+            f"{','.join(str(item) for item in warnings)}"
+        )
+    return result
+
+
 def download_result(
     url: str,
     out_path: Path,
@@ -657,6 +692,7 @@ def download_result(
             raise RuntimeError(
                 f"downloaded result too small: {size} bytes < {min_bytes} bytes"
             )
+        normalize_downloaded_media_metadata(candidate)
         os.replace(candidate, out_path)
         out_path.chmod(0o600)
     return out_path
