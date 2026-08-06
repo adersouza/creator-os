@@ -15,8 +15,6 @@ from creator_os_core.evidence_attestation import (
     load_evidence_secret,
     payload_fingerprint,
 )
-from creator_os_core.local_api_auth import LocalApiAuthContext
-from fastapi import HTTPException, Request
 
 from .core import new_id, utc_now
 
@@ -30,7 +28,6 @@ DESTRUCTIVE = "destructive_mutation"
 _HANDOFF_COMMANDS: Final = {
     "export-threadsdash",
     "bridge",
-    "closed-loop-proof",
     "reddit-handoff",
 }
 _PAID_COMMANDS: Final = {
@@ -39,7 +36,10 @@ _PAID_COMMANDS: Final = {
     "orchestrate-daily",
     "reddit-weekly-generate",
 }
-_RUNTIME_COMMANDS: Final = {"serve", "runtime-promotion"}
+# Kept as a fail-closed guard: promotion itself lives in
+# creator_os_core.runtime_promotion, so a command added here later is
+# classified RUNTIME rather than falling through to the mutation default.
+_RUNTIME_COMMANDS: Final = {"runtime-promotion"}
 _DESTRUCTIVE_WORDS: Final = {"delete", "remove", "purge", "revoke", "cancel"}
 _LEGACY_MUTATIONS: Final = {
     "init",
@@ -87,7 +87,6 @@ _READ_ONLY_COMMANDS: Final = {
     "export-readiness",
     "performance-summary",
     "recommend-audio",
-    "operator-status",
 }
 _READ_ONLY_MARKERS: Final = (
     "report",
@@ -100,13 +99,6 @@ _READ_ONLY_MARKERS: Final = (
     "show",
     "preflight",
 )
-_READ_ONLY_POST_ROUTES: Final = {
-    "/api/campaign-readiness",
-    "/api/export-readiness",
-    "/api/threadsdash-usage",
-    "/api/supabase-preflight",
-}
-_HANDOFF_ROUTES: Final = {"/api/export-threadsdash"}
 AUTHORITY_CLAIM_STALE_MINUTES: Final = 30
 
 
@@ -361,175 +353,6 @@ def record_authority_event(conn: Any, decision: AuthorityDecision) -> str:
     """Compatibility wrapper around the claim phase."""
 
     status = claim_cli_authority_event(conn, decision)["status"]
-    return {
-        "claimed": "recorded",
-        "replay": "replay_suppressed",
-    }.get(str(status), str(status))
-
-
-def api_operation(request: Request) -> dict[str, Any]:
-    route = request.scope.get("route")
-    path = str(getattr(route, "path", request.url.path))
-    return api_authority_for(method=request.method.upper(), path=path)
-
-
-def api_authority_for(
-    *,
-    method: str,
-    path: str,
-    context: LocalApiAuthContext | None = None,
-    request_fingerprint: str | None = None,
-    idempotency_key: str | None = None,
-) -> dict[str, Any]:
-    operation_id = f"api:{method}:{path}"
-    effect_class = _classify_api(method, path)
-    allowed_roles = (
-        ["reader", "operator", "admin"]
-        if effect_class == READ
-        else ["operator", "admin"]
-    )
-    authority = {
-        "operationId": operation_id,
-        "effectClass": effect_class,
-        "allowedRoles": allowed_roles,
-        "preview": effect_class == READ,
-        "idempotencyRequired": effect_class != READ,
-        "receiptRequired": effect_class != READ,
-        "rollbackOwner": (
-            "threadsdashboard" if effect_class == HANDOFF else "campaign_factory"
-        ),
-        "reconciliationOwner": (
-            "threadsdashboard" if effect_class == HANDOFF else "campaign_factory"
-        ),
-    }
-    if context is not None:
-        if context.role not in allowed_roles:
-            raise HTTPException(status_code=403, detail="operator_authority_required")
-        if effect_class != READ and not str(idempotency_key or "").strip():
-            raise HTTPException(status_code=428, detail="idempotency_key_required")
-        authority.update(
-            {
-                "actorFingerprint": context.actor_fingerprint,
-                "role": context.role,
-                "requestFingerprint": request_fingerprint
-                or payload_fingerprint(
-                    {
-                        "operationId": operation_id,
-                        "actorFingerprint": context.actor_fingerprint,
-                    }
-                ),
-                "idempotencyKey": str(idempotency_key or "").strip() or None,
-            }
-        )
-    return authority
-
-
-def _classify_api(method: str, path: str) -> str:
-    if method == "GET" or (method == "POST" and path in _READ_ONLY_POST_ROUTES):
-        return READ
-    if path in _HANDOFF_ROUTES:
-        return HANDOFF
-    return MUTATE
-
-
-def build_api_authority_registry(app: Any) -> list[dict[str, Any]]:
-    records = []
-    for route in app.routes:
-        path = str(getattr(route, "path", ""))
-        for method in sorted(getattr(route, "methods", set()) or set()):
-            if method in {"HEAD", "OPTIONS"}:
-                continue
-            effect_class = _classify_api(method, path)
-            records.append(
-                {
-                    "operationId": f"api:{method}:{path}",
-                    "effectClass": effect_class,
-                    "allowedRoles": ["reader", "operator", "admin"]
-                    if effect_class == READ
-                    else ["operator", "admin"],
-                    "idempotencyRequired": effect_class != READ,
-                    "receiptRequired": effect_class != READ,
-                    "previewSupported": effect_class == READ,
-                    "applyRequired": effect_class != READ,
-                    "rollbackOwner": (
-                        "threadsdashboard"
-                        if effect_class == HANDOFF
-                        else "campaign_factory"
-                    ),
-                    "reconciliationOwner": (
-                        "threadsdashboard"
-                        if effect_class == HANDOFF
-                        else "campaign_factory"
-                    ),
-                }
-            )
-    return sorted(records, key=lambda item: item["operationId"])
-
-
-def authorize_api_operation(request: Request, context: LocalApiAuthContext) -> None:
-    request.state.operator_authority = api_authority_for(
-        method=request.method.upper(),
-        path=str(getattr(request.scope.get("route"), "path", request.url.path)),
-        context=context,
-        request_fingerprint=getattr(
-            request.state, "operator_request_fingerprint", None
-        ),
-        idempotency_key=request.headers.get("idempotency-key"),
-    )
-
-
-def claim_api_authority_event(conn: Any, authority: dict[str, Any]) -> dict[str, Any]:
-    if authority.get("effectClass") == READ:
-        return {"status": "read_only", "outcome": None}
-    try:
-        return _claim_authority_event(
-            conn,
-            operation_id=str(authority["operationId"]),
-            effect_class=str(authority["effectClass"]),
-            actor_fingerprint=str(authority["actorFingerprint"]),
-            role=str(authority["role"]),
-            request_fingerprint=str(authority["requestFingerprint"]),
-            reason="authenticated_api_operator",
-            idempotency_key=str(authority["idempotencyKey"]),
-            preview=False,
-            apply_requested=True,
-            rollback_owner=str(authority["rollbackOwner"]),
-            reconciliation_owner=str(authority["reconciliationOwner"]),
-        )
-    except RuntimeError as exc:
-        if str(exc) == "operator_idempotency_key_conflict":
-            raise HTTPException(
-                status_code=409, detail="idempotency_key_conflict"
-            ) from exc
-        raise
-
-
-def complete_api_authority_event(
-    conn: Any,
-    authority: dict[str, Any],
-    *,
-    succeeded: bool,
-    outcome: dict[str, Any] | None,
-    retryable: bool,
-    error: str | None = None,
-) -> None:
-    if authority.get("effectClass") == READ:
-        return
-    _complete_authority_event(
-        conn,
-        operation_id=str(authority["operationId"]),
-        idempotency_key=str(authority["idempotencyKey"]),
-        succeeded=succeeded,
-        outcome=outcome,
-        retryable=retryable,
-        error=error,
-    )
-
-
-def record_api_authority_event(conn: Any, authority: dict[str, Any]) -> str:
-    """Compatibility wrapper around the API claim phase."""
-
-    status = claim_api_authority_event(conn, authority)["status"]
     return {
         "claimed": "recorded",
         "replay": "replay_suppressed",

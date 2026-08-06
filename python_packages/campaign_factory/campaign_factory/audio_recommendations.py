@@ -4,14 +4,20 @@ import hashlib
 import json
 import math
 import os
-import re
 import sqlite3
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .audio_policy import audio_preview_evidence, is_native_audio_url, is_reel_page_url
+from creator_os_core.audio_rules import (
+    audio_preview_evidence,
+    audio_rights_status,
+    is_generic_audio_title,
+    is_native_audio_url,
+    is_reel_page_url,
+)
+
 from .config import Settings
 from .persistence import json_load, utc_now
 
@@ -45,7 +51,11 @@ _UNRESOLVED_NATIVE_ID_PREFIXES = ("example_", "unresolved_sha256_")
 
 
 class AudioRecommendationRepository:
+    # All five are the shared creator_os_core.audio_rules implementations, so a
+    # rights or title decision cannot differ from Reference Factory's.
     audio_preview_evidence = staticmethod(audio_preview_evidence)
+    audio_rights_status = staticmethod(audio_rights_status)
+    is_generic_audio_title = staticmethod(is_generic_audio_title)
     is_native_audio_url = staticmethod(is_native_audio_url)
     is_reel_page_url = staticmethod(is_reel_page_url)
 
@@ -831,52 +841,6 @@ class AudioRecommendationRepository:
         if "needs_ig_lookup" in (primary.get("riskFlags") or []):
             return f"Use this as a trend signal and find the closest matching native Instagram audio: {primary.get('audioTitle') or primary.get('audio_title')}"
         return f"Attach this native {primary.get('platform') or 'platform'} audio manually before publish: {primary.get('audioTitle') or primary.get('audio_title')}"
-
-    def is_generic_audio_title(self, title: str, platform: str | None = None) -> bool:
-        normalized = str(title or "").strip().lower()
-        platform_norm = self.norm_tag(platform or "")
-        if not normalized:
-            return True
-        unresolved_suffix = r"(?:\s+\(title unresolved\))?"
-        if platform_norm == "tiktok":
-            return bool(
-                re.fullmatch(
-                    rf"tiktok audio [0-9a-z_-]+{unresolved_suffix}", normalized
-                )
-            )
-        if platform_norm == "instagram":
-            return bool(
-                re.fullmatch(
-                    rf"instagram audio [0-9a-z_-]+{unresolved_suffix}", normalized
-                )
-            )
-        return bool(
-            re.fullmatch(
-                rf"(tiktok|instagram) audio [0-9a-z_-]+{unresolved_suffix}",
-                normalized,
-            )
-        )
-
-    def audio_rights_status(self, item: dict[str, Any]) -> str:
-        raw_value = item.get("raw")
-        raw: dict[str, Any] = raw_value if isinstance(raw_value, dict) else {}
-        rights_value = item.get("rights")
-        rights: dict[str, Any] = rights_value if isinstance(rights_value, dict) else {}
-        raw_rights_value = raw.get("rights")
-        raw_rights: dict[str, Any] = (
-            raw_rights_value if isinstance(raw_rights_value, dict) else {}
-        )
-        value = (
-            item.get("rightsStatus")
-            or item.get("rights_status")
-            or rights.get("status")
-            or rights.get("usageRightsStatus")
-            or raw.get("rightsStatus")
-            or raw.get("rights_status")
-            or raw_rights.get("status")
-            or raw_rights.get("usageRightsStatus")
-        )
-        return self.norm_tag(value)
 
     def imported_audio_production_eligibility(
         self,

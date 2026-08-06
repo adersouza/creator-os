@@ -22,14 +22,6 @@ the durable system map, dated pipeline state, and active operating policy.
 
 ## Active Architecture
 
-- [`architecture/autonomous_content_director.md`](architecture/autonomous_content_director.md)
-  — supervised plan domain and authority.
-- [`architecture/content_director_scheduling.md`](architecture/content_director_scheduling.md)
-  — account-local cadence and proposal policy.
-- [`architecture/content_director_experiments.md`](architecture/content_director_experiments.md)
-  — bounded experiment semantics.
-- [`architecture/content_director_capacity_and_rollout.md`](architecture/content_director_capacity_and_rollout.md)
-  — rollout truth and scale gates.
 - [`architecture/media_provenance_contract.md`](architecture/media_provenance_contract.md)
   — immutable media identity.
 - [`architecture/reference_video_structural_remix.md`](architecture/reference_video_structural_remix.md)
@@ -67,7 +59,6 @@ the durable system map, dated pipeline state, and active operating policy.
 - [`runbooks/stacey_real_learning_proof.md`](runbooks/stacey_real_learning_proof.md)
   — real supervised-learning proof sequence.
 - [`runbooks/operator_failure_runbooks.md`](runbooks/operator_failure_runbooks.md)
-  and [`runbooks/content_director_failure_matrix.md`](runbooks/content_director_failure_matrix.md)
   — recovery boundaries.
 
 ## Provider Truth
@@ -82,8 +73,6 @@ the durable system map, dated pipeline state, and active operating policy.
 The following remain evidence or research, not current operator instructions:
 
 - dated provider capability audits and security closure records;
-- local Wan/LTX Arena/Router documentation for the advanced compatibility
-  surface;
 - package-specific research and validation notes that still explain retained
   code or evidence.
 

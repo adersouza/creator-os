@@ -47,8 +47,9 @@ def test_campaign_modules_stay_below_operational_size_limit() -> None:
 def test_cli_entrypoint_does_not_reabsorb_parser_or_command_handlers() -> None:
     source = _source("cli.py")
     assert "add_parser" not in source
-    assert source.count("args.cmd ==") == 1
-    assert 'args.cmd == "serve"' in source
+    # Command dispatch belongs in the cli_dispatch_* modules; the entrypoint
+    # itself must not branch on args.cmd at all.
+    assert "args.cmd ==" not in source
     assert "__getattr__" not in source
 
 

@@ -1,9 +1,8 @@
 # Creator OS Complete Audit Map
 
 This is the active coverage index for the 26-area Creator OS audit. The
-pre-hardening evidence snapshot remains at
-[`archive/creator_os_complete_audit_map_20260730_pre_hardening.md`](archive/creator_os_complete_audit_map_20260730_pre_hardening.md).
-Durable behavior belongs in [`../../CREATOR_OS_SYSTEM_MAP.md`](../../CREATOR_OS_SYSTEM_MAP.md);
+pre-hardening evidence snapshot was removed from the working tree; git history
+is its archive. Durable behavior belongs in [`../../CREATOR_OS_SYSTEM_MAP.md`](../../CREATOR_OS_SYSTEM_MAP.md);
 changing source/runtime/operational facts belong in
 [`../../PIPELINE_STATE.md`](../../PIPELINE_STATE.md).
 

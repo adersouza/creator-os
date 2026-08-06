@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-import campaign_factory.app as app_module
 import campaign_factory.core as core_module
 import pytest
 from campaign_asset_test_support import (
@@ -25,7 +24,6 @@ from campaign_asset_test_support import (
 from campaign_factory.adapters import contentforge as contentforge_adapter
 from campaign_factory.adapters import threadsdash_client as threadsdash_client_adapter
 from campaign_test_support import add_rendered_asset, make_factory
-from fastapi.testclient import TestClient
 
 
 def _paged_posts_client(total_rows: int):
@@ -2484,9 +2482,8 @@ def test_campaign_filtered_posts_read_accepts_internal_id_and_slug():
     )
 
 
-def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatch):
+def test_campaign_health_asset_detail_and_ranking(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
-    settings = cf.settings
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -2524,108 +2521,6 @@ def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatc
         assert ranking["assets"][0]["breakdown"]["sourceHistory"] == 50
     finally:
         cf.close()
-
-    monkeypatch.setattr(app_module, "settings", settings)
-    monkeypatch.setenv("CREATOR_OS_API_TOKEN", "asset-lifecycle-test-token")
-    client = TestClient(app_module.app)
-    auth = {"Authorization": "Bearer asset-lifecycle-test-token"}
-    assert (
-        client.get(
-            "/api/campaign-health", params={"campaign": "may"}, headers=auth
-        ).status_code
-        == 200
-    )
-    assert client.get("/api/asset-detail/asset_1", headers=auth).status_code == 200
-    assert (
-        client.get("/api/ranking", params={"campaign": "may"}, headers=auth).status_code
-        == 200
-    )
-    assert client.get("/api/autonomy-policy", headers=auth).json()["level"] == "level_2"
-    set_policy_response = client.post(
-        "/api/autonomy-policy",
-        json={"level": "level_2"},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:set-policy"},
-    )
-    assert set_policy_response.status_code == 200
-    trust_response = client.get(
-        "/api/trust-summary", params={"campaign": "may"}, headers=auth
-    )
-    assert trust_response.status_code == 200
-    assert trust_response.json()["schema"] == "campaign_factory.trust_summary.v1"
-    recommend_response = client.post(
-        "/api/recommendations/run",
-        json={"campaign": "may", "count": 3, "persist": True},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:recommend"},
-    )
-    assert recommend_response.status_code == 200
-    assert (
-        recommend_response.json()["schema"]
-        == "campaign_factory.recommendations.next_batch.v1"
-    )
-    assert recommend_response.json()["items"][0]["renderedAssetId"] == "asset_1"
-    recommendation_item_id = recommend_response.json()["items"][0]["recommendationId"]
-    accept_response = client.post(
-        f"/api/recommendations/{recommendation_item_id}/accept",
-        json={"operator": "api_user"},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:accept"},
-    )
-    assert accept_response.status_code == 200
-    assert accept_response.json()["status"] == "accepted"
-    link_response = client.post(
-        f"/api/recommendations/{recommendation_item_id}/link",
-        json={"renderedAssetId": "asset_1"},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:link"},
-    )
-    assert link_response.status_code == 200
-    assert link_response.json()["status"] == "executed"
-    execute_response = client.post(
-        f"/api/recommendations/{recommendation_item_id}/execute",
-        json={"runAudit": False},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:execute"},
-    )
-    assert execute_response.status_code == 200
-    assert execute_response.json()["recommendation"]["status"] == "executed"
-    memory_rebuild_response = client.post(
-        "/api/account-memory/rebuild",
-        json={"campaign": "may"},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:memory"},
-    )
-    assert memory_rebuild_response.status_code == 200
-    memory_response = client.get(
-        "/api/account-memory", params={"campaign": "may"}, headers=auth
-    )
-    assert memory_response.status_code == 200
-    exceptions_response = client.get(
-        "/api/exceptions",
-        params={"campaign": "may", "status": "open"},
-        headers=auth,
-    )
-    assert exceptions_response.status_code == 200
-    stored_recommendations = client.get(
-        "/api/recommendations", params={"campaign": "may"}, headers=auth
-    )
-    assert stored_recommendations.status_code == 200
-    assert (
-        stored_recommendations.json()["runs"][0]["items"][0]["renderedAssetId"]
-        == "asset_1"
-    )
-    accuracy_response = client.get(
-        "/api/recommendations/accuracy",
-        params={"campaign": "may", "windowDays": 365},
-        headers=auth,
-    )
-    assert accuracy_response.status_code == 200
-    assert (
-        accuracy_response.json()["schema"]
-        == "campaign_factory.recommendation_accuracy_report.v1"
-    )
-    ready_response = client.post(
-        "/api/campaign-readiness",
-        json={"campaign": "may", "userId": "user_1"},
-        headers={**auth, "Idempotency-Key": "asset-lifecycle:readiness"},
-    )
-    assert ready_response.status_code == 200
-    assert ready_response.json()["ready"] is True
 
 
 def test_story_inventory_report_counts_schedule_safe_and_blocked_assets(tmp_path: Path):

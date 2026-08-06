@@ -216,9 +216,6 @@ def register_core_commands(sub) -> None:
         "control-check",
         help="check Campaign Factory's local component/tooling dependencies",
     )
-    serve = sub.add_parser("serve")
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8877)
     imp = sub.add_parser("import-folder")
     imp.add_argument("folder")
     imp.add_argument("--campaign", required=True)

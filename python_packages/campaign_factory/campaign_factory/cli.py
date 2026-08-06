@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import uvicorn
 from creator_os_core.sqlite import connect_sqlite
 
 from .cli_dispatch_operations import dispatch_operations_commands
@@ -26,42 +25,6 @@ def main() -> int:
     args = parser.parse_args()
     authority = authorize_cli_operation(args)
     settings = get_settings()
-
-    if args.cmd == "serve":
-        cf = CampaignFactory(settings)
-        try:
-            authority_claim = claim_cli_authority_event(cf.conn, authority)
-        finally:
-            cf.close()
-        if authority_claim["status"] == "replay":
-            return _replayed_exit_code(authority_claim)
-        if authority_claim["status"] == "in_progress":
-            raise RuntimeError("operator_operation_already_in_progress")
-        if authority_claim["status"] == "reconciliation_required":
-            raise RuntimeError("operator_operation_reconciliation_required")
-        try:
-            uvicorn.run(
-                "campaign_factory.app:app",
-                host=args.host,
-                port=args.port,
-                reload=False,
-            )
-        except Exception as exc:
-            _complete_cli(
-                settings,
-                authority,
-                succeeded=False,
-                retryable=True,
-                error=f"{type(exc).__name__}:{exc}",
-            )
-            raise
-        _complete_cli(
-            settings,
-            authority,
-            succeeded=True,
-            exit_code=0,
-        )
-        return 0
 
     if (
         getattr(args, "cmd", None) == "create"
