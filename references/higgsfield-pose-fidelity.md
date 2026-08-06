@@ -187,3 +187,51 @@ not pixel-exact. Consistency is "high, not absolute" — plan to cherry-pick fro
 Content range: lingerie / bikini / implied is all fair game — no self-imposed "keep it modest"
 rule and no age-phrase token. Hard limit is Higgsfield moderation: it rejects explicit/nude at
 the API, so the working range tops out at suggestive-but-covered regardless of prompt wording.
+
+## MODEL SELECTION BY SHOT CLASS (owner rule + 22-run test, 2026-08-06)
+
+**Nano Banana is for shots where the phone covers the face. Use it only for those.**
+Owner rule, 2026-08-06. Of the 20 operator selfie references, 7 qualify (04, 06,
+14, 16, 17, 18, 19); the other 13 show the face.
+
+### Identity on a face-visible shot is UNSOLVED in Higgsfield
+
+22 paid runs. Evidence in `~/.creator-os/analysis/2026-08-06-identity-substitution/`.
+
+| model | why it fails |
+|---|---|
+| Soul V2 + `soul_id` | **not an editor** — regenerates the frame from scratch, new pose, new room. Structural; no prompt fixes it. Identity with zero pose conditioning. |
+| Nano / Seedream / Kling O1 / Flux Kontext | pose copied from the reference, identity only a weak image hint — the structural image's face wins |
+| GPT Image 2, Cinema Studio 2.5 | NSFW-block the reference outright (free, deterministic) |
+
+The mechanism behind every failure: **identity and structure are both supplied as
+reference images, so they compete, and the structural image wins the face.**
+
+### Two-pass — works, but narrower than it looks
+
+Pass 1 recreate the scene, pass 2 a scoped face-only edit on pass 1's job_id.
+Job ids pass straight into `medias`. This landed Larissa's face — **but only when
+both passes were Nano.** The identical pass-2 prompt on a Seedream pass-1 frame
+moved nothing. So it is not a general "any scene + face fix"; it only converges
+when pass 1 already got partway. There is no model-agnostic face-swap step.
+
+### Levers that do NOT work (tested, three controlled pairs)
+
+- **Verbal identity discriminators** ("brown eyes, dark defined brows, narrow
+  face") — no visible effect. Do not spend prompt on them.
+- **"Keep X from image_1" flips sign by pass** — in a one-shot prompt it drags the
+  *face* back to the source girl; in pass 2 it is what protects the scene.
+- Reference **order** is not a lever. Roles come from the prompt text.
+
+### Reference-selection trap
+
+Pick identity references by looking at them in daylight framing. A slicked-back
+low-light shot reads as dark brown hair and the output inherits that, not the
+prompt — this cost four runs on Larissa, who is actually light ash-blonde.
+
+### The way out (not yet built)
+
+Identity must live in **model weights**, not a competing reference image: a
+per-creator LoRA for the face plus ControlNet/depth for the pose. Local ComfyUI
+(`/Volumes/ExternalHd/AI-Models/ComfyUI`) already runs Qwen-Image-Edit-2511,
+SAM3 and MoGe depth — try Qwen Edit as a real editor before training anything.
