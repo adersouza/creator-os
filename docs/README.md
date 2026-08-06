@@ -82,8 +82,6 @@ the durable system map, dated pipeline state, and active operating policy.
 The following remain evidence or research, not current operator instructions:
 
 - dated provider capability audits and security closure records;
-- local Wan/LTX Arena/Router documentation for the advanced compatibility
-  surface;
 - package-specific research and validation notes that still explain retained
   code or evidence.
 
