@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from creator_os_core.fileops import sha256_file as _sha256_file
 from creator_os_core.recreation_anchor_approval import (
@@ -150,6 +150,15 @@ _EXACT_JOB_TYPES = (
     "kling3_0_motion_control",
     "veo3_1",
 )
+
+# Seedance render settings for reel recreation. Campaign's RECREATE_REEL_STAGE
+# reports these in the motion recipe while the command builder below sends them,
+# so they are defined once here: a recipe that disagreed with the actual call
+# would make the operator-facing receipt describe a render that never happened.
+# Deliberately the cheap tier — Seedance is the priciest video model, and fast
+# mode at 480p is the qualified recreation setting.
+RECREATE_REEL_RESOLUTION: Final = "480p"
+RECREATE_REEL_MODE: Final = "fast"
 # The v1.1.19 CLI exposes duration as a cost parameter but rejects it on the
 # generic model-cost command. The authenticated 2026-07-24 account transaction
 # for a completed five-second Pro job charged exactly 16 credits.
@@ -1825,13 +1834,14 @@ def _candidate_command(
             "--duration",
             str(request.duration_seconds),
             "--resolution",
-            "480p",
+            RECREATE_REEL_RESOLUTION,
             "--bitrate_mode",
             "high",
             "--generate_audio",
             "false",
+            "--mode",
+            RECREATE_REEL_MODE,
         ]
-        command += ["--mode", "fast"]
         return [*command, "--json"]
     if request.recipe_id == "higgsfield_motion_copy_animate":
         if driving is None:

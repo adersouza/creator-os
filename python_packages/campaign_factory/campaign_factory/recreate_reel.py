@@ -14,6 +14,7 @@ from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
 from creator_os_core.fileops import sha256_file as _sha256_file
+from reel_factory.worker_api import RECREATE_REEL_MODE, RECREATE_REEL_RESOLUTION
 from scenedetect import ContentDetector, detect
 
 from .audio_policy import build_motion_audio_intent
@@ -36,8 +37,11 @@ RECREATE_REEL_STAGE: Final[dict[str, Any]] = {
     "providerModel": "seedance_2_0",
     "recipeId": "higgsfield_recreate_reel",
     "durationSeconds": None,
-    "resolution": "480p",
-    "mode": "fast",
+    # Reported from the command builder's own constants rather than restated
+    # here, so the motion recipe cannot describe a render the provider call did
+    # not make.
+    "resolution": RECREATE_REEL_RESOLUTION,
+    "mode": RECREATE_REEL_MODE,
     "sound": "off",
     "generatedAudio": False,
     "task": "reference_to_video",

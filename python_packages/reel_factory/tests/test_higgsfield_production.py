@@ -522,8 +522,15 @@ def test_recreate_qualification_uses_seedance_fast_with_creator_reference(
         command[command.index("--image-references") + 1]
         == plan["recreationAnchorApproval"]["anchorFilePath"]
     )
-    assert command[command.index("--mode") + 1] == "fast"
-    assert plan["command"][plan["command"].index("--resolution") + 1] == "480p"
+    # Asserted against the shared constants, not literals: campaign's
+    # RECREATE_REEL_STAGE reports these same values in the motion recipe, so this
+    # is what stops the operator-facing recipe describing a render the provider
+    # call did not make. The literal 480p/fast intent is pinned campaign-side.
+    assert command[command.index("--mode") + 1] == subject.RECREATE_REEL_MODE
+    assert (
+        plan["command"][plan["command"].index("--resolution") + 1]
+        == subject.RECREATE_REEL_RESOLUTION
+    )
     assert command[command.index("--bitrate_mode") + 1] == "high"
     assert plan["command"][plan["command"].index("--generate_audio") + 1] == "false"
     assert "--start-image" not in command
