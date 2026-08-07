@@ -463,7 +463,20 @@ async def amain(args):
         # Preserve original hook_idx so output filenames stay stable across
         # runs (h00, h03, h07 ...). The manifest keys on caption/recipe
         # hashes, so partial sampling is cache-correct.
-        rng = random.Random(args.seed)
+        #
+        # Seed per SOURCE, not per run. This is re-created on every iteration,
+        # so a bare `args.seed` made all 424 clips of a run draw the identical
+        # sample: 287 candidate hooks collapsed to 4 across 3384 reels, two of
+        # them at 49.5% each. Mixing src_hash in keeps the draw reproducible
+        # (same source + same seed + same pool → same picks) while letting
+        # different sources diverge.
+        #
+        # ponytail: an f-string, not a tuple and not hash(). random.Random
+        # rejects tuples outright, and Python randomizes str hashing per
+        # process, so hash() would reshuffle every run. Keyed on src_hash
+        # rather than video.stem so renaming a source does not reshuffle it.
+        clip_seed = f"{args.seed}|{src_hash}"
+        rng = random.Random(clip_seed)
 
         hooks_pool: list[tuple[int, str | dict]] = list(enumerate(video_cap_set.hooks))
         recipes_pool: list[Recipe] = list(recipes)
@@ -500,7 +513,7 @@ async def amain(args):
                 recipes_pool,
                 per_clip=args.per_clip,
                 hook_select=args.hook_select,
-                seed=args.seed,
+                seed=clip_seed,
                 recipe_order=recipes,
             )
 

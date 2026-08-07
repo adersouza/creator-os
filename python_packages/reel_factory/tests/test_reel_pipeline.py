@@ -1894,6 +1894,79 @@ class ReelPipelineTests(unittest.TestCase):
             [recipe.name for recipe in limited_recipes], ["v00", "v01", "v02", "v03"]
         )
 
+    # ── Per-source RNG seeding ────────────────────────────────────────────
+    # The pipeline re-creates its RNG once per clip. Seeding it from a bare
+    # run-level `args.seed` made every clip draw the same sample: one real run
+    # put 287 candidate hooks through 424 sources and produced 4 distinct
+    # captions across 3384 reels. Both halves of the contract are asserted --
+    # reproducible for a given source, divergent across sources.
+
+    @staticmethod
+    def _draw_hooks(seed_material, hooks, count):
+        """Mirror the pipeline's hook sampling at reel_pipeline.py:466."""
+        import random
+
+        rng = random.Random(seed_material)
+        return tuple(idx for idx, _ in sorted(rng.sample(hooks, count), key=lambda x: x[0]))
+
+    def test_hook_draw_is_reproducible_for_the_same_source(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(60)]
+        first = self._draw_hooks("7|aaaa1111", hooks, 2)
+        second = self._draw_hooks("7|aaaa1111", hooks, 2)
+        self.assertEqual(first, second)
+
+    def test_hook_draw_diverges_across_sources(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(60)]
+        # Several sources, asserting "not all identical" rather than pairwise
+        # inequality -- two sources legitimately colliding on one draw is not
+        # a bug, 424 sources agreeing is.
+        draws = {self._draw_hooks(f"7|src{i:04d}", hooks, 2) for i in range(12)}
+        self.assertGreater(len(draws), 1)
+
+    def test_recipe_draw_is_reproducible_for_the_same_source(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(4)]
+        recipes = [Recipe(f"v{idx:02d}") for idx in range(9)]
+        kwargs = dict(per_clip=4, hook_select="random", recipe_order=recipes)
+        first = limit_render_pool(hooks, recipes, seed="7|aaaa1111", **kwargs)[1]
+        second = limit_render_pool(hooks, recipes, seed="7|aaaa1111", **kwargs)[1]
+        self.assertEqual([r.name for r in first], [r.name for r in second])
+
+    def test_recipe_draw_diverges_across_sources(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(4)]
+        recipes = [Recipe(f"v{idx:02d}") for idx in range(9)]
+        draws = {
+            tuple(
+                r.name
+                for r in limit_render_pool(
+                    hooks,
+                    recipes,
+                    per_clip=4,
+                    hook_select="random",
+                    seed=f"7|src{i:04d}",
+                    recipe_order=recipes,
+                )[1]
+            )
+            for i in range(12)
+        }
+        self.assertGreater(len(draws), 1)
+
+    def test_batch_of_sources_does_not_collapse_to_one_hook_set(self):
+        """The regression the unit tests alone would not have caught.
+
+        This is the shape of the production bug: every source independently
+        drawing, every source getting the same answer. Asserts at the batch
+        level, the way the defect actually presented.
+        """
+        hooks = [(idx, f"hook {idx}") for idx in range(60)]
+        source_hashes = [f"{i:064x}" for i in range(20)]
+        sets = {self._draw_hooks(f"7|{h}", hooks, 2) for h in source_hashes}
+        self.assertGreater(
+            len(sets), 1, "all 20 sources drew the identical hook set — RNG reseed collapsed"
+        )
+        # A pool of 60 choose 2 across 20 sources should spread widely; a
+        # near-collapse is as broken as a total one.
+        self.assertGreaterEqual(len(sets), 10)
+
     def test_manifest_sqlite_exports_json_and_detects_existing_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

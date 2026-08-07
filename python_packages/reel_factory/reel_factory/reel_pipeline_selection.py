@@ -495,9 +495,17 @@ def limit_render_pool(
     *,
     per_clip: int | None,
     hook_select: str,
-    seed: int,
+    seed: int | str,
     recipe_order: list[Recipe],
 ) -> tuple[list[tuple[int, str | dict]], list[Recipe]]:
+    """Cap a clip's hook × recipe pool to `per_clip` outputs.
+
+    `seed` accepts a str so the caller can pass per-source seed material
+    (`f"{args.seed}|{src_hash}"`). A bare run-level int reseeds identically for
+    every clip, which collapses the recipe draw the same way it collapsed the
+    hook draw — every clip getting the same recipes is the dormant half of the
+    same defect.
+    """
     if per_clip is None:
         return hooks_pool, recipes_pool
     total = len(hooks_pool) * len(recipes_pool)
