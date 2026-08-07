@@ -117,3 +117,72 @@ class CaptionRenderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaptionOrphanWrapTests(unittest.TestCase):
+    """Greedy wrap left a paragraph's last line as one tiny word.
+
+    Measured across the 477 live captions at the real reel width (600px):
+    39 orphaned before, 11 after. Every reference creator's caption breaks
+    into balanced lines, so this matches the format rather than inventing one.
+    """
+
+    @staticmethod
+    def _font():
+        from PIL import ImageFont
+
+        path = Path(__file__).resolve().parents[1] / "fonts" / "Inter-Black.ttf"
+        return ImageFont.truetype(str(path), 64)
+
+    @staticmethod
+    def _greedy(text, font, width):
+        """Wrap with the un-orphan post-pass disabled."""
+        from reel_factory import caption_render as cr
+
+        original = cr._unorphan
+        cr._unorphan = lambda lines, *a, **k: lines
+        try:
+            return cr._wrap_lines(text, font, width)
+        finally:
+            cr._unorphan = original
+
+    def test_short_trailing_word_is_pulled_up_a_line(self):
+        from reel_factory.caption_render import _wrap_lines
+
+        font, width = self._font(), 600
+        # A real caption from the live bank, verified to orphan at this width.
+        text = "Having a female bestie is like raising a chicken.\nOne day you'll eat it."
+        before = self._greedy(text, font, width)
+        after = _wrap_lines(text, font, width)
+
+        self.assertEqual(before[-1], "it.", "fixture no longer reproduces the orphan")
+        self.assertEqual(after[-1], "eat it.")
+        self.assertGreater(len(after[-1].split()), 1)
+        # Same words, same order -- only the break position moved.
+        self.assertEqual(" ".join(before).split(), " ".join(after).split())
+
+    def test_paragraph_boundaries_are_never_crossed(self):
+        from reel_factory.caption_render import _wrap_lines
+
+        font = self._font()
+        text = "a short line\n\nx:"
+        lines = _wrap_lines(text, font, 600)
+        # "x:" is its own paragraph with no donor line; it must be left alone
+        # rather than absorbing a word from the paragraph above it.
+        self.assertIn("x:", lines)
+        self.assertIn("", lines)
+
+    def test_normal_captions_are_untouched(self):
+        from reel_factory.caption_render import _wrap_lines
+
+        font, width = self._font(), 600
+        text = "come give me a koss"
+        self.assertEqual(_wrap_lines(text, font, width), self._greedy(text, font, width))
+
+    def test_donor_line_with_a_single_word_is_left_alone(self):
+        from reel_factory.caption_render import _wrap_lines
+
+        font = self._font()
+        # Stripping the donor's only word would just move the orphan up.
+        lines = _wrap_lines("supercalifragilistic\nto", font, 600)
+        self.assertEqual(lines[-1], "to")
