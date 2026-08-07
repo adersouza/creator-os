@@ -41,6 +41,11 @@ def output_stem(src: Path, src_hash: str) -> str:
     and survives with only the provider token removed.
     """
     stem = _PROVIDER_TOKENS.sub("_", src.stem)
+    # Anything that is not a word character or a hyphen becomes an underscore.
+    # Source drops carry Finder duplicates like `hf_<uuid> copy.png`, and a
+    # space in an output filename breaks shell and URL handling downstream --
+    # which is the whole point of renaming these.
+    stem = re.sub(r"[^\w-]+", "_", stem)
     stem = re.sub(r"[_\-]{2,}", "_", stem).strip("_-")
     if not re.search(r"[g-z]", stem, re.IGNORECASE):
         return f"src_{src_hash[:10]}"
