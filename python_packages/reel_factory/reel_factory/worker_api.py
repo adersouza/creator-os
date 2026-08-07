@@ -28,6 +28,8 @@ from .derived_stills import (
 from .derived_stills import provider_adapter as provider_adapter
 from .derived_stills import split_grid_2x3 as split_grid_2x3
 from .higgsfield_production import (
+    RECREATE_REEL_MODE,
+    RECREATE_REEL_RESOLUTION,
     HiggsfieldProductionRequest,
     build_higgsfield_production_plan,
     discover_higgsfield_production_capabilities,
@@ -107,4 +109,6 @@ __all__ = [
     "caption_hook_payload",
     "quote_higgsfield_production_plan",
     "read_audio_intent",
+    "RECREATE_REEL_MODE",
+    "RECREATE_REEL_RESOLUTION",
 ]

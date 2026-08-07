@@ -299,7 +299,11 @@ def test_recreate_uses_internal_seedance_recipe_and_silent_contract(
     job = _plan(tmp_path)["jobs"][0]
     stage = job["productionRecipe"]["stages"][0]
     assert stage["providerModel"] == "seedance_2_0"
+    # The cheap tier is the intent, pinned as literals here. The reel_factory
+    # side asserts the provider command carries these same constants, so the two
+    # together stop the reported recipe drifting from the actual render.
     assert stage["resolution"] == "480p"
+    assert stage["mode"] == "fast"
     assert stage["recipeId"] == "higgsfield_recreate_reel"
     assert stage["task"] == "reference_to_video"
     assert job["productionRecipe"]["status"] == "experimental"
