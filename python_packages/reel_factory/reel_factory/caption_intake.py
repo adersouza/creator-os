@@ -1591,8 +1591,32 @@ def _hook_variants(text: str) -> dict[str, Any]:
 
 
 def _segments_for(text: str) -> list[str]:
+    """Split an overlay into timed beats.
+
+    A newline is not automatically a beat. In OCR-harvested overlays the newline
+    is where the text WRAPPED on the source slide, so splitting on every one of
+    them cuts mid-sentence and the reel shows `"i'm sorry i was eating` as its
+    own on-screen beat, then `dinner"` as the next.
+
+    ponytail: one rule, not a sentence parser -- a line holding an odd number of
+    quote characters is unterminated, so the quote continues onto the next line
+    and the break is a wrap. Joining those is always right. Everything else stays
+    a beat, so a genuine setup/payoff like "wife material" / "or heartbreak
+    material?" is untouched, and the failure mode of a missed join is the
+    behaviour we already have.
+    """
     lines = [line.strip() for line in _clean_caption(text).splitlines() if line.strip()]
-    return lines[:4]
+    merged: list[str] = []
+    for line in lines:
+        if (
+            merged
+            and (merged[-1].count('"') + merged[-1].count("“") + merged[-1].count("”"))
+            % 2
+        ):
+            merged[-1] = f"{merged[-1]} {line}"
+        else:
+            merged.append(line)
+    return merged[:4]
 
 
 def _content_match_for_review(row: dict[str, Any]) -> dict[str, Any]:
