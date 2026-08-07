@@ -1,9 +1,9 @@
 {
   "schema": "reel_factory.caption_candidate_intake.v1",
-  "updated_at": 1785573579,
+  "updated_at": 1786081902,
   "command": "import-external",
-  "candidate_count": 1015,
-  "rejected_count": 0,
+  "candidate_count": 1032,
+  "rejected_count": 21,
   "candidates": [
     {
       "caption_hash": "6f815f2c3f4cda940cb3c577df1f778f6cab39733a3fd700e9bab2ab5b75183f",
@@ -9341,6 +9341,875 @@
         "required_context_tags": []
       },
       "qualityFlags": []
+    },
+    {
+      "caption_hash": "c316a9b2da2fe0d5a9170d60a925c91f3a13eecafe0346fffa3c2ee3930f176c",
+      "text": "If you L my P\nI will S your D\nAnd P your A\ntill you C\nIf you understand his your qualified",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:1",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you L my P\nI will S your D\nAnd P your A\ntill you C\nIf you understand his your qualified",
+        "timed": {
+          "segments": [
+            {
+              "text": "If you L my P"
+            },
+            {
+              "text": "I will S your D"
+            },
+            {
+              "text": "And P your A"
+            },
+            {
+              "text": "till you C"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.46.01 AM.png",
+        "observedViewCount": 8453,
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "cfb8058a7263eee5bd0d020b376ed4a12f6ebd2169680895df44cc23d6a65c41",
+      "text": "When he's the 'turn to ur side' at 4am type and not the \"didn't wanna wake u\"",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:10",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "When he's the 'turn to ur side' at 4am type and not the \"didn't wanna wake u\"",
+        "timed": null
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.46.01 AM.png",
+        "archetype": "boyfriend_bait"
+      },
+      "archetype": "boyfriend_bait"
+    },
+    {
+      "caption_hash": "eb41a51f18205ee818418a8fd5494ffcc85634f0eee802e93e73f3b3639a52aa",
+      "text": "I might be an 18yo brunette but I'm not stupid. I know you have a card hock rn.\n\nNow change c with h",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:11",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I might be an 18yo brunette but I'm not stupid. I know you have a card hock rn.\n\nNow change c with h",
+        "timed": {
+          "segments": [
+            {
+              "text": "I might be an 18yo brunette but I'm not stupid. I know you have a card hock rn."
+            },
+            {
+              "text": "Now change c with h"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.46.14 AM.png",
+        "observedViewCount": 2606,
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "fdd67d479bab1f76c63da2a9c692d15670dd18ed9d2e515b0e375871a8bbc16f",
+      "text": "My two cousins wanted to\nplay a game with me...\nit hurt",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:13",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "My two cousins wanted to\nplay a game with me...\nit hurt",
+        "timed": {
+          "segments": [
+            {
+              "text": "My two cousins wanted to"
+            },
+            {
+              "text": "play a game with me..."
+            },
+            {
+              "text": "it hurt"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.46.14 AM.png",
+        "observedViewCount": 3051,
+        "archetype": "experimental_edge"
+      },
+      "archetype": "experimental_edge"
+    },
+    {
+      "caption_hash": "efd3a74e096ad8fe32fbac95b87f64484bede6f37d639ed65ff950e01a9aae96",
+      "text": "be a good boy and read this backwards:\n\nelihc dna emina hctaw ew elihw styttit gib esehc kcus ot nam a rof gnikool mi",
+      "banks": [
+        "shared_girl_next_door",
+        "read_backwards_puzzle",
+        "boyfriend_bait"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:14",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "be a good boy and read this backwards:\n\nelihc dna emina hctaw ew elihw styttit gib esehc kcus ot nam a rof gnikool mi",
+        "timed": {
+          "segments": [
+            {
+              "text": "be a good boy and read this backwards:"
+            },
+            {
+              "text": "elihc dna emina hctaw ew elihw styttit gib esehc kcus ot nam a rof gnikool mi"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+        "observedViewCount": 12200,
+        "archetype": "read_backwards_puzzle"
+      },
+      "archetype": "read_backwards_puzzle"
+    },
+    {
+      "caption_hash": "2342f0f00ee7df959bbc6f65c44fd5f79c8716310ad082285d48225ed9addc38",
+      "text": "Never cheated: 30\nNever smoked: 20\nNever drank: 20\nNever been to a club: 30\nNever cuddled: 30\n\nPersonally 90, and you ?",
+      "banks": [
+        "choice_poll"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:15",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Never cheated: 30\nNever smoked: 20\nNever drank: 20\nNever been to a club: 30\nNever cuddled: 30\n\nPersonally 90, and you ?",
+        "timed": {
+          "segments": [
+            {
+              "text": "Never cheated: 30"
+            },
+            {
+              "text": "Never smoked: 20"
+            },
+            {
+              "text": "Never drank: 20"
+            },
+            {
+              "text": "Never been to a club: 30"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.46.14 AM.png",
+        "observedViewCount": 4507,
+        "archetype": "comment_bait"
+      },
+      "archetype": "comment_bait"
+    },
+    {
+      "caption_hash": "fe3606e1443f5ee88b3856e445135cdfda0bba754023a6e774dc26fa86d0afe5",
+      "text": "when I was 14, a boy in my class typed 55378008 on calculator, turned it upside down and said, that's you.",
+      "banks": [
+        "shared_girl_next_door",
+        "body_attention"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:16",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "when I was 14, a boy in my class typed 55378008 on calculator, turned it upside down and said, that's you.",
+        "timed": null
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+        "observedViewCount": 2900,
+        "archetype": "comment_bait"
+      },
+      "archetype": "comment_bait"
+    },
+    {
+      "caption_hash": "0b0d6ced755aff82ee699fe7d958c507807b016578b2b557d389390828e88281",
+      "text": "be honest:\n\nHow many drinks would it take\nyou to forget I'm disabled?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:18",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "be honest:\n\nHow many drinks would it take\nyou to forget I'm disabled?",
+        "timed": {
+          "segments": [
+            {
+              "text": "be honest:"
+            },
+            {
+              "text": "How many drinks would it take"
+            },
+            {
+              "text": "you to forget I'm disabled?"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+        "observedViewCount": 1201,
+        "archetype": "comment_bait"
+      },
+      "archetype": "comment_bait"
+    },
+    {
+      "caption_hash": "1adf1b0404db8453bb9ddf18fad1fe2ae88358c84bc680938bb7f918abc8c871",
+      "text": "this mommy stuff ain't no joke. i genuinely want to call him good boy, buy him hot wheels and ill be the race track",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:20",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "this mommy stuff ain't no joke. i genuinely want to call him good boy, buy him hot wheels and ill be the race track",
+        "timed": null
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+        "observedViewCount": 1373,
+        "archetype": "experimental_edge"
+      },
+      "archetype": "experimental_edge"
+    },
+    {
+      "caption_hash": "172730e77bb6deb23c4c377edd1ed81a0da643fb34ac05085f0daef2fedbb857",
+      "text": "You can only pick two:\n\niPhone 17 Pro\n$500\nMe ? 😘\nInfinite beer",
+      "banks": [
+        "choice_poll"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:22",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "You can only pick two:\n\niPhone 17 Pro\n$500\nMe ? 😘\nInfinite beer",
+        "timed": {
+          "segments": [
+            {
+              "text": "You can only pick two:"
+            },
+            {
+              "text": "iPhone 17 Pro"
+            },
+            {
+              "text": "$500"
+            },
+            {
+              "text": "Me ? 😘"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+        "observedViewCount": 15800,
+        "archetype": "choice_poll"
+      },
+      "archetype": "choice_poll"
+    },
+    {
+      "caption_hash": "f2c95f1e60d73ff5ca4193b5debdfa6ae6d9168686e3c910c1eb8d85b2d8775e",
+      "text": "I look like 18 because older man Don't take me Serious\n\nNow read: 4,5,6,7,3,2,1",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:23",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I look like 18 because older man Don't take me Serious\n\nNow read: 4,5,6,7,3,2,1",
+        "timed": {
+          "segments": [
+            {
+              "text": "I look like 18 because older man Don't take me Serious"
+            },
+            {
+              "text": "Now read: 4,5,6,7,3,2,1"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+        "archetype": "coded_fill_ins",
+        "observedViewCount": 1453
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "e25c15a16d425d372450bbe2a31684f0d917f52637c5e2baf0f6eddf7346b871",
+      "text": "What I really need:\nVehicle (without hicle)\nLobby (without bby)\nUrban (without ban)\nYoga (without ga)\n\nNow read it backwards",
+      "banks": [
+        "coded_fill_ins",
+        "read_backwards_puzzle"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:24",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "What I really need:\nVehicle (without hicle)\nLobby (without bby)\nUrban (without ban)\nYoga (without ga)\n\nNow read it backwards",
+        "timed": {
+          "segments": [
+            {
+              "text": "What I really need:"
+            },
+            {
+              "text": "Vehicle (without hicle)"
+            },
+            {
+              "text": "Lobby (without bby)"
+            },
+            {
+              "text": "Urban (without ban)"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "3386b8d7b1914b1a6749db7a4bc07ee0f2ab205b8b2f042ee5ad68f4bda04011",
+      "text": "If you have crush on me, pls go for it, you literally have no competition at all",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:25",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "If you have crush on me, pls go for it, you literally have no competition at all",
+        "timed": null
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+        "archetype": "comment_bait"
+      },
+      "archetype": "comment_bait"
+    },
+    {
+      "caption_hash": "c5f82dc47dab8e1ea649687146d8b51558a37bc6f798978de1676a44f41eeaa5",
+      "text": "I want to kiss me but replace\nthe k with f and a with t",
+      "banks": [
+        "coded_fill_ins",
+        "body_attention"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:26",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "I want to kiss me but replace\nthe k with f and a with t",
+        "timed": {
+          "segments": [
+            {
+              "text": "I want to kiss me but replace"
+            },
+            {
+              "text": "the k with f and a with t"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+        "observedViewCount": 14500,
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "3268cb717c03bcefb3ca78f6ea3065dbd42c61d8a6620129366d3bd51663870d",
+      "text": "Reading books, because no man in this word will grab my neck and say \"eyes on me, baby\"",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:27",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Reading books, because no man in this word will grab my neck and say \"eyes on me, baby\"",
+        "timed": null
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.24 AM.png",
+        "observedViewCount": 11000,
+        "archetype": "boyfriend_bait"
+      },
+      "archetype": "boyfriend_bait"
+    },
+    {
+      "caption_hash": "3b085b616a9163d7ebc69927c8034862e6422c16af6dccecc9173f5f2619b670",
+      "text": "Amazing cook,\nlegs for days,\ntheep droat Queen",
+      "banks": [
+        "body_attention"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:3",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Amazing cook,\nlegs for days,\ntheep droat Queen",
+        "timed": {
+          "segments": [
+            {
+              "text": "Amazing cook,"
+            },
+            {
+              "text": "legs for days,"
+            },
+            {
+              "text": "theep droat Queen"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+        "observedViewCount": 106000,
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "74bb56645135419bbe5320a330a0d015f8c2f4eb75498068f15a8011db159bca",
+      "text": "Missionary cause I'm pretty,\nbashots cause my 🍑 fat\n\nNow change R with S",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:6",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Missionary cause I'm pretty,\nbashots cause my 🍑 fat\n\nNow change R with S",
+        "timed": {
+          "segments": [
+            {
+              "text": "Missionary cause I'm pretty,"
+            },
+            {
+              "text": "bashots cause my 🍑 fat"
+            },
+            {
+              "text": "Now change R with S"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+        "observedViewCount": 119000,
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "2d0ad211688398a6ce52ad0bf4e1eb0e0b785f29443484527f2ec43e610b8644",
+      "text": "Is 2008 too young?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:7",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Is 2008 too young?",
+        "timed": null
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+        "observedViewCount": 129000,
+        "archetype": "comment_bait"
+      },
+      "archetype": "comment_bait"
+    },
+    {
+      "caption_hash": "cbea980a2b37a6327e1af15b72c5e818b9ebd05d4c7a92fbbf2a47a85663f955",
+      "text": "Imagine a girl like me that gives you a new years kiss\n\nnow replace G and N",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "coded_fill_ins",
+        "body_attention"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:8",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Imagine a girl like me that gives you a new years kiss\n\nnow replace G and N",
+        "timed": {
+          "segments": [
+            {
+              "text": "Imagine a girl like me that gives you a new years kiss"
+            },
+            {
+              "text": "now replace G and N"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.46.01 AM.png",
+        "observedViewCount": 5294,
+        "archetype": "coded_fill_ins"
+      },
+      "archetype": "coded_fill_ins"
+    },
+    {
+      "caption_hash": "7298158e7e055cf4d6374a12fec40f5575e2766c61ef92113953f1afb7e9909b",
+      "text": "When we flirtin jokingly but lowkey i aint jokin",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "instagram_grid_screenshots_20260807:grid_captions.json:9",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": false,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "When we flirtin jokingly but lowkey i aint jokin",
+        "timed": null
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "screenshot": "Screenshot 2026-08-07 at 12.47.24 AM.png",
+        "observedViewCount": 1988,
+        "archetype": "boyfriend_bait"
+      },
+      "archetype": "boyfriend_bait"
     },
     {
       "caption_hash": "f00d6c6eba12abcf570a351ea884207a606760733b2090ede96ee9bfe577b074",
@@ -57017,12 +57886,59 @@
     }
   ],
   "wouldWriteLiveBanks": false,
-  "importedSourceFile": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/operator_action_overlays_20260801.json",
-  "importedSource": "operator:action-matched-overlays:2026-08-01",
-  "importedAt": 1785573579,
-  "added_count": 8,
-  "import_rejected_count": 0,
-  "rejectedSamples": [],
-  "placementPlannedAt": 1785575476,
-  "placementNotes": "Stacey/Larissa overlay text uses stacey_static_center. Static hooks use lower_center. Timed hooks omit explicit bands so placement.py can resolve lower_center/lower_center_alt from the actual video."
+  "importedSourceFile": "/private/tmp/claude-501/-Users-aderdesouza-Developer-creator-os/ea8569fe-651d-41e8-bde5-7e081f81f315/scratchpad/grid_captions.json",
+  "importedSource": "instagram_grid_screenshots_20260807",
+  "importedAt": 1786081902,
+  "added_count": 7,
+  "import_rejected_count": 21,
+  "rejectedSamples": [
+    {
+      "index": 2,
+      "text": "Amazing cook,\nlegs for days,\ntheep droat Queen\n\nNow read every third word"
+    },
+    {
+      "index": 3,
+      "text": "Amazing cook,\nlegs for days,\ntheep droat Queen"
+    },
+    {
+      "index": 4,
+      "text": "My big brother kept staring at me during the family meal...\n\nNow switch the P with the R"
+    },
+    {
+      "index": 5,
+      "text": "Date idea:\n\nWe play basketball and every shot I miss is a back shot"
+    },
+    {
+      "index": 6,
+      "text": "Missionary cause I'm pretty,\nbashots cause my 🍑 fat\n\nNow change R with S"
+    },
+    {
+      "index": 7,
+      "text": "Is 2008 too young?"
+    },
+    {
+      "index": 8,
+      "text": "Imagine a girl like me that gives you a new years kiss\n\nnow replace G and N"
+    },
+    {
+      "index": 9,
+      "text": "When we flirtin jokingly but lowkey i aint jokin"
+    },
+    {
+      "index": 10,
+      "text": "When he's the 'turn to ur side' at 4am type and not the \"didn't wanna wake u\""
+    },
+    {
+      "index": 12,
+      "text": "What I really need:\n\nBlack (without Bla)\nDirt (without rt)\nFour (without Fo)\nYOLO (without LO)"
+    },
+    {
+      "index": 13,
+      "text": "My two cousins wanted to\nplay a game with me...\nit hurt"
+    },
+    {
+      "index": 17,
+      "text": "If it doesn't slip out when he leans down to kiss me so he can talk to me however he wants idc\n(Read every 4th word)"
+    }
+  ]
 }

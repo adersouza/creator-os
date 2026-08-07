@@ -1,0 +1,107 @@
+{
+  "source": "instagram_grid_screenshots_20260807",
+  "note": "Harvested from IG profile-grid screenshots 2026-08-07. Rejected by caption_intake gates, NOT by review. 31.7% of the live bank already exceeds the 18-word cap these hit.",
+  "captions": [
+    {
+      "text": "If you L my P\nI will S your D\nAnd P your A\ntill you C\nIf you understand his your qualified",
+      "observedViewCount": 6194,
+      "archetype": "coded_fill_ins",
+      "screenshot": "Screenshot 2026-08-07 at 12.46.01 AM.png",
+      "words": 23,
+      "blockedBy": [
+        "word_cap_18(words=23)"
+      ]
+    },
+    {
+      "text": "I might be an 18yo brunette but I'm not stupid. I know you have a card hock rn.\n\nNow change c with h",
+      "observedViewCount": 2606,
+      "archetype": "coded_fill_ins",
+      "screenshot": "Screenshot 2026-08-07 at 12.46.14 AM.png",
+      "words": 23,
+      "blockedBy": [
+        "word_cap_18(words=23)"
+      ]
+    },
+    {
+      "text": "be a good boy and read this backwards:\n\nelihc dna emina hctaw ew elihw styttit gib esehc kcus ot nam a rof gnikool mi",
+      "observedViewCount": 12200,
+      "archetype": "read_backwards_puzzle",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+      "words": 24,
+      "blockedBy": [
+        "word_cap_18(words=24)"
+      ]
+    },
+    {
+      "text": "Never cheated: 30\nNever smoked: 20\nNever drank: 20\nNever been to a club: 30\nNever cuddled: 30\n\nPersonally 90, and you ?",
+      "observedViewCount": 4507,
+      "archetype": "comment_bait",
+      "screenshot": "Screenshot 2026-08-07 at 12.46.14 AM.png",
+      "words": 23,
+      "blockedBy": [
+        "word_cap_18(words=23)"
+      ]
+    },
+    {
+      "text": "when I was 14, a boy in my class typed 55378008 on calculator, turned it upside down and said, that's you.",
+      "observedViewCount": 1621,
+      "archetype": "comment_bait",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+      "words": 21,
+      "blockedBy": [
+        "word_cap_18(words=21)"
+      ]
+    },
+    {
+      "text": "If it doesn't slip out when he leans down to kiss me so he can talk to me however he wants idc\n(Read every 4th word)",
+      "observedViewCount": 32700,
+      "archetype": "coded_fill_ins",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.34 AM.png",
+      "words": 26,
+      "blockedBy": [
+        "word_cap_18(words=26)"
+      ]
+    },
+    {
+      "text": "I'm so single I literally text everyone who follows me.. I get excited thinking we might be friends. Send me this post and I'll",
+      "observedViewCount": 631,
+      "archetype": "dm_follow_bait",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+      "words": 24,
+      "blockedBy": [
+        "word_cap_18(words=24)",
+        "discoverability_dm_language"
+      ]
+    },
+    {
+      "text": "this mommy stuff ain't no joke. i genuinely want to call him good boy, buy him hot wheels and ill be the race track",
+      "observedViewCount": 603,
+      "archetype": "experimental_edge",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+      "words": 24,
+      "blockedBy": [
+        "word_cap_18(words=24)"
+      ]
+    },
+    {
+      "text": "acc so small that if you like or interact w any of my reels I WILL definitely send you something in dms",
+      "observedViewCount": 459,
+      "archetype": "dm_follow_bait",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+      "words": 22,
+      "blockedBy": [
+        "word_cap_18(words=22)",
+        "discoverability_dm_language"
+      ]
+    },
+    {
+      "text": "What I really need:\nVehicle (without hicle)\nLobby (without bby)\nUrban (without ban)\nYoga (without ga)\n\nNow read it backwards",
+      "archetype": "coded_fill_ins",
+      "screenshot": "Screenshot 2026-08-07 at 12.47.09 AM.png",
+      "words": 20,
+      "blockedBy": [
+        "word_cap_18(words=20)"
+      ]
+    }
+  ]
+}
