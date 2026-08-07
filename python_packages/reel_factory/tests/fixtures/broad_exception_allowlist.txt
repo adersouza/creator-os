@@ -24,10 +24,10 @@ reel_factory/placement.py:probe_caption_region_luminance:136
 reel_factory/placement.py:_extract_probe_frame:182
 reel_factory/placement.py:_seg_net:295
 reel_factory/placement.py:_person_head_coverage_from_frame:338
-reel_factory/placement.py:_pose_landmarker:645
-reel_factory/placement.py:probe_caption_layout_for_window:917
-reel_factory/placement.py:probe_caption_layout:1090
-reel_factory/placement.py:probe_caption_layout:1098
+reel_factory/placement.py:_pose_landmarker:750
+reel_factory/placement.py:probe_caption_layout_for_window:1032
+reel_factory/placement.py:probe_caption_layout:1205
+reel_factory/placement.py:probe_caption_layout:1213
 reel_factory/post_render.py:_read_caption_meta:46
 reel_factory/post_render.py:_probe_duration:96
 reel_factory/post_render.py:_caption_kind:106

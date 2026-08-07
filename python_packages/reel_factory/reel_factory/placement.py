@@ -388,7 +388,106 @@ def _detect_face_band(frame_path: Path) -> str | None:
     return "top" if cov[0] <= cov[2] else "bottom"
 
 
-def _face_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | None:
+# >= 0.85 clears every measured hallucination (max 0.581) while keeping every
+# measured real face (min 0.84). Only consulted when the alternative is a reel
+# with no caption at all.
+_RESCUE_FACE_CONFIDENCE = 0.85
+
+
+def _rescue_no_safe_lane(
+    summary: Any,
+    *,
+    frames: list[Path],
+    std_samples: list[tuple[float, float, float]],
+    head_samples: list[tuple[float, float, float]],
+    focal_samples: list[tuple[float, float, float]],
+    motion_samples: list[tuple[float, float, float]],
+    pose_samples: list[tuple[float, float, float]],
+    caption_placement_policy: str,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Re-score a no-safe-lane verdict using only high-confidence faces.
+
+    Measured on the 4 clips that produced captionless reels: each had 660-1260px
+    of frame with no real face in it, but YuNet had hallucinated large
+    low-confidence boxes onto hips and thighs, poisoning two of the three lanes.
+    The frame had room; the scorer could not see it.
+
+    Fires ONLY when every lane was rejected, i.e. when the current outcome is a
+    reel with no caption. That bounds the blast radius to the 0.9% of clips that
+    today ship blank -- the 99% that place captions never reach this code, and
+    the strict-confidence bar is never applied to them.
+
+    ponytail: reuse score_lanes with one substituted input rather than writing a
+    second placement algorithm. Same thresholds, same weights, same veto logic --
+    the only thing that changes is which face boxes count as evidence.
+    """
+    decision = (
+        summary.metadata.get("captionPlacementDecision")
+        if isinstance(summary.metadata, dict)
+        else None
+    )
+    if not isinstance(decision, dict):
+        return summary, None
+    if decision.get("decisionClass") != "failed_no_safe_lane":
+        return summary, None
+
+    strict = [
+        c
+        for f in frames
+        if (c := _face_coverage_from_frame(f, min_confidence=_RESCUE_FACE_CONFIDENCE))
+        is not None
+    ]
+    if not strict or not any(any(sample) for sample in strict):
+        # Every face box was low-confidence. Re-scoring with zero face evidence
+        # would let a lane pass on the absence of a detector rather than on
+        # evidence it is clear, which is the failure this gate exists to stop.
+        return summary, None
+
+    rescued = score_lanes(
+        stddev_samples=std_samples,
+        face_samples=strict,
+        head_samples=head_samples,
+        focal_samples=focal_samples,
+        motion_samples=motion_samples,
+        pose_samples=pose_samples,
+        placement_policy=caption_placement_policy,
+    )
+    rescued_decision = (
+        rescued.metadata.get("captionPlacementDecision")
+        if isinstance(rescued.metadata, dict)
+        else None
+    )
+    if not isinstance(rescued_decision, dict) or rescued_decision.get("status") != "passed":
+        return summary, None
+
+    rescue = {
+        "schema": "reel_factory.caption_placement_rescue.v1",
+        "trigger": "no_safe_caption_lane",
+        "minFaceConfidence": _RESCUE_FACE_CONFIDENCE,
+        "originalRejectedLanes": list(decision.get("rejectedLanes") or []),
+        "rescuedLane": rescued_decision.get("selectedLane"),
+    }
+    rescued_decision["rescuedFrom"] = rescue
+    log.info(
+        f"caption placement rescued: all lanes rejected, "
+        f"{rescued_decision.get('selectedLane')} is clear of faces at "
+        f"confidence >= {_RESCUE_FACE_CONFIDENCE}"
+    )
+    return rescued, rescue
+
+
+def _face_coverage_from_frame(
+    frame_path: Path, *, min_confidence: float = 0.0
+) -> tuple[float, float, float] | None:
+    """Per-band face-box pixel coverage.
+
+    `min_confidence` filters detections above YuNet's own 0.5 gate. Default 0.0
+    keeps the normal scoring path byte-identical; only the no-safe-lane rescue
+    in `probe_placement` passes a higher bar. Do NOT raise this globally --
+    measured on 15 low-confidence clips, 10 held real faces (mostly mirror
+    selfies with a phone over the face) and only 2 were hallucinations, so a
+    global cut removes real protection.
+    """
     if not _YUNET_MODEL_PATH.exists():
         return None
     try:
@@ -410,9 +509,15 @@ def _face_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | 
     _, faces = det.detect(img)
     if faces is None or len(faces) == 0:
         return None
+    kept = [f for f in faces if float(f[-1]) >= min_confidence]
+    if not kept:
+        # No box clears the bar. Report zero coverage rather than None: None
+        # means "detector could not run", which makes the scorer fall back to
+        # the focal heuristic. Zero means "looked, found no credible face".
+        return 0.0, 0.0, 0.0
     third = h / 3.0
     cov = [0.0, 0.0, 0.0]
-    for f in faces:
+    for f in kept:
         _x, y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
         for i in range(3):
             band_top = i * third
@@ -841,6 +946,16 @@ def _score_placement_from_frames(
         motion_samples=motion_samples,
         pose_samples=pose_samples,
         placement_policy=caption_placement_policy,
+    )
+    summary, rescue = _rescue_no_safe_lane(
+        summary,
+        frames=frames,
+        std_samples=std_samples,
+        head_samples=head_samples,
+        focal_samples=focal_samples,
+        motion_samples=motion_samples,
+        pose_samples=pose_samples,
+        caption_placement_policy=caption_placement_policy,
     )
     metadata = {
         "face_coverage_mean": round(
