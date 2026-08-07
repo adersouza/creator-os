@@ -64,9 +64,13 @@ cheaper. Kling Motion Control gets expensive fast as duration rises.**
 1. Try `seedance_2_0` (`mode=fast`) for every recreation first.
 2. Fall back to Kling 3 Motion Control only when Seedance **refuses the job**
    (`status: nsfw`) or returns an unusable result, **and the reel has no
-   talking**, **and the reel's payload is not secondary motion** (see below). A
-   refused Seedance job is refunded in full, so the failed first attempt costs
-   nothing but latency.
+   talking**, **and the reel's payload is not secondary motion** (see below).
+   **A refused Seedance job is NOT free — budget ~6 credits for it.** Corrected
+   2026-08-07 against the ledger: the quote is refunded but a separate charge
+   stands, so a refusal nets about half the cost of a completed render.
+   Blocked *image* jobs (Nano Banana, Seedream) really are free — that is where
+   the earlier "refunded in full" claim came from, and it does not generalise to
+   Seedance video.
 2a. **Motion Control is weak at secondary motion.** Operator ran reference reel
    `B_mirror-arch-butt (DbV65c5sn2b)` through Motion Control on 2026-08-06: the
    output was **usable but clearly worse than Seedance's**, with poor jiggle
@@ -92,7 +96,11 @@ Measured costs, 2026-08-06/07 (Higgsfield credit ledger):
 | Seedance `480p/fast/10s/no-audio` | 12–15 | yes, `get_cost` |
 | Kling 3 Motion Control | **18 and 40** on two runs | **none** |
 | Nano Banana 2 anchor @ 2k | 2 | yes |
-| Seedance refused (`status: nsfw`) | **0 — refunded in full** | n/a |
+| Seedance `480p/fast/7s/no-audio` | 10.5 | yes, `get_cost` |
+| Seedance refused (`status: nsfw`) | **~6 — quote refunded, a charge stands** | n/a |
+| Blocked image job (Nano Banana / Seedream) | 0 — refunded in full | n/a |
+| Kling O1 image @ 2k | 0.5 | yes |
+| Soul 2.0 still @ 2k (`soul_id`, text-only) | **~0.12** | yes |
 
 Motion Control ran **1.2×–2.7× Seedance** on comparable work, and it exposes no
 preflight, so its price is only observable as a ledger delta after the fact.
