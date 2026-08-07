@@ -293,7 +293,7 @@ The operator's real would-post review is the model-selection authority:
 | Prompt-driven reference-Reel recreation | **EXPERIMENTAL** | OpenAI-authored Soul/Seedance/Kling prompt pack from the approved creator image and sampled Reel frames; only the approved anchor and prompt reach Seedance/Kling |
 | Prompt-authored dancing performance | **AVAILABLE AS PROMPTED CONTENT** | OpenAI may describe dancing actions for Kling/Seedance; exact source choreography transfer is not claimed |
 | Prompt-authored talking performance | **AVAILABLE AS PROMPTED CONTENT** | OpenAI may describe speaking performance; exact supplied-voice lip sync is not claimed |
-| Motion copy / exact dance transfer | **UNRESOLVED** | tested Kling Motion Control outputs were rejected; no approved exact-transfer recipe |
+| Motion copy / exact dance transfer | **ACCEPTED, NARROW ROUTE** | operator reopened and accepted Higgsfield Kling 3 Motion Control 2026-08-06 (supersedes the 2026-07-26 rejection of that recipe). Fallback only: use when Seedance refuses the job or fails, and the reel has no talking. Seedance stays the default on cost. See "Recreation routing" in `AGENTS.md`. Exact choreography is still not claimed, and Motion Control output is not a lip-sync base |
 | Exact supplied-voice talking selfie | **UNRESOLVED** | no authenticated, operator-approved exact supplied-voice path |
 | Talking motion copy | **UNRESOLVED** | neither the transfer base nor exact supplied-audio lip-sync path is approved |
 | WaveSpeed O3/Vidu/InfiniteTalk | **DELETED** | code removed; historical receipts remain readable |
@@ -612,8 +612,11 @@ The prompt pack then records that authorization receipt and the exact structured
 result, response ID, token usage, and honestly reported actual-cost status;
 unavailable API cost remains `not_exposed`, never zero.
 
-It does not register the inspiration Reel as a rendered asset, does not replace
-normal passive creation, and does not restore rejected Motion Control. AUTO
+It does not register the inspiration Reel as a rendered asset and does not
+replace normal passive creation. Motion Control is no longer blanket-rejected —
+since 2026-08-06 it is an operator-accepted fallback for non-talking reels that
+Seedance refuses or fails — but this lane does not route to it automatically;
+that fallback is an explicit operator choice. AUTO
 routes active reference recreation through the prompt-driven lane. Seedance is
 never represented as exact character replacement or exact choreography;
 talking results require an explicit lip-sync operator verdict.
