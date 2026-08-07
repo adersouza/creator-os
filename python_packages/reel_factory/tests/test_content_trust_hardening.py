@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -191,6 +192,100 @@ def test_download_result_rejects_truncated_response_without_partial_file(
 
     assert not out.exists()
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def _png_with_provenance(path: Path) -> bytes:
+    """A PNG carrying the provenance chunks providers actually embed.
+
+    Mirrors real Higgsfield results: an ``Hf-job-id`` text chunk on every
+    provider output, plus the IPTC ``trainedAlgorithmicMedia`` declaration that
+    Google-backed models ship in XMP.
+    """
+
+    from PIL import PngImagePlugin
+
+    info = PngImagePlugin.PngInfo()
+    info.add_text("Hf-job-id", "00000000-1111-2222-3333-444444444444")
+    info.add_text(
+        "XML:com.adobe.xmp",
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/'
+        '1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:Iptc4xmpExt='
+        '"http://iptc.org/std/Iptc4xmpExt/2008-02-29/" Iptc4xmpExt:DigitalSourceType='
+        '"http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"/>'
+        "</rdf:RDF></x:xmpmeta>",
+    )
+    marker = hashlib.sha256(path.name.encode("utf-8")).digest()
+    Image.new("RGB", (24, 24), (marker[0], marker[1], marker[2])).save(
+        path, pnginfo=info
+    )
+    return path.read_bytes()
+
+
+@pytest.mark.skipif(
+    shutil.which("exiftool") is None, reason="exiftool performs the metadata strip"
+)
+def test_download_result_strips_provider_provenance_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Provider provenance must not survive into the governed artifact.
+
+    Stripping has to happen here, inside the download staging window, because
+    everything downstream hashes these bytes; normalizing after approval would
+    invalidate the stored SHA-256.
+    """
+
+    import reel_factory.generate_assets as generate_assets
+
+    payload = _png_with_provenance(tmp_path / "source.png")
+    assert b"Hf-job-id" in payload
+    assert b"trainedAlgorithmicMedia" in payload
+
+    monkeypatch.setattr(
+        generate_assets.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeDownloadResponse([payload], "image/png"),
+    )
+    monkeypatch.setattr(
+        "reel_factory.generation_provider.MIN_IMAGE_RESULT_BYTES", len(payload) - 1
+    )
+
+    out = tmp_path / "asset.png"
+    download_result("https://93.184.216.34/asset.png", out)
+
+    written = out.read_bytes()
+    assert b"Hf-job-id" not in written
+    assert b"trainedAlgorithmicMedia" not in written
+    # Pixels are untouched; only the container metadata is removed.
+    assert Image.open(out).size == Image.open(tmp_path / "source.png").size
+
+
+@pytest.mark.skipif(
+    shutil.which("exiftool") is None, reason="exiftool performs the metadata strip"
+)
+def test_download_result_fails_closed_when_metadata_cannot_be_stripped(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A result that cannot be normalized must never reach its final path."""
+
+    import reel_factory.generate_assets as generate_assets
+
+    payload = _png_with_provenance(tmp_path / "source.png")
+    monkeypatch.setattr(
+        generate_assets.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeDownloadResponse([payload], "image/png"),
+    )
+    monkeypatch.setattr(
+        "reel_factory.generation_provider.MIN_IMAGE_RESULT_BYTES", len(payload) - 1
+    )
+    monkeypatch.setattr("reel_factory.media_metadata.shutil.which", lambda _name: None)
+
+    out = tmp_path / "asset.png"
+    with pytest.raises(RuntimeError) as excinfo:
+        download_result("https://93.184.216.34/asset.png", out)
+
+    assert "metadata_normalization_failed" in str(excinfo.value)
+    assert not out.exists()
 
 
 def test_download_result_timeout_leaves_no_asset_file(

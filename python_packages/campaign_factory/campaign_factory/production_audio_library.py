@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -11,6 +10,8 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from creator_os_core.fileops import sha256_file as _sha256_file
 
 from .audio_radar import (
     AudioLocator,
@@ -397,14 +398,6 @@ def _selection_identities(selection: dict[str, Any]) -> set[str]:
             if platform and sound_id:
                 values.add(f"{platform}:{sound_id}")
     return {value for value in values if value}
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _json_object(value: Any) -> dict[str, Any]:

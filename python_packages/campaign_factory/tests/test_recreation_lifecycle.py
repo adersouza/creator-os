@@ -17,7 +17,7 @@ from campaign_test_support import authorize_campaign_governance, make_factory
 from PIL import Image
 
 
-def test_structural_image_anchor_uses_soul_text_only_at_nine_sixteen(
+def test_structural_image_anchor_conditions_soul_on_the_reference_image(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cf = make_factory(tmp_path)
@@ -122,10 +122,14 @@ def test_structural_image_anchor_uses_soul_text_only_at_nine_sixteen(
 
         args = observed["args"]
         assert isinstance(args, list)
-        assert args[0] == "image"
+        # A structural reference is shown to Soul, not described in prose: the
+        # reference-image worker action passes both the trained identity and the
+        # reference image, which is what held identity and pose in one call.
+        assert args[0] == "reference-image"
+        assert args[args.index("--reference") + 1] == str(reference)
         assert args[args.index("--soul-id") + 1] == soul_id
         assert args[args.index("--image-aspect-ratio") + 1] == "9:16"
-        assert "--image" not in args
+        assert "--prompt-json" not in args
         assert result["status"] == "completed"
         assert result["sourceAsset"]["status"] == "imported"
     finally:

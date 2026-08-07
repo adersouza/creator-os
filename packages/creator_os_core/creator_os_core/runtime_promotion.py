@@ -308,15 +308,6 @@ def _run(
     )
 
 
-def _checked(command: Sequence[str], *, cwd: Path, code: str) -> str:
-    completed = _run(command, cwd=cwd)
-    if completed.returncode != 0:
-        raise RuntimePromotionError(
-            f"{code}:" + (completed.stderr[-2000:] or completed.stdout[-2000:])
-        )
-    return completed.stdout.strip()
-
-
 def _promoted_subprocess_environment(
     *,
     source_root: Path,

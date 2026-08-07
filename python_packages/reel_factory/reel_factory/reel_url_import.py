@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import re
@@ -18,6 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 
 import requests
+from creator_os_core.fileops import sha256_file as _sha256_file
 
 try:
     from .fileops import atomic_write_text
@@ -470,14 +470,6 @@ def _sanitize_command(cmd: list[str]) -> list[str]:
 def _sanitize_url_for_receipt(url: str) -> str:
     parsed = urlparse(url)
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _yt_dlp_version(executable: str) -> str | None:

@@ -13,11 +13,11 @@ public SSCD model, and InsightFace's public buffalo_l release asset.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import tempfile
 from pathlib import Path
 
+from creator_os_core.fileops import sha256_file as _sha256
 from creator_os_core.trust_boundaries import (
     download_public_file,
     has_symlink_component,
@@ -62,14 +62,6 @@ INSIGHTFACE_REQUIRED = {
     "det_10g.onnx": "5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91",
     "w600k_r50.onnx": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43",
 }
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def fetch(*, force: bool = False) -> list[Path]:

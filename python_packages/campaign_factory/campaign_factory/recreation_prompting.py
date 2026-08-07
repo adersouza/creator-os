@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.fileops import sha256_file as _sha256
 from creator_os_core.provider_spend import (
     build_paid_action_quote,
     build_paid_action_spend_scope,
@@ -1469,14 +1470,6 @@ def _regular_file(path: Path, label: str) -> Path:
     if not resolved.is_file():
         raise FileNotFoundError(f"{label} not found: {resolved}")
     return resolved
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _fingerprint(value: dict[str, Any]) -> str:

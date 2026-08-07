@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import sha256_file as _sha256_path
+
 from .placement_scorer import PlacementSummary, score_lanes
 
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
@@ -583,14 +585,6 @@ def _focal_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] |
         skin_density = float(skin[y0:y1, :].sum()) / (255.0 * area)
         scores.append(edge_density * 100.0 + skin_density * 180.0)
     return scores[0], scores[1], scores[2]
-
-
-def _sha256_path(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _pose_tasks_provenance() -> dict[str, Any]:

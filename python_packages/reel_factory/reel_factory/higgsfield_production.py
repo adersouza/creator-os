@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from creator_os_core.fileops import sha256_file as _sha256_file
 from creator_os_core.recreation_anchor_approval import (
     load_recreation_anchor_approval,
 )
@@ -2315,14 +2316,6 @@ def _review_root(path: Path) -> Path:
     if expanded.exists() and expanded.is_symlink():
         raise ValueError("Higgsfield review root must not be a symlink")
     return expanded.resolve()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _fingerprint(value: dict[str, Any]) -> str:

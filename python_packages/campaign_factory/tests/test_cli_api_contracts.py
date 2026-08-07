@@ -56,6 +56,17 @@ CLI_PYTHONPATH = os.pathsep.join(
 )
 
 
+def cli_env(tmp_path: Path, **extra: str) -> dict[str, str]:
+    """Subprocess environment for a CLI invocation against a temp database."""
+
+    return {
+        **os.environ,
+        "PYTHONPATH": CLI_PYTHONPATH,
+        "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        **extra,
+    }
+
+
 def test_export_threadsdash_cli_defaults_to_regular_reel_surface():
     args = build_cli_parser().parse_args(
         ["export-threadsdash", "--campaign", "may", "--user-id", "user_1"]
@@ -1089,11 +1100,7 @@ def test_creator_os_daily_plan_cli_outputs_json(tmp_path: Path):
             str(schedule_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1174,11 +1181,7 @@ def test_recommended_inventory_request_plan_cli_outputs_json(tmp_path: Path):
             str(inventory_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1223,11 +1226,7 @@ def test_creator_os_account_tiers_cli_outputs_json(tmp_path: Path):
             str(report_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1269,11 +1268,7 @@ def test_creator_os_account_health_report_cli_outputs_json(tmp_path: Path):
             str(report_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1354,11 +1349,7 @@ def test_creator_os_draft_inventory_gap_cli_outputs_json(tmp_path: Path):
             str(schedule_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1529,11 +1520,7 @@ def test_creator_os_9_5_readiness_report_cli_outputs_json(tmp_path: Path):
             "creator-os-9.5-readiness-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1556,11 +1543,7 @@ def test_inventory_factory_master_report_cli_outputs_json(tmp_path: Path):
             "1800",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1584,11 +1567,7 @@ def test_reel_factory_master_report_cli_outputs_json(tmp_path: Path):
             "reel-factory-master-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1609,11 +1588,7 @@ def test_parent_factory_53_parent_trial_cli_outputs_json(tmp_path: Path):
             "parent-factory-53-parent-trial",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1663,11 +1638,7 @@ def test_parent_factory_master_optimization_report_cli_outputs_json(tmp_path: Pa
             "parent-factory-master-optimization-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,
@@ -1690,11 +1661,7 @@ def test_parent_factory_discoverability_loss_analysis_cli_outputs_json(tmp_path:
             "parent-factory-discoverability-loss-analysis",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": CLI_PYTHONPATH,
-            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
-        },
+        env=cli_env(tmp_path),
         capture_output=True,
         text=True,
         check=True,

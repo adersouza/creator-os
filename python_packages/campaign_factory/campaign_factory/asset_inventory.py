@@ -7,6 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import sha256_file as _sha256_file
+
 from .creative_approval import CreativeApprovalStore, asset_requires_creative_approval
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -458,11 +460,3 @@ def _recursive_value(value: Any, *keys: str) -> Any:
             if found is not None:
                 return found
     return None
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

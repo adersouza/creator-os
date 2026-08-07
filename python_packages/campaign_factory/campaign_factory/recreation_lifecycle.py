@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.fileops import sha256_file as _sha256
 
 from .front_generation_stage import _invoke_generate_assets
 from .generation_execution_plan import build_generation_execution_plan
@@ -26,7 +27,11 @@ def generate_recreation_anchor(
     max_credits: float,
     recreation_plan: dict[str, Any],
 ) -> dict[str, Any]:
-    """Run one explicitly authorized text-only Soul call and register its bytes."""
+    """Run one explicitly authorized Soul call and register its bytes.
+
+    Conditioned on the pack's structural reference image when it carries one,
+    text-only otherwise.
+    """
 
     creator_slug, soul_id = active_production_identity(factory, creator)
     prompt_path = _regular_file(prompt_pack_path, "prompt pack")
@@ -60,6 +65,9 @@ def generate_recreation_anchor(
             factory, creator_slug, str(creator_image.get("sha256") or "")
         )
         model_id = str(source["model_id"])
+    structural_reference = _structural_reference_path(
+        prompt_pack, creator_image=creator_image, source=source
+    )
     attempt = _attempt_id(
         attempt_id or f"anchor_{prompt_pack['promptPackFingerprint'][:16]}_attempt_1"
     )
@@ -119,13 +127,23 @@ def generate_recreation_anchor(
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    # ponytail: when the pack carries a structural reference, show it to Soul via
+    # the existing reference-image worker action instead of describing it in prose.
+    # Measured 2026-08-06 (ArcFace, threshold 0.42): soul_id + image reference held
+    # identity AND transferred pose in one call, and on selfie_reference_13 rescued
+    # a text-only run that failed (0.383 -> 0.458). That route uses the fixed
+    # DIRECT_REFERENCE_SEED_PROMPT, so anchorPrompt is deliberately not used here —
+    # a long authored description overrides the structural image when they disagree.
+    mode_args = (
+        ["reference-image", "--reference", structural_reference]
+        if structural_reference
+        else ["image", "--prompt-json", str(prompt_contract)]
+    )
     try:
         result = _invoke_generate_assets(
             factory,
             [
-                "image",
-                "--prompt-json",
-                str(prompt_contract),
+                *mode_args,
                 "--stem",
                 attempt,
                 "--campaign",
@@ -402,6 +420,38 @@ def explain_recreation_job(factory: Any, job_id: str) -> dict[str, Any]:
         "publishability": "blocked_pending_explicit_final_approval",
         "learningEligible": False,
     }
+
+
+def _structural_reference_path(
+    prompt_pack: dict[str, Any],
+    *,
+    creator_image: Any,
+    source: dict[str, Any] | None,
+) -> str | None:
+    """Path of the pack's structural reference, only if its bytes still match.
+
+    The returned path is handed to a paid provider call, so it is a trust
+    boundary: the declared sha256 is re-checked against the file on disk rather
+    than assumed. Returns None when the pack carries no structural reference, or
+    when the file is missing or no longer matches — the caller then falls back to
+    the text-only route rather than conditioning on unverified bytes.
+    """
+
+    if prompt_pack.get("referenceImageRole") != "structural_reference":
+        return None
+    image = creator_image if isinstance(creator_image, dict) else {}
+    declared = str(image.get("sha256") or "")
+    raw_path = (
+        str(source["stored_path"])
+        if source is not None
+        else str(image.get("path") or "")
+    )
+    if not declared or not raw_path:
+        return None
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_file() or _sha256(candidate) != declared:
+        return None
+    return str(candidate)
 
 
 def _campaign_source_for_sha(
@@ -834,14 +884,6 @@ def _required(value: str, label: str) -> str:
     if not text:
         raise ValueError(f"{label} is required")
     return text
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _fingerprint(value: dict[str, Any]) -> str:

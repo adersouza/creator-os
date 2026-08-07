@@ -1,5 +1,4 @@
 # Intentional broad Exception handlers. Keep this sorted by AST traversal; tests fail on drift.
-
 reel_factory/ai_visual_qc.py:_duration:114
 reel_factory/ai_visual_qc.py:_ocr_text:158
 reel_factory/ai_visual_qc.py:_ocr_text:162
@@ -15,20 +14,20 @@ reel_factory/db_migrations.py:_apply_one:452
 reel_factory/discoverability_safety.py:audit_caption_sources:103
 reel_factory/generate_assets.py:single_image_layout_status:212
 reel_factory/generation_qc.py:generated_video_qc:122
-reel_factory/identity_verification.py:get_identity_provider:166
+reel_factory/identity_verification.py:get_identity_provider:167
 reel_factory/manifest.py:_import_json:63
 reel_factory/manifest.py:materialize_cached_job:137
 reel_factory/manifest.py:get_analysis:376
-reel_factory/observed_profiles.py:render_observed_profile:322
-reel_factory/placement.py:probe_caption_region_luminance:128
-reel_factory/placement.py:probe_caption_region_luminance:134
-reel_factory/placement.py:_extract_probe_frame:180
-reel_factory/placement.py:_seg_net:293
-reel_factory/placement.py:_person_head_coverage_from_frame:336
-reel_factory/placement.py:_pose_landmarker:651
-reel_factory/placement.py:probe_caption_layout_for_window:923
-reel_factory/placement.py:probe_caption_layout:1096
-reel_factory/placement.py:probe_caption_layout:1104
+reel_factory/observed_profiles.py:render_observed_profile:323
+reel_factory/placement.py:probe_caption_region_luminance:130
+reel_factory/placement.py:probe_caption_region_luminance:136
+reel_factory/placement.py:_extract_probe_frame:182
+reel_factory/placement.py:_seg_net:295
+reel_factory/placement.py:_person_head_coverage_from_frame:338
+reel_factory/placement.py:_pose_landmarker:645
+reel_factory/placement.py:probe_caption_layout_for_window:917
+reel_factory/placement.py:probe_caption_layout:1090
+reel_factory/placement.py:probe_caption_layout:1098
 reel_factory/post_render.py:_read_caption_meta:46
 reel_factory/post_render.py:_probe_duration:96
 reel_factory/post_render.py:_caption_kind:106
