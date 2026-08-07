@@ -29,7 +29,9 @@ try:
     import cv2
     import numpy as np
 except ImportError:  # pragma: no cover - optional analysis dependency
-    sys.exit("needs opencv-python + numpy (uv sync --package reel_factory --extra identity)")
+    sys.exit(
+        "needs opencv-python + numpy (uv sync --package reel_factory --extra identity)"
+    )
 
 # The face never sits in the bottom of a 9:16 reel frame, but KNEES do -- and
 # the frontal cascade reads a knee as a face often enough to win the ranking.
@@ -65,8 +67,11 @@ def rank(path: pathlib.Path) -> tuple[list[dict], float]:
                 "px": int(h),
                 "frac": h / height,
                 "sharp": float(cv2.Laplacian(roi, cv2.CV_64F).var()),
-                "eyes": len(eyes.detectMultiScale(roi, 1.1, 6,
-                                                  minSize=(int(w * 0.10), int(h * 0.10)))),
+                "eyes": len(
+                    eyes.detectMultiScale(
+                        roi, 1.1, 6, minSize=(int(w * 0.10), int(h * 0.10))
+                    )
+                ),
                 "box": (int(x), int(y), int(w), int(h)),
                 "frame": frame,
             }
@@ -90,23 +95,31 @@ def rank(path: pathlib.Path) -> tuple[list[dict], float]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("reel", type=pathlib.Path)
-    ap.add_argument("--out", type=pathlib.Path, help="write top frames + face sheet here")
+    ap.add_argument(
+        "--out", type=pathlib.Path, help="write top frames + face sheet here"
+    )
     ap.add_argument("--top", type=int, default=5)
     args = ap.parse_args()
 
     rows, _ = rank(args.reel)
     if not rows:
-        print("no frontal face in any frame -- this reel has no usable anchor", file=sys.stderr)
+        print(
+            "no frontal face in any frame -- this reel has no usable anchor",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"{len(rows)} candidate frames\n")
     print(f"{'t':>7} {'facepx':>7} {'frac':>6} {'sharp':>9} {'eyes':>5} {'score':>6}")
     for r in rows[: args.top]:
-        print(f"{r['t']:7.2f} {r['px']:7d} {r['frac']:6.3f} "
-              f"{r['sharp']:9.1f} {r['eyes']:5d} {r['score']:6.3f}")
+        print(
+            f"{r['t']:7.2f} {r['px']:7d} {r['frac']:6.3f} "
+            f"{r['sharp']:9.1f} {r['eyes']:5d} {r['score']:6.3f}"
+        )
     print(f"\nbest: t={rows[0]['t']:.2f}")
 
     if args.out:
@@ -116,11 +129,19 @@ def main() -> int:
             cv2.imwrite(str(args.out / f"anchor_t{r['t']:.2f}.png"), r["frame"])
             x, y, w, h = r["box"]
             pad = int(h * 0.5)
-            crop = r["frame"][max(0, y - pad) : y + h + pad,
-                              max(0, x - pad) : x + w + pad]
+            crop = r["frame"][
+                max(0, y - pad) : y + h + pad, max(0, x - pad) : x + w + pad
+            ]
             crop = cv2.resize(crop, (340, 340))
-            cv2.putText(crop, f"t={r['t']:.2f}", (6, 26),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(
+                crop,
+                f"t={r['t']:.2f}",
+                (6, 26),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2,
+            )
             crops.append(crop)
         cv2.imwrite(str(args.out / "faces.jpg"), np.hstack(crops))
         print(f"wrote {args.top} frames + faces.jpg to {args.out}")
