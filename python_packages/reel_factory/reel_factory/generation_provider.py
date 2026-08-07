@@ -36,7 +36,7 @@ except ImportError:  # script mode: package dir itself is on sys.path
 try:
     from .media_metadata import normalize_media_metadata
 except ImportError:  # script mode: package dir itself is on sys.path
-    from media_metadata import normalize_media_metadata
+    from media_metadata import normalize_media_metadata  # type: ignore[no-redef]
 
 
 class HiggsfieldCommandError(RuntimeError):

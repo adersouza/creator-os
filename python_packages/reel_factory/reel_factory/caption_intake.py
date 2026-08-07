@@ -896,7 +896,11 @@ def _add_candidate(
 
 
 def _candidate_text(text: str) -> bool:
-    if not (5 <= len(text) <= 140):
+    # 200, not 140: the old 140 cap was the same intake-only artifact as the
+    # word cap below -- 50 of the 873 captions already in banks.json exceeded
+    # it, the longest at 199 chars. 200 admits every caption the live bank
+    # already holds.
+    if not (5 <= len(text) <= 200):
         return False
     if text.startswith("{") or text.startswith("["):
         return False
@@ -904,8 +908,12 @@ def _candidate_text(text: str) -> bool:
         return False
     if " " not in text and not re.search(r"[?!]", text):
         return False
-    if len(text.split()) > 18:
-        return False
+    # ponytail: no word-count cap. A >18-word cap used to live here and was an
+    # intake-only artifact: 277 of the 873 captions already in banks.json
+    # exceeded it, including 50 of 170 in winner_bank. It rejected precisely the
+    # multi-line puzzle/list hooks (coded_fill_ins, read_backwards_puzzle) that
+    # measure best -- a harvested 26-word hook had 32.7K views. Length is still
+    # bounded by the character check above.
     if re.search(
         r"(schema|http|/Users/|\.mp4|\.png|\.json|blocked by|audit issue|\b\d{3,4}x\d{3,4}\b|#|remove the)",
         text,

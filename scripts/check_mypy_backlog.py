@@ -18,8 +18,10 @@ class BacklogTarget:
 
 
 TARGETS = {
+    # 233, not 234: #622 deleted the unused local HTTP API (app.py). The floor
+    # exists to catch mypy silently skipping files, not to pin the file count.
     "campaign_factory": BacklogTarget(
-        "python_packages/campaign_factory/campaign_factory", 839, 234
+        "python_packages/campaign_factory/campaign_factory", 839, 233
     ),
     "reference_factory": BacklogTarget(
         "python_packages/reference_factory/reference_factory", 168, 35
