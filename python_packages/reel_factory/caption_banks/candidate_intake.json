@@ -1,9 +1,9 @@
 {
   "schema": "reel_factory.caption_candidate_intake.v1",
-  "updated_at": 1786095548,
+  "updated_at": 1786096631,
   "command": "import-external",
-  "candidate_count": 1311,
-  "rejected_count": 10,
+  "candidate_count": 1317,
+  "rejected_count": 290,
   "candidates": [
     {
       "caption_hash": "6f815f2c3f4cda940cb3c577df1f778f6cab39733a3fd700e9bab2ab5b75183f",
@@ -58113,6 +58113,58 @@
       }
     },
     {
+      "caption_hash": "04dd2b5d8f77a36120d90705d5ce1716ecee72efbfab4976449a2f63dbfca7e2",
+      "text": "he was dealing with family\nproblems, fighting his mental\nhealth issues, bearing physical\npain and struggling for stability.\nHolding so much inside yet he was\nstill trying to be the best for you.\nThat day, you failed as a woman",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "tiktok_overlay_hooks_20260718:tiktok_overlay_hooks_20260718.json:104",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "he was dealing with family\nproblems, fighting his mental\nhealth issues, bearing physical\npain and struggling for stability.\nHolding so much inside yet he was\nstill trying to be the best for you.\nThat day, you failed as a woman",
+        "timed": {
+          "segments": [
+            {
+              "text": "he was dealing with family"
+            },
+            {
+              "text": "problems, fighting his mental"
+            },
+            {
+              "text": "health issues, bearing physical"
+            },
+            {
+              "text": "pain and struggling for stability."
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "itsk.diamond",
+        "source_url": "https://www.tiktok.com/@itsk.diamond/photo/7637517515878436109",
+        "observedViewCount": 2100000
+      }
+    },
+    {
       "caption_hash": "4da7b9b977bfad67518a7b94ecdfe8668775dd37614fc3f39661e2d03d89e079",
       "text": "i can't wait to be a wife and\npack his lunches so i can\nleave him a sweet little\nnote..",
       "banks": [
@@ -59552,6 +59604,105 @@
       }
     },
     {
+      "caption_hash": "e3fa1067b81afc3db74bf07b9ee52a5542b44c055beaa9e70e73234c177c2544",
+      "text": "2. He learned everything the\nhard way\nHe relies heavily on trial and\nerror. Basic life skills,\nrelationships, finances, or\ndiscipline weren't modelled\nclearly, so he had to figure\nthings out alone often\nthrough mistakes.",
+      "banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source": "tiktok_overlay_hooks_20260718:tiktok_overlay_hooks_20260718.json:132",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "2. He learned everything the\nhard way\nHe relies heavily on trial and\nerror. Basic life skills,\nrelationships, finances, or\ndiscipline weren't modelled\nclearly, so he had to figure\nthings out alone often\nthrough mistakes.",
+        "timed": {
+          "segments": [
+            {
+              "text": "2. He learned everything the"
+            },
+            {
+              "text": "hard way"
+            },
+            {
+              "text": "He relies heavily on trial and"
+            },
+            {
+              "text": "error. Basic life skills,"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "itsk.diamond",
+        "source_url": "https://www.tiktok.com/@itsk.diamond/photo/7634603327719869710",
+        "observedViewCount": 1400000
+      }
+    },
+    {
+      "caption_hash": "4b9b848a3a8893be80fd0a9106b0b07332e0eee0d44f48b539c7aa0427870984",
+      "text": "3. He had a strong sense of\nindependence but also\nisolation.\nHe doesn't like asking for\nhelp, even when he needs it.\nHe learned early that nobody\nwas coming to guide him, so\nhe became self-reliant but\nthat independence can turn\ninto emotional isolation.",
+      "banks": [
+        "comment_bait",
+        "body_attention",
+        "goth_dark_alt"
+      ],
+      "source": "tiktok_overlay_hooks_20260718:tiktok_overlay_hooks_20260718.json:133",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "3. He had a strong sense of\nindependence but also\nisolation.\nHe doesn't like asking for\nhelp, even when he needs it.\nHe learned early that nobody\nwas coming to guide him, so\nhe became self-reliant but\nthat independence can turn\ninto emotional isolation.",
+        "timed": {
+          "segments": [
+            {
+              "text": "3. He had a strong sense of"
+            },
+            {
+              "text": "independence but also"
+            },
+            {
+              "text": "isolation."
+            },
+            {
+              "text": "He doesn't like asking for"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "itsk.diamond",
+        "source_url": "https://www.tiktok.com/@itsk.diamond/photo/7634603327719869710",
+        "observedViewCount": 1400000
+      }
+    },
+    {
       "caption_hash": "bcc33c3d39ef16366e517e62346787164405eb1f02fab947162619a44d764c64",
       "text": "4. He questions his own\nworth more than he shows.\nWithout consistent\nencouragement or validation\ngrowing up, he may secretly\nfeel like he has to prove\nhimself - to earn respect,\nlove, or belonging.",
       "banks": [
@@ -59595,6 +59746,58 @@
           ]
         }
       },
+      "externalSource": {
+        "account": "itsk.diamond",
+        "source_url": "https://www.tiktok.com/@itsk.diamond/photo/7634603327719869710",
+        "observedViewCount": 1400000
+      }
+    },
+    {
+      "caption_hash": "1a93a63ab20a3a4e3228e787c1110462512a8ef444657ffc7e00707f5515da80",
+      "text": "5. He may struggle with\nconsistency or structure.\nIf discipline and routine\nweren't modelled, he might\nhave difficulty maintaining\nlong-term habits, planning\nahead, or staying grounded -\neven if he wants to.",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "tiktok_overlay_hooks_20260718:tiktok_overlay_hooks_20260718.json:135",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "5. He may struggle with\nconsistency or structure.\nIf discipline and routine\nweren't modelled, he might\nhave difficulty maintaining\nlong-term habits, planning\nahead, or staying grounded -\neven if he wants to.",
+        "timed": {
+          "segments": [
+            {
+              "text": "5. He may struggle with"
+            },
+            {
+              "text": "consistency or structure."
+            },
+            {
+              "text": "If discipline and routine"
+            },
+            {
+              "text": "weren't modelled, he might"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
       "externalSource": {
         "account": "itsk.diamond",
         "source_url": "https://www.tiktok.com/@itsk.diamond/photo/7634603327719869710",
@@ -67756,6 +67959,58 @@
       }
     },
     {
+      "caption_hash": "ce0dd9145b1337d10fba40218195834a1e5d3df515bee46cedff75986d14e7cb",
+      "text": "5. He becomes overly self\nsufficient and stops asking\nfor help. He believes he has\nto carry everything alone\nand doesn't want to bother\nanyone with his problems.\nHe usually refuses help\neven when he needs it",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "tiktok_overlay_hooks_20260718:tiktok_overlay_hooks_20260718.json:31",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "5. He becomes overly self\nsufficient and stops asking\nfor help. He believes he has\nto carry everything alone\nand doesn't want to bother\nanyone with his problems.\nHe usually refuses help\neven when he needs it",
+        "timed": {
+          "segments": [
+            {
+              "text": "5. He becomes overly self"
+            },
+            {
+              "text": "sufficient and stops asking"
+            },
+            {
+              "text": "for help. He believes he has"
+            },
+            {
+              "text": "to carry everything alone"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "experimental_edge"
+      ],
+      "externalSource": {
+        "account": "its.zoett",
+        "source_url": "https://www.tiktok.com/@its.zoett/photo/7550490864284372254",
+        "observedViewCount": 6300000
+      }
+    },
+    {
       "caption_hash": "bac4dd0f3978aa6550a06265bcf0c84569f1ba236fbfc0129ff691f052198e94",
       "text": "6. He loses interest in\nthings he use to enjoy.\nHobbies, passions, even\nsmall daily things start to\nfeel like too much effort and\nhe tells himself they don't\nmatter anymore",
       "banks": [
@@ -67799,6 +68054,58 @@
           ]
         }
       },
+      "externalSource": {
+        "account": "its.zoett",
+        "source_url": "https://www.tiktok.com/@its.zoett/photo/7550490864284372254",
+        "observedViewCount": 6300000
+      }
+    },
+    {
+      "caption_hash": "2d4dae839a2b9ead47a213e7413d7efbabf4c23bfc1a2e81b12f6cc3a21dd66e",
+      "text": "7. He gets easily irritated over\nsmall things. His patience\nruns thin very easy. He start\nreacting more strongly to\nsmall inconveniences not\nbecause they're a big deal\nbut because he's emotionally\ndrained",
+      "banks": [
+        "goth_dark_alt"
+      ],
+      "source": "tiktok_overlay_hooks_20260718:tiktok_overlay_hooks_20260718.json:33",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "7. He gets easily irritated over\nsmall things. His patience\nruns thin very easy. He start\nreacting more strongly to\nsmall inconveniences not\nbecause they're a big deal\nbut because he's emotionally\ndrained",
+        "timed": {
+          "segments": [
+            {
+              "text": "7. He gets easily irritated over"
+            },
+            {
+              "text": "small things. His patience"
+            },
+            {
+              "text": "runs thin very easy. He start"
+            },
+            {
+              "text": "reacting more strongly to"
+            }
+          ]
+        }
+      },
+      "reviewOnlyReason": "sourced_excluded_bank_candidate",
+      "reviewOnlyExcludedBanks": [
+        "goth_dark_alt"
+      ],
       "externalSource": {
         "account": "its.zoett",
         "source_url": "https://www.tiktok.com/@its.zoett/photo/7550490864284372254",
@@ -71135,51 +71442,59 @@
     }
   ],
   "wouldWriteLiveBanks": false,
-  "importedSourceFile": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_grid_20260807_blocked_by_intake.json",
-  "importedSource": "instagram_grid_screenshots_20260807",
-  "importedAt": 1786095548,
-  "added_count": 0,
-  "import_rejected_count": 10,
+  "importedSourceFile": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/tiktok_overlay_hooks_20260718.json",
+  "importedSource": "tiktok_overlay_hooks_20260718",
+  "importedAt": 1786096631,
+  "added_count": 6,
+  "import_rejected_count": 290,
   "rejectedSamples": [
     {
       "index": 1,
-      "text": "If you L my P\nI will S your D\nAnd P your A\ntill you C\nIf you understand his your qualified"
+      "text": "to all the mature men\nout there..."
     },
     {
       "index": 2,
-      "text": "I might be an 18yo brunette but I'm not stupid. I know you have a card hock rn.\n\nNow change c with h"
+      "text": "name one mistake you've\nmade in life so a young man\nwon't repeat it."
     },
     {
       "index": 3,
-      "text": "be a good boy and read this backwards:\n\nelihc dna emina hctaw ew elihw styttit gib esehc kcus ot nam a rof gnikool mi"
+      "text": "If your man ever says\nthese."
     },
     {
       "index": 4,
-      "text": "Never cheated: 30\nNever smoked: 20\nNever drank: 20\nNever been to a club: 30\nNever cuddled: 30\n\nPersonally 90, and you ?"
+      "text": "\"Delete him.\"\n\"Don't drink.\"\n\"Don't smoke.\"\n\"No guy friends.\"\n\"You're not going there.\"\n\"You're not wearing that.\""
     },
     {
       "index": 5,
-      "text": "when I was 14, a boy in my class typed 55378008 on calculator, turned it upside down and said, that's you."
+      "text": "Congratulations.\nYou actually have a man\nwho genuinely cares\nabout you and sees a\npotential future with you\nin this shit generation."
     },
     {
       "index": 6,
-      "text": "If it doesn't slip out when he leans down to kiss me so he can talk to me however he wants idc\n(Read every 4th word)"
+      "text": "Not gonna lie"
     },
     {
       "index": 7,
-      "text": "I'm so single I literally text everyone who follows me.. I get excited thinking we might be friends. Send me this post and I'll"
+      "text": "Most relationships would\nsurvive if females stopped\ntaking advice from their\nho ahh single friends who\ndon't even want to see\nyou happy"
     },
     {
       "index": 8,
-      "text": "this mommy stuff ain't no joke. i genuinely want to call him good boy, buy him hot wheels and ill be the race track"
+      "text": "\"i'm sorry i was\nshowering\"\nit's okay!! your allowed\nto spend 30+ minutes to\nyourself for HYGIENE"
     },
     {
       "index": 9,
-      "text": "acc so small that if you like or interact w any of my reels I WILL definitely send you something in dms"
+      "text": "\"i'm sorry i was with my\nfriends\"\nit's okay!! go and spend\ntime with people who\nmake you happy"
     },
     {
       "index": 10,
-      "text": "What I really need:\nVehicle (without hicle)\nLobby (without bby)\nUrban (without ban)\nYoga (without ga)\n\nNow read it backwards"
+      "text": "\"i'm sorry i was eating\ndinner\"\nit's okay!! YOUR\nHEALTH MATTERS"
+    },
+    {
+      "index": 11,
+      "text": "\"i'm sorry i was with my\nfamily\"\nit's okay!! you are\nallowed to spend quality\ntime with loved ones"
+    },
+    {
+      "index": 12,
+      "text": "\"i'm sorry i was\nexercising\"\nit's okay!!\ni love to run if you ever\nwanna invite me:) if not,\nhave fun"
     }
   ]
 }

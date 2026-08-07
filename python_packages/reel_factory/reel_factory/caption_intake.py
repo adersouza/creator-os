@@ -896,11 +896,15 @@ def _add_candidate(
 
 
 def _candidate_text(text: str) -> bool:
-    # 200, not 140: the old 140 cap was the same intake-only artifact as the
-    # word cap below -- 50 of the 873 captions already in banks.json exceeded
-    # it, the longest at 199 chars. 200 admits every caption the live bank
-    # already holds.
-    if not (5 <= len(text) <= 200):
+    # ponytail: no upper length bound. This was 140, then 200, and each value
+    # was an intake-only guess that rejected real harvested overlays -- the
+    # 200 cap alone dropped four verified TikTok hooks in the 200-260 char
+    # range (numbered list-slide overlays, the format that carries a whole
+    # multi-slide hook). Operator removed it outright 2026-08-07. The floor
+    # stays: under 5 chars is OCR noise, not a caption. Anything genuinely too
+    # long to render is caught downstream by placement, which measures the
+    # actual band, not a character count.
+    if len(text) < 5:
         return False
     if text.startswith("{") or text.startswith("["):
         return False
