@@ -37,9 +37,16 @@ explicitly reopens model evaluation:
 - Higgsfield Kling 3 and Higgsfield Seedance 2 are the only accepted passive
   selfie-motion candidates.
 - WaveSpeed Kling O3 Pro and Vidu Q3 Pro are rejected for production quality.
-- The tested Higgsfield and WaveSpeed Kling Motion Control recipes are rejected.
-  Motion copy itself remains unresolved, not permanently closed. Do not use
-  either rejected output as a lip-sync base.
+- The tested WaveSpeed Kling Motion Control recipe is rejected. Do not use it as
+  a lip-sync base.
+- **Higgsfield Kling 3 Motion Control was REOPENED and ACCEPTED by the operator
+  on 2026-08-06**, superseding the 2026-07-26 rejection of that specific recipe.
+  A Motion Control recreation of reference reel `D_rear-reveal (Dbjps06N5c2)`
+  was judged would-post, from an approved anchor plus that reel as the driving
+  video. It is accepted for the narrow route in "Recreation routing" below and
+  is still not a lip-sync base. Its exact `scene_control` and resolution are
+  UNRECORDED — capture them on the next run before treating any parameter set as
+  the qualified recipe.
 - WaveSpeed InfiniteTalk is rejected because the voice sounded robotic and the
   result was not postable.
 - Higgsfield Veo 3.1 produced no reviewable output. There is no accepted talking
@@ -48,6 +55,33 @@ explicitly reopens model evaluation:
   merely to complete a matrix.
 - Wan/LTX and the Arena/Router research surfaces are not active production
   defaults.
+
+### Recreation routing: Seedance first, Motion Control as the exception
+
+Operator decision, 2026-08-06. **Seedance 2.0 is the default because it is
+cheaper. Kling Motion Control gets expensive fast as duration rises.**
+
+1. Try `seedance_2_0` (`mode=fast`) for every recreation first.
+2. Fall back to Kling 3 Motion Control only when Seedance **refuses the job**
+   (`status: nsfw`) or returns an unusable result, **and the reel has no
+   talking**. A refused Seedance job is free, so the failed first attempt costs
+   nothing but latency.
+3. **Never route a talking reel to Motion Control.** Prompt-authored speaking
+   performance stays on Seedance. Exact supplied-voice lip sync remains
+   UNRESOLVED on both routes, and Motion Control output is still not a lip-sync
+   base.
+4. **Keep Motion Control clips short.** Cost climbs steeply with length, so a
+   long Motion Control render is the worst case on price.
+
+Measured 2026-08-06: Seedance `480p/fast/10s/no-audio` = 15 credits, with a
+read-only `get_cost` preflight. Motion Control exposes **no cost preflight** —
+its price is only observable as a balance delta, so quote it by measurement
+before committing to a long render.
+
+Both routes consume a character anchor, so the anchor is the identity risk in
+either case — neither is "identity-safe" relative to the other. Wardrobe or
+setting must still differ from the source reel (`worker_api.py`); Motion Control
+will not change them for you, so the change has to be engineered into the anchor.
 
 Do not average technical scores over the operator's would-post judgment. The
 supported creative scope is Soul still/static Reel plus explicitly authorized

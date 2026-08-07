@@ -65,8 +65,13 @@ lineage.
 The exposed Veo 3.1 contract accepts dialogue text but no supplied creator-audio
 file. It is EXPERIMENTAL as a visual/dialogue capability and must not be
 presented as creator-voice preservation. The exposed Kling 3 Motion Control
-combination is a REJECTED RECIPE after operator review; that decision does not
-declare all future Higgsfield motion-transfer capabilities permanently closed.
+combination was a REJECTED RECIPE after the 2026-07-26 operator review, and was
+REOPENED AND ACCEPTED by the operator on 2026-08-06 as a narrow fallback: use it
+only when Seedance refuses or fails the job and the reel carries no talking.
+Seedance remains the default because it is cheaper and offers a `get_cost`
+preflight; Motion Control exposes none and grows expensive with duration. See
+"Recreation routing" in `AGENTS.md`. Motion Control output is still not a
+lip-sync base.
 
 Speak v2 has an official SDK contract at `/v1/speak/higgsfield`: an image URL,
 WAV audio URL, prompt, `mid`/`high` quality, and a 5/10/15-second duration. The

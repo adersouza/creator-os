@@ -62,7 +62,9 @@ not the ordinary operator, selects Kling 3 or Seedance 2.
 - motion copy or dance transfer;
 - talking motion copy.
 
-The tested Kling Motion Control results remain rejected. InfiniteTalk remains
+Higgsfield Kling 3 Motion Control was reopened and accepted by the operator on
+2026-08-06 as a narrow fallback route (see "Recreation routing" in `AGENTS.md`);
+the WaveSpeed Motion Control result remains rejected. InfiniteTalk remains
 rejected for robotic voice quality. Veo text dialogue is not represented as
 creator-voice preservation. Unresolved does not mean permanently removed; it
 means normal production must fail before a paid request.
@@ -306,6 +308,11 @@ system.
 - `AUTO` may recommend an experimental route but may not silently submit it.
 - Passive Kling 3 is accepted; structural Seedance, Motion Control, and
   first/last remain explicitly reviewed experimental routes.
+- Recreation routing (operator, 2026-08-06): try structural Seedance first — it
+  is cheaper and has a `get_cost` preflight. Fall back to Kling 3 Motion Control
+  only when Seedance refuses the job (`status: nsfw`) or fails, and only when the
+  reel has no talking. A refused Seedance job costs nothing. Keep Motion Control
+  clips short; its cost climbs steeply with duration and it exposes no preflight.
 - Structural Seedance uses `seedance_2_0 mode=fast`, the bound creator Element
   first, the approved anchor as an image reference, and the Reel only as a
   video reference. It does not combine reference-media mode with start/end

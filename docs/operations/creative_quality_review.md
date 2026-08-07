@@ -60,9 +60,14 @@ decision):
 - MCP Motion Control exposes one character image, one driving video, 720p/1080p,
   and image/video scene control. The CLI maps this to
   `kling3_0_motion_control` with `background_source=input_image|input_video`.
-  This is the same underlying rejected Kling Motion Control recipe, not a new
-  implementation; it remains inactive. MCP exposes no read-only quote flag for
-  that tool, while the CLI workflow advertises duration/mode cost inputs.
+  This is the same underlying Kling Motion Control recipe, not a new
+  implementation. The operator reopened and accepted it on 2026-08-06 as a
+  narrow fallback route (see "Recreation routing" in `AGENTS.md`); its exact
+  `scene_control` and resolution from that accepted run are UNRECORDED, so no
+  parameter set is yet qualified. MCP exposes no read-only quote flag for that
+  tool, while the CLI workflow advertises duration/mode cost inputs — so its
+  price is only observable as a balance delta, which matters because Motion
+  Control cost climbs steeply with duration.
 - Audio Radar replacement remains a downstream Creator OS media operation.
   The Seedance schema neither forbids that operation nor proves that replacing
   generated audio preserves provider-side audio semantics.
