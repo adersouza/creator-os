@@ -64,8 +64,20 @@ cheaper. Kling Motion Control gets expensive fast as duration rises.**
 1. Try `seedance_2_0` (`mode=fast`) for every recreation first.
 2. Fall back to Kling 3 Motion Control only when Seedance **refuses the job**
    (`status: nsfw`) or returns an unusable result, **and the reel has no
-   talking**. A refused Seedance job is free, so the failed first attempt costs
+   talking**, **and the reel's payload is not secondary motion** (see below). A
+   refused Seedance job is refunded in full, so the failed first attempt costs
    nothing but latency.
+2a. **Motion Control is weak at secondary motion.** Operator ran reference reel
+   `B_mirror-arch-butt (DbV65c5sn2b)` through Motion Control on 2026-08-06: the
+   output was **usable but clearly worse than Seedance's**, with poor jiggle
+   physics. Motion Control retargets gross body motion — turns, pose change,
+   limb movement, which is why it worked well on `D_rear-reveal` — but it is
+   weak on soft-tissue bounce, hair, and cloth dynamics, which Seedance
+   generates convincingly.
+   **When the jiggle is the payload, prefer Seedance strongly.** Motion Control
+   remains a real fallback for that reel class, just a degraded one — treat it
+   as a salvage route when Seedance refuses, not as an equivalent, and expect
+   to pay more for the worse result.
 3. **Never route a talking reel to Motion Control.** Prompt-authored speaking
    performance stays on Seedance. Exact supplied-voice lip sync remains
    UNRESOLVED on both routes, and Motion Control output is still not a lip-sync
@@ -73,10 +85,20 @@ cheaper. Kling Motion Control gets expensive fast as duration rises.**
 4. **Keep Motion Control clips short.** Cost climbs steeply with length, so a
    long Motion Control render is the worst case on price.
 
-Measured 2026-08-06: Seedance `480p/fast/10s/no-audio` = 15 credits, with a
-read-only `get_cost` preflight. Motion Control exposes **no cost preflight** —
-its price is only observable as a balance delta, so quote it by measurement
-before committing to a long render.
+Measured costs, 2026-08-06/07 (Higgsfield credit ledger):
+
+| route | credits | preflight |
+|---|---|---|
+| Seedance `480p/fast/10s/no-audio` | 12–15 | yes, `get_cost` |
+| Kling 3 Motion Control | **18 and 40** on two runs | **none** |
+| Nano Banana 2 anchor @ 2k | 2 | yes |
+| Seedance refused (`status: nsfw`) | **0 — refunded in full** | n/a |
+
+Motion Control ran **1.2×–2.7× Seedance** on comparable work, and it exposes no
+preflight, so its price is only observable as a ledger delta after the fact.
+Combined with 2a, that makes it the expensive way to discover a reel it cannot
+do — the 40-credit run is the one that came back unusable. Quote it by
+measurement and keep the clip short.
 
 Both routes consume a character anchor, so the anchor is the identity risk in
 either case — neither is "identity-safe" relative to the other. Wardrobe or
