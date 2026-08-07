@@ -16,6 +16,7 @@ from pipeline_contracts import (
 from .graph_builder import build_video_filter as build_graph_video_filter
 from .graph_builder import caption_overlay_enable, target_dimensions
 from .manifest import Manifest
+from .media_metadata import output_stem
 from .placement import (
     CaptionSegmentPlan,
     PlacementSummary,
@@ -99,6 +100,10 @@ async def process_one(
     requested_band: str | None = None,
 ) -> dict:
     """Render one (video, caption_variant, recipe) combo."""
+    # Output filenames only. `src.stem` stays the manifest/cache key -- renaming
+    # that would invalidate every cached job -- but nothing provider-named may
+    # reach a file that gets uploaded.
+    out_stem = output_stem(src, src_hash)
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
     raw_caption_for_manifest = (
         json.dumps(caption, sort_keys=True, ensure_ascii=False)
@@ -190,7 +195,7 @@ async def process_one(
         ) or ["overlay_timing_qc_failed"]
         error = "burned_overlay_timing_invalid:" + ",".join(failure_reasons)
         blocked_path = out_dir / (
-            f"{src.stem}_h{hook_idx:02d}_{recipe.name}_timing_blocked.mp4"
+            f"{out_stem}_h{hook_idx:02d}_{recipe.name}_timing_blocked.mp4"
         )
         log.error(f"BLOCK {src.stem} h{hook_idx} {recipe.name}: {error}")
         if not dry_run:
@@ -218,7 +223,7 @@ async def process_one(
         ]
         error = "burned_overlay_semantic_incomplete:" + ",".join(failure_reasons)
         blocked_path = out_dir / (
-            f"{src.stem}_h{hook_idx:02d}_{recipe.name}_semantic_blocked.mp4"
+            f"{out_stem}_h{hook_idx:02d}_{recipe.name}_semantic_blocked.mp4"
         )
         log.error(f"BLOCK {src.stem} h{hook_idx} {recipe.name}: {error}")
         if not dry_run:
@@ -429,7 +434,7 @@ async def process_one(
     )
     ext = ".png" if preview else ".mp4"
     out_filename = (
-        f"{src.stem}_h{hook_idx:02d}_{recipe.name}{ratio_suffix}_{color}_{key[:8]}{ext}"
+        f"{out_stem}_h{hook_idx:02d}_{recipe.name}{ratio_suffix}_{color}_{key[:8]}{ext}"
     )
     out_path = out_dir / out_filename
     tmp_dir = out_dir / ".tmp" / key[:16]
@@ -455,7 +460,7 @@ async def process_one(
         account_scope=account_scope,
     )
     mezz_out_path = (
-        out_dir / f"{src.stem}_h{hook_idx:02d}_{recipe.name}_{color}_{key[:8]}_mezz.mov"
+        out_dir / f"{out_stem}_h{hook_idx:02d}_{recipe.name}_{color}_{key[:8]}_mezz.mov"
     )
     mezz_tmp_path = tmp_dir / mezz_out_path.name
     mezz_cmd = (

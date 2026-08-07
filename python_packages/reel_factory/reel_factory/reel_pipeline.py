@@ -713,7 +713,12 @@ async def amain(args):
         try:
             from .qc_check import run_qc
 
-            qc_summary = run_qc(proc_dir, move_failed=True)
+            # audio_mode="auto" judges each file by its own name: `*_audio_*`
+            # must carry exactly one stream, everything else must be silent.
+            # The default "silent" failed every file --mux-audio had just
+            # created, for `audio_present`, and move_failed quarantined all of
+            # them -- so the two flags could never be used together.
+            qc_summary = run_qc(proc_dir, move_failed=True, audio_mode="auto")
             log.info(f"qc: {json.dumps(qc_summary)}")
         except Exception as e:
             log.error(f"qc pass failed: {e}")
