@@ -10,12 +10,46 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 SCHEMA = "reel_factory.media_metadata_normalization.v1"
+
+# Provider names that ride in on a downloaded source filename. Stripping the
+# metadata but shipping `hf_20260415_..._kling3_i2v.mp4` defeats the point --
+# the filename is the one piece of metadata every platform keeps verbatim.
+_PROVIDER_TOKENS = re.compile(
+    r"(?:^|[_\-])"
+    r"(?:hf|higgsfield|kling\d*|seedance\d*|soul|nano[_\-]?banana(?:[_\-]?pro)?"
+    r"|synthid|wavespeed|wan\d*|seedream\d*|flux|grok|i2v|t2v|t2i)"
+    r"(?=[_\-]|$)",
+    re.IGNORECASE,
+)
+
+
+def output_stem(src: Path, src_hash: str) -> str:
+    """Provider-free stem for a rendered output filename.
+
+    ponytail: one regex plus one fallback, no filename parser. A Higgsfield
+    export stem is a provider tag, a timestamp and a UUID -- hex and digits all
+    the way down -- so once the provider tag is gone there is no human-meaningful
+    label left to preserve and the content hash is a better one. A stem with any
+    non-hex letter in it (`bed_lamp_gray_tank`, `boat_blue`) is operator-authored
+    and survives with only the provider token removed.
+    """
+    stem = _PROVIDER_TOKENS.sub("_", src.stem)
+    # Anything that is not a word character or a hyphen becomes an underscore.
+    # Source drops carry Finder duplicates like `hf_<uuid> copy.png`, and a
+    # space in an output filename breaks shell and URL handling downstream --
+    # which is the whole point of renaming these.
+    stem = re.sub(r"[^\w-]+", "_", stem)
+    stem = re.sub(r"[_\-]{2,}", "_", stem).strip("_-")
+    if not re.search(r"[g-z]", stem, re.IGNORECASE):
+        return f"src_{src_hash[:10]}"
+    return stem
 
 
 def normalize_media_metadata(

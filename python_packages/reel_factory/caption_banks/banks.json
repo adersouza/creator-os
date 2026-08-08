@@ -7096,17 +7096,17 @@
         ]
       },
       {
-        "caption_hash": "0850a2f3f0a37228908a724f1455e63f9ac6f447f2150199d57fb3757fce6248",
-        "static_text_hash": "0850a2f3f0a37228908a724f1455e63f9ac6f447f2150199d57fb3757fce6248",
-        "caption_payload_hash": "ce9e95ad01c6efcab9dc1a037c62778dae7b1d6edec22fd34487e2f172ba6f29",
+        "caption_hash": "d3b556fa5f712a7d5ab6fd0887163392df86615c97be46d1905d381730888819",
+        "static_text_hash": "d3b556fa5f712a7d5ab6fd0887163392df86615c97be46d1905d381730888819",
+        "caption_payload_hash": "82ad1cd98347a39e23721e9d5e7d680456d76af43319f3bf1e79b02ecf2ae54d",
         "variant_type": "static",
-        "text": "what would you choose?\n\nA.) back scratches with hair pulled\n\nB.) mission and checked",
+        "text": "what would you choose?\n\nA.) back scratches with hair pulled\n\nB.) missionary and choked",
         "banks": [
           "choice_poll",
           "winner_bank"
         ],
         "word_count": 14,
-        "char_count": 84,
+        "char_count": 86,
         "line_count": 3,
         "length_class": "medium",
         "format_class": "multiline",
@@ -7121,7 +7121,13 @@
             "source_clip": "clip_010",
             "source_index": 27
           }
-        ]
+        ],
+        "ocr_repair": {
+          "repairedFrom": "B.) mission and checked",
+          "repairedTo": "B.) missionary and choked",
+          "basis": "operator_identified_ocr_substitution",
+          "sourceImageAvailable": false
+        }
       },
       {
         "caption_hash": "2374d59edd561c132b80e637295304ce62db604e904002970850dcddbccaabd6",
@@ -21179,17 +21185,17 @@
         ]
       },
       {
-        "caption_hash": "0850a2f3f0a37228908a724f1455e63f9ac6f447f2150199d57fb3757fce6248",
-        "static_text_hash": "0850a2f3f0a37228908a724f1455e63f9ac6f447f2150199d57fb3757fce6248",
-        "caption_payload_hash": "ce9e95ad01c6efcab9dc1a037c62778dae7b1d6edec22fd34487e2f172ba6f29",
+        "caption_hash": "d3b556fa5f712a7d5ab6fd0887163392df86615c97be46d1905d381730888819",
+        "static_text_hash": "d3b556fa5f712a7d5ab6fd0887163392df86615c97be46d1905d381730888819",
+        "caption_payload_hash": "82ad1cd98347a39e23721e9d5e7d680456d76af43319f3bf1e79b02ecf2ae54d",
         "variant_type": "static",
-        "text": "what would you choose?\n\nA.) back scratches with hair pulled\n\nB.) mission and checked",
+        "text": "what would you choose?\n\nA.) back scratches with hair pulled\n\nB.) missionary and choked",
         "banks": [
           "choice_poll",
           "winner_bank"
         ],
         "word_count": 14,
-        "char_count": 84,
+        "char_count": 86,
         "line_count": 3,
         "length_class": "medium",
         "format_class": "multiline",
@@ -21204,7 +21210,13 @@
             "source_clip": "clip_010",
             "source_index": 27
           }
-        ]
+        ],
+        "ocr_repair": {
+          "repairedFrom": "B.) mission and checked",
+          "repairedTo": "B.) missionary and choked",
+          "basis": "operator_identified_ocr_substitution",
+          "sourceImageAvailable": false
+        }
       },
       {
         "caption_hash": "2374d59edd561c132b80e637295304ce62db604e904002970850dcddbccaabd6",

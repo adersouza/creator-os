@@ -82,6 +82,7 @@ from .reel_pipeline_support import (
     phone_creation_time,
     reexec_with_homebrew_gi_env_if_needed,
     resolve_caption_font_policy,
+    resolve_forced_caption_band,
     sha256_file,
     timed_caption_band,
     vary_band_within_lane,
@@ -366,14 +367,23 @@ async def amain(args):
             if pref_styles and style_ not in pref_styles:
                 style_ = pref_styles[0]
             auto_band_cache[src_hash] = (band_, style_, font_, placement_summary)
+            # Record the band that will actually render, not the one requested.
+            # The old row reported args.band unconditionally, so a QC report
+            # showing lower_center on all 424 rows told you nothing about whether
+            # the placement result had been honoured or discarded.
+            qc_band, qc_downgrade = resolve_forced_caption_band(
+                args.band, placement_summary, band_
+            )
             qc_row = build_caption_placement_qc_row(
                 source_clip=video.stem,
                 placement_summary=placement_summary,
                 scored_lane=band_,
-                render_band=args.band,
+                render_band=qc_band,
                 caption_style=style_,
                 font=font_,
             )
+            if qc_downgrade:
+                qc_row["bandDowngrade"] = qc_downgrade
             placement_qc_rows.append(qc_row)
             if args.caption_placement_qc or args.placement_debug:
                 log.info(
@@ -411,15 +421,28 @@ async def amain(args):
                 )
             else:
                 caption_topic = args.caption_topic
+            # Seed per SOURCE, not per run — see _weighted_sample_caption_rows.
+            # This is the sampler that actually picks a clip's captions; the
+            # later hook/recipe samplers only see what it already capped.
             video_cap_set, fit_diagnostics = apply_caption_fit_to_caption_set(
                 cap_set,
                 frame_type=frame_type,
                 reel_scene_tags=reel_scene_tags,
                 caption_topic=caption_topic,
                 max_hooks=args.max_hooks,
-                seed=args.seed,
+                seed=f"{args.seed}|{src_hash}",
                 fit_mode=args.caption_fit,
                 scene_fit_mode=args.caption_scene_fit,
+            )
+            # Count what survived fit BEFORE max_hooks sampled it down. Logging
+            # only the post-sample count made a 232-hook pool read as "hooks=2"
+            # on every clip, which is how a total caption collapse went unseen
+            # across a full 3392-reel run.
+            eligible = sum(
+                1
+                for row in fit_diagnostics
+                if row.get("suitabilityDecision")
+                in {"allowed", "downweighted", "fallback_short", "fit_disabled"}
             )
             if args.dry_run or args.placement_debug:
                 for row in fit_diagnostics:
@@ -428,7 +451,8 @@ async def amain(args):
                 f"caption fit for {video.stem}: mode={args.caption_fit} "
                 f"scene_fit={args.caption_scene_fit} frame_type={frame_type} "
                 f"reel_scene_tags={','.join(reel_scene_tags)} "
-                f"caption_topic={caption_topic or 'none'} hooks={len(video_cap_set.hooks)}"
+                f"caption_topic={caption_topic or 'none'} "
+                f"eligible={eligible} hooks={len(video_cap_set.hooks)}"
             )
 
         # Per-clip color override from sidecar JSON, account profile, or CLI
@@ -444,7 +468,20 @@ async def amain(args):
         if args.style:
             recipes = [replace(r, caption_style=args.style) for r in recipes]
         if args.band:
-            recipes = [replace(r, caption_band=args.band) for r in recipes]
+            # A forced band (the Stacey/Larissa preset sets lower_center) used to
+            # overwrite every recipe unconditionally, discarding the placement
+            # result computed moments earlier. Defer to the scored lane on the
+            # clips whose supporting lanes were rejected.
+            scored_band_ = auto_band_cache[src_hash][0]
+            resolved_band, band_downgrade = resolve_forced_caption_band(
+                args.band, auto_band_cache[src_hash][3], scored_band_
+            )
+            if band_downgrade:
+                log.info(
+                    f"caption band downgrade for {video.stem}: "
+                    + json.dumps(band_downgrade, ensure_ascii=False)
+                )
+            recipes = [replace(r, caption_band=resolved_band) for r in recipes]
         if args.font:
             recipes = [replace(r, font=args.font) for r in recipes]
         if args.text_variation:
@@ -463,7 +500,20 @@ async def amain(args):
         # Preserve original hook_idx so output filenames stay stable across
         # runs (h00, h03, h07 ...). The manifest keys on caption/recipe
         # hashes, so partial sampling is cache-correct.
-        rng = random.Random(args.seed)
+        #
+        # Seed per SOURCE, not per run. This is re-created on every iteration,
+        # so a bare `args.seed` made all 424 clips of a run draw the identical
+        # sample: 287 candidate hooks collapsed to 4 across 3384 reels, two of
+        # them at 49.5% each. Mixing src_hash in keeps the draw reproducible
+        # (same source + same seed + same pool → same picks) while letting
+        # different sources diverge.
+        #
+        # ponytail: an f-string, not a tuple and not hash(). random.Random
+        # rejects tuples outright, and Python randomizes str hashing per
+        # process, so hash() would reshuffle every run. Keyed on src_hash
+        # rather than video.stem so renaming a source does not reshuffle it.
+        clip_seed = f"{args.seed}|{src_hash}"
+        rng = random.Random(clip_seed)
 
         hooks_pool: list[tuple[int, str | dict]] = list(enumerate(video_cap_set.hooks))
         recipes_pool: list[Recipe] = list(recipes)
@@ -500,7 +550,7 @@ async def amain(args):
                 recipes_pool,
                 per_clip=args.per_clip,
                 hook_select=args.hook_select,
-                seed=args.seed,
+                seed=clip_seed,
                 recipe_order=recipes,
             )
 
@@ -713,7 +763,12 @@ async def amain(args):
         try:
             from .qc_check import run_qc
 
-            qc_summary = run_qc(proc_dir, move_failed=True)
+            # audio_mode="auto" judges each file by its own name: `*_audio_*`
+            # must carry exactly one stream, everything else must be silent.
+            # The default "silent" failed every file --mux-audio had just
+            # created, for `audio_present`, and move_failed quarantined all of
+            # them -- so the two flags could never be used together.
+            qc_summary = run_qc(proc_dir, move_failed=True, audio_mode="auto")
             log.info(f"qc: {json.dumps(qc_summary)}")
         except Exception as e:
             log.error(f"qc pass failed: {e}")

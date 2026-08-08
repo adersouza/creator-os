@@ -125,6 +125,25 @@ def _json_sidecar(output_path: Path, suffix: str) -> dict[str, Any] | None:
     return None
 
 
+def _muxed_sibling_audio_intent(output_path: Path) -> dict[str, Any] | None:
+    """Audio intent for a silent render whose audio lives on a muxed sibling.
+
+    run_readiness deliberately skips `*_audio_*.mp4` so each render is reported
+    once instead of once per audio variant -- but `--mux-audio` writes the audio
+    intent sidecar next to the MUXED file, so the silent original that readiness
+    does report always looked like it had none. Every render in a muxed run
+    warned `missing_audio_intent` and nothing could ever reach `ready`.
+
+    ponytail: read the sibling's intent, do not synthesize one. No mux means no
+    sibling means the warning still fires, which is the case the check is for.
+    """
+    for sibling in sorted(output_path.parent.glob(f"{output_path.stem}_audio_*.mp4")):
+        intent = read_audio_intent(sibling)
+        if intent:
+            return intent
+    return None
+
+
 def _source_lineage_exists(root: Path, clip: str, output_path: Path) -> bool:
     source_lineage = root / "00_source_videos" / f"{clip}.generated_asset_lineage.json"
     if source_lineage.exists():
@@ -246,7 +265,9 @@ def evaluate_output(
     if safe_zone.get("safeZoneStatus") == "warn":
         warnings.append("safe_zone_review_needed")
 
-    audio_intent = read_audio_intent(output_path)
+    audio_intent = read_audio_intent(output_path) or _muxed_sibling_audio_intent(
+        output_path
+    )
     if profile["requires_audio_intent"] and not audio_intent:
         warnings.append("missing_audio_intent")
 

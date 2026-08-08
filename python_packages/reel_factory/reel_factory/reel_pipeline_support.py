@@ -618,14 +618,95 @@ _SUBBAND_SUPPORT = {
     "lower_center_alt": ("center", "bottom"),
     "bottom": ("bottom",),
 }
+# Measured against 6,198 real reference captions: creators put text at a median
+# 60.8% of frame height, p25-p75 57.5-63.9% -- a tight, consistent zone. Our
+# bands land at top 23.2%, center 49.6%, lower_center 58.6%, lower_center_alt
+# 64.6%, bottom 65.5%. The bottom lane previously offered only 64.6/65.5, both
+# at the p75-p90 edge, so it never reached the zone creators actually use.
+# lower_center (58.6%) is the closest single match to their median and is now
+# offered there too. Safety is unchanged: _SUBBAND_SUPPORT already requires
+# BOTH center and bottom lanes to be clear before lower_center is eligible, so
+# a rejected center lane still rules it out automatically.
 _LANE_SUBBANDS = {
     "top": ("top",),
     "center": ("center", "lower_center"),
-    "bottom": ("bottom", "lower_center_alt"),
+    "bottom": ("lower_center", "lower_center_alt", "bottom"),
 }
 
 
 CAPTION_BAND_OVERRIDES = {"top", "center", "lower_center", "lower_center_alt", "bottom"}
+
+# Share of a face box that must sit under the caption block before a forced band
+# is given up. Matches the overlap criterion used to label the clips by eye.
+_FORCED_BAND_FACE_OVERLAP = 0.10
+
+
+def resolve_forced_caption_band(
+    forced_band: str | None,
+    placement_summary,
+    scored_band: str,
+) -> tuple[str | None, dict | None]:
+    """Honour a forced band only where the scored lanes actually support it.
+
+    `apply_creator_style_preset` sets `args.band = "lower_center"` for the
+    Stacey/Larissa format, and `reel_pipeline` then rewrites every recipe's band
+    with it. That happened unconditionally: placement scored the lanes, wrote the
+    result to the QC row, and the render threw it away. Measured on the 424-clip
+    run, all 424 rendered `lower_center` while 252 had `center` or `bottom`
+    rejected, and sampling 60 of those found 3 with the caption sitting on a real
+    face -- one covering it completely.
+
+    Forcing the band is not itself wrong: `lower_center` is 58.6% of frame height
+    against the reference creators' 60.8% median, far closer than the scored
+    lanes produced. So keep it where the supporting lanes are clear and defer to
+    the scored lane where they are not.
+
+    Judge it against the caption block's OWN pixel window, not the enclosing
+    lane. The lane vetoes are computed on thirds: `center` spans 33.3%-66.7% of
+    frame height while a lower_center caption only occupies 51%-66% of it, so a
+    face at 33-51% rejects the lane without ever touching the text. Measured on
+    the 424-clip run, deferring to the coarse lane veto would have downgraded 252
+    clips; annotating the ones it flagged showed the captions sitting on the
+    torso with the faces well above, and zero real collisions.
+
+    ponytail: consult the per-band overlap the placement probe already computed
+    from the same detector pass. Returns `(band, downgrade)`; `downgrade` is None
+    when the forced band stands.
+    """
+    if not forced_band or forced_band == "auto":
+        return forced_band, None
+    metadata = getattr(placement_summary, "metadata", None) or {}
+    overlaps = metadata.get("subBandFaceOverlap") or {}
+    if forced_band not in overlaps:
+        # No sub-band signal (detector unavailable, or a band with no window).
+        # Leave the forced band alone rather than downgrading on no evidence --
+        # the lane vetoes are too coarse to stand in for it.
+        return forced_band, None
+    overlap = float(overlaps[forced_band])
+    if overlap < _FORCED_BAND_FACE_OVERLAP:
+        return forced_band, None
+    alternatives = [
+        (band, float(value))
+        for band, value in overlaps.items()
+        if value < _FORCED_BAND_FACE_OVERLAP
+    ]
+    # Verify the fallback too. Downgrading onto a band that also has a face under
+    # it would just move the problem; with nothing clear, hand back the scored
+    # lane and let the placement decision's own render policy apply.
+    resolved = (
+        min(alternatives, key=lambda item: item[1])[0] if alternatives else scored_band
+    )
+    return resolved, {
+        "forcedBand": forced_band,
+        "resolvedBand": resolved,
+        "faceOverlap": round(overlap, 3),
+        "threshold": _FORCED_BAND_FACE_OVERLAP,
+        "clearAlternatives": sorted(band for band, _ in alternatives),
+        "reason": (
+            f"forced band {forced_band} has {overlap:.0%} of a face box under the "
+            f"caption block; resolved to {resolved}"
+        ),
+    }
 
 _FACE_CLEAR_HEAD_CEILING = 110.0  # full head-blocker weight; partial hits allowed
 

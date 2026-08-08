@@ -1646,8 +1646,12 @@ class ReelPipelineTests(unittest.TestCase):
             vary_band_within_lane("bottom", summary, diversity_key=f"clip-{i}")
             for i in range(24)
         }
-        # bottom lane offers bottom + lower_center_alt for per-clip variety
-        self.assertEqual(bands, {"bottom", "lower_center_alt"})
+        # Bottom lane offers three sub-bands for per-clip variety. lower_center
+        # was added after measuring 6,198 real reference captions: creators sit
+        # at a median 60.8% of frame height (p25-p75 57.5-63.9), and of our
+        # bands only lower_center (58.6%) reaches that zone -- bottom (65.5%)
+        # and lower_center_alt (64.6%) both sit at their p75-p90 edge.
+        self.assertEqual(bands, {"bottom", "lower_center_alt", "lower_center"})
 
     def test_vary_band_skips_subband_when_supporting_lane_rejected(self):
         # center rejected → lower_center_alt (needs center+bottom) unavailable,
@@ -1893,6 +1897,83 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(
             [recipe.name for recipe in limited_recipes], ["v00", "v01", "v02", "v03"]
         )
+
+    # ── Per-source RNG seeding ────────────────────────────────────────────
+    # The pipeline re-creates its RNG once per clip. Seeding it from a bare
+    # run-level `args.seed` made every clip draw the same sample: one real run
+    # put 287 candidate hooks through 424 sources and produced 4 distinct
+    # captions across 3384 reels. Both halves of the contract are asserted --
+    # reproducible for a given source, divergent across sources.
+
+    @staticmethod
+    def _draw_hooks(seed_material, hooks, count):
+        """Mirror the pipeline's hook sampling at reel_pipeline.py:466."""
+        import random
+
+        rng = random.Random(seed_material)
+        return tuple(
+            idx for idx, _ in sorted(rng.sample(hooks, count), key=lambda x: x[0])
+        )
+
+    def test_hook_draw_is_reproducible_for_the_same_source(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(60)]
+        first = self._draw_hooks("7|aaaa1111", hooks, 2)
+        second = self._draw_hooks("7|aaaa1111", hooks, 2)
+        self.assertEqual(first, second)
+
+    def test_hook_draw_diverges_across_sources(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(60)]
+        # Several sources, asserting "not all identical" rather than pairwise
+        # inequality -- two sources legitimately colliding on one draw is not
+        # a bug, 424 sources agreeing is.
+        draws = {self._draw_hooks(f"7|src{i:04d}", hooks, 2) for i in range(12)}
+        self.assertGreater(len(draws), 1)
+
+    def test_recipe_draw_is_reproducible_for_the_same_source(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(4)]
+        recipes = [Recipe(f"v{idx:02d}") for idx in range(9)]
+        kwargs = dict(per_clip=4, hook_select="random", recipe_order=recipes)
+        first = limit_render_pool(hooks, recipes, seed="7|aaaa1111", **kwargs)[1]
+        second = limit_render_pool(hooks, recipes, seed="7|aaaa1111", **kwargs)[1]
+        self.assertEqual([r.name for r in first], [r.name for r in second])
+
+    def test_recipe_draw_diverges_across_sources(self):
+        hooks = [(idx, f"hook {idx}") for idx in range(4)]
+        recipes = [Recipe(f"v{idx:02d}") for idx in range(9)]
+        draws = {
+            tuple(
+                r.name
+                for r in limit_render_pool(
+                    hooks,
+                    recipes,
+                    per_clip=4,
+                    hook_select="random",
+                    seed=f"7|src{i:04d}",
+                    recipe_order=recipes,
+                )[1]
+            )
+            for i in range(12)
+        }
+        self.assertGreater(len(draws), 1)
+
+    def test_batch_of_sources_does_not_collapse_to_one_hook_set(self):
+        """The regression the unit tests alone would not have caught.
+
+        This is the shape of the production bug: every source independently
+        drawing, every source getting the same answer. Asserts at the batch
+        level, the way the defect actually presented.
+        """
+        hooks = [(idx, f"hook {idx}") for idx in range(60)]
+        source_hashes = [f"{i:064x}" for i in range(20)]
+        sets = {self._draw_hooks(f"7|{h}", hooks, 2) for h in source_hashes}
+        self.assertGreater(
+            len(sets),
+            1,
+            "all 20 sources drew the identical hook set — RNG reseed collapsed",
+        )
+        # A pool of 60 choose 2 across 20 sources should spread widely; a
+        # near-collapse is as broken as a total one.
+        self.assertGreaterEqual(len(sets), 10)
 
     def test_manifest_sqlite_exports_json_and_detects_existing_job(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2711,3 +2792,102 @@ class ReelPipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaptionFitPerSourceSeedTests(unittest.TestCase):
+    """The sampler inside apply_caption_fit_to_caption_set decides a clip's captions.
+
+    A run-level int seed here made every clip with the same frame_type draw the
+    same hooks, and the later hook/recipe samplers could not undo it because
+    they only ever saw the already-capped set. Measured on a real 424-clip run:
+    232 eligible hooks -> 2, each on 50% of 848 draws.
+
+    These call the REAL function on purpose. The previous round of seed tests
+    mirrored the sampling logic in a local helper, so they passed green while
+    this path stayed broken through a full 3392-reel render.
+    """
+
+    @staticmethod
+    def _cap_set(n=40):
+        # Short, plain hooks so static fit admits them all -- the point is the
+        # draw, not the fit rules.
+        return CaptionSet(
+            hooks=[f"hook number {i}" for i in range(n)],
+            recipe_names=None,
+            caption_color=None,
+            notes="test",
+            hook_lineage={},
+            band=None,
+        )
+
+    def _draw(self, src_hash, *, seed="7", n=40):
+        fitted, _ = apply_caption_fit_to_caption_set(
+            self._cap_set(n),
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            max_hooks=2,
+            seed=f"{seed}|{src_hash}",
+            fit_mode="auto",
+        )
+        return tuple(fitted.hooks)
+
+    def test_pool_is_larger_than_the_cap(self):
+        # If fit admitted <= max_hooks the seed would be irrelevant and the rest
+        # of this class would pass vacuously.
+        fitted, _ = apply_caption_fit_to_caption_set(
+            self._cap_set(),
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            max_hooks=None,
+            seed="7|a",
+            fit_mode="auto",
+        )
+        self.assertGreater(len(fitted.hooks), 2)
+
+    def test_same_source_and_seed_draw_the_same_hooks(self):
+        self.assertEqual(self._draw("src_aaa"), self._draw("src_aaa"))
+
+    def test_different_sources_do_not_all_draw_the_same_hooks(self):
+        # Assert over many sources rather than one lucky pair.
+        draws = {self._draw(f"src_{i:04d}") for i in range(20)}
+        self.assertGreater(len(draws), 1)
+        self.assertGreaterEqual(len(draws), 10)
+
+    def test_a_constant_seed_is_what_collapses_the_batch(self):
+        # Pins the regression: the old behaviour, reproduced exactly.
+        collapsed = set()
+        for i in range(20):
+            fitted, _ = apply_caption_fit_to_caption_set(
+                self._cap_set(),
+                frame_type="closeup",
+                reel_scene_tags=["indoor_selfie"],
+                max_hooks=2,
+                seed=7,
+                fit_mode="auto",
+            )
+            collapsed.add(tuple(fitted.hooks))
+        self.assertEqual(len(collapsed), 1)
+
+    def test_changing_the_run_seed_reshuffles_every_source(self):
+        a = [self._draw(f"src_{i:04d}", seed="7") for i in range(20)]
+        b = [self._draw(f"src_{i:04d}", seed="8") for i in range(20)]
+        self.assertNotEqual(a, b)
+
+    def test_pipeline_passes_per_source_seed_material_to_caption_fit(self):
+        """Guard the CALL SITE, not just the function.
+
+        The tests above prove apply_caption_fit_to_caption_set diverges when
+        handed per-source seed material. They say nothing about whether the
+        pipeline hands it any -- which is precisely the gap that let a run-level
+        seed ship. Source inspection is the cheap check; the alternative is
+        finding out after a 2.5h render.
+        """
+        import inspect
+
+        from reel_factory import reel_pipeline
+
+        src = inspect.getsource(reel_pipeline)
+        call = src[src.index("apply_caption_fit_to_caption_set(") :]
+        call = call[: call.index(")\n")]
+        self.assertIn('seed=f"{args.seed}|{src_hash}"', call)
+        self.assertNotIn("seed=args.seed,", call)

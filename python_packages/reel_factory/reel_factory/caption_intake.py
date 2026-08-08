@@ -896,11 +896,15 @@ def _add_candidate(
 
 
 def _candidate_text(text: str) -> bool:
-    # 200, not 140: the old 140 cap was the same intake-only artifact as the
-    # word cap below -- 50 of the 873 captions already in banks.json exceeded
-    # it, the longest at 199 chars. 200 admits every caption the live bank
-    # already holds.
-    if not (5 <= len(text) <= 200):
+    # ponytail: no upper length bound. This was 140, then 200, and each value
+    # was an intake-only guess that rejected real harvested overlays -- the
+    # 200 cap alone dropped four verified TikTok hooks in the 200-260 char
+    # range (numbered list-slide overlays, the format that carries a whole
+    # multi-slide hook). Operator removed it outright 2026-08-07. The floor
+    # stays: under 5 chars is OCR noise, not a caption. Anything genuinely too
+    # long to render is caught downstream by placement, which measures the
+    # actual band, not a character count.
+    if len(text) < 5:
         return False
     if text.startswith("{") or text.startswith("["):
         return False
@@ -1587,8 +1591,32 @@ def _hook_variants(text: str) -> dict[str, Any]:
 
 
 def _segments_for(text: str) -> list[str]:
+    """Split an overlay into timed beats.
+
+    A newline is not automatically a beat. In OCR-harvested overlays the newline
+    is where the text WRAPPED on the source slide, so splitting on every one of
+    them cuts mid-sentence and the reel shows `"i'm sorry i was eating` as its
+    own on-screen beat, then `dinner"` as the next.
+
+    ponytail: one rule, not a sentence parser -- a line holding an odd number of
+    quote characters is unterminated, so the quote continues onto the next line
+    and the break is a wrap. Joining those is always right. Everything else stays
+    a beat, so a genuine setup/payoff like "wife material" / "or heartbreak
+    material?" is untouched, and the failure mode of a missed join is the
+    behaviour we already have.
+    """
     lines = [line.strip() for line in _clean_caption(text).splitlines() if line.strip()]
-    return lines[:4]
+    merged: list[str] = []
+    for line in lines:
+        if (
+            merged
+            and (merged[-1].count('"') + merged[-1].count("“") + merged[-1].count("”"))
+            % 2
+        ):
+            merged[-1] = f"{merged[-1]} {line}"
+        else:
+            merged.append(line)
+    return merged[:4]
 
 
 def _content_match_for_review(row: dict[str, Any]) -> dict[str, Any]:

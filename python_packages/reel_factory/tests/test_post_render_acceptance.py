@@ -1,7 +1,8 @@
+import json
 from pathlib import Path
 
 from reel_factory.post_render_acceptance import acceptance_from_readiness
-from reel_factory.readiness_check import run_readiness
+from reel_factory.readiness_check import _muxed_sibling_audio_intent, run_readiness
 
 
 def _row(**overrides):
@@ -77,3 +78,23 @@ def test_run_readiness_embeds_acceptance_record(tmp_path: Path):
     acceptance = result["records"][0]["postRenderAcceptance"]
     assert acceptance["schema"] == "reel_factory.post_render_acceptance.v1"
     assert acceptance["status"] == "review"
+
+
+def test_muxed_sibling_audio_intent_satisfies_silent_original(tmp_path):
+    """A silent render whose audio landed on its muxed sibling is not 'missing'."""
+    silent = tmp_path / "clip_h00_v01_original_light_abcd1234.mp4"
+    silent.write_bytes(b"video")
+    assert _muxed_sibling_audio_intent(silent) is None
+
+    muxed = tmp_path / f"{silent.stem}_audio_388dc0a3.mp4"
+    muxed.write_bytes(b"video+audio")
+    (tmp_path / f"{muxed.name}.audio_intent.json").write_text(
+        json.dumps(
+            {
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "embedded_royalty_free_audio",
+            }
+        )
+    )
+    intent = _muxed_sibling_audio_intent(silent)
+    assert intent["mode"] == "embedded_royalty_free_audio"

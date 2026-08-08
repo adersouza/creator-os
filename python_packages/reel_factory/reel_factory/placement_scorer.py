@@ -112,18 +112,52 @@ def score_lanes(
         components["top"]["safe_area"] += 30.0
     scores["center"] += center_penalty
     components["center"]["safe_area"] = center_penalty
-    lane = min(LANES, key=lambda key: (scores[key], 0 if key != "center" else 1))
     rejected_lanes: list[str] = []
+    # ponytail: focal is documented as the FALLBACK for when pose detection is
+    # unavailable -- edge density plus warm-pixel density, no anatomy. It must not
+    # out-vote the real detectors, but only when those detectors demonstrably WORKED
+    # on this clip. A detector returning 0.0 in every lane means "found nothing",
+    # which can equally mean "blind"; that is the case focal exists to cover, so
+    # focal still blocks there. Require a positive detection SOMEWHERE before
+    # trusting a per-lane zero as evidence of clearance.
+    anatomy_detected = any(
+        max(component[key] for component in components.values()) > 0.0
+        for key in ("face", "head", "pose")
+    )
     if normalized_policy == "focal-safe":
         for candidate in LANES:
             c = components[candidate]
-            if (
-                c["face"] >= 70.0
-                or c["head"] >= 60.0
-                or c["focal"] >= 70.0
-                or c["pose"] >= 65.0
-            ):
+            lane_anatomy_clear = (
+                c["face"] < 70.0 and c["head"] < 60.0 and c["pose"] < 65.0
+            )
+            # Measured on 24 stacey stills: 13 were rejected outright, and each of
+            # their bottom lanes scored face=0.0 head=0.0 pose=0.0 focal=120 while
+            # the top lane scored face=180 head=110 -- so the detectors plainly
+            # worked and plainly said "bottom is clear". A full-body portrait puts
+            # skin and edges in every band, so focal saturates everywhere, every lane
+            # is rejected, burn_caption silently goes False and the reel ships with
+            # no overlay. Caption over the torso is the format; caption over the face
+            # is what to prevent, and face/head/pose already prevent it.
+            focal_blocks = c["focal"] >= 70.0 and not (
+                anatomy_detected and lane_anatomy_clear
+            )
+            if not lane_anatomy_clear or focal_blocks:
                 rejected_lanes.append(candidate)
+
+    # Pick the cheapest lane that survived the vetoes -- NOT the cheapest lane
+    # overall. Selecting before the vetoes were computed let a "passed" decision
+    # name a lane it had itself rejected: real QC row src_55f2caedfb passed with
+    # selectedLane=top while rejectedLanes was ["top", "center"], because top
+    # scored 140.3 against bottom's 144.4 and won a comparison the veto should
+    # have removed it from.
+    #
+    # ponytail: same min() and same center-loses-ties key, over a filtered list.
+    # When every lane is rejected `lane` stays defined for the reason string; the
+    # failed_no_safe_lane branch below sets selected_lane to None regardless.
+    survivors = [candidate for candidate in LANES if candidate not in rejected_lanes]
+    lane = min(
+        survivors or LANES, key=lambda key: (scores[key], 0 if key != "center" else 1)
+    )
     decision_status = "passed"
     decision_class = "legacy_selected" if normalized_policy == "legacy" else "passed"
     reason_code = "safe_caption_lane"
