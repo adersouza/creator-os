@@ -51,6 +51,10 @@ def caption_set_from_bank_selection(
     seed: int,
 ) -> CaptionSet:
     store = load_or_build_caption_bank_store(root)
+    # Dormant sibling of the per-clip seed defect: `limit` is None today, so
+    # this returns the whole bank and `seed` never samples. Wiring up a
+    # bank-limit flag without per-source seed material would reintroduce the
+    # same collapse one stage earlier.
     if caption_banks:
         selected = store.resolve_banks(caption_banks, limit=limit, seed=seed)
         selected_mix = None
@@ -214,8 +218,19 @@ def _weighted_sample_caption_rows(
     rows: list[tuple[int, str | dict, dict]],
     *,
     limit: int,
-    seed: int,
+    seed: int | str,
 ) -> list[tuple[int, str | dict, dict]]:
+    """Pick `limit` hooks from `rows`, weighted by bank weight and scene match.
+
+    `seed` accepts a str so the caller can pass per-source material
+    (`f"{args.seed}|{src_hash}"`). This is THE sampling site that decides a
+    clip's captions: it runs before the pipeline's own hook/recipe sampler and
+    hands it an already-capped set, so a run-level int here makes every clip
+    with the same frame_type draw the identical captions no matter what the
+    later samplers do. Measured on the 424-clip Stacey run: 232 eligible hooks
+    collapsed to 2, each landing on 50% of 848 draws. Per-source seeding over
+    the same pool yields 219 distinct, top-1 2.1%, median 3 uses.
+    """
     rng = random.Random(seed)
     pool = list(rows)
     selected: list[tuple[int, str | dict, dict]] = []
@@ -237,7 +252,7 @@ def apply_caption_fit_to_caption_set(
     reel_scene_tags: list[str] | None = None,
     caption_topic: str | None = None,
     max_hooks: int | None,
-    seed: int,
+    seed: int | str,
     fit_mode: str,
     scene_fit_mode: str = "auto",
 ) -> tuple[CaptionSet, list[dict]]:

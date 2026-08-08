@@ -411,15 +411,28 @@ async def amain(args):
                 )
             else:
                 caption_topic = args.caption_topic
+            # Seed per SOURCE, not per run — see _weighted_sample_caption_rows.
+            # This is the sampler that actually picks a clip's captions; the
+            # later hook/recipe samplers only see what it already capped.
             video_cap_set, fit_diagnostics = apply_caption_fit_to_caption_set(
                 cap_set,
                 frame_type=frame_type,
                 reel_scene_tags=reel_scene_tags,
                 caption_topic=caption_topic,
                 max_hooks=args.max_hooks,
-                seed=args.seed,
+                seed=f"{args.seed}|{src_hash}",
                 fit_mode=args.caption_fit,
                 scene_fit_mode=args.caption_scene_fit,
+            )
+            # Count what survived fit BEFORE max_hooks sampled it down. Logging
+            # only the post-sample count made a 232-hook pool read as "hooks=2"
+            # on every clip, which is how a total caption collapse went unseen
+            # across a full 3392-reel run.
+            eligible = sum(
+                1
+                for row in fit_diagnostics
+                if row.get("suitabilityDecision")
+                in {"allowed", "downweighted", "fallback_short", "fit_disabled"}
             )
             if args.dry_run or args.placement_debug:
                 for row in fit_diagnostics:
@@ -428,7 +441,8 @@ async def amain(args):
                 f"caption fit for {video.stem}: mode={args.caption_fit} "
                 f"scene_fit={args.caption_scene_fit} frame_type={frame_type} "
                 f"reel_scene_tags={','.join(reel_scene_tags)} "
-                f"caption_topic={caption_topic or 'none'} hooks={len(video_cap_set.hooks)}"
+                f"caption_topic={caption_topic or 'none'} "
+                f"eligible={eligible} hooks={len(video_cap_set.hooks)}"
             )
 
         # Per-clip color override from sidecar JSON, account profile, or CLI
