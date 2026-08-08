@@ -122,17 +122,32 @@ if __name__ == "__main__":
 class CaptionOrphanWrapTests(unittest.TestCase):
     """Greedy wrap left a paragraph's last line as one tiny word.
 
-    Measured across the 477 live captions at the real reel width (600px):
-    39 orphaned before, 11 after. Every reference creator's caption breaks
-    into balanced lines, so this matches the format rather than inventing one.
+    Measured across the 539 live captions at PRODUCTION geometry (Instagram
+    Sans Condensed, REELS_SAFE_TEXT_W=680): 23 orphaned before, 9 after.
+    An earlier 39 -> 11 figure was taken at 600px, before the width change,
+    and no longer describes what renders.
     """
 
+    # Production geometry, not a stand-in. This fixture used Inter-Black at
+    # 600px while reels render Instagram Sans Condensed at REELS_SAFE_TEXT_W,
+    # so it could stay green while real orphan behaviour changed -- the same
+    # gap that let a mirrored-logic seed test pass against a broken pipeline.
     @staticmethod
     def _font():
-        from PIL import ImageFont
+        from reel_factory.caption_render import _font_for_lines
 
-        path = Path(__file__).resolve().parents[1] / "fonts" / "Inter-Black.ttf"
-        return ImageFont.truetype(str(path), 64)
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "fonts"
+            / "InstagramSansCondensed-Regular.woff2"
+        )
+        return _font_for_lines(path, 4)
+
+    @staticmethod
+    def _width():
+        from reel_factory.caption_render import REELS_SAFE_TEXT_W
+
+        return REELS_SAFE_TEXT_W
 
     @staticmethod
     def _greedy(text, font, width):
@@ -149,14 +164,17 @@ class CaptionOrphanWrapTests(unittest.TestCase):
     def test_short_trailing_word_is_pulled_up_a_line(self):
         from reel_factory.caption_render import _wrap_lines
 
-        font, width = self._font(), 600
-        # A real caption from the live bank, verified to orphan at this width.
-        text = "Having a female bestie is like raising a chicken.\nOne day you'll eat it."
+        font, width = self._font(), self._width()
+        # A real bank caption, verified to orphan at PRODUCTION geometry. The
+        # previous fixture orphaned only under Inter-Black at 600px and wraps
+        # cleanly at the real font and width -- it would have gone on passing
+        # while testing nothing.
+        text = "can you handle a girl like me?"
         before = self._greedy(text, font, width)
         after = _wrap_lines(text, font, width)
 
-        self.assertEqual(before[-1], "it.", "fixture no longer reproduces the orphan")
-        self.assertEqual(after[-1], "eat it.")
+        self.assertEqual(before[-1], "me?", "fixture no longer reproduces the orphan")
+        self.assertEqual(after[-1], "like me?")
         self.assertGreater(len(after[-1].split()), 1)
         # Same words, same order -- only the break position moved.
         self.assertEqual(" ".join(before).split(), " ".join(after).split())
@@ -166,7 +184,7 @@ class CaptionOrphanWrapTests(unittest.TestCase):
 
         font = self._font()
         text = "a short line\n\nx:"
-        lines = _wrap_lines(text, font, 600)
+        lines = _wrap_lines(text, font, self._width())
         # "x:" is its own paragraph with no donor line; it must be left alone
         # rather than absorbing a word from the paragraph above it.
         self.assertIn("x:", lines)
@@ -175,7 +193,7 @@ class CaptionOrphanWrapTests(unittest.TestCase):
     def test_normal_captions_are_untouched(self):
         from reel_factory.caption_render import _wrap_lines
 
-        font, width = self._font(), 600
+        font, width = self._font(), self._width()
         text = "come give me a koss"
         self.assertEqual(_wrap_lines(text, font, width), self._greedy(text, font, width))
 
@@ -184,5 +202,5 @@ class CaptionOrphanWrapTests(unittest.TestCase):
 
         font = self._font()
         # Stripping the donor's only word would just move the orphan up.
-        lines = _wrap_lines("supercalifragilistic\nto", font, 600)
+        lines = _wrap_lines("supercalifragilistic\nto", font, self._width())
         self.assertEqual(lines[-1], "to")

@@ -82,6 +82,7 @@ from .reel_pipeline_support import (
     phone_creation_time,
     reexec_with_homebrew_gi_env_if_needed,
     resolve_caption_font_policy,
+    resolve_forced_caption_band,
     sha256_file,
     timed_caption_band,
     vary_band_within_lane,
@@ -366,14 +367,23 @@ async def amain(args):
             if pref_styles and style_ not in pref_styles:
                 style_ = pref_styles[0]
             auto_band_cache[src_hash] = (band_, style_, font_, placement_summary)
+            # Record the band that will actually render, not the one requested.
+            # The old row reported args.band unconditionally, so a QC report
+            # showing lower_center on all 424 rows told you nothing about whether
+            # the placement result had been honoured or discarded.
+            qc_band, qc_downgrade = resolve_forced_caption_band(
+                args.band, placement_summary, band_
+            )
             qc_row = build_caption_placement_qc_row(
                 source_clip=video.stem,
                 placement_summary=placement_summary,
                 scored_lane=band_,
-                render_band=args.band,
+                render_band=qc_band,
                 caption_style=style_,
                 font=font_,
             )
+            if qc_downgrade:
+                qc_row["bandDowngrade"] = qc_downgrade
             placement_qc_rows.append(qc_row)
             if args.caption_placement_qc or args.placement_debug:
                 log.info(
@@ -458,7 +468,20 @@ async def amain(args):
         if args.style:
             recipes = [replace(r, caption_style=args.style) for r in recipes]
         if args.band:
-            recipes = [replace(r, caption_band=args.band) for r in recipes]
+            # A forced band (the Stacey/Larissa preset sets lower_center) used to
+            # overwrite every recipe unconditionally, discarding the placement
+            # result computed moments earlier. Defer to the scored lane on the
+            # clips whose supporting lanes were rejected.
+            scored_band_ = auto_band_cache[src_hash][0]
+            resolved_band, band_downgrade = resolve_forced_caption_band(
+                args.band, auto_band_cache[src_hash][3], scored_band_
+            )
+            if band_downgrade:
+                log.info(
+                    f"caption band downgrade for {video.stem}: "
+                    + json.dumps(band_downgrade, ensure_ascii=False)
+                )
+            recipes = [replace(r, caption_band=resolved_band) for r in recipes]
         if args.font:
             recipes = [replace(r, font=args.font) for r in recipes]
         if args.text_variation:

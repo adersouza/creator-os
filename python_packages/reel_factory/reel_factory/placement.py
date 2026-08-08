@@ -402,7 +402,10 @@ def _rescue_no_safe_lane(
     head_samples: list[tuple[float, float, float]],
     focal_samples: list[tuple[float, float, float]],
     motion_samples: list[tuple[float, float, float]],
-    pose_samples: list[tuple[float, float, float]],
+    # Optional, matching score_lanes: pose is None unless --placement-signals
+    # pose ran AND the model is present. Declaring it concrete here type-checked
+    # only because the two files were never checked together.
+    pose_samples: list[tuple[float, float, float]] | None,
     caption_placement_policy: str,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Re-score a no-safe-lane verdict using only high-confidence faces.
@@ -525,6 +528,92 @@ def _face_coverage_from_frame(
             overlap = max(0.0, min(y + fh, band_bot) - max(y, band_top))
             cov[i] += overlap * fw
     return cov[0], cov[1], cov[2]
+
+
+# Where each caption band's text block actually sits, as a fraction of frame
+# height. Measured on 148 rendered lower_center reels: the block spans 51.2%
+# (p10 top) to 65.7% (p90 bottom), median 4 lines. The others are the same
+# `_caption_xy` arithmetic with that measured block height.
+#
+# This exists because the lane vetoes are computed on THIRDS. The `center` third
+# spans 33.3%-66.7%, but a lower_center caption only occupies its lower half, so
+# a face at 35-50% rejects the lane while sitting entirely above the text.
+# Measured cost of trusting the coarse veto: 252 of 424 clips downgraded to
+# protect the 3-in-60 that actually collide.
+_SUBBAND_WINDOWS = {
+    "top": (0.171, 0.293),
+    "center": (0.439, 0.561),
+    "lower_center": (0.529, 0.651),
+    "lower_center_alt": (0.589, 0.711),
+    "bottom": (0.628, 0.750),
+}
+
+
+def _face_overlap_in_windows(
+    frame_path: Path, *, min_confidence: float = 0.0
+) -> dict[str, float] | None:
+    """Largest share of any face box that falls inside each caption band window.
+
+    Returns band -> fraction in [0, 1]; 0.30 means some detected face has 30% of
+    its area sitting under where that band's text would render. Unlike the
+    per-third coverage this is resolved to the text block itself, which is the
+    only thing a caption can actually cover.
+    """
+    if not _YUNET_MODEL_PATH.exists():
+        return None
+    try:
+        import cv2  # type: ignore
+    except ImportError:
+        return None
+    img = cv2.imread(str(frame_path))
+    if img is None:
+        return None
+    h, w = img.shape[:2]
+    det = cv2.FaceDetectorYN.create(
+        model=str(_YUNET_MODEL_PATH),
+        config="",
+        input_size=(w, h),
+        score_threshold=0.5,
+        nms_threshold=0.3,
+        top_k=10,
+    )
+    _, faces = det.detect(img)
+    if faces is None or len(faces) == 0:
+        return dict.fromkeys(_SUBBAND_WINDOWS, 0.0)
+    kept = [f for f in faces if float(f[-1]) >= min_confidence]
+    if not kept:
+        return dict.fromkeys(_SUBBAND_WINDOWS, 0.0)
+    out: dict[str, float] = {}
+    for band, (top_frac, bottom_frac) in _SUBBAND_WINDOWS.items():
+        band_top, band_bottom = top_frac * h, bottom_frac * h
+        best = 0.0
+        for f in kept:
+            y, fh = float(f[1]), float(f[3])
+            if fh <= 0:
+                continue
+            overlap = max(0.0, min(y + fh, band_bottom) - max(y, band_top))
+            best = max(best, overlap / fh)
+        out[band] = best
+    return out
+
+
+def _worst_subband_overlap(frames: list[Path]) -> dict[str, float]:
+    """Worst per-band face overlap across the sampled frames.
+
+    Worst rather than mean: a face that crosses the caption block in one frame of
+    five still crosses it on screen. Returns {} when the detector is unavailable,
+    which the caller reads as "no signal" and leaves a forced band alone rather
+    than downgrading on no evidence.
+    """
+    samples = [
+        cov for f in frames if (cov := _face_overlap_in_windows(f)) is not None
+    ]
+    if not samples:
+        return {}
+    return {
+        band: round(max(sample.get(band, 0.0) for sample in samples), 4)
+        for band in _SUBBAND_WINDOWS
+    }
 
 
 def _face_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | None:
@@ -977,6 +1066,10 @@ def _score_placement_from_frames(
         "bottom_stddev_mean": round(
             sum(sample[2] for sample in std_samples) / len(std_samples), 3
         ),
+        # Per-band face overlap resolved to the caption block's own pixel window,
+        # so a forced band can be checked against what the text actually covers
+        # rather than against the enclosing third. Worst frame wins.
+        "subBandFaceOverlap": _worst_subband_overlap(frames),
     }
     metadata.update(summary.metadata)
     summary = PlacementSummary(
