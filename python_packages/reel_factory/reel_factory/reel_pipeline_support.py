@@ -618,10 +618,19 @@ _SUBBAND_SUPPORT = {
     "lower_center_alt": ("center", "bottom"),
     "bottom": ("bottom",),
 }
+# Measured against 6,198 real reference captions: creators put text at a median
+# 60.8% of frame height, p25-p75 57.5-63.9% -- a tight, consistent zone. Our
+# bands land at top 23.2%, center 49.6%, lower_center 58.6%, lower_center_alt
+# 64.6%, bottom 65.5%. The bottom lane previously offered only 64.6/65.5, both
+# at the p75-p90 edge, so it never reached the zone creators actually use.
+# lower_center (58.6%) is the closest single match to their median and is now
+# offered there too. Safety is unchanged: _SUBBAND_SUPPORT already requires
+# BOTH center and bottom lanes to be clear before lower_center is eligible, so
+# a rejected center lane still rules it out automatically.
 _LANE_SUBBANDS = {
     "top": ("top",),
     "center": ("center", "lower_center"),
-    "bottom": ("bottom", "lower_center_alt"),
+    "bottom": ("lower_center", "lower_center_alt", "bottom"),
 }
 
 

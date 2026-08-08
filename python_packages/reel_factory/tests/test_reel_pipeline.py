@@ -1646,8 +1646,12 @@ class ReelPipelineTests(unittest.TestCase):
             vary_band_within_lane("bottom", summary, diversity_key=f"clip-{i}")
             for i in range(24)
         }
-        # bottom lane offers bottom + lower_center_alt for per-clip variety
-        self.assertEqual(bands, {"bottom", "lower_center_alt"})
+        # Bottom lane offers three sub-bands for per-clip variety. lower_center
+        # was added after measuring 6,198 real reference captions: creators sit
+        # at a median 60.8% of frame height (p25-p75 57.5-63.9), and of our
+        # bands only lower_center (58.6%) reaches that zone -- bottom (65.5%)
+        # and lower_center_alt (64.6%) both sit at their p75-p90 edge.
+        self.assertEqual(bands, {"bottom", "lower_center_alt", "lower_center"})
 
     def test_vary_band_skips_subband_when_supporting_lane_rejected(self):
         # center rejected → lower_center_alt (needs center+bottom) unavailable,
