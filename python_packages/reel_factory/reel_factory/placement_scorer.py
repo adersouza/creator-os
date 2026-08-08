@@ -112,7 +112,6 @@ def score_lanes(
         components["top"]["safe_area"] += 30.0
     scores["center"] += center_penalty
     components["center"]["safe_area"] = center_penalty
-    lane = min(LANES, key=lambda key: (scores[key], 0 if key != "center" else 1))
     rejected_lanes: list[str] = []
     # ponytail: focal is documented as the FALLBACK for when pose detection is
     # unavailable -- edge density plus warm-pixel density, no anatomy. It must not
@@ -144,6 +143,21 @@ def score_lanes(
             )
             if not lane_anatomy_clear or focal_blocks:
                 rejected_lanes.append(candidate)
+
+    # Pick the cheapest lane that survived the vetoes -- NOT the cheapest lane
+    # overall. Selecting before the vetoes were computed let a "passed" decision
+    # name a lane it had itself rejected: real QC row src_55f2caedfb passed with
+    # selectedLane=top while rejectedLanes was ["top", "center"], because top
+    # scored 140.3 against bottom's 144.4 and won a comparison the veto should
+    # have removed it from.
+    #
+    # ponytail: same min() and same center-loses-ties key, over a filtered list.
+    # When every lane is rejected `lane` stays defined for the reason string; the
+    # failed_no_safe_lane branch below sets selected_lane to None regardless.
+    survivors = [candidate for candidate in LANES if candidate not in rejected_lanes]
+    lane = min(
+        survivors or LANES, key=lambda key: (scores[key], 0 if key != "center" else 1)
+    )
     decision_status = "passed"
     decision_class = "legacy_selected" if normalized_policy == "legacy" else "passed"
     reason_code = "safe_caption_lane"
